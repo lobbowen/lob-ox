@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 内核发布产线（CI 核心逻辑单源）—— .github/workflows/build.yml 的四平台 build 矩阵调用（test job 自跑等价步骤）。
+# 内核发布产线（CI 核心逻辑单源）—— .github/workflows/core.yml 的四平台 build 矩阵调用（test job 自跑等价步骤）。
 # 硬标准：**所有平台构建与发布必须经 GitHub CI 完成；本地不得产生发布产物。**
 # 用法: release/scripts/ci-core.sh [--publish] [--publish-only] [--all-platforms]
 #   - 无 --publish      = 只验证（verify:versions -> 前端 verify -> npm test -> build:launcher
@@ -113,7 +113,7 @@ echo "=== [3/5] 构建内核 launcher（build:launcher：esbuild bundle + node �
 npm run build:launcher --
 
 echo "=== [3.5/5] 产物 glibc 基座门禁（仅 Linux · 条件执行） ==="
-# E-2：build.yml 的矩阵注释长期声称「构建后由 ci-core.sh 的
+# E-2：core.yml 的矩阵注释长期声称「构建后由 ci-core.sh 的
 #   『glibc 基座门禁（Linux）』步骤校验产物」，而本脚本**从未有该步**（grep glibc = 0 命中）——
 #   「文档化门禁 != 实际执行」。现在把它真正接上，并按产物形态条件执行：
 #   当前形态是纯 JS launcher，Linux 产物里**没有 ELF**，

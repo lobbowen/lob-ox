@@ -16,10 +16,11 @@ on:
     tags:
       - 'v*'
     # P1-B（2026-09-12）：日常推送也要跑回归 —— 见下方 `test` job 的说明。
-    # ⚠ 合仓冲突（待裁决）：本文件按原样保留 `master`，但壳工作流 shell.yml 用的是 `branches: [main]`
-    #   —— 同一个仓不可能两个默认分支都成立；若实际是 `main`，这行必须改，否则 push 回归永不触发。
+    # 2026-10-01 合仓修正：原为 `master`，但本仓默认分支是 `main`。
+    #   实测证据：core.yml 推上去后 **一次 run 都没有**（Actions 列表为空），而同级 shell.yml 立刻跑出 #1
+    #   —— 根因就是这个分支名不匹配 ⇒ push 回归**永不触发**（PR 路径不受影响，故不易察觉）。
     branches:
-      - master
+      - main
     # ── monorepo path 过滤（本次改造）──
     # 只在 `core/**` 或本工作流文件变化时触发：否则壳的一次改动会连带跑内核四平台的完整构建/发布产线。
     # ⚠ 事实（GitHub 文档「Events that trigger workflows」→ push）：**path 过滤对 tag 推送不生效**，

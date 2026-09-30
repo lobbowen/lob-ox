@@ -1,4 +1,4 @@
-# lobox
+# lob-ox
 
 DSH Supervisor —— **内核与桌面壳合仓**。
 
