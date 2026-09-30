@@ -16,16 +16,16 @@ on:
     tags:
       - 'v*'
     # P1-B（2026-09-12）：日常推送也要跑回归 —— 见下方 `test` job 的说明。
-    # ⚠ 合仓待确认：本文件保留 `master`，但 lobox 尚未 `git init`，默认分支名无法自证；
-    #   若新仓默认分支是 `main`，这里必须同步改，否则 push 回归永不触发（PR 仍会跑）。
+    # ⚠ 合仓冲突（待裁决）：本文件按原样保留 `master`，但壳工作流 shell.yml 用的是 `branches: [main]`
+    #   —— 同一个仓不可能两个默认分支都成立；若实际是 `main`，这行必须改，否则 push 回归永不触发。
     branches:
       - master
     # ── monorepo path 过滤（本次改造）──
     # 只在 `core/**` 或本工作流文件变化时触发：否则壳的一次改动会连带跑内核四平台的完整构建/发布产线。
     # ⚠ 事实（GitHub 文档「Events that trigger workflows」→ push）：**path 过滤对 tag 推送不生效**，
     #   tag 推送恒定触发本工作流 —— 这正是 release 需要的（tag 必须发，无论改了哪些目录）。
-    #   如实提示风险：若壳也用 `v*` 发 tag，同一个壳 tag 会**连带触发内核产线**。
-    #   tag 命名空间与壳区分（例如内核用 `core-vX.Y.Z`）可根治，但那属行为变更 ⇒ 本批不改 tag 模式。
+    #   ⚠ 合仓冲突（待裁决·已实测）：壳工作流 shell.yml 的 push 过滤同为 `tags: ['v*']` ⇒ 现在**任一
+    #   个 v* tag 会同时触发内核与壳两条产线**；与壳分开命名空间（如 core-vX.Y.Z）可根治，本批未改。
     paths:
       - 'core/**'
       - '.github/workflows/core.yml'
