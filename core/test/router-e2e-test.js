@@ -18,6 +18,9 @@
 //   删且此后无独立覆盖（薄参数校验 / 端点存活性采样，单独保留无鉴别力）：/router/providers/refresh 的实现
 //     就是 detectAccount+applyDetection 循环（src/domains/router/ops/quotasync.js:23-36），已由 A4/A5 真探测覆盖；
 //     /router/providers/account/discard 与 /router/providers/proxy/key|select、/ports、/self-update/status 的入参校验采样。
+// 前置装置（D8 依赖，改动前先读）：本文件反代账号用 PROXY_OK_KEY——dry-run 反代按 Key 派生配额，
+//   满额 Key 会让账号被正确冻结、实例永不拉起，D8 的 proxy 段即不可达（详见该常量处注释）。
+//   另：D11 的 proxy 段 owner 是 'proxy:<账号 keyId>'（不是供应商 id），判据据此收紧，不留空判据。
 
 const http = require('node:http');
 const path = require('node:path');
@@ -66,6 +69,18 @@ function registerLocalUpstreamPreset() {
   });
 }
 registerLocalUpstreamPreset();
+
+// D 段（守卫 + /router/* API）的反代账号 Key 是**固定装置**，不是随手取的字符串：
+// dry-run 反代应用（test/dry-run-proxy.js:14-19）按 Key 哈希派生 5h/周/月三窗口百分比
+//   v = (sha256(key) 前 6 位十六进制 + b) % 120，b = 0/30/60；v >= 100 即 rate-limited。
+// 取到满额窗口的 Key，账号会在「添加即探测」阶段被产品**正确地**判为 window 满额 → frozen：
+// 期望集只收 ready（providers/pool.js#computeDesired + providers/instance-lifecycle.js#isAccountUsable），
+// 实例永不拉起，'proxy:<keyId>' 端口登记永不出现 —— 于是 D8 的 proxy 段在任何机器、任何等待时长下
+// 都不可满足（不是「CI 慢」，是收敛条件不可达）。
+// CI 实测：'pk-1' 派生 56/86/100 → 守卫日志 'account ***: registering → frozen'
+// （_understanding/ci-core-test-3.log:569），D8 等满 30130ms/121 轮 proxy=0。
+// 'proxy-key-d8' 派生 23/53/83（三窗口全 < 100）→ 账号 ready → 实例真拉起并按 'proxy:<keyId>' 登记。
+const PROXY_OK_KEY = 'proxy-key-d8';
 
 // 请求助手：连接失败也结算（code=0 → 判红），不把失败变成未捕获错误。
 function req(port, method, p, body, headers = {}) {
@@ -233,7 +248,9 @@ const up = http.createServer((q, s) => {
   });
   // 直连供应商走测试预设（上游=本机 mock，见 registerLocalUpstreamPreset），不碰公网
   await api('POST', '/router/providers/add', { name: 'Zen', presetId: 'test-local-upstream', keys: ['sk-api-1'] });
-  const addProxy = await api('POST', '/router/providers/add', { kind: 'proxy', appId: 'test-dry-run', name: 'Dry', keys: ['pk-1'] });
+  // Key 必须让 dry-run 反代自报「三窗口均不满额」（见文件头 PROXY_OK_KEY）：满额 Key 会让账号被正确冻结，
+  // D8 的 proxy 段随即不可达（该次失败与端口登记实现无关，只与这个固定装置有关）。
+  const addProxy = await api('POST', '/router/providers/add', { kind: 'proxy', appId: 'test-dry-run', name: 'Dry', keys: [PROXY_OK_KEY] });
   const proxyPid = addProxy.body && addProxy.body.id;
   await api('POST', '/router/start');
   // 轮询反代账号到终态（capMs 只作失控守卫，不代表产品承诺时限）
@@ -255,6 +272,11 @@ const up = http.createServer((q, s) => {
   check('D2 激活供应商分配独立 API 端口', r.code === 200 && r.body.ok === true && typeof r.body.apiPort === 'number', r.code + ' ' + JSON.stringify(r.body));
   // 激活即异步拉该供应商的实例（产品不承诺时限），实例端口认领后才有 proxy: 登记。有界等待它落表：
   // 否则 D8 的 proxy 段取决于「激活→停用」之间的调度运气（deadline 只作失控守卫，不代替产品承诺）。
+  // 30s 的依据（CI 实测，非拍脑袋）：同一条 spawn→探活→认领链路在 ubuntu runner 上的耗时是
+  // 2004ms（B4，ci-core-test-3.log:557），30s ≈ 15 倍余量；且账号注册完成（约 2.1s）后无论早于
+  // 还是晚于本段激活，都会经 _onStatusTransition(ready)→reconcileNow 补齐实例，两条路径都远快于 30s。
+  // 因此「等满 30s 仍无 proxy: 段」不是慢，而是账号根本不在期望集（frozen/discarded）——
+  // 那必须查因（D8 失败信息会直接回报账号终态与配额），而不是把时限继续调大。
   const wProxy = { t0: Date.now(), polls: 0 };
   for (;;) {
     wProxy.polls++;
@@ -286,7 +308,16 @@ const up = http.createServer((q, s) => {
     const pvPre = (r.body && r.body.records) || [];
     const proxyPre = pvPre.filter((x) => String(x.owner || '').startsWith('proxy:'));
     const apiPre = pvPre.filter((x) => String(x.owner || '').startsWith('providerApi:'));
-    check('D8 删除前 /router/ports 含 router 自治段（proxy+providerApi）', r.code === 200 && proxyPre.length >= 1 && apiPre.length >= 1 && !pvPre.some((x) => String(x.owner || '').startsWith('system:')), r.code + ' recs=' + pvPre.length + ' proxy=' + proxyPre.length + ' api=' + apiPre.length + ' 实例端口等待=' + (Date.now() - wProxy.t0) + 'ms/' + wProxy.polls + '轮');
+    // 失败自证：proxy 段缺席时把该供应商的账号终态/配额/实例态一并回报。「等满 30s + proxy=0」若不给原因，
+    // 读日志的人只能在「慢」与「条件不可达」之间猜（本文件正是这样被误判过一次，见文件头 PROXY_OK_KEY）。
+    let why = '';
+    if (!proxyPre.length) {
+      const rv = await api('GET', '/router/providers');
+      const pvDry = ((rv.body && rv.body.providers) || []).find((p) => p.id === proxyPid);
+      const acc = (pvDry && pvDry.accounts && pvDry.accounts[0]) || null;
+      why = ' 账号=' + JSON.stringify(acc && { status: acc.status, usable: acc.usable, quotaStatus: acc.quotaStatus, limitKind: acc.limit && acc.limit.kind, detectError: acc.detectError, quota: acc.quota }) + ' 实例=' + JSON.stringify((pvDry && pvDry.instances) || []);
+    }
+    check('D8 删除前 /router/ports 含 router 自治段（proxy+providerApi）', r.code === 200 && proxyPre.length >= 1 && apiPre.length >= 1 && !pvPre.some((x) => String(x.owner || '').startsWith('system:')), r.code + ' recs=' + pvPre.length + ' proxy=' + proxyPre.length + ' api=' + apiPre.length + ' 实例端口等待=' + (Date.now() - wProxy.t0) + 'ms/' + wProxy.polls + '轮' + why);
   }
 
   await api('POST', '/router/stop');
@@ -302,8 +333,12 @@ const up = http.createServer((q, s) => {
   r = await api('GET', '/router/ports');
   {
     const pv = (r.body && r.body.records) || [];
-    const leaked = pv.filter((x) => String(x.owner || '').startsWith('providerApi:' + proxyPid) || String(x.owner || '') === 'proxy:' + proxyPid);
-    check('D11 删除供应商后其端口登记已释放（无泄漏）', r.code === 200 && leaked.length === 0 && !pv.some((x) => String(x.owner || '').startsWith('system:')), r.code + ' recs=' + pv.length + ' leaked=' + leaked.length);
+    const owners = pv.map((x) => String(x.owner || ''));
+    // 本段守卫内只有一个反代供应商（Dry，D9 已删）与一个未激活的直连供应商（Zen），因此删除后残留的任何
+    // proxy: 段都是泄漏。原判据用 'proxy:' + proxyPid（供应商 id）拼 owner 恒不匹配——真实 owner 是
+    // 'proxy:<账号 keyId>'（providers/probe.js:54-55 claimSlot），该子句是空判据，proxy 段泄漏照样绿。
+    const leaked = owners.filter((o) => o.startsWith('proxy:') || o.startsWith('providerApi:' + proxyPid));
+    check('D11 删除供应商后其端口登记已释放（无泄漏）', r.code === 200 && leaked.length === 0 && !owners.some((o) => o.startsWith('system:')), r.code + ' recs=' + pv.length + ' leaked=' + leaked.length + ' owners=' + JSON.stringify(owners));
   }
   server.close();
   up.close();
