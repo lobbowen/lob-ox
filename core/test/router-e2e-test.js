@@ -31,7 +31,9 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
 
 // 产品不再内置 dry-run 测试供应商：测试自行注册本地 mock 反代应用（仅本进程内生效，不进生产）。
 // 该注入面是 PROXY_APPS 注册表的落点（原 ensure-instance-test.js 的 PROXY_APPS 覆盖收敛到本文件）。
+// 直连侧同理落 PROVIDER_PRESETS（见 registerLocalUpstreamPreset）：本文件所有上游都必须是本机 mock。
 const { PROXY_APPS: TEST_APPS } = require(path.join(ROOT, 'src', 'domains', 'router', 'proxy-apps'));
+const { PROVIDER_PRESETS } = require(path.join(ROOT, 'src', 'domains', 'router', 'providers', 'base'));
 const registerCleanup = require(path.join(ROOT, 'test', 'helpers-cleanup'));
 function registerDryRunApp() {
   if (TEST_APPS['test-dry-run']) return;
@@ -48,6 +50,23 @@ function registerDryRunApp() {
 }
 registerDryRunApp();
 
+// 直连供应商的同类注入落点（PROVIDER_PRESETS）：D 段只需要一个「上游在本机 mock」的直连预设。
+// 用生产目录（opencode-zen 指向公网）会让 D6 的 added/discarded 取决于公网服务对伪造 Key 的答复——
+// 非确定性，且违背本文件「所有网络目标均为本机 mock」的纪律。仅本进程内生效，不进生产。
+function registerLocalUpstreamPreset() {
+  if (PROVIDER_PRESETS.some((p) => p.id === 'test-local-upstream')) return;
+  PROVIDER_PRESETS.push({
+    id: 'test-local-upstream',
+    name: 'Local Upstream (测试)',
+    baseUrl: 'http://127.0.0.1:28170/v1',
+    plan: null,
+    // window-usage：检测走 baseUrl + usagePath，上游 5xx/不可达即「取不到配额」→ 如实丢弃该 Key。
+    adapter: { quota: { type: 'window-usage', usagePath: '/usage' } },
+    pricing: {},
+  });
+}
+registerLocalUpstreamPreset();
+
 // 请求助手：连接失败也结算（code=0 → 判红），不把失败变成未捕获错误。
 function req(port, method, p, body, headers = {}) {
   return new Promise((resolve) => {
@@ -62,12 +81,15 @@ function req(port, method, p, body, headers = {}) {
   });
 }
 
-// mock 上游：OpenCode 风格 /usage（sk-full → 窗口满额）+ OpenAI 兼容 chat（非流式 / 流式 DONE）
+// mock 上游：OpenCode 风格 /usage（sk-full → 窗口满额；sk-down → 检测面 5xx）+ OpenAI 兼容 chat（非流式 / 流式 DONE）
 const up = http.createServer((q, s) => {
   let b = ''; q.on('data', (c) => b += c); q.on('end', () => {
     const url = q.url || '';
     const auth = q.headers.authorization || '';
     if (url === '/usage' || url === '/v1/usage') {
+      // sk-down*：模拟上游检测面 5xx —— 该 Key 取不到配额（det.ok=false），keys/set 必须如实丢弃并带原因。
+      // （当前产品里「丢弃」只剩这一条入口：坏 Key 的 401/403 属封号语义，入库为 banned 而非丢弃。）
+      if (auth.includes('sk-down')) { s.writeHead(500, { 'Content-Type': 'application/json' }); s.end(JSON.stringify({ error: 'usage unavailable' })); return; }
       const full = auth.includes('sk-full');
       s.writeHead(200, { 'Content-Type': 'application/json' });
       s.end(JSON.stringify({ usage: { rolling: { status: full ? 'rate-limited' : 'ok', percent: full ? 100 : 15, resetsAt: full ? new Date(Date.now() + 3600000).toISOString() : null }, weekly: { status: 'ok', percent: 20, resetsAt: null }, monthly: { status: 'ok', percent: 30, resetsAt: null } } }));
@@ -181,14 +203,18 @@ const up = http.createServer((q, s) => {
     probeIntervalMs: 300, probeTimeoutMs: 1200, failThreshold: 2, startTimeoutMs: 5000,
     stopGraceMs: 800, killWaitMs: 1500, portReleaseWaitMs: 600, crashWindowMs: 10000, crashBurst: 4, backoff: [1500, 3000, 6000],
     apiHost: '127.0.0.1', apiPort: 31930,
-    stateFile: path.join(TMP, 'state.json'),
+    // 隔离的唯一开关是 stateFile：守卫按 dirname(stateFile) 派生 providers.json / ports.json（下面的
+    // switcherDir/providerFile 只服务于 A/B/C 段直连构造的 RouterService，守卫侧并不消费）。必须与本段
+    // 声明的 providerFile 同址（TMP/sw），否则守卫会直接复用 A/B/C 段写在 <TMP>/providers.json 的供应商
+    // （连同 activated 与 apiPort），D1「新供应商默认停用」与 D8 的端口登记前置即被污染。
+    stateFile: path.join(TMP, 'sw', 'state.json'),
     logFile: path.join(TMP, 'events.log'),
     supervisorLogFile: path.join(TMP, 'sup.log'),
     dshLogFile: path.join(TMP, 'dsh.log'),
     upgradeLogFile: path.join(TMP, 'up.log'),
     distDir: path.join(TMP, 'dist'),
     switcherDir: path.join(TMP, 'sw'),
-    providerFile: path.join(TMP, 'sw', 'providers.json'),
+    providerFile: path.join(TMP, 'sw', 'providers.json'), // 与 stateFile 派生路径同址（守卫只认 stateFile）
   };
   const { Supervisor } = require(path.join(ROOT, 'src', 'supervisor'));
   const { createServer } = require(path.join(ROOT, 'src', 'api', 'index'));
@@ -205,7 +231,8 @@ const up = http.createServer((q, s) => {
     if (body) r.write(JSON.stringify(body));
     r.end();
   });
-  await api('POST', '/router/providers/add', { name: 'Zen', presetId: 'opencode-zen', keys: ['sk-api-1'] });
+  // 直连供应商走测试预设（上游=本机 mock，见 registerLocalUpstreamPreset），不碰公网
+  await api('POST', '/router/providers/add', { name: 'Zen', presetId: 'test-local-upstream', keys: ['sk-api-1'] });
   const addProxy = await api('POST', '/router/providers/add', { kind: 'proxy', appId: 'test-dry-run', name: 'Dry', keys: ['pk-1'] });
   const proxyPid = addProxy.body && addProxy.body.id;
   await api('POST', '/router/start');
@@ -226,6 +253,16 @@ const up = http.createServer((q, s) => {
   check('D1 新供应商默认停用（未激活不提供服务）', !!deactView && deactView.activated === false, JSON.stringify(deactView && { activated: deactView.activated, apiBase: deactView.apiBase }));
   r = await api('POST', '/router/providers/activate', { id: proxyPid });
   check('D2 激活供应商分配独立 API 端口', r.code === 200 && r.body.ok === true && typeof r.body.apiPort === 'number', r.code + ' ' + JSON.stringify(r.body));
+  // 激活即异步拉该供应商的实例（产品不承诺时限），实例端口认领后才有 proxy: 登记。有界等待它落表：
+  // 否则 D8 的 proxy 段取决于「激活→停用」之间的调度运气（deadline 只作失控守卫，不代替产品承诺）。
+  const wProxy = { t0: Date.now(), polls: 0 };
+  for (;;) {
+    wProxy.polls++;
+    const rp = await api('GET', '/router/ports');
+    if (((rp.body && rp.body.records) || []).some((x) => String(x.owner || '').startsWith('proxy:'))) break;
+    if (Date.now() - wProxy.t0 >= 30000) break;
+    await new Promise((res) => setTimeout(res, 250));
+  }
   r = await api('GET', '/router/providers');
   const actView = ((r.body && r.body.providers) || []).find((p) => p.id === proxyPid);
   check('D3 卡片地址下沉(apiBase)', !!actView && actView.activated === true && !!actView.apiBase, JSON.stringify(actView && { a: actView.activated, api: actView.apiBase }));
@@ -236,9 +273,11 @@ const up = http.createServer((q, s) => {
   check('D5 停用后视图独立地址失效', !!deact2 && !deact2.apiBase, JSON.stringify(deact2 && { apiBase: deact2.apiBase }));
 
   // D6-D7 keys/set 如实回报（旧实现不 await 检测、恒报 added=1 = 假成功：用户以为加进去了）
+  // 判据是「检测拿不到配额 → 该 Key 被丢弃且带原因」这一外部可观测后果：sk-down 由本机 mock 恒返 5xx
+  // （见 mock 上游），与公网服务无关；added/discarded 不再随 CI 出网情况漂移。
   r = await api('GET', '/router/providers');
   const directP = ((r.body && r.body.providers) || []).find((p) => p.kind === 'direct');
-  r = await api('POST', '/router/providers/keys/set', { id: directP.id, add: ['sk-api-2'] });
+  r = await api('POST', '/router/providers/keys/set', { id: directP.id, add: ['sk-down-1'] });
   check('D6 keys/set 如实回报被丢弃的 Key（added=0/discarded=1 且带原因，供 UI 如实提示）', r.code === 200 && r.body.ok === true && r.body.added === 0 && r.body.discarded === 1 && !!(r.body.discardedKeys && r.body.discardedKeys[0] && r.body.discardedKeys[0].error), r.code + ' ' + JSON.stringify(r.body));
 
   // D8 删除前：router 自治段（proxy/providerApi）须经 /router/ports 可见（S1 契约）
@@ -247,7 +286,7 @@ const up = http.createServer((q, s) => {
     const pvPre = (r.body && r.body.records) || [];
     const proxyPre = pvPre.filter((x) => String(x.owner || '').startsWith('proxy:'));
     const apiPre = pvPre.filter((x) => String(x.owner || '').startsWith('providerApi:'));
-    check('D8 删除前 /router/ports 含 router 自治段（proxy+providerApi）', r.code === 200 && proxyPre.length >= 1 && apiPre.length >= 1 && !pvPre.some((x) => String(x.owner || '').startsWith('system:')), r.code + ' recs=' + pvPre.length + ' proxy=' + proxyPre.length + ' api=' + apiPre.length);
+    check('D8 删除前 /router/ports 含 router 自治段（proxy+providerApi）', r.code === 200 && proxyPre.length >= 1 && apiPre.length >= 1 && !pvPre.some((x) => String(x.owner || '').startsWith('system:')), r.code + ' recs=' + pvPre.length + ' proxy=' + proxyPre.length + ' api=' + apiPre.length + ' 实例端口等待=' + (Date.now() - wProxy.t0) + 'ms/' + wProxy.polls + '轮');
   }
 
   await api('POST', '/router/stop');
