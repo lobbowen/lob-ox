@@ -1,0 +1,28 @@
+# 截图取证
+screenshots/
+**/screenshots/
+
+# Tauri/壳构建产物（可重新生成，绝不入库）
+src-tauri/target
+src-tauri/gen
+src-tauri/frontend
+src-tauri/AppDir
+
+# 依赖
+node_modules/
+
+# 系统/编辑器
+.DS_Store
+*.log
+
+# 签名密钥（绝不入库）
+*.key
+*.key.pub
+
+dist/
+
+# 密钥材料：绝不入库（私钥泄露=账号被接管）
+.ssh/
+*.pem
+id_ed25519*
+id_rsa*

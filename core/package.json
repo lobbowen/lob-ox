@@ -1,0 +1,39 @@
+{
+  "name": "dsh-supervisor",
+  "version": "0.1.6-BETA.20",
+  "private": true,
+  "description": "DSH 生命周期监管工具：独立于 Harness 的守卫进程，自动重启 dsh web",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lobbowen/dsh-supervisor-core.git"
+  },
+  "bin": {
+    "dsh-supervisor": "bin/dsh-supervisor"
+  },
+  "scripts": {
+    "test": "node test/_runner.js",
+    "test:os-behavior": "node test/_runner.js --tier=L2",
+    "test:native-uninstall": "node --require ./test/_preload.js test/native-test.js",
+    "test:plugin-change-restart": "node --require ./test/_preload.js test/plugin-change-restart-test.js",
+    "test:api-contract": "node --require ./test/_preload.js test/api-contract-test.js",
+    "release:guard": "bash release/scripts/release.sh",
+    "build:launcher": "bash release/scripts/build-launcher.sh",
+    "verify:versions": "node release/scripts/verify-versions.js --core",
+    "publish:core": "bash release/scripts/publish-core.sh",
+    "build:launcher:all": "bash release/scripts/build-launcher.sh --all-platforms"
+  },
+  "_uninstallTests": "卸载类测试政策：native-test.js 刻意不入 test/manifest.js 登记表（它真起 npm 子进程，Windows 上建符号链接需特权/开发者模式）。原先承载该排除表与入册前提的门禁 test/test-chain-completeness-test.js 已于 2026-10-01 按用户决定拆除（移至 C:\\work\\_gate_backup），故此处不再指向任何单一事实源。承担卸载行为面的仍是 uninstall-timeout-behavior-test.js（npmBin 注入）与 api-contract-test.js、plugin-change-restart-test.js。",
+  "engines": {
+    "node": ">=18"
+  },
+  "npmPublish": {
+    "scope": "@dsh-sup",
+    "packages": [
+      "dsh-core-linux-x64",
+      "dsh-core-darwin-arm64",
+      "dsh-core-darwin-x64",
+      "dsh-core-win-x64"
+    ]
+  }
+}

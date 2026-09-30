@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# 本机凭据安全配置脚本：把令牌值从「环境变量」写入「系统级安全存储」，值绝不落入仓库/历史/日志。
+# 用法（仓库根执行）：
+#   bash release/scripts/configure-credentials.sh --npm     # NPM_TOKEN 环境变量 -> ~/.npmrc（0600）
+#
+# ：已删除 --git 模式（原「GH_TOKEN -> 写 ~/.git-credentials 并设全局 helper」）。
+#   理由不是「HTTPS 凭据不该用」——恰恰相反，**两仓 push 现在就走 HTTPS 凭据**。
+#   删它是因为它把凭据落到**规范库之外**的第二个副本：
+#     - 现行推送通道 = HTTPS + 两仓 repo-local `credential.helper store --file <规范库>/git-credentials`，
+#       文件由 cred.sh 管理（0700/0600、清单化、doctor 审计）；
+#     - 本脚本的 --git 会另写一份 `$REAL_HOME/.git-credentials` 并动全局 helper，
+#       正是标准要消灭的散落副本（历史事故形态）。
+#   bash release/scripts/configure-credentials.sh --check   # 只读自检（不含任何值）
+# 原则：本脚本不接收命令行明文参数、不打印 token、不写仓库内任何文件。
+#
+# 与发布链路的关系：本脚本与 publish-core.sh **共用** release/scripts/_npm-auth.sh
+#   的同一份解析实现（单源）。本脚本负责**把 token 落到规范位置**，publish-core 负责**读**：
+#     规范位置 = **真实用户 home** 下的 .npmrc（不是沙箱 $HOME）——见 _npm-auth.sh 的解析顺序。
+#   之所以强调「真实 home」：DSH 沙箱会把 $HOME 指向实例数据目录，若写到 $HOME/.npmrc，
+#   该 token 就只对「那一个沙箱」可见，换沙箱即 ENEEDAUTH（这正是此前的真实故障）。
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$ROOT"
+# shellcheck source=./_npm-auth.sh
+. "$ROOT/release/scripts/_npm-auth.sh"
+
+REAL_HOME="$(dsh_real_home)"
+NPMRC="$(dsh_canonical_npmrc)"          # 规范位置：真实 home/.npmrc
+# 权限位读取：`stat -c %a` 是 GNU 专有（macOS 的 BSD stat 不认 -c，Windows 没有 stat），
+#   与本仓 cred.sh 同源改用 node —— 三平台一致。
+perm_of() { node -e "try{process.stdout.write((require('fs').statSync(process.argv[1]).mode & 0o777).toString(8).padStart(3,'0'))}catch(e){process.stdout.write('?')}" "$1"; }
+
+write_npmrc() {
+  [ -n "${NPM_TOKEN:-}" ] || { echo "❌ NPM_TOKEN 环境变量为空（请先 export NPM_TOKEN=...）"; exit 1; }
+  # 原子写：先写临时文件再落位，权限 0600；不 echo 值
+  TMP="$(mktemp)"
+  # 保留用户已有非 token 行，仅替换/追加 token 行
+  if [ -f "$NPMRC" ]; then
+    grep -v '^//registry\.npmjs\.org/:_authToken=' "$NPMRC" > "$TMP" || true
+  fi
+  printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" >> "$TMP"
+  chmod 600 "$TMP"
+  mv "$TMP" "$NPMRC"
+  chmod 600 "$NPMRC"
+  echo "✅ NPM token 已写入规范位置（权限 600）：$NPMRC"
+  if [ "$HOME" != "$REAL_HOME" ]; then
+    echo "   注意：当前 $HOME($HOME) 与真实 home 不同（沙箱环境）——写入的是真实 home，"
+    echo "         故任何沙箱/shell 下的发布都能读到它。"
+  fi
+  echo "   验证：bash release/scripts/configure-credentials.sh --check"
+  unset NPM_TOKEN
+}
+
+check() {
+  echo "=== 凭据自检（不含值） ==="
+  echo "真实 home: $REAL_HOME"
+  if [ "$HOME" != "$REAL_HOME" ]; then echo "当前 \$HOME: ${HOME}（沙箱覆盖，不影响发布：解析以真实 home 为准）"; fi
+  # 用与 publish-core 完全相同的解析器判定，避免「自检说没配、发布却成功」的错位
+  if dsh_npm_auth_setup; then
+    echo "NPM: ✅ 命中认证来源 → $(dsh_npm_auth_describe)"
+    dsh_npm_auth_cleanup
+  else
+    # 本机没有 npm 认证**不是缺陷**：四平台发布全部在 CI 上经仓库 secret `NPM_TOKEN` 完成，
+    #   本仓已无「本地发布」路径。只有要手工 `npm publish`（不属标准流程）时才需要配。
+    echo "NPM: 本机无认证来源（正常：发布走 CI 的 NPM_TOKEN；仅本机手工 publish 才需 --npm）"
+  fi
+  if [ -f "$NPMRC" ]; then
+    echo "NPM: 规范文件 ${NPMRC}（权限 $(perm_of "$NPMRC")）"
+  else
+    echo "NPM: 规范文件 $NPMRC 不存在"
+  fi
+  # git 凭据以**规范库**为准：本仓不用全局 helper，两仓各自配 repo-local
+  #   `credential.helper = store --file <规范库>/git-credentials`，所以只看全局会误报「未配置」。
+  local cred_file gh_helper_local
+  cred_file="$(bash "$ROOT/release/scripts/cred.sh" path git-credentials 2>/dev/null || true)"
+  gh_helper_local="$(git config --get credential.helper 2>/dev/null || true)"
+  if [ -n "$gh_helper_local" ]; then
+    echo "Git: 本仓 repo-local credential.helper = $gh_helper_local"
+  else
+    echo "Git: 本仓未配 repo-local credential.helper（推送会退回交互输入或失败）"
+  fi
+  if [ -n "$cred_file" ] && [ -f "$cred_file" ]; then
+    echo "Git: 规范库推送凭据存在（权限 $(perm_of "$cred_file")）：$cred_file"
+  else
+    echo "Git: ❌ 规范库缺少 git-credentials 条目或文件（原规范 CREDENTIALS-STANDARD.md §5 已归档至 C:\work\_md_backup）"
+  fi
+  if command -v gh >/dev/null 2>&1; then
+    echo "gh: 已安装（gh auth status 查登录态）"
+  else
+    echo "gh: 未安装"
+  fi
+  # 绝不打印 remote（可能再含 token）；只确认 remote 是否已脱敏
+  if git remote -v | grep -q 'github_pat_\|x-access-token:[^@]*@github' 2>/dev/null; then
+    echo "⚠️ 警告：remote URL 疑似含明文 token，请立即脱敏"
+  else
+    echo "remote: 无明文 token（脱敏 OK）"
+  fi
+  echo "=== 自检完成 ==="
+}
+
+case "${1:-}" in
+  --npm) write_npmrc ;;
+  --git) echo "❌ --git 模式已于 2026-09-13 删除（GitHub 凭据原规范 CREDENTIALS-STANDARD.md 已归档；本脚本只管 npm）。" >&2; exit 2 ;;
+  --check) check ;;
+  *) echo "用法: configure-credentials.sh --npm | --check"; exit 2 ;;
+esac

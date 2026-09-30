@@ -1,0 +1,431 @@
+name: build-release
+
+# 内核仓产线（2026-09 双仓拆分：壳已剥离至公开仓，本仓只管内核 npm 子包）。
+# tag v<内核版本> → verify + build:launcher + npm 子包发布；壳的构建/冒烟/安装程序归壳仓。
+#
+# 硬标准（2026-09-13，不可协商）：**所有平台构建与发布必须经 GitHub CI 完成；本地不得产生发布产物。**
+#   四平台全部由 CI 产出（ubuntu-22.04 / windows-latest / macos-latest / macos-14）。
+#   本仓 **不检出、不读取壳仓源码** —— 两仓按账号与仓库隔离；
+#   跨语言契约只能经「已发布产物 / schema / 测试向量」消费（见 RELEASE-STANDARD.md §0）。
+on:
+  push:
+    tags:
+      - 'v*'
+    # P1-B（2026-09-12）：日常推送也要跑回归 —— 见下方 `test` job 的说明。
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      # published-smoke 的目标版本。留空 = 取仓库根 package.json#version（tag 运行本就走该单源）。
+      #   仅手动补跑「发布后冒烟」时填一个已发布的 <ver> 用；不影响 build/test/precheck 任何 job。
+      ver:
+        description: '发布后冒烟目标版本（留空则取 package.json#version）'
+        required: false
+        default: ''
+
+# ── 发布条 1（AUDIT-2026-09-19 第 4 批）：顶层最小权限 + 同 ref 串行 + action 钉 SHA ──
+# permissions：原文件只有 build/release 两个 job 级块，`test`/`precheck` 的 GITHUB_TOKEN 范围
+#   因此落在**仓库/组织设置**上（不写在文件里 = 随设置漂移、审查看不见）。显式收到
+#   contents: read 后，各 job 只按自己需要向上声明（build 另加 id-token: write、release 另加
+#   contents: write），新增 job 默认只读 —— fail-closed，且不影响任何既有步骤。
+# concurrency：同一 ref 的 run 不再并发。原形态下两次紧接的 push 会并行跑四平台矩阵，
+#   而本产线的发布部分**不是幂等的**（npm 同版本不可重发 + Release 资产挂载竞态，见文件末尾
+#   release job 的说明）。cancel-in-progress 对 **tag 运行取 false**：正在发布的 run 绝不能
+#   被后来者取消（半途取消会留下「已发部分平台」的裂状态）。
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+# uses 全部钉 40 位 commit SHA（行尾注释保留可读版本名）。原 10 处均为可变 tag 引用
+#   （@v4 = 上游随时可把该 tag 移到新提交），而本产线既读 secrets 又产出发布物 ——
+#   上游被劫持即等于供应链注入。升级 = 显式改 SHA（可审、可回滚），不由上游代决。
+#   核对来源：GitHub API /repos/<owner>/<repo>/git/ref/tags/<tag>（附注标签已解引用到提交）。
+jobs:
+  # ══════════════════════════════════════════════════════════════════════════
+  # test：内核回归测试（P1-B 接线，2026-09-12）
+  #
+  # ⚠ 为什么必须单独加这个 job：
+  #   本 job 是**专用快速回归执行点**：先备齐前端产物（build-ui.sh，api-security-test 的面板安全头断言需要它），
+  #   再跑 `npm test`（89 项行为测试）。
+  #   纯 JS 项目，ubuntu-latest 约 1 分钟；四平台完整构建/发布由 `build` 矩阵承担。
+  #   两者职责分野，均在本仓内自包含（不检出壳仓）。
+  # ══════════════════════════════════════════════════════════════════════════
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+
+      - name: 构建前端产物（npm test 的面板安全头断言**依赖它**）
+        shell: bash
+        # ⚠ 2026-09-13 修复（P1）：**必须先构建前端**，否则 api-security-test 的两条安全头断言
+        #   （「面板带 CSP 头」/「nosniff 头存在」）会因静态分支返回 HTTP 503
+        #   「UI not built」而失败 —— 而它们正是**面板安全头**的唯一断言点。
+        #
+        #   缺陷本质：该测试的注释已写明流水线顺序是
+        #     verify → build-ui → npm test（见 release/scripts/ci-core.sh），
+        #   但本 job **只跑 npm test**，把「构建产物」这个**断言前置条件**漏掉了。
+        #   为什么长期不可见：branches:[master] 于 2026-09-12 接入后，
+        #     到我 2026-09-13 推送之前 **master 从无 push**（Actions 里该分支的 push
+        #     run 总数 = 2，都是我的）→ 本 job **从未运行过**，
+        #   一运行即红（run 34737621965：37 passed / 2 failed）。
+        #   修法选择「真的构建」而不是「让断言跳过」—— 跳过等于把安全头门禁删掉。
+        run: bash release/scripts/build-ui.sh
+
+      - name: 安装 Xvfb（图形会话前置条件）
+        shell: bash
+        # ⚠ 2026-09-13 修复（P1）：**必须先提供图形会话**。
+        #   缺陷：守护看护在拉起 GUI 壳前会先判定「有没有图形会话」——
+        #     linux 判据 = DISPLAY/WAYLAND_DISPLAY 环境变量 或 /tmp/.X11-unix/X* 或
+        #     wayland socket（src/platform/os/desktop.js::sessionAvailable）。
+        #     这是**刻意的设计**（防「无显示时拉起必失败 → 重启风暴」）。
+        #   而 GitHub ubuntu runner 是无头的（三者皆无）→ 看护按设计拒绝拉起，
+        #   于是 shell-watchdog-e2e-test 的 4 条断言失败，CI 日志给出确切原因：
+        #       [shell-watchdog] 不拉起桌面壳：无图形会话（注销/纯终端），拉起 GUI 必失败
+        #       FAIL E2E-1 壳缺失 → 被真实拉起（写入标记） / E2E-3 / E2E-4 / E2E-5
+        #   即：**缺的是测试的前置环境，不是产品逻辑错**。
+        #   （本机一直绿，因为宿主有 X11/Wayland socket。）
+        # 修法：装 Xvfb 并用 xvfb-run 跑 npm test —— 让这条 E2E **真的拉起**壳，
+        #   而不是把断言改成「无头就跳过」；跳过等于删掉「壳缺失→真被拉起」这条唯一端到端门禁。
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
+
+      - name: 内核回归测试（npm test · 经 Xvfb 提供图形会话）
+        shell: bash
+        # 本仓测试**自包含**：不检出、不读取壳仓源码（两仓按账号/仓库隔离）。
+        # 说明（2026-10-01）：原此处声明 env `DSH_LAUNCHER_REQUIRED=1` 并先跑
+        #   `npm run build:launcher:all` 产出 dist/launcher（四平台），唯一目的是让
+        #   all-platforms-test 的 T6-d/T6-e 真执行。该测试与其所属门禁体系已按用户决定
+        #   整体拆除（移至 C:\work\_gate_backup）⇒ **已无任何测试消费 launcher 产物或该 env**
+        #   （实测：`test/*.js` 对 `DSH_LAUNCHER_REQUIRED` 与 `dist/launcher` 零命中），
+        #   故两处一并删除，不再为此浪费一次四平台构建。
+        run: |
+          # 不截断：测试失败时断言文案就是排障依据。
+          set -o pipefail
+          xvfb-run -a npm test
+
+  # ── precheck：该 tag 版本是否已在 npm 全部发布？ ──
+  # ⚠ 2026-09-13 定位变更：内核仓已公开（Actions 免额度），故**不再是为省额度**。
+  #   保留目的是**防重复发布**（npm 同版本不可重发），并让「四平台齐备」成为可验证的收敛条件。
+  #   ⚠ 2026-09-14 更正：`need_build` 只作用于 `release` job 与 build 步骤里的 `--publish` 判定
+  #   （防同版本重发）；`build` 矩阵**每次 push / PR 都跑**，不得条件跳过。见 release/README.md §1.1。
+  # 判据：package.json#npmPublish.packages 声明的**每个**平台子包，在该版本下是否都已存在于 npm。
+  precheck:
+    runs-on: ubuntu-latest
+    outputs:
+      need_build: ${{ steps.probe.outputs.need_build }}
+      missing: ${{ steps.probe.outputs.missing }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+
+      - name: 探测该版本是否已全部发布
+        id: probe
+        shell: bash
+        run: |
+          VER="$(node -p "require('./package.json').version")"
+          echo "  版本: $VER"
+          MISSING=""
+          for p in $(node -e 'const p=require("./package.json");console.log((p.npmPublish&&p.npmPublish.packages||[]).join(" "))'); do
+            if npm view "@dsh-sup/$p@$VER" version >/dev/null 2>&1; then
+              echo "    已发布 $p"
+            else
+              echo "    缺失   $p"
+              MISSING="$MISSING $p"
+            fi
+          done
+          if [ -z "$MISSING" ]; then
+            echo "need_build=false" >> "$GITHUB_OUTPUT"
+            echo "  → 四平台已齐备：need_build=false（仅影响 release job 与 --publish 判定；precheck 设立初衷为省额度）"
+          else
+            echo "need_build=true" >> "$GITHUB_OUTPUT"
+            echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
+            echo "  → 需由 CI 补齐：$MISSING"
+          fi
+
+  build:
+    needs: precheck
+    # 硬标准（2026-09-14）：**四平台完整构建在每次 push / PR 都跑**，不得被条件跳过。
+    #   原条件为 needs.precheck.outputs.need_build == 'true'，理由是「已全发布则无需再构建
+    #   （本地已用同一份代码产出，幂等）」—— 那是**本地构建时代**的理由；硬标准既已禁止本地构建，
+    #   该条件会让「已发布版本之后的改动」**从未经过四平台构建验证**（PR 也照样能合）。
+    #   故移除条件。**发布**仍保留一次性闸：见下方产线步骤里的 need_build 判定（npm 同版本不可重发）。
+    # 本 job 只负责构建与发布 npm 子包（不再直接挂 Release，见文件末尾 release job 的说明）。
+    permissions:
+      contents: read
+      # A3-a（2026-09-19 审计）：npm --provenance 供应链溯源用 OIDC 短时令牌
+      # （替代 npm 端长存凭据参与证明签发）；仅 id-token: write，其余权限不扩。
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ⚠ 2026-09-13 变更（按明确要求）：**四平台全部由 CI 产出**。
+          #   原「Linux 不在 CI 生产」的分工**起源是私有仓额度限制**（linux 本地发以省额度）；
+          #   内核仓已于 2026-09-13 转为**公开**，Actions 免额度 → 该分工作废，统一由 CI 生产，
+          #   使「CI 绿 = 四平台产物齐备」成为单一且可验证的事实。
+          #   Linux **必须**用 ubuntu-22.04 基座（glibc 2.35）：在 24.04（glibc 2.39）构建的产物
+          #   无法在 22.04 / Debian 12 运行（Rust std 对 pidfd_* 的弱引用被解析成硬性 verneed）。
+          #   防线两层（§E.2 于 2026-09-20 收口，此前此处写着不存在的步骤）：
+          #     ① runner 标签本身 —— 人工约定：矩阵里必须是 ubuntu-22.04。
+          #        （原先由 release-auth-test R6-a3 机器钉死；该门禁已于 2026-10-01 按用户决定拆除
+          #          ⇒ **现在是约定，不再是强制**。改矩阵标签前请自行确认 glibc 基座。）
+          #     ② 产物 ELF 的 GLIBC_* 符号上限 —— ci-core.sh 的 [3.5/5] 步对 dist/ 下每个 ELF 调
+          #        ci/check-glibc.sh ≤ 2.35。**当前形态（纯 JS launcher，无 SEA）下 Linux 产物没有
+          #        ELF**，该步如实打印「无对象可检」；重新引入原生产物即自动执法，无需再改产线。
+          #   test/glibc-gate-test.js 测的是 check-glibc.sh **脚本自身**的行为（不是产物）；
+          #   壳仓的 Rust 产物由其仓内同名脚本自理（两仓各自维护，见 CROSS-PLATFORM-BUILD-AND-UPDATE.md §2.7）。
+          - os: ubuntu-22.04
+            artifact: linux-x64
+            arch_override: ""
+          - os: windows-latest
+            artifact: win-x64
+            arch_override: ""
+          - os: macos-latest
+            artifact: darwin-arm64
+            arch_override: ""
+            # 事实修正（2026-09-13）：此前此处写「GitHub 已无 Intel macOS runner」——错误。
+            #   GitHub 有原生 Intel 标签 macos-15-intel（壳仓矩阵在用且实测成功）；
+            #   弃用的是 macos-13，而 macos-14 确实是 arm64。
+            #   本仓仍用 macos-14(arm64) + DSH_ARCH_OVERRIDE=x64 出 darwin-x64：
+            #   launcher 是架构无关纯 JS，仅 npm os/cpu 元数据区分，产物等价；
+            #   且该组合自 0.1.5-BETA.1 起连续多轮 tag 构建成功（已实证）。
+            #   切 macos-15-intel 属**矩阵行为变更**，需真实构建验证，本批不改动矩阵
+            #   → 留待下一次发版评估，由真实构建裁决。
+          - os: macos-14
+            artifact: darwin-x64
+            arch_override: x64
+    runs-on: ${{ matrix.os }}
+    env:
+      DSH_ARCH_OVERRIDE: ${{ matrix.arch_override }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+
+      # ⚠ 2026-09-13：Linux leg 需要 Xvfb ——
+      #   ci-core.sh 的 L2 腿含看护 E2E（「壳缺失 → 真的被拉起」），而看护在拉起 GUI 壳前
+      #   会先判定图形会话；无头 runner 判定为 false → 按设计拒绝拉起 → 该 E2E 四条失败。
+      #   darwin / win32 的判定恒为真（守卫本就只在图形会话内存活），故只有 Linux 需要装。
+      - name: 安装 Xvfb（图形会话前置条件 · 仅 Linux）
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
+
+      # 发布产线核心逻辑单源：release/scripts/ci-core.sh（本机亦可复跑）。
+      # 内核 launcher 为纯 JS（Node ≥18 运行时），无需 Rust/系统库依赖。
+      #
+      # A3-a（2026-09-19 审计）：**验证腿不带发布令牌**。原实现把 NPM_TOKEN 挂在
+      #   build job env 上 —— ci-core.sh 内的 ui npm ci postinstall 钩子与矩阵腿回归
+      #   等所有第三方代码进程树都能读到它（供应链失窃面）。
+      #   现拆为两步：本步只跑验证（verify + build:launcher + 子包 dry-run），任何事件
+      #   （push/PR/tag）都跑；发布拆到下一步，令牌仅存在于「内核发布」步骤的进程树。
+      - name: 内核发布产线（verify + build:launcher + 子包 dry-run · 不带发布令牌）
+        shell: bash
+        run: bash release/scripts/ci-core.sh
+
+      # 安装包冒烟：把上一步 dry-run 产出的子包目录真装成全局命令，跑「装出来的那条命令」。
+      #   与 dry-run 同平台同 workspace，产物路径按 publish-core.sh 的口径计算（含 DSH_ARCH_OVERRIDE），
+      #   不硬编码当前平台名。push / PR / tag 四平台都跑（无 job 级/step 级 tag-only if）。
+      - name: 安装包冒烟（npm i -g dry-run 子包 · 全局命令自举）
+        shell: bash
+        run: |
+          PLAT="${DSH_PLATFORM_OVERRIDE:-$(node -p 'process.platform')}"
+          ARCH="${DSH_ARCH_OVERRIDE:-$(node -p 'process.arch')}"
+          case "$PLAT" in
+            linux) OS_TAG=linux ;; darwin) OS_TAG=darwin ;; win32) OS_TAG=win ;;
+            *) echo "::error::不支持的平台 $PLAT"; exit 1 ;;
+          esac
+          VER="$(node -p 'require("./package.json").version')"
+          PKG="./dist/npm/@dsh-sup/dsh-core-$OS_TAG-$ARCH"
+          [ -d "$PKG" ] || { echo "::error::缺少子包目录 $PKG（dry-run 步应已产出）"; exit 1; }
+          bash release/scripts/install-smoke-core.sh --pkg "$PKG" --ver "$VER"
+
+      # 唯一发布入口。⚠ 令牌非空判断**必须在 run 内**：step 级 if 的上下文里没有
+      #   secrets（引用即 workflow 解析错误 → 0-job 整文件红，A3-a 首推实测）。
+      #   判定条件与拆分前等价：tag + 有 NPM_TOKEN + need_build。
+      # need_build=false 表示已全平台发布 —— 构建照跑（上面的验证步），本步跳过。
+      # ci-core.sh --publish-only：只跑 [5/5] 真发布，复用同 workspace 上一步的构建产物
+      #   （缺产物时 publish-core.sh 的存在性检查即闸）。
+      - name: 内核发布（tag 触发 · NPM_TOKEN 唯一持有步）
+        if: startsWith(github.ref, 'refs/tags/v') && needs.precheck.outputs.need_build == 'true'
+        shell: bash
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # provenance 逃生阀：仓库 variables 设 DSH_NPM_PROVENANCE=0 可关（如无 OIDC 的环境）。
+          DSH_NPM_PROVENANCE: ${{ vars.DSH_NPM_PROVENANCE }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo '无 NPM_TOKEN：跳过真发布（与拆分前 [ -n "$NPM_TOKEN" ] 分支语义一致，tag 构建仅产 artifacts）'
+            exit 0
+          fi
+          bash release/scripts/ci-core.sh --publish-only
+
+      - name: Upload artifacts（内核 launcher 构建物）
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/launcher/**
+            dist/launcher/README.md
+
+  # ── Release 附加：**单独一个 job，只跑一次** ──
+  # 为什么不能放在 build 矩阵里（2026-09-11 修复，实测 CI #19）:
+  #   矩阵 3 个 job（win/mac-arm64/mac-x64）会**并发**向同一个 Release 上传资产，
+  #   产生竞态：实测 darwin-x64 成功、darwin-arm64 在同一步骤失败。
+  #   且各平台的 dist/launcher/** 内含**同名文件**（如 core.cjs），直接挂会互相覆盖/冲突。
+  # 现改为：build 只上传 artifact → 本 job 汇总、按平台打成**唯一命名**的 tar.gz 后一次性挂载。
+  release:
+    needs: [precheck, build]
+    # 需要 build 真正跑过（跳过 build 时没有 artifact 可汇总，故不挂 Release）。
+    if: startsWith(github.ref, 'refs/tags/v') && needs.precheck.outputs.need_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 挂 Release 需 GITHUB_TOKEN contents:write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: 收集各平台构建产物
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+
+      - name: 按平台打包为唯一命名的 tar.gz
+        shell: bash
+        run: |
+          VER="$(node -p "require('./package.json').version")"
+          mkdir -p out
+          echo "  版本: $VER"
+          # ⚠ artifact 内的布局取决于 upload-artifact 的路径剥离（实测 CI #23）：
+          #   上传 `path: dist/launcher/**` 时，它以**最小公共祖先** dist/launcher 为根，
+          #   故下载后 artifact 根目录**直接就是** launcher 的内容，不含 dist/launcher 前缀。
+          #   两种形态都兼容，避免路径假设变化导致打包为空。
+          for d in artifacts/*/; do
+            plat="$(basename "$d")"
+            if [ -d "$d/dist/launcher" ]; then SRC="$d/dist/launcher"; else SRC="$d"; fi
+            echo "  打包 $plat ← $SRC"
+            tar -czf "out/dsh-supervisor-launcher-$VER-$plat.tar.gz" -C "$SRC" .
+          done
+          echo "  产物:"
+          ls -lh out/ | sed "s/^/    /"
+          # 断言：必须有产物，否则「静默挂空 Release」比失败更糟
+          if [ -z "$(ls -A out 2>/dev/null)" ]; then echo "::error::未生成任何 Release 资产"; exit 1; fi
+
+      - name: 附加到 GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: out/*.tar.gz
+          generate_release_notes: true
+
+  # ── 发布后冒烟（S8 的 CI 半边）：从**公开 registry** 装已发布子包，证明线上产物可自举 ──
+  # 与 build job 内的安装包冒烟共用同一脚本，区别只在装的是 registry 里的包而非本地 dist/。
+  #   registry 上架到可被解析有分钟级延迟（npm 自身摄取 + 前置缓存 max-age=300），故重试数轮；
+  #   只有最后一轮的失败才决定判据（早期轮失败不算永久红）。公开包无需 NPM_TOKEN，本 job 也不挂载任何令牌。
+  # ⚠ 必须 needs release：npm 发布在 build job 的「内核发布」步（NPM_TOKEN 唯一持有步），
+  #   release 又 needs 四条 build 腿，故 needs 里带上 release 才真正等到上传完成；只依赖 build
+  #   在并行度上不等发布。但**排在后面仍读不到包**的那一段是缓存/传播，见下面 ATTEMPTS 与脚本里的
+  #   --prefer-online——那是本 job 首跑（0.1.6-BETA.6）判红的真因。
+  #   always() 不可省：tag 之外的运行里 release 是 skipped，不加 always 本 job 会被连带跳过（假绿）。
+  published-smoke:
+    needs: [precheck, build, release]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success')) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch_override: ""
+          - os: windows-latest
+            arch_override: ""
+          - os: macos-latest
+            arch_override: ""
+          - os: macos-14
+            arch_override: x64
+    runs-on: ${{ matrix.os }}
+    env:
+      DSH_ARCH_OVERRIDE: ${{ matrix.arch_override }}
+      VER_INPUT: ${{ inputs.ver }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+
+      - name: 发布后安装包冒烟（npm i -g @dsh-sup/dsh-core-<os>-<arch>@<ver>）
+        shell: bash
+        # 显式关 -e：重试循环要靠 rc 分支决策，不能让中间轮的失败炸掉整个 run block。
+        run: |
+          set +e
+          PLAT="${DSH_PLATFORM_OVERRIDE:-$(node -p 'process.platform')}"
+          ARCH="${DSH_ARCH_OVERRIDE:-$(node -p 'process.arch')}"
+          case "$PLAT" in
+            linux) OS_TAG=linux ;; darwin) OS_TAG=darwin ;; win32) OS_TAG=win ;;
+            *) echo "::error::不支持的平台 $PLAT"; exit 1 ;;
+          esac
+          VER="${VER_INPUT:-$(node -p 'require("./package.json").version')}"
+          SPEC="@dsh-sup/dsh-core-$OS_TAG-$ARCH@$VER"
+          echo "  发布后冒烟目标: $SPEC"
+          ATTEMPTS=10
+          # 窗口必须盖过 registry 前置缓存的 max-age=300：首轮取到的「尚无此版本」packument
+          # 会在缓存里存活 5 分钟，短窗重试等于反复读同一份陈旧元数据。
+          SLEEP_SEC=75
+          ROUND_DIR="${RUNNER_TEMP:-$(mktemp -d)}"
+          i=0
+          rc=1
+          while [ "$i" -lt "$ATTEMPTS" ]; do
+            i=$((i + 1))
+            echo "== 冒烟第 $i/$ATTEMPTS 轮 =="
+            ROUND_LOG="$ROUND_DIR/published-smoke-round-$i.log"
+            if bash release/scripts/install-smoke-core.sh --pkg "$SPEC" --ver "$VER" >"$ROUND_LOG" 2>&1; then
+              cat "$ROUND_LOG"
+              rc=0
+              break
+            else
+              rc=$?
+              cat "$ROUND_LOG"
+              # 只对「registry 还看不到这个版本」重试：装上了却挂在 self-check/healthz 是真缺陷，
+              #   重试只会把同一条缺陷抄满预算，还白占四台 runner 的时间。
+              if ! grep -Eq 'ETARGET|notarget|E404|404 Not Found' "$ROUND_LOG"; then
+                echo "  第 $i 轮不是传播类失败，不再重试"
+                break
+              fi
+              echo "  第 $i 轮仍看不到该版本（等 registry 传播与缓存过期）"
+              [ "$i" -lt "$ATTEMPTS" ] && sleep "$SLEEP_SEC"
+            fi
+          done
+          if [ "$rc" != 0 ]; then
+            echo "::error::发布后冒烟在 $i/$ATTEMPTS 轮后仍失败（$SPEC）"
+            exit "$rc"
+          fi
+
+  # 前端门禁（typecheck/lint/test/build）**已移出 CI**（2026-09 定案，额度优化）：
+  #   原 ui-verify 作业常驻 ubuntu-latest，是矩阵去 ubuntu 后唯一的 Linux 消耗。
+  #
+  # ⚠ 2026-09-12 校正：此处原写「现由本地发布前置（release-core.sh 的 [3/7] UI 门禁）承担」——
+  #   但 (a) `release-core.sh` 只有 **[1/5]–[3/5]**，**不存在 [3/7]**；
+  #       (b) 其 [3/5] 委托的 `ci-core.sh` 只调 `build-ui.sh`，而后者**只构建、不测试**。
+  #   即：`ui/package.json` 里的 `typecheck`/`lint`/`vitest` 与 3 个 .test.ts
+  #   **在任何自动化路径上都不会被执行** —— 声称的「UI 门禁」实际不存在。
+  #
+  #   现由 `ci-core.sh` 的 [1/5] 显式执行 `ui` 的 `verify`（typecheck + lint + test + build），
+  #   故本地发布与 CI 两条路径都真正跑到了前端门禁。

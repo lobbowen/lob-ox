@@ -1,0 +1,67 @@
+# 截图取证
+screenshots/
+**/screenshots/
+
+# build 产物（launcher + npm 子包组装，全部可重新生成，绝不入库）
+# 注：src-tauri/* 与 dist/export-shell 条目已于 2026-09-11 清理 —— 前者属壳仓（本仓不得存在
+#     src-tauri 目录），后者的 export-shell.sh 脚本已随双仓隔离删除。
+dist/release
+dist/npm
+**/dist/
+# React UI 构建产物（release.sh 从 ui/dist 构建后镜像，不入库）
+ui-react/
+**/ui-react/
+
+# 测试残留/临时目录
+tmp-iso/
+
+# 依赖
+node_modules/
+
+# 系统/编辑器
+.DS_Store
+*.log
+
+# 本地运行/状态（Harness 会话等，不入库）
+.dsh/
+.memory/
+**/.dsh/
+**/.memory/
+
+# 产品源码仓不含文档/审计/过程物（本地保留，不入库）
+# 注意：release/runbooks/ 操作手册随发布工程入库（2026-09 定案），不在忽略之列
+# HANDOFF.md 是会话过程物（每轮由接手会话重写，含本机路径）——本地保留，不入库。
+HANDOFF.md
+**/HANDOFF.md
+DESIGN.md
+**/DESIGN.md
+CODE_REVIEW.md
+**/CODE_REVIEW.md
+MIGRATION.md
+**/MIGRATION.md
+docs/
+**/docs/
+
+# 签名密钥（绝不入库）
+*.key
+*.key.pub
+
+# 内核仓不得包含壳仓（防呆：曾误被 git add -A 收为 gitlink）。
+# 2026-09-11：壳 checkout 已移出本仓目录（现位于 ../dsh-supervisor-launcher），
+# 此条目保留为纵深防御 —— 若再次在本仓内克隆壳仓，至少不会被提交。
+.shell-work/
+
+# 临时文件（发布提交时曾被误纳入）
+.b2msg.tmp
+.commit-b2.sh
+*.tmp
+.cmsg
+.b2msg.tmp
+.commit-b2.sh
+.cleanup.sh
+
+# 密钥材料：绝不入库（私钥泄露=账号被接管）
+.ssh/
+*.pem
+id_ed25519*
+id_rsa*

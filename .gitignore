@@ -1,0 +1,46 @@
+# ---------------------------------------------------------------------------
+# lobox 单一 .gitignore（内核 core/ 与桌面壳 shell/ 合并）
+# ---------------------------------------------------------------------------
+
+# 依赖
+node_modules/
+**/node_modules/
+.pnpm-store/
+
+# Rust / Tauri 构建产物
+target/
+**/target/
+shell/src-tauri/target/
+shell/src-tauri/gen/
+
+# 前端构建产物
+dist/
+**/dist/
+core/ui/dist/
+*.tsbuildinfo
+
+# 日志与临时
+*.log
+logs/
+tmp/
+.cache/
+.dsh-test-*/
+
+# 覆盖配置
+.env
+.env.*
+!.env.example
+_token.txt
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# 打包与发布中间产物
+*.tgz
+*.zip
+core/release/out/
+shell/shell-release/out/

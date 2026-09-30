@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "dsh-supervisor",
+  "version": "1.2.10",
+  "identifier": "dev.bowen.dsh-supervisor",
+  "build": {
+    "frontendDist": "bootstrap"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "dsh-supervisor — DSH 生命周期监管",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 760,
+        "minHeight": 540,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "url": "bootstrap.html"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' tauri://localhost http://tauri.localhost; script-src 'self' tauri://localhost http://tauri.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' tauri://localhost http://tauri.localhost http://127.0.0.1:*; frame-src 'self' tauri://localhost http://tauri.localhost http://127.0.0.1:* http://localhost:*"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "deb",
+      "dmg",
+      "nsis",
+      "msi"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU0QTE1NDYxRTM5QzhBRUYKUldUdmlwempZVlNoVkNPUFBXQVo0UHpNL1QvVGEwWWR0WFk2bjVNMHpTSlR4eUx1MnZaWDNCV2gK",
+      "endpoints": [
+        "https://unpkg.com/@dsh-sup/shell-release@latest/shell-manifest.json",
+        "https://cdn.jsdelivr.net/npm/@dsh-sup/shell-release@latest/shell-manifest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}
