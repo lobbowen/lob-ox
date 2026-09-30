@@ -514,7 +514,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 取 A（上一个已发布版本的安装包）
+      # 🔴 2026-10-01（install-smoke #3 实测）：本步必须区分「取不到 A」的两种性质——
+      #   ① **不存在早于本次的发布**（结构性事实，不是缺陷）⇒ ::notice:: + exit 0 + has_a=false，
+      #      后面三步由各自的 `if: steps.pick_a.outputs.has_a == 'true'` 自动 skip：
+      #   ①a 本仓 release 数 = 0（新仓首次跑 CI）；
+      #   ①b 候选全被跳过，且跳过原因**只有**「与本次同一 commit」——
+      #       build job 带 contents: write，tag 上「Attach installers to GitHub Release」先于本 job
+      #       （needs: [version, build]）执行，于是首个 tag 的 release 在本步之前就已存在、
+      #       且指向 GITHUB_SHA 本身。此时本仓唯一的已发布版本就是本次 tag 自身，
+      #       判据本质是「有没有早于本次的发布」而非「有没有 release」⇒ 与 ①a 同等对待；
+      #       否则首个版本会撞下面的硬错误分支 ⇒ publish 被挡 ⇒ 首版永远发不出去。
+      #       A→B 升级冒烟自**第二个** release 起生效。
+      #   ② 有 release 且存在解析不到 commit / 资产不匹配的候选 ⇒ 真问题，维持 ::error:: exit 1。
+      #   现状把「有无 release」当判据，于是首个 tag 的 install-smoke 必然红。
+      - id: pick_a
+        name: 取 A（上一个已发布版本的安装包）
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -526,16 +540,62 @@ jobs:
           #   只剩形状；更要命的是它刚建出的那一刻资产往往还没传完，拿它当基线只会撞下载失败。
           #   所以按候选指向的 commit 比对，而不是按 ref 名 —— tag 构建里「本次那份」也一并被排除，
           #   无需再单独维护 SELF 这条并列判据。
-          SKIPPED=""
+          # 跳过原因分两类（决定降级还是硬错误）：
+          #   SKIPPED_SAME = 候选指向的 commit 就是本次 GITHUB_SHA ⇒ 它不算「更早的发布」，
+          #     全为此类时等价于「不存在可作 A 的更早版本」⇒ 可降级 notice；
+          #   SKIPPED_BAD  = 解析不到 commit 之类的真问题 ⇒ 只要存在一个，就必须硬错误。
+          SKIPPED_SAME=""
+          SKIPPED_BAD=""
           A_TAG=""
-          for t in $(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 --json tagName -q '.[].tagName'); do
+          # 🔴 `|| LIST_RC=$?` 是必须的（本文件反复登记的教训）：本步带 `set -euo pipefail`，
+          #   若 gh 非零导致赋值语句当场终止脚本，下面的诊断**永远不会打印**。
+          #   同时它把「查询失败（API/权限/网络）」与「查询成功但确实没有 release」分开：
+          #   前者是真错误，后者是结构性无 A —— 绝不能把前者静默当成后者。
+          LIST_RC=0
+          RELEASES=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 --json tagName -q '.[].tagName' 2>/dev/null) || LIST_RC=$?
+          if [ "$LIST_RC" -ne 0 ]; then
+            echo "::error::查询已发布版本失败（gh release list 退出码 $LIST_RC）；无法判定是否存在可作 A 的版本"
+            exit 1
+          fi
+          # N = **实际遍历到的候选数**：N=0 即「本仓一个 release 都没有」；
+          # N>0 且 A_TAG 为空时再按跳过原因二分（只有「与本次同 commit」= 无更早版本；
+          # 含「解析不到 commit」= 真问题）。下面据此三分流。
+          N=0
+          for t in $RELEASES; do
+            N=$((N + 1))
             sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$t" --jq .sha 2>/dev/null || true)
-            if [ -z "$sha" ]; then SKIPPED="$SKIPPED ${t}(解析不到 commit)"; continue; fi
-            if [ "$sha" = "$GITHUB_SHA" ]; then SKIPPED="$SKIPPED ${t}(与本次同一 commit)"; continue; fi
+            if [ -z "$sha" ]; then SKIPPED_BAD="$SKIPPED_BAD ${t}(解析不到 commit)"; continue; fi
+            if [ "$sha" = "$GITHUB_SHA" ]; then SKIPPED_SAME="$SKIPPED_SAME ${t}(与本次同一 commit)"; continue; fi
             A_TAG="$t"
             break
           done
-          [ -n "$A_TAG" ] || { echo "::error::找不到内容与本次（${GITHUB_SHA}）不同的已发布版本可作 A；跳过的候选:${SKIPPED:- 无}"; exit 1; }
+          if [ -z "$A_TAG" ]; then
+            # ── 分支 ①：不存在早于本次的发布（结构性事实）⇒ notice + 成功收尾（不红）──
+            #   判据本质不是「有没有 release」，而是「有没有**早于本次**的发布」：
+            #   A→B 升级冒烟的职责「从上一个已发布版本升级到本次构建」自**第二个 release** 起才成立。
+            #   B（本次构建产物）的构建与产物验收在 build job 里照常执行，并未被这一步削弱。
+            #   ①a：本仓零 release（两仓合并后的首次跑 CI）。
+            if [ "$N" -eq 0 ]; then
+              echo "::notice::本仓尚无任何已发布版本（release 数 = 0），A→B 升级冒烟自首个 release 起生效；本次跳过「取 A→装 A→覆盖装 B」升级路径校验。"
+              echo "has_a=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            #   ①b：候选全被跳过，且原因**只有**「与本次同一 commit」（$SKIPPED_BAD 为空）——
+            #   build job 带 contents: write，tag 上「Attach installers to GitHub Release」先于本 job
+            #   （needs: [version, build]）执行 ⇒ **首个 tag 的 release 在本步之前就已存在、且指向
+            #   GITHUB_SHA 自身**。这不是「有 release 但都不合用」，而是「本仓唯一的已发布版本
+            #   就是本次 tag 自己」= 与 ①a 完全同构的「无更早版本」，故同等降级为 notice + exit 0；
+            #   否则首个版本必撞下面的硬错误分支 ⇒ publish 被挡 ⇒ 首版永远发不出去。
+            if [ -z "$SKIPPED_BAD" ]; then
+              echo "::notice::本仓唯一的已发布版本就是本次 tag 自身（${GITHUB_SHA}），不存在可作升级起点的更早版本；A→B 升级冒烟自**第二个** release 起生效。跳过的候选:${SKIPPED_SAME:- 无}"
+              echo "has_a=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            # ── 分支 ②：存在解析不到 commit / 资产不匹配的候选 ⇒ 保持硬错误（这是真问题）──
+            echo "::error::找不到内容与本次（${GITHUB_SHA}）不同的已发布版本可作 A（候选数=${N}）；不可用候选（解析不到 commit 等真问题）:${SKIPPED_BAD}；与本次同一 commit 的候选:${SKIPPED_SAME:- 无}"
+            exit 1
+          fi
+          echo "has_a=true" >> "$GITHUB_OUTPUT"
           gh release download "$A_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             --pattern "${{ matrix.pkg_glob }}" --dir "$RUNNER_TEMP/pkgs/a"
           # 🔴 2026-10-01：`|| true` 是必须的，不是放宽校验 ——
@@ -555,7 +615,11 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "A = $A_TAG -> $A_FILE"
 
+      # 以下三步的**正文一字未动**（仍取 B、仍调 ci/install-smoke.sh / install-smoke-win.ps1）；
+      # 只加一条 `if:` 守卫：pick_a 判定「不存在早于本次的发布」（零 release，或候选全为本次 tag 自身）时整段跳过 ——
+      # 否则 A_FILE/A_VER 未定义，`set -u` 会以 unbound variable 红掉，或 ps1 拿到 $null 而失败。
       - name: 取 B（本次构建产物）
+        if: steps.pick_a.outputs.has_a == 'true'
         uses: actions/download-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -564,7 +628,7 @@ jobs:
           path: shell/pkgs/b
 
       - name: 安装冒烟（Linux / macOS）
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && steps.pick_a.outputs.has_a == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -580,7 +644,7 @@ jobs:
             "$RUNNER_TEMP/install-smoke"
 
       - name: 安装冒烟（Windows）
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.pick_a.outputs.has_a == 'true'
         shell: pwsh
         run: |
           $B = Get-ChildItem -Path "$env:GITHUB_WORKSPACE/shell/pkgs/b" -Recurse -File -Filter '*_x64-setup.exe' |
