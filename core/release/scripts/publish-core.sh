@@ -158,10 +158,16 @@ cd "$STAGE"
 #   ——「我们发布什么，latest 就该是什么」被打破，且四平台版本不一致。
 #   那次修正把 latest 的更新条件绑在了「发布的是 RC」上，等于把同一个坑换了一种形态
 #   留在 BETA 线上；现在的口径是**发布档位决定别名标签，latest 只由「是否更新」决定**。
+# 🔴 2026-10 修复（与 shell.yml 同一原则）：选档改为**结构性判断（版本串是否含预发布后缀 `-`）**，
+#   不再逐档枚举后缀名。复（原缺陷）：枚举法只认 `-BETA.*` / `-RC.*`，任何新后缀（如 `-test1`）
+#   两个分支都不匹配 ⇒ DIST_TAG="" ⇒ `npm publish` **默认挂 latest** —— 虽然 BETA 线的 latest
+#   本就由 reconcile_latest_tag 回补（RC-6），但「测试版落到 npm 默认值」是**无人裁决的隐式后果**，
+#   不该由 npm 的默认行为决定；含 `-` 的版本一律显式挂 beta，只有纯 `x.y.z` 才挂 latest。
 DIST_TAG=""
 case "$VER" in
-  *-BETA.*) DIST_TAG="--tag beta" ;;   # latest 由发布后的回补步骤对齐，不在此处
-  *-RC.*)   DIST_TAG="--tag latest" ;;   # 正式版占 latest（rc 标签发布后补）
+  *-RC.*) DIST_TAG="--tag latest" ;;   # 正式版占 latest（rc 标签发布后补，见文件末尾）
+  *-*)    DIST_TAG="--tag beta" ;;     # 结构兜底：任何其它预发布后缀（含 -BETA.n / -test1 / 未来新形态）
+  *)      DIST_TAG="--tag latest" ;;   # 稳定版（纯 x.y.z）才 latest（显式给出，不依赖 npm 默认值）
 esac
 # 发布到官方 npm registry（发布必须官方源；本机默认 npmmirror 只读消费不适配发布认证）
 #

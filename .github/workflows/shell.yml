@@ -871,12 +871,23 @@ jobs:
           #   ⚠ 原实现把 RC 只标 rc、从不更新 latest —— 与内核策略不一致，
           #     且会让默认安装停留在历史版本（2026-09-16 复检修正）。
           #   ⚠ npm publish 只接受一个 --tag，故 rc 别名在发布后经 dist-tag add 补。
+          #
+          # 🔴 2026-10 修复：选档改为**结构性判断（版本串是否含预发布后缀 `-`）**，不再逐档枚举后缀名。
+          #   复（原缺陷）：枚举法只认 `-BETA.*` / `-RC.*`，而本次测试版是 `1.2.11-test1` ——
+          #     两个分支都不匹配 ⇒ TAG="" ⇒ `npm publish`（不带 --tag）**默认挂 latest**
+          #     ⇒ 四个平台子包与 shell-release 的 latest 全被指到测试版，用户默认装到的就是它。
+          #   为什么用结构判断：枚举法每出现一个新后缀（test1/alpha/next/…）就漏一次，而漏一次的
+          #     后果是「测试版占据 latest」这一**默认安装面**的污染；含 `-` 就一定是预发布版本，
+          #     npm 的默认 tag 只允许留给纯 `x.y.z` 稳定版。
+          #   ⚠ 副作用面已核：本 job 内没有 latest 之外的通道回补（内核侧才有 reconcile_latest_tag），
+          #     故 RC 档的 latest 仍由下面这一行给出（见报告 §4 真值表）。
           VER="${{ needs.version.outputs.ver }}"
           TAG=""
           RC_ALIAS=0
           case "$VER" in
-            *-BETA.*) TAG="--tag beta" ;;
-            *-RC.*)   TAG="--tag latest"; RC_ALIAS=1 ;;
+            *-RC.*) TAG="--tag latest"; RC_ALIAS=1 ;;   # 正式（RC）占 latest；rc 别名发布后补
+            *-*)    TAG="--tag beta" ;;                 # 结构兜底：任何其它预发布后缀（含 -test1）
+            *)      TAG="--tag latest" ;;               # 纯 x.y.z 稳定版才 latest（不依赖 npm 默认值）
           esac
           for d in dist/npm-shell/@dsh-sup/shell-*; do
             [ -d "$d" ] || continue

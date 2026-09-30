@@ -6,7 +6,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 NEW="${1:?用法: bash scripts/bump-shell.sh <version>}"
-[[ "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(BETA|RC)\.[0-9]+)?$ ]] || { echo "非法版本号: $NEW"; exit 1; }
+# 版本格式：壳侧**独立实现**一次完整 SemVer 判定 —— 跨组件纪律「壳只许经契约产物取内核能力，
+#   不许 require 内核源码」，故这里**不** require core/src/shared/version.js。
+#   判定口径与内核**同源**：字面量抄自 core/src/shared/version.js:8 的 VERSION_RE
+#   （完整 SemVer：三段数值禁前导零 + 任意预发布/构建后缀）。⚠ 内核那份若改动，本行须同步。
+#   复（本次修复）：原先内联一份更窄的正则（只认 -BETA.n/-RC.n），实测不认 1.2.11-test1，
+#   而壳的三个版本文件在 CI 里都按该串走发布链。非法 SemVer（1.2 / abc / 1.02.3）依旧判红。
+# 容错（既有教训）：判断放在 `if !` 复合条件里，不用 `$(...)` 捕获非零，set -e 不会终止脚本。
+if ! NEW="$NEW" node -e 'const RE=/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;process.exit(RE.test(process.env.NEW||"")?0:1)'; then
+  echo "非法版本号（须为合法 SemVer，可带任意预发布后缀，如 1.2.11 / 1.2.11-RC.1 / 1.2.11-test1）: $NEW"; exit 1
+fi
 # SemVer 逐段比较（字符串比较在 0.10 vs 0.2 场景会失效）
 ver_lt() {
   node -e "const [a,b]=process.argv.slice(1);const p=(v)=>{const[m,t]=v.split('-');const c=m.split('.').map(Number);const tier=t?(t.startsWith('BETA')?0:1):2;return[c[0],c[1],c[2],tier,t?(Number(t.split('.')[1])||0):0];};const A=p(a),B=p(b);for(let i=0;i<5;i++){if(A[i]<B[i])process.exit(0);if(A[i]>B[i])process.exit(1);}process.exit(1);" "$1" "$2"

@@ -18,7 +18,16 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 [ $# -eq 2 ] || { echo "用法: release/scripts/bump.sh --core <version>"; exit 2; }
 MODE="$1"; NEW="${2:?}"
-[[ "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(BETA|RC)\.[0-9]+)?$ ]] || { echo "非法版本号（SemVer 主.次.补丁，可带 -BETA.n/-RC.n 预发布后缀——与 verify-versions.js 单源规范一致）: $NEW"; exit 1; }
+# 版本格式：**委托产品内唯一校验器**（src/shared/version.js:8 的 VERSION_RE），不再内联第二份正则。
+#   复（本次修复）：原先此处/壳的 bump-shell.sh/verify-versions.js 各有一份更窄的重复实现
+#   （只认 -BETA.n/-RC.n），三处口径必须一致；窄口径会拒掉合法 SemVer（如 0.1.6-BETA.21-test1）。
+#   非法 SemVer（1.2 / abc / 1.02.3）在权威校验器下**依旧非法**。
+# 容错（既有教训）：不让 `$(...)` 捕获非零 —— 判断直接放在 `if !` 的复合条件里，set -e 不会终止脚本。
+# 路径经 env 传**绝对路径**（与 publish-core.sh 的 DSH_VERSION_LIB 同法）：`node -e` 的 require
+#   按 cwd 解析，写死相对路径会在 cwd 漂移时 require 失败 ⇒ 合法版本被误判为非法（fail-closed 但报错误导）。
+if ! VLIB="$ROOT/src/shared/version.js" NEW="$NEW" node -e 'const {VERSION_RE}=require(process.env.VLIB);process.exit(VERSION_RE.test(process.env.NEW||"")?0:1)'; then
+  echo "非法版本号（须为合法 SemVer：主.次.补丁 + 可选任意预发布后缀，如 x.y.z / x.y.z-BETA.1 / x.y.z-test1；与 verify-versions.js 同一判定）: $NEW"; exit 1
+fi
 case "$MODE" in
   --core)
     CUR="$(node -p "require('./package.json').version")"
