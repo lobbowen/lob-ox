@@ -30,7 +30,9 @@ console.log('== G1 activeCount 拓扑计数 ==');
 // -- G2 allocation：等权平摊、触底走下限、单调不增 --
 console.log('== G2 allocation 平摊与下限 ==');
 {
-  const M = GiB(16), budgetMb = Math.floor((M * HEADROOM) / (1024 * 1024));
+  // 总预算的整数 MB 口径：allocation 输出「最近整数 MB」（并与 budgetSnapshot.budgetMb = round(totalMemMb*HEADROOM) 同源），
+  // 故份额上界 = ceil(精确预算)，只容 ±1MB 取整；若拿 floor 当硬上限，round 出来的 11469 vs floor 的 11468 会假红。
+  const M = GiB(16), budgetMb = Math.ceil((M * HEADROOM) / (1024 * 1024));
   const a1 = allocation(M, 8, 1), a2 = allocation(M, 8, 2), big = allocation(M, 8, 64);
   check('G2 策略常量在合理区间（0<headroom<1、内存下限≥256M、CPU 下限>0）且单实例份额落在 (下限, 总预算] 内', HEADROOM > 0 && HEADROOM < 1 && MEM_FLOOR_MB >= 256 && CPU_FLOOR_PERCENT > 0 && memNum(a1) > MEM_FLOOR_MB && memNum(a1) <= budgetMb, 'HEADROOM=' + HEADROOM + ' 下限=' + MEM_FLOOR_MB + 'M/' + CPU_FLOOR_PERCENT + '% ' + a1.memoryMax);
   check('G2 双实例等权平摊：两者相等、各约为单实例份额的一半（CPU 份额 >0）', memNum(a2) === memNum(allocation(M, 8, 2)) && Math.abs(memNum(a2) * 2 - memNum(a1)) <= 2 && cpuNum(a2) > 0, a2.memoryMax + ' ' + a2.cpuQuota);

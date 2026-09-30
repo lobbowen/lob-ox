@@ -58,9 +58,32 @@ const det = br.detector;
 // 本组钉「分层是否还在」：探测层只回答系统里有什么，表单把本机实况收一张表并定出这次交给谁，
 // 执行层只按计划 spawn 一次并如实回报拿到什么证据。任何一层越界都会让真机症状重新变成不可定性。
 {
-  // 解析原语只有一个实现处、分发依据住在环境表单：判「是不是同一处实现」，不判某个名字是否还存在。
+  // 解析原语只有一个实现处、分发依据住在环境表单：判「是不是同一处实现」与「执行层是否真的照它分发」，
+  //   不判某个名字是否还存在（存在性形状断言改名即红、产品等价）。
+  //   同源：browser.js 转出的 engineOf 就是探测层那个函数本身（第二份实现会在此分叉）；
+  //   居住地：选路只有 environment.pickLauncher 一处，browser.js 不自己选 —— 同一份清单与偏好在两边
+  //     必须得到同一条分发结论（how 与启动对象 bin 逐字一致）。第二份「等价实现」会在此分叉：
+  //     win32 空清单若再退 explorer.exe 冒开、或其他层按自己的次序挑人，下面每一例都会变红。
+  //     （原先此处写的是 `env.pickLauncher === det.pickLauncher`：探测层从不导出选路函数，
+  //       该子句恒假，且把「居住地」判成了「住在探测层」，与本条判据名字相反。）
+  const agreeOn = (inv, pref) => {
+    const picked = env.pickLauncher(inv.platform || 'win32', inv, pref);
+    const plan = br.openPlan('win32', u, { inventory: inv, preference: pref });
+    return plan.pick === picked.how && !!plan.bin === !!picked.browser
+      && (picked.browser === null || plan.bin === picked.browser.bin);
+  };
+  const twoWin = { platform: 'win32', defaultId: null, defaultSource: null, probed: [{ source: 'fixture', detail: '2 项' }],
+    browsers: [
+      { id: 'c:\\edge\\msedge.exe', name: 'msedge', engine: 'chromium', bin: 'C:\\Edge\\msedge.exe', sources: ['fixture'] },
+      { id: 'c:\\ff\\firefox.exe', name: 'firefox', engine: 'firefox', bin: 'C:\\FF\\firefox.exe', sources: ['fixture'] },
+    ] };
+  const noneWin = { platform: 'win32', defaultId: null, defaultSource: null, probed: [{ source: 'fixture', detail: '0 项' }], browsers: [] };
   check('X-8 分发依据住在环境表单，browser.js 转出的即探测层同一函数（同源 + 居住地）',
-    br.engineOf === det.engineOf && env.pickLauncher === det.pickLauncher, Object.keys(det).slice(0, 6).join(','));
+    br.engineOf === det.engineOf
+    && typeof env.pickLauncher === 'function' && typeof br.openPlan === 'function'
+    && [null, 'c:\\ff\\firefox.exe', 'c:\\gone\\x.exe'].every((pref) => agreeOn(twoWin, pref))
+    && agreeOn(noneWin, null),
+    Object.keys(det).slice(0, 6).join(','));
 
   // 平台矩阵压成 2 条（原 4+4+2 条）：调度器形态（win32 无可信调度器）+ 声明面 + URL 闸门。
   const cprof = src('platform', 'os', 'index.js').capabilityProfile;
@@ -366,6 +389,11 @@ const det = br.detector;
     defaultId: null, defaultSource: null, probed: [{ source: 'fixture', detail: '2 项' }],
   });
   const saved = { home: process.env.DSH_SUPERVISOR_HOME, bound: Object.assign({}, env.bind()) };
+  // 「能力矩阵未注入」这一态必须在本条里**显式造出来**，不能靠加载顺序碰运气：本文件上半部为取
+  //   capabilityProfile 已经 require 了 platform/os/index.js，装配期的 environment.bind({ capabilities })
+  //   随之生效（门面 → 表单的单向注入，见 index.js:97）。这里先摘掉它，测完再把真注入装回去 ——
+  //   否则「未绑定」这一档根本没被测过，测的只是「测试自己没注过」。
+  env.bind({ capabilities: undefined });
   const f1 = env.form({ force: true, inventory: fixtureInv(), now: () => 111 });
   // 原 FKEYS「表单字段集精确值」断言按裁定删除（私有形状，加一个字段就红）；保留的是「结论必须带留痕」这条真判据。
   check('X-12 每条结论带留痕来源且分发结论随行（section/source/detail 成对，pick 是后续动作的唯一依据）；候选行经规整后交面板与选路共用（engine 恒有值、isDefault 标定、baseArgs 恒数组）；能力矩阵未注入不冒充档位',
@@ -375,6 +403,16 @@ const det = br.detector;
     && f1.browsers.every((b) => b.isDefault === false)
     && f1.capabilities === null && /未绑定能力矩阵/.test(JSON.stringify(f1.probed)),
     JSON.stringify([f1.pick, f1.probed.map((p) => p.section)]));
+  // 反向（与上一条同一判据的另一半）：真注入即如实转出 —— 表单报的档位就是注入的那一份，不吞、不自造，
+  //   并把它标进留痕（面板读的就是这一行）。上一条若无此半部，「未绑定」与「恒 null」就分不开了。
+  env.bind({ capabilities: () => ({ platform: 'fixture', openBrowser: false }) });
+  const fCap = env.form({ force: true, inventory: fixtureInv(), now: () => 112 });
+  check('X-12 能力矩阵经装配期注入即如实转出（报的就是注入的那一份，不吞也不自造第二套档位）',
+    !!fCap.capabilities && fCap.capabilities.openBrowser === false
+    && fCap.sections.capabilities.state === 'ok' && fCap.sections.capabilities.openBrowser === false
+    && /openBrowser=false/.test(JSON.stringify(fCap.probed)) && !/未绑定能力矩阵/.test(JSON.stringify(fCap.probed)),
+    JSON.stringify(fCap.probed.filter((p) => p.section === 'capabilities')));
+  env.bind({ capabilities: saved.bound.capabilities });
   // 偏好的判据住在表单：写入口可以有很多个，判据只能有一个。
   const cp = (v) => env.checkPreference(v, f1);
   check('X-12 偏好判据：命中候选=可写、空值/非字符串=清除、非候选=拒写并给一句话与候选表（不猜意图）',

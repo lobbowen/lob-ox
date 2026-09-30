@@ -207,9 +207,16 @@ jobs:
           #
           # monorepo：本步 cwd = shell/src-tauri（defaults=shell + 步骤级覆盖），
           #   故 `tests/*.rs` 仍正确枚举到 **壳的** 测试目录 —— 枚举逻辑无需改动即成立。
-          #   现状：枚举结果为空（tests/ 下只剩 updater_artifacts.rs），命令退化为 `--bins`；
-          #   空 TARGETS 不会报错，将来把门禁文件放回 shell/src-tauri/tests/ 即自动恢复纳入。
-          TARGETS=$(ls tests/*.rs | sed 's#tests/##; s#\.rs$##' | grep -v '^updater_artifacts$' | sed 's/^/--test /' | tr '\n' ' ')
+          #   现状：枚举结果为空（tests/ 下只剩 updater_artifacts.rs），命令退化为 `--bins`。
+          #
+          # 🔴 2026-10-01 修复（CI 首跑实测）：原文写着「空 TARGETS 不会报错」是**错的**。
+          #   本步带 `set -o pipefail`，且 runner 的 bash 本身带 `-e`。当 tests/ 下只剩
+          #   `updater_artifacts.rs` 时，`grep -v '^updater_artifacts$'` **一行都不匹配 ⇒ 退出码 1**
+          #   ⇒ 该赋值语句的退出码即 1 ⇒ `-e` 直接终止脚本 ⇒ `echo` 与 `cargo test` 从未执行
+          #   （实测症状：本步 8 毫秒失败、零输出，四平台一致）。
+          #   以前 tests/ 里有一批门禁文件，grep 总有输出（退出 0），把这个陷阱**掩盖了**；
+          #   那批文本断言测试移出仓库后它才现形。`|| true` 让「空枚举」真正成为合法结果。
+          TARGETS=$(ls tests/*.rs 2>/dev/null | sed 's#tests/##; s#\.rs$##' | grep -v '^updater_artifacts$' | sed 's/^/--test /' | tr '\n' ' ' || true)
           echo "CI 将执行的 test target: ${TARGETS}"
           #   2026-09-22（1.2.2 发布链实测）：默认 fail-fast 下，19 个 target 里第一个红就中止，
           #   于是**一轮 CI 只暴露一个 target 的问题** —— 本轮连续三轮因此各多烧一次四平台构建。
@@ -531,7 +538,11 @@ jobs:
           [ -n "$A_TAG" ] || { echo "::error::找不到内容与本次（${GITHUB_SHA}）不同的已发布版本可作 A；跳过的候选:${SKIPPED:- 无}"; exit 1; }
           gh release download "$A_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             --pattern "${{ matrix.pkg_glob }}" --dir "$RUNNER_TEMP/pkgs/a"
-          A_FILE=$(find "$RUNNER_TEMP/pkgs/a" -type f | head -1)
+          # 🔴 2026-10-01：`|| true` 是必须的，不是放宽校验 ——
+          #   本步带 `set -euo pipefail`，若 find 因目录不存在而失败，赋值语句会**当场终止脚本**，
+          #   紧跟着那段为「找不到资产」精心写的 ::error:: 提示**永远不会打印**（与「测试」步骤同类的陷阱）。
+          #   容错后由下面的 if [ -z ] 守卫如实报错，语义不变、可排障。
+          A_FILE=$(find "$RUNNER_TEMP/pkgs/a" -type f 2>/dev/null | head -1 || true)
           if [ -z "$A_FILE" ]; then
             echo "::error::$A_TAG 的 Release 里没有匹配 ${{ matrix.pkg_glob }} 的资产"
             gh release view "$A_TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name'
@@ -557,7 +568,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          B=$(find "$GITHUB_WORKSPACE/shell/pkgs/b" -type f -name "${{ matrix.pkg_glob }}" | head -1)
+          # 同上：`|| true` 保证「找不到文件」时能走到下面的 ::error:: 守卫（而不是被 pipefail 静默终止）。
+          B=$(find "$GITHUB_WORKSPACE/shell/pkgs/b" -type f -name "${{ matrix.pkg_glob }}" 2>/dev/null | head -1 || true)
           if [ -z "$B" ]; then
             echo "::error::本次产物里没有 ${{ matrix.pkg_glob }}，实际文件如下"
             find "$GITHUB_WORKSPACE/shell/pkgs/b" -type f | head -40
