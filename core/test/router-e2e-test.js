@@ -21,6 +21,9 @@
 // 前置装置（D8 依赖，改动前先读）：本文件反代账号用 PROXY_OK_KEY——dry-run 反代按 Key 派生配额，
 //   满额 Key 会让账号被正确冻结、实例永不拉起，D8 的 proxy 段即不可达（详见该常量处注释）。
 //   另：D11 的 proxy 段 owner 是 'proxy:<账号 keyId>'（不是供应商 id），判据据此收紧，不留空判据。
+// E 段（装配期端口账本）锁的是**两个不同根因**、各判一次，不得合并理解（详见该段注释）：
+//   E1a = 池内端口自愈登记（写口必须是 allocateMark；registerUser 的动态保留池守卫会拒绝 providerApi 池内号）；
+//   E1b/E2 = 装配顺序（ports.configureFile 必须先于 RouterService 构造）。两者改前各自红、改后各自绿。
 
 const http = require('node:http');
 const path = require('node:path');
@@ -340,6 +343,79 @@ const up = http.createServer((q, s) => {
     const leaked = owners.filter((o) => o.startsWith('proxy:') || o.startsWith('providerApi:' + proxyPid));
     check('D11 删除供应商后其端口登记已释放（无泄漏）', r.code === 200 && leaked.length === 0 && !owners.some((o) => o.startsWith('system:')), r.code + ' recs=' + pv.length + ' leaked=' + leaked.length + ' owners=' + JSON.stringify(owners));
   }
+  // -------- E. 装配期端口账本：自愈写口（allocateMark）与顺序（configureFile 先于构造）各判一次 --------
+  // 本缺陷有两个可独立观测的根因（D8 的 CI 现场 recs=1 proxy=1 api=0 是其放大面，见 _understanding/CI-FIX-router.md ⑥.2）：
+  //   根因① 自愈写口用错 API —— 装配期按 providers.json 的持久化 apiPort 补登记（src/domains/router/index.js:46-47）。
+  //     旧写口 registerUser 带「动态保留池」守卫（src/platform/service/ports/pool.js:113-114 reservedPoolOf），而
+  //     providerApi 段 24000-25999（src/domains/router/port-segments.js:12）本身就在该保留池内 ⇒ **池内号必抛**，
+  //     调用点又是 try{}catch{} ⇒ 池内号在任何文件里都写不进去（CI 的 24000/24001 正是此类 = api=0 的直接原因）。
+  //     修法：allocateMark（pool.js:198-205，无池守卫；语义 =「显式登记已分配端口（复用持久化端口时调用）」），
+  //     先例 app/control/registry.js:217、domains/relay/ports.js:46。这正是「重启后复用持久化 apiPort」的语义。
+  //   根因② 顺序 —— 该写口落在「当时仍生效的旧账」上（domains.js 上一轮已修：configureFile 提到构造之前；
+  //     注册表是进程级单例、「最后一个 configureFile 生效」，pool.js:40-46）。E2 即此根因的牙齿。
+  // 判据按两种值域各判一次（缺一不足以分别锁定两个根因）：
+  //   R_IN  池内号（24001，CI 现场真实号）：只有写口修对才可能出现在活动账本（旧写口下必红 = 根因①的牙齿）。
+  //   R_OUT 池外号（26001，不在 managed 20000-23999 / providerApi 24000-25999 任何已申报池内）：两代写口都接受
+  //         ⇒ 它只判根因②（顺序对了才落进活动账本，且旧账不得被写）。
+  // 复现前提：自定义 stateFile ⇒ 活动账本（dirname(stateFile)/ports.json）与装配前生效的账本不是同一本；rPrev
+  //   显式扮演「装配前那一本」，绝不落到真实默认状态根（生产里它就是默认状态根 —— 那才是"串账"）。
+  {
+    const { shared: sharedPorts } = require(path.join(ROOT, 'src', 'platform', 'service', 'ports'));
+    require(path.join(ROOT, 'src', 'domains', 'router', 'port-segments')); // 段/池申报（require 即申报、幂等）：R_IN 的「池内」语义依赖它
+    const rSw = path.join(TMP, 'restart');
+    fs.mkdirSync(rSw, { recursive: true });
+    const rPrev = path.join(TMP, 'restart-prev', 'ports.json');
+    sharedPorts.configureFile(rPrev); // 扮演装配前进程内仍生效的旧账（生产=默认状态根；CI=上一段用例的文件）
+    // 池基线从代码申报取（不写字面量）：池基线漂移时判据不会静默失效
+    const rRange = sharedPorts.rangeOf('providerApi');
+    const R_IN = rRange.base + 1;                    // 池内（24001）
+    const R_OUT = rRange.base + rRange.count + 1;    // 池外（26001）：构造期 configurePools 尚未生效（domains.js:39 在构造之后）
+    // 上一轮落盘的持久状态：两个供应商均已激活、apiPort 已定 —— 这正是重启后装配读到的 providers.json。
+    const rProv = (id, port) => ({
+      id, name: id, kind: 'direct', baseUrl: 'http://127.0.0.1:1/v1',
+      apiPort: port, activated: true, plan: null, pricing: {}, presetId: null,
+      adapter: { quota: { type: 'window-usage', usagePath: '/usage' } },
+      proxyAppId: null, proxyRunning: false, selectedAccountKeyId: null, activeAccountKeyId: null,
+      accounts: [], instances: [],
+    });
+    fs.writeFileSync(path.join(rSw, 'providers.json'), JSON.stringify({ providers: [
+      rProv('prov-restart-in', R_IN), rProv('prov-restart-out', R_OUT),
+    ] }));
+    const rSup = new Supervisor({
+      command: ['node', '-e', '0'],
+      healthUrl: 'http://127.0.0.1:31940/',
+      apiHost: '127.0.0.1', apiPort: 31941,
+      stateFile: path.join(rSw, 'state.json'),
+      logFile: path.join(rSw, 'events.log'), supervisorLogFile: path.join(rSw, 'sup.log'),
+      dshLogFile: path.join(rSw, 'dsh.log'), upgradeLogFile: path.join(rSw, 'up.log'),
+      distDir: path.join(rSw, 'dist'),
+      // 刻意**不**覆盖 portPools：池基线保持代码申报值，R_IN 才是真池内号（覆盖会把 24000 段挪走，
+      // 判据就失去根因①的牙齿 —— 上一轮正是靠覆盖把 apiPort 挪到池外才只判得了顺序）。
+    });
+    const rRecs = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')).records || []; } catch { return []; } };
+    const rLoaded = (rSup.router.providers || []).map((p) => ({ id: p.id, apiPort: p.apiPort, activated: p.activated }));
+    const rActive = rRecs(path.join(rSw, 'ports.json'));
+    const rOld = rRecs(rPrev);
+    // 前置自证：两个持久化 apiPort 必须真的被加载，否则下面三条会因"没有供应商可补登记"而空转成绿。
+    check('E0 重启装配读到上一轮的供应商与 apiPort（前置自证，防判据空转）',
+      rLoaded.length === 2 && rLoaded.some((x) => x.apiPort === R_IN) && rLoaded.some((x) => x.apiPort === R_OUT),
+      'R_IN=' + R_IN + ' R_OUT=' + R_OUT + ' ' + JSON.stringify(rLoaded));
+    // 根因① 的牙齿：池内号。旧写口 registerUser 会被保留池守卫拒绝（pool.js:113-114）且异常被吞 ⇒ 此格必红。
+    check('E1a 池内持久化 apiPort 经自愈写口落进活动账本（allocateMark；旧写口下必红）',
+      rActive.some((x) => x.port === R_IN && x.owner === 'providerApi:prov-restart-in' && x.role === 'providerApi')
+      && sharedPorts.byOwner('providerApi:prov-restart-in') === R_IN,
+      'active=' + JSON.stringify(rActive.map((x) => x.port + ':' + x.owner)));
+    // 根因② 的牙齿：池外号两代写口都接受，故它只判「顺序」—— 顺序错时它会被写进 rPrev 而活动账本为空。
+    check('E1b 池外持久化 apiPort 同样落进活动账本（此格与 E1a 互补：只判顺序，不判写口 API）',
+      rActive.some((x) => x.port === R_OUT && x.owner === 'providerApi:prov-restart-out')
+      && sharedPorts.byOwner('providerApi:prov-restart-out') === R_OUT,
+      'active=' + JSON.stringify(rActive.map((x) => x.port + ':' + x.owner)));
+    // 旧账必须一条记录都没有：顺序错时这里会出现 providerApi: / system: 记录（串账到默认状态根/他人账本）。
+    check('E2 装配前仍生效的旧账完全未被写入（不向默认状态根/他人账本串账）',
+      rOld.length === 0,
+      'prev=' + JSON.stringify(rOld.map((x) => x.port + ':' + x.owner)));
+  }
+
   server.close();
   up.close();
   const failed = results.filter((x) => !x);

@@ -51,9 +51,19 @@ pub const SHELL_ARTIFACT_NPM_CDNS: [&str; 2] = [
     "https://cdn.jsdelivr.net/npm",
 ];
 
-/// 安装包的另一类源：CI 挂上 GitHub Release 的同名安装程序（`v<ver>/<文件名>`）。
+/// 安装包的另一类源：CI 挂上 GitHub Release 的同名安装程序（`shell-<ver>/<文件名>`）。
+/// ⚠ tag 段随 2026-10-01 的命名空间改造由 `v<ver>` 改为 `shell-<ver>`：壳与内核各自独立版本，
+///   共用 `v*` 会让任一 tag 同时触发两条产线，故壳的 tag 现为 `shell-<壳版本>`（不带 `v` 前缀，
+///   与 tauri.conf.json#version 直接对账）。本函数拼的是**真实 tag 路径**，不跟着改就会 404
+///   （且因为只是候选源之一，失败是静默换源，不会红）。
+/// ⚠ 2026-10-01 合仓配套修正：**发布仓已变更** —— 由合仓前的
+///   `lobbowen/dsh-supervisor-launcher` 改为合仓后的 `lobbowen/lob-ox`。
+///   合仓后两条产线同仓发布，壳的 Release 就建在 `lobbowen/lob-ox` 上；沿用旧仓 slug
+///   ⇒ 这一候选源大概率 404，而它是**候选源之一、失败只是静默换到下一个源、不会红**
+///   （这正是最危险的一类静默失败：长期无声失效，日志里也只是一条「换源」）。故 owner/repo
+///   与上面的 tag 段必须同时对上真实发布仓。
 pub const SHELL_ARTIFACT_RELEASE_BASE: &str =
-    "https://github.com/lobbowen/dsh-supervisor-launcher/releases/download";
+    "https://github.com/lobbowen/lob-ox/releases/download";
 
 /// 除清单声明的那一个 URL 外，安装包还该按序尝试哪些源（声明源永远第一）。
 /// Tauri 清单每平台只有一个产物 URL，插件下载阶段不会自己换源；Update::download_url 是公开字段，壳可改写它，
@@ -77,7 +87,7 @@ pub fn artifact_candidates(declared: &tauri::Url, ver: &str) -> Vec<tauri::Url> 
         }
     }
     if !ver.is_empty() && ARCH_TOKENS.iter().any(|a| file.contains(a)) {
-        add(format!("{}/v{}/{}", SHELL_ARTIFACT_RELEASE_BASE, ver, file));
+        add(format!("{}/shell-{}/{}", SHELL_ARTIFACT_RELEASE_BASE, ver, file));
     }
     out
 }
@@ -632,8 +642,8 @@ mod tests {
         let all = strs(&artifact_candidates(&d, "1.2.0"));
         assert!(all.iter().any(|u| u.starts_with("https://cdn.jsdelivr.net/npm/@dsh-sup/shell-win-x64@1.2.0/")),
             "jsdelivr 的 npm 路径要在（它对 .exe 会给 403，换下一个源是预期）: {:?}", all);
-        assert!(all.contains(&"https://github.com/lobbowen/dsh-supervisor-launcher/releases/download/v1.2.0/dsh-supervisor_1.2.0_x64-setup.exe".to_string()),
-            "文件名带架构 → 同名 Release 资产要在: {:?}", all);
+        assert!(all.contains(&"https://github.com/lobbowen/lob-ox/releases/download/shell-1.2.0/dsh-supervisor_1.2.0_x64-setup.exe".to_string()),
+            "文件名带架构 → 同名 Release 资产要在（owner/repo = 合仓后的发布仓 lobbowen/lob-ox）: {:?}", all);
         // 实测取不到安装包字节的源，一律不许回到表里（判据与理由见已归档的 SHELL-UPDATE-CHANNEL-VERIFICATION.md，
         // 现存 C:\work\_md_backup）。
         for banned in [

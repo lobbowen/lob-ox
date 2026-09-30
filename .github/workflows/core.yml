@@ -1,7 +1,8 @@
 name: core-build-release
 
 # 内核产线（monorepo `lobox`：`core/` = 原内核仓 dsh-supervisor-core，`shell/` = 原桌面壳仓）。
-# tag v<内核版本> → verify + build:launcher + npm 子包发布；壳的构建/冒烟/安装程序归壳自己的工作流。
+# tag `core-<内核版本>`（例 core-0.1.6-BETA.20）→ verify + build:launcher + npm 子包发布；
+#   壳的构建/冒烟/安装程序归壳自己的工作流，其 tag 命名空间是 `shell-<壳版本>`（两者互不触发，见 `on.push`）。
 #
 # 硬标准（2026-09-13，不可协商）：**所有平台构建与发布必须经 GitHub CI 完成；本地不得产生发布产物。**
 #   四平台全部由 CI 产出（ubuntu-22.04 / windows-latest / macos-latest / macos-14）。
@@ -14,7 +15,20 @@ name: core-build-release
 on:
   push:
     tags:
-      - 'v*'
+      # ── tag 命名空间（2026-10-01 定案，用户拍板）──
+      # 内核与壳**各自独立版本号**（core/package.json ↔ shell/src-tauri/tauri.conf.json），
+      #   而 **path 过滤对 tag 推送不生效**（见下方 `paths:` 的说明）⇒ 两条产线若共用 `v*`，
+      #   **任一 tag 都会同时触发内核与壳两条完整产线**（四平台构建 + 发布，已实测）。
+      #   故按**组件前缀**分命名空间：内核 = `core-<内核版本>`，壳 = `shell-<壳版本>`。
+      # **不带 `v` 前缀**（用户明确要求）：`core-` 之后就是 `core/package.json#version` 的字面值，
+      #   于是 tag 与组件版本**可直接对账**（`core-0.1.6-BETA.20` ↔ package.json "0.1.6-BETA.20"）。
+      #   ⚠ 对账现状：**无人校验**。本文件没有任何一步把 tag 名与 package.json#version 比对 ——
+      #     precheck / build / release 全都只读 package.json，tag 仅作为「是否发布」的开关
+      #     （下面 3 处 `startsWith(github.ref, 'refs/tags/core-')`）。
+      #     即：推 `core-0.1.6-BETA.21` 而 package.json 仍是 0.1.6-BETA.20 时，CI 会照发 BETA.20
+      #     且**全绿**；这次改命名空间只是让「一行 if 即可对账」**成为可能**，并未实现它
+      #     —— 被拆掉的「版本三处一致」文本门禁留下的空缺**依然空着**。
+      - 'core-*'
     # P1-B（2026-09-12）：日常推送也要跑回归 —— 见下方 `test` job 的说明。
     # 2026-10-01 合仓修正：原为 `master`，但本仓默认分支是 `main`。
     #   实测证据：core.yml 推上去后 **一次 run 都没有**（Actions 列表为空），而同级 shell.yml 立刻跑出 #1
@@ -25,8 +39,8 @@ on:
     # 只在 `core/**` 或本工作流文件变化时触发：否则壳的一次改动会连带跑内核四平台的完整构建/发布产线。
     # ⚠ 事实（GitHub 文档「Events that trigger workflows」→ push）：**path 过滤对 tag 推送不生效**，
     #   tag 推送恒定触发本工作流 —— 这正是 release 需要的（tag 必须发，无论改了哪些目录）。
-    #   ⚠ 合仓冲突（待裁决·已实测）：壳工作流 shell.yml 的 push 过滤同为 `tags: ['v*']` ⇒ 现在**任一
-    #   个 v* tag 会同时触发内核与壳两条产线**；与壳分开命名空间（如 core-vX.Y.Z）可根治，本批未改。
+    #   也正因为这条事实，`tags:` 的命名空间必须按组件分开：`paths:` 拦不住 tag，只有 tag 名本身能拦。
+    #   ⇒ 本文件只认 `core-*`，shell.yml 只认 `shell-*`，两条产线不再互相触发（2026-10-01 定案）。
     paths:
       - 'core/**'
       - '.github/workflows/core.yml'
@@ -40,7 +54,7 @@ on:
       # published-smoke 的目标版本。留空 = 取 core/package.json#version（tag 运行本就走该单源）。
       #   仅手动补跑「发布后冒烟」时填一个已发布的 <ver> 用；不影响 build/test/precheck 任何 job。
       ver:
-        description: '发布后冒烟目标版本（留空则取 core/package.json#version）'
+        description: '发布后冒烟目标版本（须为**裸版本**，如 0.1.6-BETA.20；不要写 tag＝不要带 core-/v 前缀。留空则取 core/package.json#version）'
         required: false
         default: ''
 
@@ -180,6 +194,62 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
+
+      # ── tag ↔ 组件版本对账（本次新增；补已拆门禁留下的空缺）──
+      # 补的是什么空缺（与文件头 `tags:` 段「⚠ 对账现状：无人校验」同一件事）：2026-10 门禁整体
+      #   拆除后，本文件**没有任何一步**比对 tag 名与 package.json#version —— precheck / build /
+      #   release 全都只读 package.json，tag 仅作「是否发布」的开关（3 处
+      #   `startsWith(github.ref, 'refs/tags/core-')`）⇒ 推 core-0.1.6-BETA.21 而 package.json 仍是
+      #   0.1.6-BETA.20 时，CI 照发 BETA.20 且**全绿**（版本号撒谎而无人发现）。本步把这层对账补回来。
+      #   （同一批的另一半在 shell.yml 的 `version` job；两道门禁原为「版本三处一致」文本门禁，
+      #   已随 2026-10 的门禁拆除移出本仓。）
+      # 覆盖范围（如实登记，不夸大）：**只**覆盖「tag 名 ↔ core/package.json#version 逐字一致」。
+      #   **不**覆盖：
+      #     · package.json ↔ package-lock.json 的多源一致 —— 本仓既有的 `verify:versions`
+      #       （= release/scripts/verify-versions.js --core）只校验 package.json 单源的**格式**
+      #       （semver 形态正则）；它**确实在 CI 里跑**（cwd=core/ 的 build 矩阵腿经
+      #       `release/scripts/ci-core.sh` 的 [0/5] 步调用 `npm run verify:versions`），
+      #       但它既不比对 package-lock.json 的两个 version 字段、也不看 tag
+      #       （实测：core/ 下除 bump.sh 与 package.json#scripts 外，无任何脚本或测试读 package-lock 的 version）
+      #       ⇒ 多源漂移在这个仓库里仍然无人执法，本步不改变这个现状；
+      #     · registry 上已发布产物的版本 —— 那是下面 probe 步与 published-smoke job 的职责。
+      # 仅 tag 事件生效：非 tag 的 push / PR / workflow_dispatch 下本步被 GitHub 记成 **skipped**
+      #   （不是失败）⇒ 日常回归不因它变红。
+      # 位置：紧随 checkout + setup-node（本步要用 node 读 package.json，故必须排在其后），
+      #   但**早于** probe 步（要打 npm registry 网络）与 build / release ⇒ 本 job 的最早失败点。
+      - name: tag ↔ 组件版本对账（仅 tag；不一致即失败）
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          # 与 github.ref_name 同一事实源；显式经 env 传入，使「读的是哪个表达式」在文件里可见。
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          # ⚠ 本仓既有教训：本步带 -e（runner 的 bash 默认如此，下面再显式声明），
+          #   `VAR=$(cmd)` 非零会**直接终止脚本**，连下面的 ::error:: 都打不出来。
+          #   故取值类赋值一律带 `|| { ...exit 1; }` 兜底：取值失败也要留下可排障的文案。
+          set -euo pipefail
+          # `:-` 兜底：即便 TAG_NAME 未定义也不让 -u 以 unbound variable 中止（本步必须给出自己的文案）。
+          TAG="${TAG_NAME:-}"
+          [ -n "$TAG" ] || { echo "::error::tag 事件下 github.ref_name 为空，无法完成对账"; exit 1; }
+          case "$TAG" in
+            core-*) ;;
+            *) echo "::error::tag 名 ${TAG} 不带 core- 前缀（本工作流只认 core-<内核版本>，见文件头 tags: 段）"; exit 1 ;;
+          esac
+          # 前缀剥离：命名空间不带 `v`（2026-10-01 定案），`core-` 之后就是 package.json#version
+          #   的**字面值**。⚠ 刻意不做 `${...#v}` 的历史兼容剥离：写成 core-v0.1.6-BETA.20 应在这里
+          #   **如实判红**，否则命名空间漂移会静默通过。
+          VER_TAG="${TAG#core-}"
+          # 本步 cwd = core/（workflow 级 defaults.run.working-directory）⇒ ./package.json = core/package.json。
+          VER_PKG="$(node -p "require('./package.json').version")" || {
+            echo "::error::读取 core/package.json#version 失败（node -p 非零）；tag=${TAG}，对账无法完成"; exit 1; }
+          echo "  tag          = $TAG"
+          echo "  tag 版本     = $VER_TAG"
+          echo "  组件 version = $VER_PKG（来源：core/package.json#version）"
+          if [ "$VER_TAG" != "$VER_PKG" ]; then
+            echo "::error::tag=${TAG}（版本 ${VER_TAG}） 组件 version=${VER_PKG}（core/package.json#version） 两者必须一致（发布单源）"
+            exit 1
+          fi
+          echo "  ✓ 对账通过：tag=${TAG} 与 core/package.json#version=${VER_PKG} 逐字一致"
 
       - name: 探测该版本是否已全部发布
         id: probe
@@ -326,7 +396,7 @@ jobs:
       # ci-core.sh --publish-only：只跑 [5/5] 真发布，复用同 workspace 上一步的构建产物
       #   （缺产物时 publish-core.sh 的存在性检查即闸）。
       - name: 内核发布（tag 触发 · NPM_TOKEN 唯一持有步）
-        if: startsWith(github.ref, 'refs/tags/v') && needs.precheck.outputs.need_build == 'true'
+        if: startsWith(github.ref, 'refs/tags/core-') && needs.precheck.outputs.need_build == 'true'
         shell: bash
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -361,7 +431,7 @@ jobs:
   release:
     needs: [precheck, build]
     # 需要 build 真正跑过（跳过 build 时没有 artifact 可汇总，故不挂 Release）。
-    if: startsWith(github.ref, 'refs/tags/v') && needs.precheck.outputs.need_build == 'true'
+    if: startsWith(github.ref, 'refs/tags/core-') && needs.precheck.outputs.need_build == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write   # 挂 Release 需 GITHUB_TOKEN contents:write
@@ -420,7 +490,7 @@ jobs:
   #   `./package.json` 均按 core/ 解析；RUNNER_TEMP 是绝对路径，不受影响。）
   published-smoke:
     needs: [precheck, build, release]
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success')) }}
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/core-') && needs.release.result == 'success')) }}
     strategy:
       fail-fast: false
       matrix:

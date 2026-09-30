@@ -17,12 +17,25 @@ name: dsh-shell-build
 #   漏改 ② ③ 的后果不是编译报错，而是**静默找错目录**：upload-artifact 只 warn 然后上传 0 个文件、
 #   缓存键永远 miss、验收步骤报「找不到产物」—— 排障成本远高于当场写对。
 #
-# 触发不变量：push main / v* tag / PR 均跑**完整构建矩阵**（不设轻量替代、不设 tag 守卫）。
+# 触发不变量：push main / `shell-*` tag / PR 均跑**完整构建矩阵**（不设轻量替代、不设 tag 守卫）。
 # monorepo 新增：**路径过滤** —— 只在 shell/** 或本工作流自身变化时触发；内核（core/**）改动不再
 #   触发壳的四平台打包（一次矩阵 = 3 OS × 4 平台 + 签名 + 安装冒烟）。
 on:
   push:
-    tags: ['v*']
+    # ── tag 命名空间（2026-10-01 定案，用户拍板）──
+    # 壳与内核**各自独立版本**（壳 = shell/src-tauri/tauri.conf.json，内核 = core/package.json），
+    #   而 **path 过滤对 tag 推送不生效**（GitHub 文档「Events that trigger workflows」→ push；
+    #   亦见下方 `paths:` 的说明）⇒ 两条产线若共用 `v*`，**任一 tag 都会同时触发壳的四平台打包
+    #   （3 OS × 4 平台 + 签名 + 安装冒烟）与内核的完整产线**（已实测）。
+    #   故按**组件前缀**分命名空间：壳 = `shell-<壳版本>`（例 shell-1.2.10），内核 = `core-<内核版本>`。
+    # **不带 `v` 前缀**（用户明确要求）：`shell-` 之后就是 tauri.conf.json#version 的字面值，
+    #   于是 tag 与组件版本**可直接对账**。
+    #   ⚠ 对账现状：**无人校验**。本工作流的 `version` job 只读 tauri.conf.json，tag 仅被当作
+    #     「是否发布」的开关（下面 5 处 `startsWith(github.ref, 'refs/tags/shell-')`）；
+    #     没有任何一步把 tag 名与 tauri.conf.json#version 比对 ⇒ 推 `shell-1.2.11` 而
+    #     tauri.conf.json 仍是 1.2.10 时，CI 会照发 1.2.10 且**全绿**（bump-shell.sh 仍同步改三处
+    #     版本，故漂移只由手工改动引入）。命名空间只让对账**成为可能**，并未实现它。
+    tags: ['shell-*']
     # 日常 push main 跑**完整构建**（含 mac/win bundle 与全部 cargo 测试）。
     branches: [main]
     # monorepo：内核改动不触发壳的打包。
@@ -41,7 +54,7 @@ on:
   workflow_dispatch:
     inputs:
       ver:
-        description: '要复核的已发布版本（如 1.2.6，留空 = 用当前仓库版本）'
+        description: '要复核的已发布版本（如 1.2.6；也可直接粘 tag：shell-1.2.6 或老形态 v1.2.6。留空 = 用当前仓库版本）'
         required: false
         default: ''
 
@@ -80,6 +93,72 @@ jobs:
       ver: ${{ steps.v.outputs.ver }}
     steps:
       - uses: actions/checkout@v4
+      # ── tag ↔ 组件版本对账（本次新增；补已拆门禁留下的空缺）──
+      # 补的是什么空缺：下面那段说明登记的两道已拆文本门禁之一 —— scripts/verify-shell-versions.js
+      #   （壳版本三处互锁：Cargo.toml = tauri.conf.json = Cargo.lock）随 2026-10 的门禁拆除移出本仓。
+      #   它一走，本工作流的 tag 就**只剩「是否发布」的开关语义** —— 实测共 7 处把 tag 当开关用：
+      #   `startsWith(github.ref, 'refs/tags/shell-')` 5 处（build 2 / publish 1 /
+      #   published-channel-smoke 2）＋ `[[ "${GITHUB_REF}" == refs/tags/shell-* ]]` 2 处（build 步内），
+      #   **没有任何一步**比对 tag 名与组件版本 ⇒ 推 `shell-1.2.11` 而 tauri.conf.json 仍是 1.2.10 时，
+      #   CI 会照发 1.2.10 且**全绿**（bump-shell.sh 仍同步改三处，故漂移只由手工改动引入）。
+      #   本步按新的 `shell-<ver>` 命名空间补回「tag 名 ↔ 组件版本」这一层对账。
+      # 版本源 = **shell/src-tauri/tauri.conf.json#version**（本步 cwd=shell/，由 workflow 级
+      #   defaults 给定 ⇒ 下面 './src-tauri/tauri.conf.json' 一字不改即指向该文件）：
+      #   它是本工作流**既有的、且被发布流程实际消费**的那个版本源 —— 本 job 的 `v` 步由它产出
+      #   `steps.v.outputs.ver`，下游 assemble-shell-pkg.js --ver、make-manifest.js --ver、
+      #   shell-release 清单包与各平台子包的 npm version、install-smoke 的 VerB 全部取自该 output。
+      #   （壳侧另有 Cargo.toml#package.version 与 Cargo.lock 中 dsh-supervisor-gui 的 version
+      #   两处同值版本号，见下面「不覆盖」一条 —— 本步**不**改用它俩。）
+      # 覆盖范围（如实登记，不夸大）：**只**覆盖「tag 名 ↔ tauri.conf.json#version 逐字一致」。
+      #   **不覆盖**多源一致（Cargo.toml / Cargo.lock / tauri.conf.json 三处互锁；原
+      #   verify-shell-versions.js 的职责，已随门禁拆除移出本仓，bump-shell.sh 仍同步改这三处）：
+      #     · Cargo.toml ↔ tauri.conf.json 的漂移**部分**被既有行为断言捕获 ——
+      #       ci/install-smoke.sh 断言装出来的二进制自报版本 `shell_version=`（源码里是
+      #       env!("CARGO_PKG_VERSION") = Cargo.toml）等于 needs.version.outputs.ver（= tauri.conf.json），
+      #       并断言包管理器侧元数据同值（实测 install-smoke.sh 第 33/37 行；Windows 侧同构）。
+      #       ⚠ 但那条只在 **tag 运行且 has_a=true**（自本产线第二个 release 起）才执行，
+      #         首个版本与日常 push/PR 都不覆盖它。
+      #     · Cargo.lock 里 dsh-supervisor-gui 的 version **无人校验**（cargo 构建时会自行改写它）。
+      #   本步刻意**不**顺带做这三处之间的文本比对 —— 要重新校验请用真行为断言（读产物元数据），
+      #   这正是当初拆掉那批门禁的理由。
+      # 仅 tag 事件生效：非 tag 的 push main / PR / workflow_dispatch 下本步被 GitHub 记成
+      #   **skipped**（不是失败）⇒ 日常回归不因它变红。
+      # 位置：job 内 checkout 之后、`v` 步之前 ⇒ 本 job（= 全工作流，build/publish 都 needs 本 job）
+      #   的最早失败点：版本撒谎时连一次四平台 bundle 都不会被启动。
+      - name: tag ↔ 组件版本对账（仅 tag；不一致即失败）
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          # 与 github.ref_name 同一事实源；显式经 env 传入，使「读的是哪个表达式」在文件里可见。
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          # ⚠ 本仓既有教训（见 install-smoke 的 pick_a 步）：本步带 -e（runner 的 bash 默认如此，
+          #   下面再显式声明），`VAR=$(cmd)` 非零会**直接终止脚本**、::error:: 永不打印
+          #   ⇒ 取值类赋值一律带 `|| { ...exit 1; }` 兜底。
+          set -euo pipefail
+          # `:-` 兜底：即便 TAG_NAME 未定义也不让 -u 以 unbound variable 中止（本步必须给出自己的文案）。
+          TAG="${TAG_NAME:-}"
+          [ -n "$TAG" ] || { echo "::error::tag 事件下 github.ref_name 为空，无法完成对账"; exit 1; }
+          case "$TAG" in
+            shell-*) ;;
+            *) echo "::error::tag 名 ${TAG} 不带 shell- 前缀（本工作流只认 shell-<壳版本>，见文件头 tags: 段）"; exit 1 ;;
+          esac
+          # 前缀剥离：命名空间不带 `v`（2026-10-01 定案），`shell-` 之后就是 tauri.conf.json#version
+          #   的**字面值**。⚠ 刻意不做 `${...#v}` 的历史兼容剥离（本文件 install-smoke / pick_a 的
+          #   A_VER 处**需要**那道剥离，因为 Release 列表里还有改名前的老 `v*` tag；此处不能有：
+          #   老形态 tag 应在这里如实判红，而不是被静默归一后放行）。
+          VER_TAG="${TAG#shell-}"
+          VER_CONF="$(node -p "require('./src-tauri/tauri.conf.json').version")" || {
+            echo "::error::读取 src-tauri/tauri.conf.json#version 失败（node -p 非零）；tag=${TAG}，对账无法完成"; exit 1; }
+          echo "  tag          = $TAG"
+          echo "  tag 版本     = $VER_TAG"
+          echo "  组件 version = $VER_CONF（来源：shell/src-tauri/tauri.conf.json#version）"
+          if [ "$VER_TAG" != "$VER_CONF" ]; then
+            echo "::error::tag=${TAG}（版本 ${VER_TAG}） 组件 version=${VER_CONF}（src-tauri/tauri.conf.json#version） 两者必须一致（发布单源）"
+            exit 1
+          fi
+          echo "  ✓ 对账通过：tag=${TAG} 与 shell/src-tauri/tauri.conf.json#version=${VER_CONF} 逐字一致"
+
       - id: v
         shell: bash
         # 必须用块标量：行内写法中的 \" 会破坏 $( ) 的引号配对，
@@ -383,7 +462,7 @@ jobs:
         run: |
           UPDATER_OFF=""
           if [ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]; then
-            if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            if [[ "${GITHUB_REF}" == refs/tags/shell-* ]]; then
               echo "::error::TAURI_SIGNING_PRIVATE_KEY 未配置 —— tag 发布必须签名（Tauri updater 强制验签）"
               exit 1
             fi
@@ -424,7 +503,7 @@ jobs:
       - name: 组装 npm 包（更新产物 + 签名）
         shell: bash
         run: |
-          REQ_SIG="--require-sig"; [[ "${GITHUB_REF}" == refs/tags/v* ]] || REQ_SIG=""
+          REQ_SIG="--require-sig"; [[ "${GITHUB_REF}" == refs/tags/shell-* ]] || REQ_SIG=""
           node shell-release/assemble-shell-pkg.js             --platform "${{ matrix.artifact }}"             --ver "${{ needs.version.outputs.ver }}"             --bundle-dir src-tauri/target/release/bundle             --out dist/npm-shell ${REQ_SIG}
 
       # ── 产物验收（本地端到端预演的 CI 化）──
@@ -435,7 +514,7 @@ jobs:
       # 这一步失败 = 产物不可用于自动更新 → tag 发布必须早失败，绝不静默发布。
       # monorepo：这也是 tests/ 下唯一保留的集成测试（updater_artifacts）。
       - name: 产物验收（Tauri 同源验签 + 清单契约）
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/shell-')
         shell: bash
         env:
           # 必须绝对路径：本步骤 working-directory=shell/src-tauri，相对路径会解析到 shell/src-tauri/ 下。
@@ -468,7 +547,7 @@ jobs:
 
       - name: Attach installers to GitHub Release（tag 触发时）
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/shell-')
         with:
           # 同 upload-artifact（② 类路径）：action 的文件匹配相对 workspace 根、不受 defaults 影响
           # → 必须逐条带 shell/ 前缀。
@@ -515,18 +594,23 @@ jobs:
       - uses: actions/checkout@v4
 
       # 🔴 2026-10-01（install-smoke #3 实测）：本步必须区分「取不到 A」的两种性质——
-      #   ① **不存在早于本次的发布**（结构性事实，不是缺陷）⇒ ::notice:: + exit 0 + has_a=false，
+      #   ① **本产线不存在早于本次的发布**（结构性事实，不是缺陷）⇒ ::notice:: + exit 0 + has_a=false，
       #      后面三步由各自的 `if: steps.pick_a.outputs.has_a == 'true'` 自动 skip：
-      #   ①a 本仓 release 数 = 0（新仓首次跑 CI）；
-      #   ①b 候选全被跳过，且跳过原因**只有**「与本次同一 commit」——
+      #   ①a 全仓 release 数 = 0（新仓首次跑 CI）；
+      #   ①b 全仓有 release，但**本产线（shell-*）**没有可作 A 的更早发布。两种成因分开报：
+      #       (i) 本产线零 release —— Release 空间是两条产线**共用**的，故此时全仓通常非零；
+      #       (ii) 本产线候选全被跳过，且跳过原因**只有**「与本次同一 commit」——
       #       build job 带 contents: write，tag 上「Attach installers to GitHub Release」先于本 job
       #       （needs: [version, build]）执行，于是首个 tag 的 release 在本步之前就已存在、
-      #       且指向 GITHUB_SHA 本身。此时本仓唯一的已发布版本就是本次 tag 自身，
+      #       且指向 GITHUB_SHA 本身。此时本产线唯一的已发布版本就是本次 tag 自身，
       #       判据本质是「有没有早于本次的发布」而非「有没有 release」⇒ 与 ①a 同等对待；
       #       否则首个版本会撞下面的硬错误分支 ⇒ publish 被挡 ⇒ 首版永远发不出去。
-      #       A→B 升级冒烟自**第二个** release 起生效。
-      #   ② 有 release 且存在解析不到 commit / 资产不匹配的候选 ⇒ 真问题，维持 ::error:: exit 1。
-      #   现状把「有无 release」当判据，于是首个 tag 的 install-smoke 必然红。
+      #       A→B 升级冒烟自本产线**第二个** release 起生效。
+      #   ② 本产线候选里存在解析不到 commit / 资产不匹配的候选 ⇒ 真问题，维持 ::error:: exit 1。
+      # 判据是「有没有**早于本次**的发布」，不是「有没有 release」——缺这一层区分时，
+      #   首个 tag 的 install-smoke 必然红。
+      # 🔴 2026-10-01（本次修复）：候选**先按本产线命名空间过滤**（只认 shell-*）后才做上述判定；
+      #   不属本产线的候选单独计数（SKIPPED_FOREIGN），不算缺陷、不进硬错误分支。
       - id: pick_a
         name: 取 A（上一个已发布版本的安装包）
         shell: bash
@@ -540,10 +624,13 @@ jobs:
           #   只剩形状；更要命的是它刚建出的那一刻资产往往还没传完，拿它当基线只会撞下载失败。
           #   所以按候选指向的 commit 比对，而不是按 ref 名 —— tag 构建里「本次那份」也一并被排除，
           #   无需再单独维护 SELF 这条并列判据。
-          # 跳过原因分两类（决定降级还是硬错误）：
-          #   SKIPPED_SAME = 候选指向的 commit 就是本次 GITHUB_SHA ⇒ 它不算「更早的发布」，
-          #     全为此类时等价于「不存在可作 A 的更早版本」⇒ 可降级 notice；
-          #   SKIPPED_BAD  = 解析不到 commit 之类的真问题 ⇒ 只要存在一个，就必须硬错误。
+          # 候选分四类（决定降级还是硬错误）：
+          #   SKIPPED_FOREIGN = 不属本产线命名空间（只有 shell-* 算本产线）⇒ **不是**缺陷，
+          #     单独计数、绝不混进 SKIPPED_BAD（否则会把「内核刚发的那个版本」误报成「坏候选」直接红）；
+          #   SKIPPED_SAME = 本产线候选指向的 commit 就是本次 GITHUB_SHA ⇒ 它不算「更早的发布」，
+          #     全为此类时等价于「本产线不存在可作 A 的更早版本」⇒ 可降级 notice；
+          #   SKIPPED_BAD  = 本产线候选里解析不到 commit 之类的真问题 ⇒ 只要存在一个，就必须硬错误。
+          SKIPPED_FOREIGN=""
           SKIPPED_SAME=""
           SKIPPED_BAD=""
           A_TAG=""
@@ -557,12 +644,33 @@ jobs:
             echo "::error::查询已发布版本失败（gh release list 退出码 $LIST_RC）；无法判定是否存在可作 A 的版本"
             exit 1
           fi
-          # N = **实际遍历到的候选数**：N=0 即「本仓一个 release 都没有」；
-          # N>0 且 A_TAG 为空时再按跳过原因二分（只有「与本次同 commit」= 无更早版本；
-          # 含「解析不到 commit」= 真问题）。下面据此三分流。
+          # N = 遍历到的 Release 条目总数（**两条产线合计**，即 gh release list 的全部输出）；
+          # N_LOCAL = 其中属本产线命名空间（shell-*）的候选数。两者分开才能如实区分
+          #   「全仓零 release」（①a）与「本产线零更早 release」（①b-i）—— 合成一个数就说不清。
+          # 三层分流：N=0 ⇒ ①a；本产线侧无 A 且 SKIPPED_BAD 为空 ⇒ ①b；SKIPPED_BAD 非空 ⇒ ②硬错误。
+          # 🔴 2026-10-01（本次修复）：遍历前**先按本产线命名空间过滤**（白名单只认 shell-*）——
+          #   本仓的 Release 列表是**两条产线共用**的（内核产线也往同一个仓挂 Release，tag 现为
+          #   `core-<内核版本>`），而 `gh release list` 按创建时间倒序返回，故**内核刚发过版时，
+          #   首个候选就是 core-***：它的 commit 与本次不同（「同 commit」判据拦不住它），
+          #   但资产里没有匹配 matrix.pkg_glob 的安装包 ⇒ 会撞下面「Release 里没有匹配资产」的
+          #   硬错误分支 ⇒ install-smoke 冤枉变红。
+          # 用**白名单**而非「黑名单只排 core-*」：改名（2026-10-01）前的 `v*` tag 是两条产线
+          #   **共用**的（内核 v0.1.6-BETA.x 与壳 v1.2.x 同族，仓里都留着），那些内核老 Release
+          #   同样没有本产线的安装包、会撞同一条硬错误 —— 只有白名单能一并挡掉。
+          # 代价（如实登记）：改名前的壳 `v*` 老 Release 也不再被选作 A ⇒ 本产线首个 shell-* tag 的
+          #   A→B 升级冒烟会走 ①b 跳过（与「新仓首次跑 CI」同构），自第二个 shell-* release 起恢复正常；
+          #   下面 `${A_VER#v}` 那道剥离保留作纵深防御（白名单若将来放宽，老 tag 仍能正确取版本号）。
           N=0
+          N_LOCAL=0
           for t in $RELEASES; do
             N=$((N + 1))
+            # 🔴 本产线命名空间过滤（不属本产线的候选**不计入** N_LOCAL，也绝不进 SKIPPED_BAD）：
+            #   `continue` 在 case 里合法，且这几行只有赋值（不会因非零退出码在 `set -e` 下终止脚本）。
+            case "$t" in
+              shell-*) ;;
+              *) SKIPPED_FOREIGN="$SKIPPED_FOREIGN ${t}"; continue;;
+            esac
+            N_LOCAL=$((N_LOCAL + 1))
             sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$t" --jq .sha 2>/dev/null || true)
             if [ -z "$sha" ]; then SKIPPED_BAD="$SKIPPED_BAD ${t}(解析不到 commit)"; continue; fi
             if [ "$sha" = "$GITHUB_SHA" ]; then SKIPPED_SAME="$SKIPPED_SAME ${t}(与本次同一 commit)"; continue; fi
@@ -570,29 +678,39 @@ jobs:
             break
           done
           if [ -z "$A_TAG" ]; then
-            # ── 分支 ①：不存在早于本次的发布（结构性事实）⇒ notice + 成功收尾（不红）──
-            #   判据本质不是「有没有 release」，而是「有没有**早于本次**的发布」：
-            #   A→B 升级冒烟的职责「从上一个已发布版本升级到本次构建」自**第二个 release** 起才成立。
+            # ── 分支 ①：**本产线**不存在早于本次的发布（结构性事实）⇒ notice + 成功收尾（不红）──
+            #   判据本质不是「有没有 release」，而是「本产线有没有**早于本次**的发布」：
+            #   A→B 升级冒烟的职责「从上一个已发布版本升级到本次构建」自本产线**第二个 release** 起才成立。
             #   B（本次构建产物）的构建与产物验收在 build job 里照常执行，并未被这一步削弱。
-            #   ①a：本仓零 release（两仓合并后的首次跑 CI）。
+            #   ①a：**全仓**零 release（两仓合并后的首次跑 CI）。这是唯一「Release 空间里真的什么
+            #   都没有」的形态；只要仓里有任何 release（哪怕全属另一条产线），都归 ①b。
             if [ "$N" -eq 0 ]; then
-              echo "::notice::本仓尚无任何已发布版本（release 数 = 0），A→B 升级冒烟自首个 release 起生效；本次跳过「取 A→装 A→覆盖装 B」升级路径校验。"
+              echo "::notice::本仓尚无任何已发布版本（release 数 = 0），本产线（shell-*）亦无更早发布；A→B 升级冒烟自首个 release 起生效；本次跳过「取 A→装 A→覆盖装 B」升级路径校验。"
               echo "has_a=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            #   ①b：候选全被跳过，且原因**只有**「与本次同一 commit」（$SKIPPED_BAD 为空）——
-            #   build job 带 contents: write，tag 上「Attach installers to GitHub Release」先于本 job
-            #   （needs: [version, build]）执行 ⇒ **首个 tag 的 release 在本步之前就已存在、且指向
-            #   GITHUB_SHA 自身**。这不是「有 release 但都不合用」，而是「本仓唯一的已发布版本
-            #   就是本次 tag 自己」= 与 ①a 完全同构的「无更早版本」，故同等降级为 notice + exit 0；
-            #   否则首个版本必撞下面的硬错误分支 ⇒ publish 被挡 ⇒ 首版永远发不出去。
+            #   ①b：**本产线**没有可作 A 的更早发布（$SKIPPED_BAD 为空 —— 本产线候选里没有真问题）。
+            #   两种成因分开报，措辞必须点明「本产线」，不能笼统说「本仓」：
+            #     (i) 本产线零 release（N_LOCAL=0）：Release 空间两条产线共用，故此时全仓通常非零，
+            #         那些条目全属另一条产线（已计入 SKIPPED_FOREIGN）—— 「本仓有 release」与
+            #         「本产线有已发布版本」在这里首次分叉，混为一谈会把内核的发版误当成壳的发布。
+            #     (ii) 本产线候选全被跳过，且原因**只有**「与本次同一 commit」——
+            #         build job 带 contents: write，tag 上「Attach installers to GitHub Release」先于本 job
+            #         （needs: [version, build]）执行 ⇒ **首个 tag 的 release 在本步之前就已存在、且指向
+            #         GITHUB_SHA 自身**。这不是「有 release 但都不合用」，而是「本产线唯一的已发布版本
+            #         就是本次 tag 自己」= 与 ①a 同构的「无更早版本」，故同等降级为 notice + exit 0；
+            #         否则本产线首个版本必撞下面的硬错误分支 ⇒ publish 被挡 ⇒ 首版永远发不出去。
             if [ -z "$SKIPPED_BAD" ]; then
-              echo "::notice::本仓唯一的已发布版本就是本次 tag 自身（${GITHUB_SHA}），不存在可作升级起点的更早版本；A→B 升级冒烟自**第二个** release 起生效。跳过的候选:${SKIPPED_SAME:- 无}"
+              if [ "$N_LOCAL" -eq 0 ]; then
+                echo "::notice::本产线（shell-*）尚无任何已发布版本，不存在可作 A 的更早发布；A→B 升级冒烟自本产线首个 release 起生效。本次跳过「取 A→装 A→覆盖装 B」升级路径校验。（全仓 Release 条目数=${N}，全部不属本产线:${SKIPPED_FOREIGN})"
+              else
+                echo "::notice::本产线唯一的已发布版本就是本次 tag 自身（${GITHUB_SHA}），不存在可作升级起点的更早发布；A→B 升级冒烟自本产线**第二个** release 起生效。跳过的本产线候选:${SKIPPED_SAME:- 无}"
+              fi
               echo "has_a=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             # ── 分支 ②：存在解析不到 commit / 资产不匹配的候选 ⇒ 保持硬错误（这是真问题）──
-            echo "::error::找不到内容与本次（${GITHUB_SHA}）不同的已发布版本可作 A（候选数=${N}）；不可用候选（解析不到 commit 等真问题）:${SKIPPED_BAD}；与本次同一 commit 的候选:${SKIPPED_SAME:- 无}"
+            echo "::error::本产线找不到内容与本次（${GITHUB_SHA}）不同的已发布版本可作 A（本产线候选数=${N_LOCAL}，全仓 Release 条目数=${N}）；不可用候选（解析不到 commit 等真问题）:${SKIPPED_BAD}；与本次同一 commit 的候选:${SKIPPED_SAME:- 无}；不属本产线的候选（非缺陷，仅供参考）:${SKIPPED_FOREIGN:- 无}"
             exit 1
           fi
           echo "has_a=true" >> "$GITHUB_OUTPUT"
@@ -608,10 +726,19 @@ jobs:
             gh release view "$A_TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name'
             exit 1
           fi
+          # A 的版本号 = 从 **A 自己的 tag 名**剥离组件前缀（2026-10-01 命名空间改造）。
+          #   主剥离是 `shell-`（壳 tag 现为 shell-1.2.10 形态）。⚠ 第二道 `${A_VER#v}` **保留**：
+          #   上面的白名单（只认 shell-*）已把**改名前**的 `v*` 老 tag 挡在候选之外（那时两条产线
+          #   共用 `v*`，靠 tag 名分不出内核/壳），故它当前打不到；留着是纵深防御 —— 万一白名单
+          #   将来放宽（例如重新接纳改名前壳的 `v1.2.x`），老 A_TAG 仍需剥掉 `v`，否则 A_VER 会带上
+          #   前缀（如 `v1.2.9`），下面 install-smoke.sh / install-smoke-win.ps1 的「壳启动 v<ver>」
+          #   断言会把老 A 判成假红。
+          A_VER="${A_TAG#shell-}"
+          A_VER="${A_VER#v}"
           {
             echo "A_TAG=$A_TAG"
             echo "A_FILE=$A_FILE"
-            echo "A_VER=${A_TAG#v}"
+            echo "A_VER=$A_VER"
           } >> "$GITHUB_ENV"
           echo "A = $A_TAG -> $A_FILE"
 
@@ -665,7 +792,7 @@ jobs:
   publish:
     # 装不上的安装包发出去就是「用户升级到坏版本」的唯一来源；发布前必须先过安装冒烟。
     needs: [version, build, install-smoke]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/shell-')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -784,7 +911,7 @@ jobs:
     # publish 在非 tag 上是 skipped：always() 让手工触发仍能跑，
     # 而 tag 上要求它真成功（发布没成的通道无从验起）。
     needs: [version, publish]
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/v') && needs.publish.result == 'success')) }}
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/shell-') && needs.publish.result == 'success')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -798,7 +925,7 @@ jobs:
           node-version: '22'
 
       - name: 下载本次构建产物（仅 tag 构建可比对字节）
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/shell-')
         uses: actions/download-artifact@v4
         with:
           # monorepo（② 类路径）：与下方 run 步骤（cwd=shell）的 dist/artifacts 对齐 → shell/dist/artifacts。
@@ -809,6 +936,10 @@ jobs:
         run: |
           set -euo pipefail
           VER="${{ inputs.ver || needs.version.outputs.ver }}"
+          # 入参可能写裸版本（1.2.6），也可能直接粘 tag（新形态 shell-1.2.6 / 老形态 v1.2.6）：
+          #   两道剥离都留着，任一种写法都归一成裸版本交给 verify-channel.js（2026-10-01 命名空间改造）。
+          #   仓库版本（`needs.version.outputs.ver` = tauri.conf.json#version）本就无前缀，两道都是 no-op。
+          VER="${VER#shell-}"
           VER="${VER#v}"
           ARGS=""
           # 本步 cwd = shell/，故这里的相对路径正好落在 download-artifact 的 shell/dist/artifacts 上。

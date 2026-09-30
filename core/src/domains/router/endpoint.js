@@ -86,7 +86,7 @@ function createEndpoint(deps) {
       // 独立 API 端口：激活时分配（绑定一次防漂移；停用保留，再激活复用）
       if (!p.apiPort) {
         try { p.apiPort = await ports.allocate('providerApi', 'providerApi:' + id); } catch (e) { p.apiPort = null; }
-        if (p.apiPort) { try { if (!ports.isRegistered(p.apiPort)) ports.registerUser(p.apiPort, 'providerApi:' + id); } catch {} }
+        if (p.apiPort) { try { if (!ports.isRegistered(p.apiPort)) ports.registerUser(p.apiPort, 'providerApi:' + id); } catch {} } // 紧跟 allocate：alloc.js:82 已按 (port,'providerApi',owner) 登记同号 ⇒ 本行恒空转；真正会跑的自愈写口是 router/index.js:46-47
       }
       // 端口池满必须显式失败——绝不静默「激活了但无端点」。
       if (!p.apiPort) {
@@ -126,7 +126,7 @@ function createEndpoint(deps) {
       if (!p.apiPort) {
         try {
           p.apiPort = await ports.allocate('providerApi', 'providerApi:' + p.id);
-          if (p.apiPort && !ports.isRegistered(p.apiPort)) ports.registerUser(p.apiPort, 'providerApi:' + p.id);
+          if (p.apiPort && !ports.isRegistered(p.apiPort)) ports.registerUser(p.apiPort, 'providerApi:' + p.id); // 同上：apiPort 刚由 allocate 登记 ⇒ 恒空转（池内号在此 registerUser 会抛，外层 catch 反把 apiPort 置 null；故此处不适用 index.js:47 的自愈语义）
         } catch (e) { p.apiPort = null; }
         if (p.apiPort) save();
       }

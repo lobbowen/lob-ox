@@ -31,7 +31,12 @@ case "$MODE" in
     echo "=== 内核版本已提升: $CUR → $NEW ==="
     echo "  1) CHANGELOG.md：整理 [未发布] 段为 [$NEW] 并新开 [未发布] —— ⚠️ 该文件已于 2026-10-01 随 .md 清理移出仓库（C:\work\_md_backup）"
     echo "  2) git add -A && git commit && git push origin HEAD（走 PR，CI 全绿后合并）"
-    echo "  3) 打 tag 并推送：git tag v$NEW && git push origin v$NEW"
+    # tag 命名空间（2026-10-01 定案）：内核与壳各自独立版本，而 path 过滤对 tag 推送不生效
+    #   ⇒ 两条产线共用 `v*` 时任一 tag 会同时触发内核与壳两条产线。故按组件前缀分开：
+    #   内核 = core-<内核版本>（本行），壳 = shell-<壳版本>（shell/scripts/bump-shell.sh）。
+    #   不带 `v` 前缀：`core-` 之后即 package.json#version 的字面值，故 tag 与版本可直接对账。
+    #   ⚠ 但**没有任何 CI 步骤**做这条对账（core.yml 只读 package.json、不看 tag）⇒ 推错 tag 名不会红。
+    echo "  3) 打 tag 并推送：git tag core-$NEW && git push origin core-$NEW"
     echo "  4) 此后**全部由 CI 完成**：四平台完整构建 + 验证 + 各平台发布子包 + 挂 Release 附件"
     echo "     （硬标准：不得在本地构建/发布；本机只到 S0-S3 的版本与纯静态自检，S4 起全在 CI）"
     ;;

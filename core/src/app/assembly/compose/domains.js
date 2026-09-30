@@ -21,6 +21,11 @@ const ports = require('../../../platform/service/ports').shared;
 
 function composeDomains(host) {
     const swDir = path.dirname(host.config.stateFile);
+    // 端口账本必须在 RouterService 构造**之前**指向 stateFile 派生的文件：注册表是进程级单例、
+    //   「最后一个 configureFile 生效」，而构造期会按持久化 apiPort 补登记（router/index.js:46-48）。
+    //   晚配置会把这批登记写进当时仍生效的旧账（默认状态根 / 上一段文件），活动账本反而丢段。
+    //   同纪律见 router/daemon.js:48（ensurePorts 先于构造）。
+    try { ports.configureFile(path.join(path.dirname(host.config.stateFile), 'ports.json')); } catch (e) { host.logger.warn && host.logger.warn('ports configure: ' + e.message); }
     host.router = new RouterService({
       config: host.config,
       providerFile: path.join(swDir, 'providers.json'),
@@ -30,7 +35,6 @@ function composeDomains(host) {
       dist: host.dist,
       tasks: host.tasks,
     });
-    try { ports.configureFile(path.join(path.dirname(host.config.stateFile), 'ports.json')); } catch (e) { host.logger.warn && host.logger.warn('ports configure: ' + e.message); }
     // 端口池范围是配置项而非编译期常量：config.portPools 覆盖默认池。
     try { if (host.config.portPools) ports.configurePools(host.config.portPools); } catch (e) { host.logger.warn && host.logger.warn('ports pools configure: ' + (e && e.message)); }
     // 原生 DSH 检测 -> 绑定（必须先于任何消费者：InstanceManager/PluginManager/spawn）。
