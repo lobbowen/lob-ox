@@ -42,3 +42,11 @@ echo "  3) CI 全绿后合并，再从主干打 tag 并推送：git tag shell-\$
 #   不带 `v` 前缀：`shell-` 之后即 tauri.conf.json#version 的字面值，故 tag 与版本可直接对账。
 #   ⚠ 但**没有任何 CI 步骤**做这条对账（shell.yml 的 version job 只读 tauri.conf.json、不看 tag）。
 echo "  公开仓 tag 触发仓库根 .github/workflows/shell.yml → 四平台 bundle + npm 壳包"
+
+# 🔴 MSI/WiX 硬约束（2026-10-01 CI 实测得到，此前无任何地方记录）：
+#   Windows 的 msi target 要求**预发布标识必须纯数字且 ≤65535**，否则 `tauri build` 报
+#     `optional pre-release identifier in app version must be numeric-only and cannot be greater than 65535 for msi target`
+#   ⇒ 壳**不能用** `1.2.11-test1` 这类含字母的预发布号（CI 的 Windows 腿会红在 Build + bundle）。
+#   ⇒ 需要"不占用正式号的测试发布"时，用纯数字预发布：`1.2.11-1`（合 SemVer、满足 WiX、
+#      按 dist-tag 结构判断挂 beta 不会污染 latest，且 1.2.11-1 < 1.2.11 不消耗正式号）。
+#   ⇒ 内核不受此约束（它的 Windows 打包接受 `0.1.6-BETA.21-test1`，CI 四平台已实测通过）。
