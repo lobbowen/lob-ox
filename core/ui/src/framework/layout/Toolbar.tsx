@@ -2,19 +2,11 @@ import type { ReactNode } from "react";
 import { cn } from "../utils";
 import { Progress } from "../ui/progress";
 
-/**
- * Toolbar：响应式页面工具栏，统一三列 grid [左槽][标题区][右槽]，断点只切换列内容：
- * >=641px 左槽隐藏、副标题/进度显示；<=640px 左槽=menuButton（汉堡）、副标题/进度隐藏。无并列头部行。
- */
-
 export type ToolbarProps = {
   title: string;
   subtitle?: string;
-  /** 忙碌进度（0-100），>=641px 显示 */
   progress?: number | null;
-  /** 右侧动作区 */
   actions?: ReactNode;
-  /** <=640px 的菜单按钮（汉堡）插槽 */
   menuButton?: ReactNode;
   className?: string;
 };

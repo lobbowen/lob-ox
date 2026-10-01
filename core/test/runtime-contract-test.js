@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// 运行期启动契约（壳写、内核读）：内核自身也要执行 npm（自更新/装 DSH/插件），而 ambient PATH 的裸 npm
-//   与 process.env 在 GUI/服务环境常不含 nvm/fnm 的 npm ⇒ 壳能装、内核自己装不了。
-//   现统一读 <产品状态根>/supervisor/runtime.json（schema 2）：唯一解析口 + program/args 成对消费（只取 npmPath 会把「node + 包内 npm-cli.js」降级成裸跑 node）。
+// runtime.json（schema 2）是唯一解析口，program/args 必须成对消费（只取 npmPath 会把「node + 包内 npm-cli.js」降级成裸跑 node）。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -18,7 +16,6 @@ const results = [];
 const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x !== undefined && x !== '' ? '  <- ' + x : '')); };
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'rtc-'));
-// 产品状态根隔离（独立于 DSH）：runtime.json 落在 <DSH_SUPERVISOR_HOME>/supervisor。
 process.env.DSH_SUPERVISOR_HOME = TMP;
 const SUP = path.join(TMP, 'supervisor');
 fs.mkdirSync(SUP, { recursive: true });
@@ -35,7 +32,6 @@ fs.writeFileSync(NPM_CLI, '\n');
 const savedHome = process.env.HOME; const savedUp = process.env.USERPROFILE;
 process.env.HOME = TMP; process.env.USERPROFILE = TMP;
 
-// -- R-5 反向：无契约 -> null + 退回平台解析（不空转）--
 check('R-5 无契约时 read()=null', rc.read() === null);
 {
   const l = rc.npmLauncher();
@@ -44,7 +40,6 @@ check('R-5 无契约时 read()=null', rc.read() === null);
     JSON.stringify(l));
 }
 
-// -- schema 2（壳实投形状：扁平键 + 嵌套 node{}/npm{} 双写）--
 writeContract({
   schema: 2, writtenBy: 'test',
   nodePath: NODE, nodeVersion: 'v22.12.0', nodeBinDir: NODE_DIR,
@@ -60,7 +55,6 @@ writeContract({
       && c2.npmArgs[0] === NPM_CLI && c2.npmVersion === '10.9.2' && c2.nodeVersion === 'v22.12.0'),
     JSON.stringify(c2 && { n: c2.nodePath, a: c2.npmArgs, v: c2.npmVersion }));
   const l = rc.npmLauncher();
-  // 只取 program 会把「node 跑 npm-cli.js」降级成裸跑 node —— args 非空即证明拆读必然失真。
   check('R-2 契约在场：source=contract，program 取契约绝对路径，args 与 program 成对（缺一半即失真）',
     l.source === 'contract' && l.program === NODE && l.args.length === 1 && l.args[0] === NPM_CLI,
     JSON.stringify(l));
@@ -71,7 +65,6 @@ const env = rc.withPath({ PATH: '/ambient/bin' });
 check('R-3 withPath 把 nodeBinDir 置于首位且保留 ambient PATH',
   env.PATH.indexOf(NODE_DIR) === 0 && env.PATH.indexOf('/ambient/bin') > 0, env.PATH);
 
-// -- 契约指向不存在的文件：退回平台解析，不拿悬空路径去 spawn --
 writeContract({ schema: 2, npmPath: path.join(TMP, 'gone', 'npm'), npmArgs: [], nodePath: NODE, minNode: 'v22.12.0' });
 {
   const l = rc.npmLauncher();
@@ -79,7 +72,6 @@ writeContract({ schema: 2, npmPath: path.join(TMP, 'gone', 'npm'), npmArgs: [], 
     l.source === 'path' && l.program === execPath.npmBin(), JSON.stringify(l));
 }
 
-// -- 旧壳（schema2 但无 npm.version）：版本必须为 null，不得拿 node 版本顶上 --
 writeContract({ schema: 2, nodePath: NODE, nodeVersion: 'v22.12.0', nodeBinDir: NODE_DIR, npmPath: NPM, minNode: 'v22.12.0' });
 {
   const l = rc.npmLauncher();
@@ -88,7 +80,6 @@ writeContract({ schema: 2, nodePath: NODE, nodeVersion: 'v22.12.0', nodeBinDir: 
   check('R-1 只写扁平旧键时也解析出 nodeVersion', rc.read().nodeVersion === 'v22.12.0', String(rc.read().nodeVersion));
 }
 
-// -- 只写嵌套 node{}/npm{} 的壳：两形都必须认，漏一侧面板就把运行时念成 null --
 writeContract({
   schema: 2,
   node: { path: NODE, binDir: NODE_DIR, version: 'v22.12.0' },
@@ -103,7 +94,6 @@ writeContract({
     JSON.stringify({ p: c && c.nodePath, a: ln.args }));
 }
 
-// -- schema 1 兼容（只有顶层旧键）--
 writeContract({ schema: 1, nodePath: NODE, nodeVersion: 'v22.12.0', minNode: 'v22.12.0' });
 {
   const c1 = rc.read();
@@ -113,15 +103,11 @@ writeContract({ schema: 1, nodePath: NODE, nodeVersion: 'v22.12.0', minNode: 'v2
     JSON.stringify({ c1, l }));
 }
 
-// -- 损坏 JSON -> null（不抛）--
 fs.writeFileSync(path.join(SUP, 'runtime.json'), '{ bad json', 'utf8');
 check('R-1 损坏 JSON -> null（不抛）', rc.read() === null);
 
-// -- R-6 契约版本握手：本侧 schema 常量必须与壳写入的 schema 一致（各自断言，不跨仓读源码）--
 check('R-6 契约 schema 版本 = 2（与壳 handshake）', rc.SUPPORTED_SCHEMA === 2, String(rc.SUPPORTED_SCHEMA));
 
-// -- SR 组：桌面壳环境上报的接收口（壳写、内核读，与 runtime.json 同目录但性质不同）--
-//   只钉三件事：「没报过」与「读不出」分得开、三态读数不折叠、来自另一个进程的自由文本必过脱敏。
 {
   const RP = path.join(SUP, 'shell-report.json');
   const NOW = () => 2000000;
@@ -195,9 +181,6 @@ check('R-6 契约 schema 版本 = 2（与壳 handshake）', rc.SUPPORTED_SCHEMA 
   fs.rmSync(RP, { recursive: true, force: true });
 }
 
-// -- A5/A1 工具链可见性与能力矩阵：事实走完「契约 / 平台档 -> /env/status -> 面板」整条链 --
-//   **全仓唯此**：envStatus/catalog/capabilities 这个出口没有第二处覆盖；壳侧曾「装了 npm 却看不见 npm」，
-//   内核侧同根因的另一半（npm 只有 detected 而声明式目录零消费）⇒ 面板说就绪、实机跑不通。
 (async function () {
   const { Supervisor } = require(path.join(ROOT, 'src', 'supervisor'));
   writeContract({
@@ -213,7 +196,6 @@ check('R-6 契约 schema 版本 = 2（与壳 handshake）', rc.SUPPORTED_SCHEMA 
     supervisorLogFile: path.join(TMP, 's.log'), dshLogFile: path.join(TMP, 'd.log'), upgradeLogFile: path.join(TMP, 'u.log'),
   });
   const ev = await s.envStatus();
-  // -- A1：能力矩阵接线（caps 只有 /env/status 这一个出口）--
   check('A1-a envStatus 暴露 capabilities 对象（能力矩阵的后端出口，面板据此降级呈现）',
     !!ev.capabilities && typeof ev.capabilities === 'object', JSON.stringify(ev.capabilities));
   const caps = ev.capabilities || {};
@@ -237,7 +219,6 @@ check('R-6 契约 schema 版本 = 2（与壳 handshake）', rc.SUPPORTED_SCHEMA 
   check('A5-e npm 条目有 label/state（声明式目录形状稳定）',
     !!(items.npm && items.npm.label && typeof items.npm.state === 'string'), JSON.stringify(items.npm));
 
-  // 反向：契约缺席时 runtime/path 必须是 null（不编造、不拿 node 版本或占位文案顶上）。
   fs.unlinkSync(rc.file());
   const bare = await s.envStatus();
   check('A5-f 无契约时 npm/node 的 runtime 与 path 均为 null',

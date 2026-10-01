@@ -1,6 +1,4 @@
-//! 桌面壳环境观测报告的写入侧：壳写、内核读，落点 `<状态根>/supervisor/shell-report.json`；
-//! 与 `runtime_contract.rs` 分权 —— 那一份是内核拿去 spawn 的**启动契约**，这一份只给人和判据读、永不参与 spawn。
-//! 本文件只做投影与投放：一个探针都不新造，字段形态一律复用 `domain::probes` 的记录。
+//! 桌面壳环境观测报告的写入侧：壳写、内核读，落点 `<状态根>/supervisor/shell-report.json`；与 `runtime_contract.rs` 分权 —— 那一份是内核拿去 spawn 的**启动契约**，这一份只给人和判据读、永不参与 spawn。本文件只做投影与投放：一个探针都不新造，字段形态一律复用 `domain::probes` 的记录。
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -8,18 +6,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::domain::probes::{Probe, Record, Snapshot};
 use crate::nodeprobe::Outcome;
 
-/// 与内核 `src/platform/contract/shell-report.js` 的 `SUPPORTED_SCHEMA` 握手：
-/// 不等即整份作废 —— 字段形状变了，内核不能靠猜。
+/// 与内核 `src/platform/contract/shell-report.js` 的 `SUPPORTED_SCHEMA` 握手：不等即整份作废 —— 字段形状变了，内核不能靠猜。
 pub const SCHEMA: u32 = 1;
 
-/// 报告文件名。落点口径由写入侧给出，内核读取口拼同一个名字（与启动契约同目录）。
 pub const FILE_NAME: &str = "shell-report.json";
 
-/// 两次投放动作之间的下限。取值口径 = 依赖探测的 `DEPENDENT_TTL`（10 秒）：
-/// 过了这个窗口，npm / prefix 才是重新真实执行得到的结论。
 const MIN_WRITE_GAP: Duration = Duration::from_secs(10);
 
-/// 报告落点。
 pub fn file() -> PathBuf {
     crate::env::supervisor_dir().join(FILE_NAME)
 }
@@ -32,8 +25,7 @@ fn now_millis() -> u64 {
         .unwrap_or(0)
 }
 
-/// Node 维：路径与版本来自 `nodeprobe` 的有界探测，达标判定复用 `node::meets_minimum`。
-/// 本轮没探到版本即整个视图缺席 —— 「壳没看到」与「壳看到不达标」是两件事。
+/// Node 维：路径与版本来自 `nodeprobe` 的有界探测，达标判定复用 `node::meets_minimum`。本轮没探到版本即整个视图缺席 —— 「壳没看到」与「壳看到不达标」是两件事。
 fn node_view(out: &Outcome) -> Option<serde_json::Value> {
     let version = out.version.as_ref()?;
     Some(serde_json::json!({
@@ -45,8 +37,6 @@ fn node_view(out: &Outcome) -> Option<serde_json::Value> {
     }))
 }
 
-/// npm 维：`args` 与 program **成对**（npm 只有包内 JS 时 program=node、args=[npm-cli.js]），
-/// 只念 path 会让内核读错被探测物。`ok` 直接取 `NpmFact::ok()` 的三态，不折叠。
 fn npm_view(deps: &Snapshot) -> Option<serde_json::Value> {
     let usable = deps.npm.usable.as_ref()?;
     Some(serde_json::json!({
@@ -57,8 +47,6 @@ fn npm_view(deps: &Snapshot) -> Option<serde_json::Value> {
     }))
 }
 
-/// 全局前缀维：投影 `prefix` 那条记录 —— 同一事实的两个视图，不是第二次探测。
-/// `why` 只在「判不出 / 不可写」时给原因：可写时那条 note 就是「目录可写」，再念一遍不构成信息。
 fn prefix_view(deps: &Snapshot) -> Option<serde_json::Value> {
     let r = dep_record(deps, Probe::Prefix)?;
     let why = match r.ok {
@@ -68,8 +56,6 @@ fn prefix_view(deps: &Snapshot) -> Option<serde_json::Value> {
     Some(serde_json::json!({ "dir": r.target, "writable": r.ok, "why": why }))
 }
 
-/// 镜像源维：只读预热缓存（零网络 I/O）；逐源明细与择优选中同源，这里不重测。
-/// `url` 是内核的字段名（它把这一维当镜像源地址读），壳侧记录里叫 source，同值。
 fn registry_view() -> Option<serde_json::Value> {
     let s = crate::mirror::cached()?;
     Some(serde_json::json!({
@@ -85,14 +71,12 @@ fn dep_record<'a>(deps: &'a Snapshot, probe: Probe) -> Option<&'a Record> {
     deps.records.iter().find(|r| r.probe == probe)
 }
 
-/// 逐条探测结论：node 的逐候选在前、依赖维度在后，形态一律出自 `Record::json`（本模块不拼记录字段）。
 fn records(out: &Outcome, deps: &Snapshot) -> Vec<serde_json::Value> {
     let mut v: Vec<serde_json::Value> = out.records.iter().map(|r| r.json()).collect();
     v.extend(deps.records.iter().map(|r| r.json()));
     v
 }
 
-/// 报告载荷（不含投放时刻；时刻在真正落盘那一刻生成）。
 pub fn payload(out: &Outcome, deps: &Snapshot) -> serde_json::Value {
     serde_json::json!({
         "schema": SCHEMA,
@@ -105,7 +89,6 @@ pub fn payload(out: &Outcome, deps: &Snapshot) -> serde_json::Value {
     })
 }
 
-/// 是否轮到投放（纯判据：`last` = 距上次投放动作的时长，`None` = 从没投过）。
 fn due(last: Option<Duration>, gap: Duration) -> bool {
     match last {
         Some(age) => age >= gap,
@@ -113,13 +96,11 @@ fn due(last: Option<Duration>, gap: Duration) -> bool {
     }
 }
 
-/// 上一次**投放动作**的时刻（成功或失败都登记，故写不出去时不会每轮轮询都撞盘）。
 fn ledger() -> &'static Mutex<Option<Instant>> {
     static L: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
     L.get_or_init(|| Mutex::new(None))
 }
 
-/// 原子写（tmp + rename，形态同 `runtime_contract::write`），并在落盘时补上投放时刻。
 fn post(payload: &serde_json::Value) -> Result<(), String> {
     let dir = crate::env::supervisor_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建内核状态目录失败：{}", e))?;
@@ -139,8 +120,6 @@ fn post(payload: &serde_json::Value) -> Result<(), String> {
     })
 }
 
-/// 投放一份观测报告。挂载点只有一个：`commands::node_status`（与启动契约同处 —— 同一轮探测的两个出口）。
-/// 写不出去只记日志，绝不阻断引导（失败面同 `mirror::export_on_boot`）。
 pub fn publish(out: &Outcome, deps: &Snapshot) {
     let mut g = match ledger().lock() {
         Ok(g) => g,
@@ -183,7 +162,7 @@ mod tests {
         Snapshot { records: vec![prefix], npm: NpmFact { node_seen: usable.is_some(), usable, why } }
     }
 
-    /// 载荷字段名就是跨仓契约：改名等于让内核整份读不出（它只按这些键投影）。
+        /// 载荷字段名就是跨仓契约：改名等于让内核整份读不出（它只按这些键投影）。
     #[test]
     fn payload_carries_the_contract_keys() {
         let u = NpmUsable { path: PathBuf::from("/opt/node/bin/npm"), args: vec![], version: "10.9.2".into() };
@@ -201,7 +180,6 @@ mod tests {
         assert_eq!(j["records"][1]["probe"], "prefix");
     }
 
-    /// 三态不得折叠：判不出时 writable 必须是 null 而不是 false；可写时不该把状态行当原因再念。
     #[test]
     fn unknown_is_not_collapsed_into_failure() {
         let pending = prefix_view(&deps(None, prefix_record(None, "npm 未通过可用性探针"))).expect("有记录必须有视图");
@@ -212,7 +190,6 @@ mod tests {
         assert_eq!(ok["why"], serde_json::Value::Null);
     }
 
-    /// 本轮没看到 Node：node/npm 两个视图必须整体缺席，而不是带着一堆 null 冒充「看到了坏的」。
     #[test]
     fn absent_node_yields_no_views() {
         let out = outcome(None, None);
@@ -223,7 +200,6 @@ mod tests {
         assert!(j["records"].as_array().expect("records 必须是数组").len() >= 2, "探测记录必须原样带上，排障靠它");
     }
 
-    /// 频控判据：从没投过要投，未到下限不投，到界即投（下限与依赖探测 TTL 同值）。
     #[test]
     fn write_floor_judgement_is_exhaustive() {
         let gap = Duration::from_secs(10);

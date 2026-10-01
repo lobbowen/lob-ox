@@ -2,18 +2,12 @@ import type { ReactNode } from "react";
 import { cn } from "../utils";
 import { ScrollArea } from "./ScrollArea";
 
-/** ContentArea：三区布局的中间滚动区；滚动容器贴满内容区（滚动条/指示条位于内容区可视右缘），
- *  内容与边缘的留白由 inner padding 提供。 */
-
 const INNER_PAD =
   "px-7 pt-5 pb-[18px] max-[980px]:px-6 max-[980px]:pt-2 max-[980px]:pb-6 max-[640px]:px-3.5 max-[640px]:pb-[18px]";
 
 export type ContentAreaProps = {
-  /** 主内容（页面组件） */
   children: ReactNode;
-  /** 右侧详情栏（可选，独立滚动） */
   inspector?: ReactNode;
-  /** 详情栏固定宽度（默认 318px） */
   inspectorWidth?: string;
   className?: string;
 };

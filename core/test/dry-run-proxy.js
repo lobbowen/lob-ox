@@ -1,17 +1,14 @@
 'use strict';
-// Dry-run 反代：模拟 OpenAI 兼容端点 + 每key配额(/usage)，用于验证 proxy-runner 链路。
 const http = require('node:http');
 const crypto = require('node:crypto');
 const argv = process.argv.slice(2);
 function arg(name, def){ const i=argv.indexOf('--'+name); return i>=0 && argv[i+1] ? argv[i+1] : def; }
-// 端口由 ProxyProvider 从统一端口管理分配并注入（--port {{port}}）；此处无默认，
-//   缺失 --port 即报错（杜绝散落端口硬编码）。
+// 端口由 ProxyProvider 统一分配并注入（--port {{port}}）；缺失即报错，杜绝散落端口硬编码。
 const portArg = arg('port', '');
 if (!/^\d+$/.test(portArg)) { console.error('dry-run-proxy: 必须提供 --port（由端口管理分配注入）'); process.exit(1); }
 const port = parseInt(portArg, 10);
 const apiKey = arg('api-key', process.env.CC_API_KEY || 'dry-key');
 const startedAt = Date.now();
-// 模拟配额：按 key hash 出不同的 月/周/5h 百分比（每账号不一样）。
 function mockUsage(){
   const h = parseInt(crypto.createHash('sha256').update(String(apiKey)).digest('hex').slice(0,6),16);
   const mk = (b) => { const v=(h + b) % 120; const status = v>=100 ? 'rate-limited':'ok'; return { status, percent: Math.min(100,v), resetsAt: new Date(startedAt + (b+1)*3600*1000).toISOString() }; };

@@ -1,14 +1,7 @@
 'use strict';
 
-// 插件域更新检测与执行（网络 + CLI 编排）。
-// 查 registry 最高版 vs 已装版；npm 型走 update，失败退 add；git/local 型拒绝。
-// 检测状态（逐插件缓存 _updCache/_updTTL + 快照 _updSnapshot/_updInFlight）挂在装配根，经 ctx 显式访问。
-
 const { specType, isUpdateAvailable } = require('./policies');
 
-/** 目标版本 + 取不到时的原因（checkUpdates/update 共用一处，两处的负缓存口径必须一致）。
- *  只在取到时写缓存：把「registry 不可达」写进去，等于负缓存 _updTTL 之久、此后一律显示「无更新」。
- *  选版单源在 dist.fetchNpmLatest（latest 优先，缺失/非法才回落 versions 最高；取 registry 全量最高会把他人的杂 tag 当候选），本层不再判通道。 */
 async function latestCached(ctx, name, force) {
   const c = ctx._updCache[name];
   if (c && !force && (Date.now() - c.at) < ctx._updTTL) return { latest: c.latest, error: null };
@@ -25,8 +18,6 @@ async function latestCached(ctx, name, force) {
   return { latest, error };
 }
 
-/** 检测快照：立即返回已知结论，registry 往返一律在后台跑（同 market.getIndex：挂到请求上等会让面板 15s 计时先放弃）。
- *  失败不做静默重试：快照里的 error 逐插件带上原因，面板据此区分「取不到」与「已是最新」。 */
 function checkUpdates(ctx, force) {
   if (!ctx._updSnapshot || force) _requestCheck(ctx, force);
   const s = ctx._updSnapshot;
@@ -39,11 +30,10 @@ function checkUpdates(ctx, force) {
   });
 }
 
-/** 触发一次后台检测；已有在飞即复用（force 连点不叠加）。 */
 function _requestCheck(ctx, force) {
   if (ctx._updInFlight) return ctx._updInFlight;
   const raw = refreshUpdates(ctx, force);
-  raw.catch(() => {}); // 无消费者 await：不标记则一次意外就是进程级 unhandledRejection
+  raw.catch(() => {});
   ctx._updInFlight = raw;
   raw.catch((e) => {
     const msg = (e && e.message) || String(e);
@@ -53,7 +43,6 @@ function _requestCheck(ctx, force) {
   return raw;
 }
 
-/** 一次完整检测：逐插件查 registry 最高版（有界并发）并聚合逐目标行。 */
 async function refreshUpdates(ctx, force) {
   const targets = [ctx._nativeTarget(), ...ctx._allSandboxTargets()];
   const meta = new Map();
@@ -63,7 +52,6 @@ async function refreshUpdates(ctx, force) {
       meta.set(p.name, { specType: specType(p.source), latest: null, error: null });
     }
   }
-  // 串行会把每个插件的往返时间相加（registry 慢时各吃满传输超时），故 6 并发分批。
   const npmNames = [...meta.entries()].filter(([, m]) => m.specType === 'npm' && ctx.dist).map(([name]) => name);
   const errors = [];
   for (let i = 0; i < npmNames.length; i += 6) {
@@ -98,7 +86,6 @@ async function refreshUpdates(ctx, force) {
   return snap;
 }
 
-/** 执行更新：逐目标串行（npm update，失败退 add）；成功后重启生效。 */
 async function update(ctx, name, targetStr) {
   if (!name) return { ok: false, error: 'missing plugin name' };
   const r = ctx.resolveTargets(targetStr);

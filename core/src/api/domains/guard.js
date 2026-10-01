@@ -1,6 +1,5 @@
 'use strict';
 
-// 域：守卫/设置 API（changelog / guard 版本 / autostart / settings / self-update / env / ports）。
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -13,7 +12,6 @@ function owns(pathname) {
     || pathname === '/ports' || pathname === '/shutdown';
 }
 
-/** DSH 更新日志：仅 DeepSeek Harness 相关内容（NativeManager 版本信息），与管家无关；UI 位于「概览-版本与升级」区块。 */
 function fetchDshChangelog(res, sup) {
   const v = (sup && sup.nativeManager) ? sup.nativeManager.versionInfo() : {};
   const inst = v.installed || '未安装';
@@ -34,7 +32,6 @@ function handle(ctx) {
     if (req.method === 'GET' && pathname === '/changelog') {
       return fetchDshChangelog(res, sup);
     }
-    // 管家自身更新日志（本地仓库 CHANGELOG.md）
     if (req.method === 'GET' && pathname === '/guard/changelog') {
       try {
         const md = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'CHANGELOG.md'), 'utf8');
@@ -44,8 +41,6 @@ function handle(ctx) {
         return send(404, { error: 'changelog not found' });
       }
     }
-    // 管家自身版本（设置页展示）：GET=本地视图（无网络 I/O；git 探测异步执行不冻结事件循环）；
-    //   POST=完整检查（异步 fetch）。
     if (req.method === 'GET' && pathname === '/guard/version') {
       return Promise.resolve(sup.guardVersionLocal()).then((r) => send(200, r)).catch((e) => send(500, { ok: false, error: e.message }));
     }
@@ -55,7 +50,6 @@ function handle(ctx) {
       return sup.guardVersionCheck().then((r) => send(200, r)).catch((e) => send(500, { ok: false, error: e.message }));
     }
 
-    // 开机自启（整条服务链：systemd + linger + GUI）
     if (req.method === 'GET' && pathname === '/autostart') {
       return send(200, sup.autostartStatus());
     }
@@ -77,7 +71,6 @@ function handle(ctx) {
       return;
     }
 
-    // 管家面板局域网访问开关（0.0.0.0 <-> 127.0.0.1）
     if (req.method === 'GET' && pathname === '/settings/lan') {
       return send(200, sup.lanPanelStatus());
     }
@@ -91,12 +84,10 @@ function handle(ctx) {
         try { const j = body ? JSON.parse(body) : {}; if (typeof j.enabled === 'boolean') enabled = j.enabled; } catch {}
         if (enabled === null) return send(400, { ok: false, error: '需要 {"enabled":true|false}' });
         const r = sup.setLanPanel(enabled);
-        // 未设访问密钥属客户端可修正的前置条件失败 -> 400；内部异常仍 500。
         return send(r.ok === false ? (r.code === 'ACCESS_KEY_REQUIRED' ? 400 : 500) : 200, r);
       });
       return;
     }
-    // 出回环访问密钥：状态查询 / 设置/清除（空 key=清除）。不回显明文。
     if (req.method === 'GET' && pathname === '/settings/access-key') {
       return send(200, sup.accessKeyStatus());
     }
@@ -115,7 +106,6 @@ function handle(ctx) {
       });
       return;
     }
-    // 关闭窗口行为（壳读取执行）：GET=当前值；POST=设置 'hide' | 'exit'
     if (req.method === 'GET' && pathname === '/settings/close-action') {
       return send(200, sup.closeActionStatus());
     }
@@ -130,8 +120,6 @@ function handle(ctx) {
       });
       return;
     }
-    // 外部打开的浏览器偏好：GET=当前值 + 候选清单；POST=设置 id（空串清除，回到按系统默认分发）。
-    // 校验（id 必须是本机候选）在 settings/browser 门面，本域只是边界。
     if (req.method === 'GET' && pathname === '/settings/external-browser') {
       return send(200, sup.externalBrowserStatus());
     }
@@ -146,7 +134,6 @@ function handle(ctx) {
       });
       return;
     }
-    // 退出管家（壳「退出管家」/托盘调用）：停止全部服务链 + 守卫自身退出
     if (req.method === 'POST' && pathname === '/shutdown') {
       if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
       req.resume();
@@ -154,8 +141,6 @@ function handle(ctx) {
       return;
     }
 
-    // 内核更新单写入者 = 壳：本域只保留只读状态查询；安装/重启守卫归壳。
-    //   写端点返回 410 Gone + 稳定错误码（而非 404），让旧客户端得到可诊断的迁移结论。
     if (req.method === 'GET' && pathname === '/self-update/status') {
       if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
       Promise.resolve(sup.guardSelfUpdateStatus()).then((r) => send(r.ok ? 200 : 400, r));
@@ -189,12 +174,8 @@ function handle(ctx) {
       return Promise.resolve(sup.envStatus()).then((r) => send(200, r)).catch((e) => send(500, { ok: false, error: e.message }));
     }
     if (req.method === 'GET' && pathname === '/env/node-lts') {
-      // Node LTS 本地判定（偶数主版本~LTS；6h 缓存，无远端查询，见 supervisor.nodeLtsStatus）
       return sup.nodeLtsStatus().then((r) => send(200, r)).catch((e) => send(500, { ok: false, error: e.message }));
     }
-    // 环境表单（外部打开链路的底座，只读）：本机装了哪些浏览器、系统说不出默认时的候选次序、有没有图形会话、
-    //   用户选过谁、运行时与出网条件、每条结论来自哪条系统事实；面板「环境」区块与打开失败的定档依据同源取此。
-    // ?force=1 = 人主动刷新：走异步 refresh 补齐到期探针（含出网条件与运行时）并落快照；常态轮询只读台账最近一拍的同步表单，读路径绝不起子进程、绝不写盘。
     if (req.method === 'GET' && pathname === '/env/environment') {
       if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       const force = /[?&]force=1/.test(String(req.url || ''));
@@ -202,16 +183,10 @@ function handle(ctx) {
         .then((r) => send(200, r))
         .catch((e) => send(500, { ok: false, error: '环境表单装配失败：' + ((e && e.message) || e) }));
     }
-    // 上一拍快照（只读留痕，零摸网零写盘）：分发判定永远走当场装配的 form()，本端点不参与任何判定。
-    //   它补的是「快照落了盘却没人读」那一半：进程重启、探针失灵之后，这一台机器上一拍探到了什么
-    //   仍然要读得回来，否则排障只剩守着日志等复现。available=false 分得清没写过与读不出。
     if (req.method === 'GET' && pathname === '/env/environment/last') {
       if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       return send(200, environment.lastSnapshot());
     }
-    // 面板请内核把地址交给**内核所在机器**的系统浏览器（桌面壳 webview 丢弃 window.open 与 target=_blank，
-    //   壳内面板唯一可行的代开方就是同机内核）。出口由网关经 ctx 交来（唯一实现处 platform/os/browser），三档结果原样回传。
-    // 回环限定：远程访问者的浏览器不在这台机器上，驱动本机弹窗既无用（open-web 一次性码地址只在回环可达）又白送动作面。
     if (req.method === 'POST' && pathname === '/env/open-url') {
       if (!identity.loopback) { req.resume(); return send(403, { ok: false, error: '仅内核所在机器可请内核调起浏览器，请复制或自行打开该地址' }); }
       if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
@@ -219,8 +194,6 @@ function handle(ctx) {
         let url = null;
         try { const j = body ? JSON.parse(body) : {}; if (typeof j.url === 'string') url = j.url; } catch {}
         if (!url) return send(400, { ok: false, error: '需要 {"url":"http(s)://…"}' });
-        // 地址恒随结果交出（含抛错路径）：拿不到地址的失败只剩「再点一次」，用户无路可走。
-        // logger 交进唯一出口：这一次打开的 argv 与档位落在守卫日志里，报障时不必再靠屏幕拍照。
         return Promise.resolve(browser.openBrowser(url, { logger: sup.logger }))
           .then((r) => send(r.ok ? 200 : 500, r))
           .catch((e) => send(500, { ok: false, reason: 'spawn-failed', error: '打开浏览器失败：' + ((e && e.message) || e), url }));
@@ -228,11 +201,9 @@ function handle(ctx) {
       return;
     }
 
-    // 统一端口管理清单（全系统端口登记：固定/实例/分配，含 owner 对应关系 + 激活探测）——经 sup 门面取数
     if (req.method === 'GET' && pathname === '/ports') {
       return Promise.resolve(sup.listPorts()).then((r) => send(200, r)).catch((e) => send(500, { error: e && e.message }));
     }
-  // 域内未匹配(方法/子路径)：全局兜底语义
   if (req.method === 'GET' || req.method === 'POST') return send(404, { error: 'not found', path: pathname });
   return send(405, { error: 'method not allowed' });
 }

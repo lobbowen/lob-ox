@@ -1,8 +1,5 @@
 'use strict';
 
-// shell 域契约声明（纯数据，零 require）。exports/PUBLIC_API 为逐字冻结的导出面
-//（消费方 supervisor.js / watchdog deps.shell），pure 标记零 require 汇点 core.js。
-
 module.exports = {
   domain: 'shell',
 

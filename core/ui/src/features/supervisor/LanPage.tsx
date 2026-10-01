@@ -1,7 +1,3 @@
-// 远程控制三态页（关闭 / 局域网 / 公网）。模式写入唯一经 /remote/set-mode；就绪与 accessUrl 一律直消费
-// 后端 remote 单一视图，前端零推导。访问令牌由后端在开启远程时补齐，明文只随回环来源下发（本机可看可改，
-// 且本机有明文时二维码直接带一次性出示，扫码即用）。
-// FRP 卡只管 frps 连接配置；frpc 常驻与否 = 是否存在公网模式实例。
 import { useEffect, useState } from "react";
 import { ExternalLink, Eye, EyeOff, Globe, KeyRound, Landmark, Save, Wrench } from "lucide-react";
 import { toast } from "sonner";
@@ -20,14 +16,12 @@ import { Card, CardTitle, DomainBadge, Pill } from "./widgets";
 
 import { cn } from "../../framework/utils";
 
-/** 后端视图条目缺失时的兜底（mode 非 off 但 relay 自愈未落拍）：如实呈现未就绪，不假装就绪。 */
 const fallbackView = (mode: RemoteMode): RemoteView =>
   ({ mode, ready: false, accessUrl: null, reasons: ["远程服务未就绪"] });
 
 export function LanPage() {
   const { snap } = useSupervisorData();
   const { busy, run } = useSupervisorAction();
-  // 远程控制是横切能力：主干(main, native 字段)与沙箱(instances[])都是可远程的受管 DSH。
   const instances = [
     ...(snap.instances?.native ? [snap.instances.native] : []),
     ...(snap.instances?.instances ?? []),
@@ -35,12 +29,10 @@ export function LanPage() {
   const lanItems = snap.lan?.items ?? [];
   const frp = snap.frp;
 
-  // FRP 表单（只在数据加载后填充一次）
   const [frpAddr, setFrpAddr] = useState("");
   const [frpPort, setFrpPort] = useState("7000");
   const [frpToken, setFrpToken] = useState("");
   const [loaded, setLoaded] = useState(false);
-  // 令牌对话框带上打开时刻的现值（本机可见即明文可改）
   const [tokenFor, setTokenFor] = useState<{ id: string; name?: string; current: string | null } | null>(null);
   const [tokenInput, setTokenInput] = useState("");
   const [tokenVisible, setTokenVisible] = useState(false);
@@ -49,11 +41,11 @@ export function LanPage() {
     if (!frp || loaded) return;
     setFrpAddr(frp.settings.serverAddr || "");
     setFrpPort(String(frp.settings.serverPort || 7000));
-    // /remote/frp 不回显 authToken（仅 authTokenSet 布尔）——不回填、不显示；轮换经输入框完成
+    // /remote/frp 不回显 authToken（仅 authTokenSet 布尔），故不回填、不显示
     setLoaded(true);
   }, [frp, loaded]);
 
-  /** 提交体组装（patch 语义）：authToken 留空必须整体省略——显式提交 '' 会被后端当作清除落盘。 */
+  /** patch 语义：authToken 留空必须整体省略——显式提交 '' 会被后端当作清除落盘。 */
   function frpPayload() {
     const p: { serverAddr: string; serverPort: number; authToken?: string } = {
       serverAddr: frpAddr, serverPort: parseInt(frpPort, 10) || 7000,
@@ -63,8 +55,6 @@ export function LanPage() {
     return p;
   }
 
-  /** 模式写入唯一动作（off|lan|wan）；安全闸拒因（如令牌过短）由 run 统一 toast 呈现。
-   *  后端在开启时补齐缺失令牌 = 凭空多出一条凭据，用户必须被告知去哪看，故按回执补一条提示。 */
   async function setMode(it: { id: string; name?: string }, mode: RemoteMode, success: string) {
     let allocated = false;
     const ok = await run(it.id, () => supervisorApi.remoteSetMode(it.id, mode).then((r) => {
@@ -74,7 +64,6 @@ export function LanPage() {
     if (ok && allocated) toast.info("已自动生成访问令牌，点钥匙按钮可查看或修改");
     return ok;
   }
-  /** 开启远程控制（off->lan）：高危，经统一确认出口。缺访问令牌时后端在写入处补齐。 */
   async function askOn(it: { id: string; name?: string }) {
     if (!(await askConfirm({
       title: "开启远程控制？",
@@ -84,7 +73,6 @@ export function LanPage() {
     }))) return;
     await setMode(it, "lan", "已开启远程控制（局域网）");
   }
-  /** 切公网：高危确认（互联网可触达）；令牌前置由后端 wan 闸裁决，拒因如实提示。 */
   async function askWan(it: { id: string; name?: string }) {
     if (!(await askConfirm({
       title: "切换到公网访问？",
@@ -94,7 +82,6 @@ export function LanPage() {
     }))) return;
     await setMode(it, "wan", "已切换到公网访问");
   }
-  /** 打开「设置访问令牌」对话框。current 为 null 表示本机看不到明文（远程访客面板），退化为只写不读。 */
   function setToken(it: { id: string; name?: string }, current: string | null) {
     setTokenInput(current ?? "");
     setTokenVisible(false);
@@ -105,10 +92,9 @@ export function LanPage() {
     if (!it) return;
     const v = tokenInput.trim();
     if (!v) { toast.error("令牌不能为空"); return; }
-    // 与守卫写入口同规（remoteToken 至少 8 位），先行提示避免提交后才见服务端拒因
+    // 与守卫写入口同规：remoteToken 至少 8 位
     if (v.length < 8) { toast.error("远程访问令牌至少 8 位（公网暴露可被暴力枚举）"); return; }
     setTokenFor(null);
-    // 预填值原样提交 = 用户只是看了一眼地址，不必再落一次盘（也不触发 relay 令牌热换与事件）
     if (it.current !== null && it.current === v) return;
     await run(it.id, () => supervisorApi.remoteSetToken(it.id, v), { success: "访问令牌已设置" });
   }
@@ -129,14 +115,10 @@ export function LanPage() {
             const proxy: LanItem | undefined = lanItems.find((p) => p.dshPort === it.port);
             const mode: RemoteMode = it.remoteMode ?? "off";
             const remote = mode === "off" ? null : (proxy?.remote ?? fallbackView(mode));
-            // accessUrl 与 ready 正交（后端 projectRemoteView 已分开给出）：地址已定即呈现为可点/可复制的一行，
-            // 未就绪也要让用户看见要访问什么；二维码只表达「现在扫得开」，故仍跟 ready。
+            // accessUrl 与 ready 正交（后端 projectRemoteView 分开给出）：地址已定即可点，二维码仍跟 ready。
             const url = remote?.accessUrl ?? null;
-            // 令牌明文只有本机（回环）面板拿得到；有明文就把一次性出示编进码内，否则扫码落在 401 提示页，
-            // 「扫得开」就成了空话。访客面板无明文，码里也就只有裸地址——呈现形态放宽，可达面未放宽。
             const token = typeof it.remoteToken === "string" && it.remoteToken.trim() ? it.remoteToken.trim() : null;
             const qr = remote?.ready && url ? (token ? url + "?token=" + encodeURIComponent(token) : url) : null;
-            // 钥匙态：本机直读实例意图字段（远程关闭的实例同样有值），远程访客无该字段、退回 relay 布尔。
             const tokenSet = token !== null || !!proxy?.tokenSet;
             const remotePill = mode === "off"
               ? <Pill tone="off">远程关闭</Pill>
@@ -176,7 +158,6 @@ export function LanPage() {
                         {!running ? "实例未运行，启动后可开启远程" : "远程未开启"}
                       </div>
                     ) : null}
-                    {/* 未就绪的原因与地址行并存：地址是「去哪儿」，原因是「为什么现在还不通」 */}
                     {remote && !remote.ready ? (
                       <div className="text-xs text-muted-foreground/70">
                         {(remote.reasons ?? []).slice(0, 2).join("；") || "等待代理分配访问地址…"}
@@ -196,7 +177,6 @@ export function LanPage() {
                       }}
                     />
                   </div>
-                  {/* 局域网与公网共用同一 relay 端口，只差一条 frpc 隧道 */}
                   {mode !== "off" && (
                     <div className={cn("flex items-center gap-1", (!running || busy === it.id) && "pointer-events-none opacity-50")}>
                       <Button
@@ -217,7 +197,6 @@ export function LanPage() {
                       </Button>
                     </div>
                   )}
-                  {/* 访问令牌：开启远程时由后端补齐，这里查看/修改。意图字段与实例是否在跑无关，故不加 running 门。 */}
                   <Button
                     className="h-7 px-1.5"
                     disabled={busy === it.id}
@@ -236,7 +215,6 @@ export function LanPage() {
           })}
         </div>
       </Card>
-      {/* frpc 生命周期 = 是否存在公网模式实例 */}
       <Card>
         <CardTitle
           title="公网访问（FRP 内网穿透）"
@@ -246,7 +224,6 @@ export function LanPage() {
         <div className="grid grid-cols-1 gap-3 px-5 py-4">
           <div className="grid gap-1.5"><Label>frps 地址</Label><Input placeholder="如 1.2.3.4" value={frpAddr} onChange={(e) => setFrpAddr(e.target.value)} /></div>
           <div className="grid gap-1.5"><Label>frps 端口</Label><Input inputMode="numeric" placeholder="7000" value={frpPort} onChange={(e) => setFrpPort(e.target.value)} /></div>
-          {/* 服务端不回显 token 明文；留空提交即省略字段=保留现值 */}
           <div className="grid gap-1.5"><Label>auth token</Label><Input type="password" autoComplete="new-password"
             placeholder={frp?.settings?.authTokenSet ? "已设置 · 留空不修改，输入即轮换" : "frps 的 auth.token"}
             value={frpToken} onChange={(e) => setFrpToken(e.target.value)} /></div>
@@ -266,7 +243,6 @@ export function LanPage() {
       </Card>
       </div>
 
-      {/* 令牌对话框：本机（回环）拿得到明文就预填、可原地改；远程访客读不到现值，退化为只写不读。 */}
       <Dialog open={!!tokenFor} onOpenChange={(o) => !o && setTokenFor(null)}>
         <DialogContent className="max-w-[420px]">
           <DialogHeader><DialogTitle>访问令牌{tokenFor?.name ? " · " + tokenFor.name : ""}</DialogTitle></DialogHeader>

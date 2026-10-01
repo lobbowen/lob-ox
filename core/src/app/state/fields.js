@@ -1,7 +1,5 @@
 'use strict';
 
-// 状态字段口工厂（真 ctor 注入；phase/desired 真身，可独立直测）。纯映射/字段表在 phase.js / field-tables.js。
-
 const { ENTRY_FIELDS, PROC_FIELDS } = require('./field-tables');
 const { legacyToEntryPhase, entryToLegacyPhase } = require('./phase');
 
@@ -15,7 +13,6 @@ function createFields(deps) {
   function toEntry(ph) { return legacyToEntryPhase(ph); }
   function toLegacy(ph) { return entryToLegacyPhase(ph); }
 
-  /** 读守卫视角 phase（大写；OBSERVED 按 observedOnly+adopted 合成）。守卫内唯一 phase 读口。 */
   function phase() {
     const e = record.storeOf();
     const p = e.process || null;
@@ -24,7 +21,6 @@ function createFields(deps) {
     return upper;
   }
 
-  /** 写守卫视角 phase（大写经 registry.setPhase 转目录 canonical）。 */
   function setPhase(upper) {
     const e = record.storeOf();
     const ph = legacyToEntryPhase(upper);
@@ -33,7 +29,6 @@ function createFields(deps) {
       if (m && typeof m.setPhase === 'function' && record.entryOf() === e) {
         if (e.phase !== ph) m.setPhase('main', ph);
       } else {
-                // 兜底直写并入唯一字段写口 record.fieldOf：fallback 期的值走草稿回填，不再各写各的。
         record.fieldOf('phase', ph, true);
       }
     } catch (e2) {
@@ -42,18 +37,14 @@ function createFields(deps) {
     }
   }
 
-  /** 读守护开关（dsh-main.json meta.guardian；守卫内唯一 guardian 读口）。 */
   function guardian() {
     try { return mainStore.readDshMain().guardian === true; } catch { return false; }
   }
 
-  /** main 守护开关公开门面（与 guardian 同源）。 */
   function mainGuardian() { return guardian(); }
 
-  /** 读 desired（running|stopped）。守卫内唯一 desired 读口。 */
   function desired() { return record.storeOf().desired === 'stopped' ? 'stopped' : 'running'; }
 
-  /** 写 desired（registry.update 持久化）。 */
   function setDesired(v) {
     const want = v === 'stopped' ? 'stopped' : 'running';
     const e = record.storeOf();
@@ -62,7 +53,6 @@ function createFields(deps) {
       if (m && typeof m.update === 'function' && record.entryOf() === e) {
         if (e.desired !== want) m.update('main', { desired: want });
       } else {
-                // 兜底直写并入唯一字段写口 record.fieldOf。
         record.fieldOf('desired', want, true);
       }
     } catch (e2) {
@@ -71,7 +61,6 @@ function createFields(deps) {
     }
   }
 
-  /** entry 字段读写（write 语义见 record.fieldOf）。 */
   function field(name, v) {
     return arguments.length >= 2 ? record.fieldOf(name, v, true) : record.fieldOf(name, undefined, false);
   }
@@ -84,7 +73,6 @@ function createFields(deps) {
   const getEntry = (n) => record.fieldOf(n);
   const setEntry = (n, v) => { record.fieldOf(n, v, true); };
 
-  // 兼容访问器（get/set 描述符；安装到 host 实例）
   const accessors = {
     phase: { get: () => phase(), set: (v) => { setPhase(v); } },
     desired: { get: () => desired(), set: (v) => { setDesired(v); } },

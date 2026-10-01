@@ -2,14 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { cn } from "../utils";
 
-/** ScrollArea：隐藏原生滚动条，滚动时在右侧显示一条细指示条；未溢出/静止时不显示，三平台视觉统一。 */
-
 export type ScrollAreaProps = {
   children: ReactNode;
   className?: string;
-  /** 指示条宽度（默认 4px） */
   thumbWidth?: number;
-  /** 隐藏延迟 ms（默认 800） */
   hideDelay?: number;
 };
 
@@ -52,7 +48,6 @@ export function ScrollArea({
       updateThumb();
       scheduleHide();
     };
-    // 有溢出但未滚动时保持隐藏（只在滚动动作后短暂显示指示条）。
     const init = () => {
       updateThumb();
       if (el.scrollHeight > el.clientHeight) {

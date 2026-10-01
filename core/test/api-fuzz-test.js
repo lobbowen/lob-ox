@@ -1,8 +1,5 @@
 'use strict';
 
-// API 安全与健壮性模糊测试：伪造 Host/Origin 不能提升身份（token 只按 socket 事实下发）、
-//   畸形百分号编码/畸形 JSON 不产生 5xx、任意输入 30 连发后守卫仍存活。
-// 用法：node test/api-fuzz-test.js
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -54,13 +51,11 @@ async function main() {
     check('守卫 API 就绪', up);
 
     console.log('== F1: 身份伪造防线（Host/Origin 头不可提升身份）==');
-    // 伪造回环 Host（单发 / 与面板 Origin 双发）都不得泄露 DSH 会话令牌：只按 socket 事实下发，不看请求头。
     let r = await request(28020, 'GET', '/instances', { Host: '127.0.0.1:28020' });
     const rDual = await request(28020, 'GET', '/instances', { Host: '127.0.0.1:28020', Origin: 'http://127.0.0.1:28020' });
     check('伪造 Host（含 +面板 Origin 双伪造）不泄露 DSH 会话令牌',
       r.code === 200 && !r.body.includes('/?token=') && !rDual.body.includes('/?token='), r.body.slice(0, 200));
 
-    // 伪造 Origin 的写请求仍要被 CSRF 深化层拒绝（Origin 与本服务不同源）。
     r = await request(28020, 'POST', '/lifecycle/dsh/stop', { Origin: 'http://evil.example.com' });
     check('伪造 Origin 的写请求被拒 403', r.code === 403, String(r.code));
 
@@ -87,7 +82,6 @@ async function main() {
     check('连发后守卫存活（healthz 200）', alive.code === 200, String(alive.code));
   } finally {
     try { guard.kill('SIGKILL'); } catch {}
-    // 清理 mock，防残留污染后续测试。
     try { require('node:child_process').execSync("pkill -9 -f 'mock-target.js 28021' || true", { stdio: 'ignore' }); } catch {}
   }
   console.log('\n==============================');

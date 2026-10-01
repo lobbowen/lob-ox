@@ -1,7 +1,5 @@
 'use strict';
 
-// 插件市场条目构造（纯，无 IO）：npm/GitHub 条目对象工厂。
-
 const { pickAuthor } = require('./classify');
 
 function npmEntry(name, meta) {

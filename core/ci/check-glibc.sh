@@ -1,21 +1,16 @@
 #!/usr/bin/env bash
-# glibc 基座门禁：断言 Linux 产物不要求高于允许上限的 glibc 符号。
-# 用法: ci/check-glibc.sh <binary> [max=2.35]
 #   判据：glibc 前向兼容 —— 在新基座编译的 ELF 无法在旧发行版运行
 #   （Ubuntu 24.04 基座产出的 ELF 装不到 Ubuntu 22.04 LTS(2.35) / Debian 12(2.36)）。
-#   调用点（单源）：release/scripts/ci-core.sh 的 [3.5/5] 步，逐 Linux ELF 产物执行，超限即失败；
-#   dist/ 下无 ELF（纯 JS launcher）时该步报「无对象可检」，一旦出现原生二进制即自动执法。
+#   调用点：release/scripts/ci-core.sh
 set -euo pipefail
 BIN="${1:?用法: check-glibc.sh <binary> [max]}"; MAX="${2:-2.35}"
 [ -f "$BIN" ] || { echo "错误：找不到 $BIN"; exit 2; }
 
-# semver 比较（仅比较 x.y）
 vercmp() { [ "$1" = "$2" ] && { echo 0; return; }; printf "%s\n%s\n" "$1" "$2" | sort -V | tail -1 | grep -qx "$1" && echo 1 || echo -1; }
 # 判据自证：比较器是唯一裁决路径，它坏掉时 `-gt 0` 永不成立、门禁恒判通过。
 [ "$(vercmp 2.40 2.35)" = 1 ] && [ "$(vercmp 2.35 2.35)" = 0 ] && [ "$(vercmp 2.31 2.35)" = -1 ] \
   || { echo "  ❌ 自校失败：版本比较器不能分辨 2.31/2.35/2.40，本门禁无裁决能力"; exit 2; }
 
-# 提取该二进制引用的所有 GLIBC_x.y 版本（取最高）。
 # 取不到符号有两种完全不同的含义：产物真是静态链接（可豁免），或工具缺席/读不动（只是看不见）。
 # 两者必须分开处置，不得合并成 exit 0。
 TOOL=''

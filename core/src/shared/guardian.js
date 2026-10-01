@@ -1,12 +1,10 @@
 'use strict';
 
-// 守护决策（纯函数，不触碰进程/实例/系统服务）。默认关：仅 guardian===true 才自动拉起。
-
 function shouldGuard(inst) {
   return !!(inst && inst.guardian === true);
 }
 
-/** 崩溃窗口 + 退避：窗口内累计到 crashBurst 次则升一级退避并给出 backoffUntil。 */
+// 崩溃窗口：窗口内累计到 crashBurst 次则升一级退避并给出 backoffUntil。
 function bumpCrashWindow(cw, now, cfg) {
   let start = cw.start;
   let restarts = cw.restarts;
@@ -23,7 +21,7 @@ function bumpCrashWindow(cw, now, cfg) {
   return { start, restarts, backoffLevel: cfg.backoffLevel || 0, backoffUntil: null, backoffEntered: false };
 }
 
-/** 实例重启等待决策：60s 内失败过则线性退避（上限 60s），否则立即重试。 */
+// 实例重启等待：60s 内失败过则线性退避（上限 60s），否则立即重试。
 function instanceRestartDecision(state, now) {
   const crashesQuickly = !!(state.lastFailAt && now - state.lastFailAt < 60000);
   return {

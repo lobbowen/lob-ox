@@ -1,9 +1,5 @@
 'use strict';
 
-// 插件域门面（组合根 + 导出）。域内单向分层：model/policies（纯）-> targets/cli/store（叶子 IO）-> layers（写队列）
-// -> jobs -> restart -> ops/updater（编排）-> index；组合手法：构造期创建 jobs/layers，其余经 ctx 显式传入。
-// 门面保留同名可覆盖转发方法（resolveTargets/installedOn/_runCli 等）：这些名字是外部可覆盖面，改名即断。
-
 const { PROTECTED } = require('./model');
 const store = require('./store');
 const targets = require('./targets');
@@ -22,22 +18,20 @@ class PluginManager {
     this.profileDir = opts.profileDir;
     this.overlayFile = opts.overlayFile;
     this.dshPort = opts.dshPort;
-    this.instances = opts.instances || null;   // InstanceManager（实例目标数据源）
-    this.onNativeRestart = opts.onNativeRestart || null; // 原生 DSH 重启回调（supervisor 注入）
-    // 退出门谓词（守卫注入 host._exitIntended 单源）。本域注入裸 InstanceManager，门不在域方法上 ——
-    //   变更生效路径必须自查，防退出中拉起实例。
+    this.instances = opts.instances || null;
+    this.onNativeRestart = opts.onNativeRestart || null;
     this.exitIntended = typeof opts.exitIntended === 'function' ? opts.exitIntended : () => false;
     this.logger = opts.logger || console;
     this.events = opts.events || null;
     this.dist = opts.dist || null;
-    this.tasks = opts.tasks || null;           // 统一安装/更新任务注册表
-    this._updCache = {};                       // 插件更新检测缓存：name -> { latest, at }（TTL 6h）
+    this.tasks = opts.tasks || null;
+    this._updCache = {};
     this._updTTL = 6 * 3600 * 1000;
-    this._updSnapshot = null;                  // 最近一次检测结果快照 { checkedAt, plugins, error }
-    this._updInFlight = null;                  // 在飞检测 promise（去重：force 连点不叠加）
-    this.jobs = createJobs({ tasks: this.tasks });                          // 作业表 + 作用域互斥
-    this.layers = createLayers({ overlayFile: this.overlayFile, logger: this.logger }); // 补丁层写队列
-    this.store = new store.PluginStore({ getInventory: () => this.inventory() });       // 补丁行 id 推导
+    this._updSnapshot = null;
+    this._updInFlight = null;
+    this.jobs = createJobs({ tasks: this.tasks });
+    this.layers = createLayers({ overlayFile: this.overlayFile, logger: this.logger });
+    this.store = new store.PluginStore({ getInventory: () => this.inventory() });
   }
 
   resolveTargets(str) { return targets.resolveTargets(this, str); }
@@ -51,7 +45,6 @@ class PluginManager {
   overlayEntries() { return store.overlayEntries(this.overlayFile); }
   listInstalled() { return ops.listInstalled(this); }
 
-  // 补丁层（可覆盖转发；队列/内层在 layers 服务）
   setBundleEnabled(name, on, targetStr) {
     return this.layers.enqueue('setBundleEnabled', () => this._setBundleEnabledInner(name, on, targetStr));
   }

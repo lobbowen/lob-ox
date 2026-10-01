@@ -1,11 +1,3 @@
-/**
- * 环境检测 — 本机环境表单：所有「把地址交给浏览器」动作的分发依据都在这里。
- *
- * 一台机器上装了哪些浏览器、系统说不说得清默认项、有没有图形会话，每项都可能与另一台机器不同。
- * 表单把事实收在一处并写明每一层判定，用户能在这里定一次偏好，支持排障能直接读快照路径。
- *
- * 数据只走 supervisorApi（fetch 唯一处）；本组件自加载自失败，不拖累概览其余部分。
- */
 import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, RefreshCw, TriangleAlert } from "lucide-react";
 import { Button, RadioGroup, RadioGroupItem } from "../../../framework/ui";
@@ -13,7 +5,6 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { supervisorApi, type EnvironmentForm, type EnvironmentSection, type EnvironmentSnapshotRead, type EgressSectionData } from "../../../services/supervisor";
 import { cn } from "../../../framework/utils";
 
-/** 运行时条目的显示字（内核 EnvCatalog 条目视图）：state 已含版本门槛判定，这里只如实摊开。 */
 function entryText(e?: Record<string, unknown> | null): string {
   if (!e) return "未读出";
   const st = String(e.state || "?");
@@ -21,8 +12,7 @@ function entryText(e?: Record<string, unknown> | null): string {
   return (String(e.label || "") || "条目") + " " + st + detail;
 }
 
-/** 维度读数状态字：pending / empty / error 三态各说一句 —— 未探必须带上「怎么补」的出路，
- *  不得把「这一拍还没探」显示成「本机没有」。 */
+/** 未探必须显示成「未探测」，不得显示成「本机没有」。 */
 function sectionState(sec?: EnvironmentSection): string {
   if (!sec || sec.state === "pending") return "未探测（点「重新探测」补齐）";
   if (sec.state === "error") return "探测失败：" + (sec.error || "未给出原因");
@@ -30,8 +20,7 @@ function sectionState(sec?: EnvironmentSection): string {
   return "已探测" + (sec.at ? " " + new Date(sec.at).toLocaleTimeString() : "");
 }
 
-/** 代理读数的人话版：unknown 必须说成「取不到」而不是「没有」—— 内核正是按这个差别决定
- *  隔离窗口保不保留的，界面把它显示成「未启用」就会诱导用户去动一个并不需要动的设置。 */
+/** unknown 必须显示成「取不到」而非「没有」——内核按这个差别决定隔离窗口保不保留。 */
 function proxyText(proxy?: NonNullable<EgressSectionData["proxy"]> | null): string {
   const p: NonNullable<EgressSectionData["proxy"]> = proxy || {};
   if (p.state === "on") return "在用（" + (p.server || p.pac || "地址未读出") + "）";
@@ -40,17 +29,16 @@ function proxyText(proxy?: NonNullable<EgressSectionData["proxy"]> | null): stri
   return "未探测";
 }
 
-/** 通路三态的显示字：null = 判不出，绝不能显示成「不通」。 */
+/** null = 判不出，不得显示成「不通」。 */
 function reachText(ok?: boolean | null): string {
   return ok === true ? "可达" : ok === false ? "不通" : "判不出";
 }
 
-/** 探测留痕行的显示字（与内核 form().probed 同源）：egress 行的行名已带 reach: 前缀，其余带维度名。 */
+/** 行名已带 reach: 前缀（egress 行），其余带维度名。 */
 function probeText(p: { section?: string; source: string; detail?: string | number | null }): string {
   return (p.section ? p.section + "：" : "") + p.source + "：" + String(p.detail ?? "");
 }
 
-/** 距今多久的人话版（只用于「这条留痕有多旧」，不参与任何可用性判定；读不出就说读不出）。 */
 function agoText(ms?: number | null): string {
   if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return "时间未读出";
   if (ms < 60000) return "刚刚";
@@ -59,14 +47,12 @@ function agoText(ms?: number | null): string {
   return Math.floor(ms / 86400000) + " 天前";
 }
 
-/** 三态布尔的显示字：「否」与「没读到」是两件事 —— 启动段只记真走过的步，格子空着就是没走到。 */
+/** 「否」与「未读出」是两件事：启动段只记真走过的步。 */
 function triText(v?: boolean | null): string {
   return v === true ? "是" : v === false ? "否" : "未读出";
 }
 
-/** 同一事实的两个采集者并排写：内核探针（本进程现在解析到的）与桌面壳上报（装内核时真正用的那一套）。
- *  缺哪一侧就说哪一侧缺，绝不拿另一侧顶上；两侧都有且读数不同则要明说 ——
- *  「探针的 npm 与装内核的 npm 不是同一个」这类缺陷只有并排才看得见。 */
+/** 缺哪一侧就报哪一侧缺，不得拿另一侧顶上；两侧读数不同须明说。 */
 function compareRow(label: string, kernel?: string | null, shell?: string | null): string {
   const k = kernel || "";
   const s = shell || "";
@@ -74,13 +60,11 @@ function compareRow(label: string, kernel?: string | null, shell?: string | null
   return label + " 内核 " + (k || "未读出") + " ／ 壳 " + (s || "未报") + clash;
 }
 
-/** 壳的一条探测明细：三态 ok 各说一句，判不出不许显示成不通（与内核 reachText 同一纪律）。 */
 function shellRecordText(r: { probe?: string | null; source?: string | null; target?: string | null; ms?: number | null; ok?: boolean | null; note?: string | null }): string {
   const ok = r.ok === true ? "通" : r.ok === false ? "不通" : "判不出";
   return (r.probe || "明细") + " " + ok + (r.target ? "（" + r.target + "）" : "") + (typeof r.ms === "number" ? " " + r.ms + " 毫秒" : "");
 }
 
-/** 本拍落盘读数：读缓存那一拍压根不写盘，要先按这条分清，否则会把上次装配的 written 冒成本拍成果。 */
 function writeText(snap?: EnvironmentForm["snapshot"], cached?: boolean): string {
   if (!snap) return "未给出（这一拍没装配）";
   if (cached) return "没落盘（这一拍读的是内核缓存拍）";
@@ -89,8 +73,7 @@ function writeText(snap?: EnvironmentForm["snapshot"], cached?: boolean): string
   return "没落盘（也没报错误）";
 }
 
-/** 上一拍留痕的一句话（只读回看，与当拍字段分开渲染）：available 为假要分得清没落过盘与读不出，
- *  后者是要人去查文件的故障，说成「还没写过」会引着人去点刷新；连读回口本身都失败时更不许显示成「没有」。 */
+/** 没落过盘与读不出必须分清，后者是查文件的故障，不得显示成「没写过」。 */
 function lastSnapshotText(last?: EnvironmentSnapshotRead | null, err?: string | null): string {
   if (err) return "读不回：" + err;
   if (!last) return "未读";
@@ -103,14 +86,12 @@ function lastSnapshotText(last?: EnvironmentSnapshotRead | null, err?: string | 
   return "快照文件读不出或版本不符（不是没写过，得查文件）";
 }
 
-/** 上一拍刷新里没补齐的维度：state 非 ok 全列出 —— 「这一行为什么没数据」的答案就在这串名字里。 */
 function pendingDims(dims?: Record<string, string> | null): string {
   const d = dims || {};
   const miss = Object.keys(d).filter((k) => d[k] !== "ok");
   return miss.length ? "未补齐：" + miss.join("、") : "全部维度补齐";
 }
 
-/** 分发依据的人话版：内核给的是层名，用户要看到的是「这次用谁、是不是我选的」。 */
 function pickText(pick?: EnvironmentForm["pick"]): string {
   const name = pick && pick.name ? pick.name : "未定出";
   if (!pick || !pick.how) return "现在会用：" + name;
@@ -121,18 +102,16 @@ function pickText(pick?: EnvironmentForm["pick"]): string {
   return "现在会用：" + name + "（系统默认项）";
 }
 
-/** 「跟随系统」在 RadioGroup 里的取值：Radix 的 item 不许空串 value，故用哨兵映射到内核的空偏好。 */
+/** Radix 的 item 不许空串 value，故用哨兵映射到内核的空偏好。 */
 const FOLLOW_SYSTEM = "__system__";
 
 export function EnvironmentCard() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<EnvironmentForm | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  // 未保存的选择：null = 未改动（跟随表单里的当前偏好）。保存成功即清空，重探同样清空。
   const [draft, setDraft] = useState<string | null>(null);
   const [probeBusy, setProbeBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
-  // 上一拍快照的读回：与当拍表单分开加载、分开失败。它只是留痕，读不回不该把刚探出来的实况一起判死。
   const [last, setLast] = useState<EnvironmentSnapshotRead | null>(null);
   const [lastErr, setLastErr] = useState<string | null>(null);
 
@@ -147,14 +126,12 @@ export function EnvironmentCard() {
       setErr(String((e as Error).message || e));
     }
     setProbeBusy(false);
-    // 不 await：这条读回既零摸网也零写盘，但要它失败时只影响自己那一行。
     void supervisorApi.environmentLast()
       .then((r) => { setLast(r); setLastErr(null); })
       .catch((e) => { setLast(null); setLastErr(String((e as Error).message || e)); });
   }, []);
 
   useEffect(() => {
-    // 打开时才装配：概览页轮询不得反复触发内核的注册表/目录扫描。
     if (!open) return;
     void load(false);
   }, [open, load]);
@@ -170,21 +147,18 @@ export function EnvironmentCard() {
   };
 
   const browsers = form?.browsers ?? [];
-  // 维度台账：异步维度（出网条件/运行时/DSH）由内核按拍补齐，本卡片只渲染读数、不自判。
   const sections = form?.sections;
   const stale = form?.pick?.stale === true;
   const current = form?.preference?.id || FOLLOW_SYSTEM;
   const chosen = draft !== null ? draft : current;
-  // 启动段逐字摊开内核记录：格子空着就显示「未读出」，界面一栏推断都不补 —— 补出来的因果链正是排障的噪声。
   const startup = sections?.startup?.data;
-  // 壳上报维与 runtime 维并排渲染：同一批事实的两个采集者，隔开就等于把矛盾拆成两处。
   const shell = sections?.shell?.data;
   const shellRegistry = shell?.registry;
   const shellProbes = shellRegistry?.probes || [];
   const shellRecords = shell?.records || [];
   const shellLatency = shellRegistry?.latencyMs;
   const shellProbesTotal = shellRegistry?.probesTotal ?? 0;
-  // 内核侧版本取自 EnvCatalog 条目视图（node 另有 version 字段，npm 的版本就在 detail 里）。
+  // node 另有 version 字段，npm 的版本在 detail 里。
   const kernelNodeVersion = (sections?.runtime?.data?.node?.version as string | undefined) || null;
   const kernelNpmVersion = (sections?.runtime?.data?.npm?.detail as string | undefined) || null;
 

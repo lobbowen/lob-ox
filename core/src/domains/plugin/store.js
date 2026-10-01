@@ -2,30 +2,22 @@
 
 const http = require('node:http');
 
-// 插件域只读持久化 / 已装清单视图：profile/版本/manifest/home 补丁层/overlay 的只读读取，
-// inventory 为运行态 HTTP RPC，listInstalled 聚合多目标（targets 由调用方解析后传入，本文件不反向依赖 ops/targets）。
-// 写路径（原子写+串行队列+scrub）在 layers.js，编排在 jobs.js/ops.js。
-
 const fs = require('node:fs');
 const path = require('node:path');
 const { dirSizeBytes } = require('../../platform/util/fs');
 const { PROTECTED, ownerPackage, targetHomePatchPath } = require('./model');
 
-/** 读 profile package.json（失败返回空对象）。 */
 function readProfile(profileDir) {
   try { return JSON.parse(fs.readFileSync(path.join(profileDir, 'package.json'), 'utf8')); } catch { return {}; }
 }
 
-/** 读某插件已装版本（无则 null）。 */
 function pkgVersion(profileDir, name) {
   try { return JSON.parse(fs.readFileSync(path.join(profileDir, 'node_modules', name, 'package.json'), 'utf8')).version || null; }
   catch { return null; }
 }
 
-/** 读原生 profile manifest（与 readProfile 同一文件、同一语义，单一实现）。 */
 function readManifest(profileDir) { return readProfile(profileDir); }
 
-/** 读 home 补丁层（JSON；ENOENT 视为空；YAML 视为不可改写）。 */
 function readHomePatch(target) {
   const file = targetHomePatchPath(target);
   let raw = null;
@@ -41,12 +33,10 @@ function readHomePatch(target) {
   }
 }
 
-/** 读 legacy overlay 条目（路径显式入参）。 */
 function overlayEntries(overlayFile) {
   try { return JSON.parse(fs.readFileSync(overlayFile, 'utf8')); } catch { return []; }
 }
 
-/** 运行态 inventory RPC（只读；dshPort 显式入参）。 */
 async function inventory(dshPort) {
   const payload = JSON.stringify({ type: 'client-request', rpcId: 'pm-' + Date.now(), method: 'pluginInventory/list', payload: { args: {} } });
   return new Promise((resolve, reject) => {
@@ -64,7 +54,6 @@ async function inventory(dshPort) {
   });
 }
 
-/** 单目标已装插件（读盘聚合 bundles + dependencies）。 */
 function installedOn(target, protectedSet = PROTECTED) {
   const profile = readProfile(target.profileDir);
   const bundles = (profile.dsh && profile.dsh.profile && profile.dsh.profile.bundles) || [];
@@ -78,7 +67,6 @@ function installedOn(target, protectedSet = PROTECTED) {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** 原生目标明细（inventory + overlay/patch 禁用判定）。 */
 async function listInstalledNative(ctx, nativeTarget) {
   const manifest = readManifest(ctx.profileDir);
   const bundles = (manifest.dsh && manifest.dsh.profile && manifest.dsh.profile.bundles) || [];
@@ -105,7 +93,6 @@ async function listInstalledNative(ctx, nativeTarget) {
   };
 }
 
-/** 多目标已装清单视图（targets 由 ops 解析后传入）。 */
 async function listInstalled(ctx, targets) {
   const nativeTarget = targets.find((t) => t.id === 'native') || ctx._nativeTarget();
   const nativeDetail = await listInstalledNative(ctx, nativeTarget);
@@ -116,8 +103,6 @@ async function listInstalled(ctx, targets) {
       byName.get(p.name).targets.push(t.id);
     }
   }
-  // enabled 计算：任一目标启用即视为启用。生效面 = bundles 加载层 + home 补丁层
-  // 禁用行（DSH_HOME/cordis.patch.yml，热载）+ 原生 legacy overlay。
   const overlayIds = new Set(ctx.overlayEntries().map((e) => e.id));
   const homePatchDisabledIds = (t) => {
     const hp = readHomePatch(t);
@@ -142,7 +127,6 @@ async function listInstalled(ctx, targets) {
         const t = targets.find((tt) => tt.id === tid);
         return t ? isEnabledOn(t, x.name) : false;
       });
-      // size：取首个安装目标目录体积（近似同源；目录缺失时为 0）
       const firstTarget = targets.find((t) => t.id === x.targets[0]);
       const size = firstTarget && x.name
         ? dirSizeBytes(path.join(firstTarget.profileDir, 'node_modules', x.name))
@@ -164,19 +148,16 @@ async function listInstalled(ctx, targets) {
   };
 }
 
-/** 补丁行 id 推导：包名边界匹配（相等 / 子路径 / 带版本），不用 includes。 */
 class PluginStore {
   constructor({ getInventory }) { this._getInventory = getInventory; }
 
   async _patchEntryIdsForPlugin(target, name) {
-    const ids = new Set([name]); // 包名兜底（bundle 插件的 loader entry id）
+    const ids = new Set([name]);
     if (target.kind === 'native') {
       try {
         const entries = ((await this._getInventory()) || {}).entries || [];
         for (const e of entries) {
           const mn = String(e.moduleName || '');
-          // 包名边界匹配：相等、以 <name>/ 开头（子路径）或以 <name>@ 开头（带版本）。
-          // 明确排除 -/. 等可延长包名的字符，否则 dsh-tool 会吞掉 dsh-tool-extra。
           if (mn === name || mn.startsWith(name + '/') || mn.startsWith(name + '@')) ids.add(e.entryId);
         }
       } catch {}

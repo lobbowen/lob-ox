@@ -1,9 +1,5 @@
 'use strict';
 
-// 状态投影（只读）：把内部状态投影为对外视图。
-// 纯聚合——入参显式（state + deps），零 this 跨文件、零 IO（端口 list/探活经 deps 注入）。
-
-/** 服务状态总览（含用量摘要）。 */
 function status(state, deps) {
   let keysTotal = 0;
   const provs = (state.providers || []).map((p) => {
@@ -16,16 +12,14 @@ function status(state, deps) {
     };
   });
   return {
-    running: state.running === true, // 服务运行标志（由 RouterService start/stop 翻转，不在 ctl 方法白名单内）
-    activatedProviders: (state.providers || []).filter((x) => x.activated).length, // 已激活供应商数（独立端点在线数）
+    running: state.running === true,
+    activatedProviders: (state.providers || []).filter((x) => x.activated).length,
     providers: provs,
     keysTotal,
     usage: deps.getUsage(),
   };
 }
 
-/** 域摘要（router-daemon 黑盒经 ctl 向守卫目录呈报的紧凑摘要，目录只存引用）。
- *  不在摘要内暴露账号明细/令牌/额度。 */
 function domainSummary(state, deps) {
   let providers = 0;
   let activatedProviders = 0;
@@ -47,22 +41,18 @@ function domainSummary(state, deps) {
   };
 }
 
-/** 资源端口视图（router 自治资源 proxyInstance+providerApi，按 owner 前缀筛；附 TCP active 探测）。 */
 async function portsView(state, deps) {
   const recs = deps.ports.list().filter((r) => String(r.owner || '').startsWith('proxy:') || String(r.owner || '').startsWith('providerApi:'));
   const active = await Promise.all(recs.map((r) => deps.probe.portListening('127.0.0.1', r.port, 300)));
   return { records: recs.map((r, i) => ({ port: r.port, role: r.role, owner: r.owner, createdAt: r.createdAt, active: !!active[i] })) };
 }
 
-/** 供应商列表视图（账号/实例/额度/用量/锁定全量投影）。 */
 function listProviders(state, deps) {
-  // 配额总览标签单源：与 proxy 检测端同一 quotaOverallStatus
   const byKey = deps.getUsage().byKey || {};
   const quotaOverallStatus = deps.quotaOverallStatus;
   const semverCompare = deps.semverCompare;
   const proxyUpdateCache = state.proxyUpdateCache || {};
   return (state.providers || []).map((p) => {
-    // 当前在用/锁定账号（统一派生：显式锁定 selectedAccountKeyId 优先，否则自动在用 activeAccount）
     const activeKeyId = (p.selectedKeyId ? p.selectedKeyId() : (p.selectedAccountKeyId || (p.activeAccount && p.activeAccount.keyId))) || null;
     const accounts = (p.accounts || []).map((a) => {
       const ku = byKey[a.keyId];
@@ -71,9 +61,9 @@ function listProviders(state, deps) {
         keyId: a.keyId,
         maskedKey: a.maskedKey,
         status: a.status,
-        usage: usageOf,                          // 纯派生（activeAccount/实例实况）
+        usage: usageOf,
         quota: a.quota || null,
-        limit: (p._previewLimit ? p._previewLimit(a) : a.limit) || null, // limitKind+recovery（只读预览，无写副作用）
+        limit: (p._previewLimit ? p._previewLimit(a) : a.limit) || null,
         nextResetAt: a.nextResetAt || null,
         registeredAt: a.registeredAt,
         detectError: a.detectError || null,
@@ -101,7 +91,6 @@ function listProviders(state, deps) {
       view.proxyRunning = p.proxyRunning || false;
       view.selectedAccountKeyId = p.selectedAccountKeyId;
       view.locked = !!p.selectedAccountKeyId;
-      // 账号视图附加实例态（一账号一实例：账号行展示实例健康/版本/端口）
       const instByKey = {};
       for (const i of p.instances || []) instByKey[i.keyId] = i;
       const appVer = (proxyUpdateCache[p.proxyAppId] && proxyUpdateCache[p.proxyAppId].latest) || null;

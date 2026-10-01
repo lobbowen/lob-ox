@@ -1,10 +1,5 @@
 'use strict';
 
-// S2 失败反应纯策略：零 require / 零 this / 零 IO。
-// headerRetryMs/bodyResetMs 与 providers/policies/quota.js 的同名解析有意平行（纯策略不得
-// 反向依赖 provider 文件；quota 版 ISO 走 normalizeResetTs 多兼容 epoch 数字）——改词表时两处一并核对。
-
-/** Retry-After / x-ratelimit-reset-ms -> 剩余 ms（0=未知）。 */
 function headerRetryMs(headers) {
   const h = headers || {};
   const ep = h['x-ratelimit-reset-ms'];
@@ -20,7 +15,6 @@ function headerRetryMs(headers) {
   return Number.isFinite(at) && at > Date.now() ? at - Date.now() : 0;
 }
 
-/** 响应体 "resets in N min" / "resets at <ISO>" -> 剩余 ms（0=未知）。 */
 function bodyResetMs(text) {
   const t = String(text || '');
   const m = /(?:resets?|retry|try again|after|available)\s+in\s+(\d+)\s*(min|sec|second|s|hour|hr)?/.exec(t.toLowerCase());
@@ -37,9 +31,6 @@ function bodyResetMs(text) {
   return Number.isFinite(at) && at > Date.now() ? at - Date.now() : 0;
 }
 
-/** S2：失败信号 -> 处置动作（唯一纯判定）。ctx = { status, headers, body, key }。
- *  credits|window -> retry（needEffect）；banned -> passthrough（needEffect）；
- *  transient -> retry+transient（不施加 effect）；none/unknown -> passthrough（绝不误切）。 */
 function decideFailure(signal, ctx) {
   const c = ctx || {};
   const key = c.key || '?';

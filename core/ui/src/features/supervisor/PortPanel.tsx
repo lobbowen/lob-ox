@@ -1,7 +1,3 @@
-/**
- * 运行状态面板（Overview 右侧栏）：/ports 端口注册表反映各服务真实监听状态。
- * 归属语义着色：system(核心服务) / inst(实例) / managed(守护进程) / oauth(登录回调)。
- */
 import { useMemo } from "react";
 import { CircleDot } from "lucide-react";
 import { useSupervisorData, type PortRecord, type RouterProvider } from "../../services/supervisor";
@@ -10,7 +6,7 @@ import { cn } from "../../framework/utils";
 
 function roleTone(role: string, owner?: string | null): "ok" | "boot" | "warn" | "off" {
   if (role === "dsh-main" || role === "supervisor-api") return "boot";
-  if ((owner || "").startsWith("inst:")) return "ok"; // owner 后端可为 null（ports.js owner:||null）-> 必须防空
+  if ((owner || "").startsWith("inst:")) return "ok"; // owner 后端可为 null（ports.js），需防空
   if (role === "relay") return "warn";
   if (role.startsWith("managed:")) return "boot";
   return "off";
@@ -32,7 +28,7 @@ function roleLabel(r: PortRecord): string {
   if (m) return map[r.role] ?? m[1];
   return map[r.role] ?? r.role;
 }
-/** 归属标签化：不暴露账号/内部 id。反代(proxy)归属 -> 供应商名；其余 -> 语义类别。 */
+/** 归属标签不暴露账号/内部 id。 */
 function resolveOwner(r: PortRecord, providers: RouterProvider[]): string {
   const o = r.owner || "";
   if (r.role === "proxyInstance") {
@@ -53,14 +49,13 @@ function resolveOwner(r: PortRecord, providers: RouterProvider[]): string {
   return r.role;
 }
 export function PortPanel({ providers = [] }: { providers?: RouterProvider[] }) {
-  // /ports 随全局 2s 快照下发（polling.ts syncAll）：直接消费 snap.ports，无独立轮询
+  // /ports 随全局快照下发（polling.ts syncAll），本面板不轮询
   const { snap } = useSupervisorData();
   const raw = snap.ports?.records ?? null;
   const records = useMemo<PortRecord[] | null>(() => {
     if (!raw) return null;
-    // 只展示当前注册项：滤掉 supervisor-api 的遗留端口 3100/3101，避免重复展示
+    // 滤掉 supervisor-api 遗留端口 3100/3101
     const vis = raw.filter((r) => !(r.role === "supervisor-api" && (r.port === 3100 || r.port === 3101)));
-    // 排序：激活(监听中)在上，停用在下；组内按端口号升序
     return [...vis].sort((a, b) => {
       if (Boolean(a.active) !== Boolean(b.active)) return a.active ? -1 : 1;
       return a.port - b.port;

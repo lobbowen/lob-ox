@@ -1,13 +1,9 @@
 'use strict';
 
-// 通用文件系统工具（与业务无关，供各域复用）。
-
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-
-/** 同步统计目录体积（字节）。有界：最多遍历 200k 条目；符号链接跳过（防循环与双计）。 */
 function dirSizeBytes(root) {
   let total = 0;
   let seen = 0;
@@ -19,7 +15,7 @@ function dirSizeBytes(root) {
     for (const en of entries) {
       if (seen > MAX) return;
       const full = path.join(dir, en.name);
-      if (en.isSymbolicLink()) continue; // 链接不递归（防循环）；其目标体积由真实目录统计
+      if (en.isSymbolicLink()) continue;
       if (en.isDirectory()) walk(full);
       else if (en.isFile()) {
         try { const st = fs.statSync(full); total += st.size; } catch {}
@@ -31,10 +27,7 @@ function dirSizeBytes(root) {
   return total;
 }
 
-/** 原子写：状态/配置文件的唯一落盘路径（各调用点不得自行实现 tmp+rename）。
- *  tmp 名含 pid+毫秒：并发写者各用各的临时文件，rename 只落在完整内容上；mode 默认 0600
- *  （令牌/URL 类不得 0644），rename 后再 chmod 收口（writeFileSync 的 mode 只对新文件生效，
- *  且部分平台 rename 会重写权限）。失败抛出（非返回 false）；抛前把 tmp 截 0 而非 unlink。 */
+// 原子写：唯一落盘路径。tmp 名含 pid+毫秒防并发写者互踩；mode 只对新建文件生效，rename 后再 chmod 收口。
 function writeAtomic(file, data, opts) {
   const mode = (opts && typeof opts.mode === 'number') ? opts.mode : 0o600;
   const fp = path.resolve(file);
@@ -43,30 +36,27 @@ function writeAtomic(file, data, opts) {
   try {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(tmp, data, { mode });
-    try { fs.chmodSync(tmp, mode); } catch { /* Windows 无 POSIX 权限位 */ }
+    try { fs.chmodSync(tmp, mode); } catch {  }
     fs.renameSync(tmp, fp);
-    try { fs.chmodSync(fp, mode); } catch { /* 同上 */ }
+    try { fs.chmodSync(fp, mode); } catch {  }
     return fp;
   } catch (e) {
-    try { if (fs.existsSync(tmp)) fs.truncateSync(tmp, 0); } catch { /* 清理失败不掩盖原错 */ }
+    try { if (fs.existsSync(tmp)) fs.truncateSync(tmp, 0); } catch {  }
     throw e;
   }
 }
 
-/** 延迟递归删除（一次性、unref）：隔离登录用完的临时 profile 目录。
- *  定时器必须 unref，否则三十分钟的清理窗口会拖住进程退出；失败静默（临时目录由系统兜底）。 */
 function removeTreeDeferred(dir, ms) {
   if (!dir) return null;
-  const t = setTimeout(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* 已删或无权 */ } }, ms === undefined ? 60000 : ms);
+  const t = setTimeout(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {  } }, ms === undefined ? 60000 : ms);
   if (t.unref) t.unref();
   return t;
 }
 
-/** 分配一次性私有临时目录（0700）：隔离登录的 profile 唯一落盘口。
- *  mkdtempSync 保证名字不与人撞；mode 显式给出，避免继承 umask 后同机他用户可读登录态。 */
+// 私有临时目录 0700：mode 显式给出，避免继承 umask 后同机他用户可读登录态。
 function allocTempDir(prefix) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix || 'dsh-'));
-  try { fs.chmodSync(dir, 0o700); } catch { /* Windows 无 POSIX 权限位 */ }
+  try { fs.chmodSync(dir, 0o700); } catch {  }
   return dir;
 }
 

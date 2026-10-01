@@ -1,6 +1,5 @@
 'use strict';
 
-// 域：统一安装/更新任务（Task Registry）API。
 function owns(pathname) {
   return pathname === '/tasks' || pathname.startsWith('/tasks/');
 }
@@ -8,7 +7,6 @@ function owns(pathname) {
 function handle(ctx) {
   const { sup, req, pathname, send } = ctx;
 
-    // 全部安装/升级/卸载/更新操作收敛为同一任务模型（状态机 + step 进度 + 日志 + 持久化历史）。
     if (pathname === '/tasks') {
       if (req.method === 'GET') {
         const kind = new URL(req.url, 'http://localhost').searchParams.get('kind') || null;
@@ -32,7 +30,6 @@ function handle(ctx) {
       }
       return send(404, { error: 'not found' });
     }
-  // 域内未匹配(方法/子路径)：全局兜底语义
   if (req.method === 'GET' || req.method === 'POST') return send(404, { error: 'not found', path: pathname });
   return send(405, { error: 'method not allowed' });
 }

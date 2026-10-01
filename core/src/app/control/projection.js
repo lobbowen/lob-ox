@@ -1,14 +1,11 @@
 'use strict';
 
-// 聚合视图投影工厂（真 ctor 注入）：createProjection(deps) 持有三个 sync 视图实现（纯视图投影，不驱动启停）。
-
 function createProjection(deps) {
   const g = deps || {};
   const mgr = () => (typeof g.getLifecycleManager === 'function' ? g.getLifecycleManager() : null);
   const state = () => (typeof g.getState === 'function' ? g.getState() : null);
   const reg = () => (typeof g.getManagedObjects === 'function' ? g.getManagedObjects() : null);
 
-  /** 把守卫对 DSH 的观测合成到 lifecycleManager 的 dsh 项。 */
   function syncDshView() {
     const lm = mgr();
     if (!lm) return;
@@ -40,7 +37,7 @@ function createProjection(deps) {
         dsh.error = errText;
       } else if (ph === 'BACKOFF') {
         dsh._setPhase('starting');
-        dsh.healthy = false; // 退避中进程未提供服务；不落 false 会沿用上一拍的 true 谎报健康
+        dsh.healthy = false;
         dsh.error = '启动退避中';
       } else {
         dsh._setPhase('stopped');
@@ -56,7 +53,6 @@ function createProjection(deps) {
     dsh.guardian = st.guardian();
   }
 
-  /** router 生命周期视图同步。 */
   function syncRouterView(o) {
     const lm = mgr();
     const lc = lm ? lm.get('router') : null;
@@ -86,7 +82,6 @@ function createProjection(deps) {
     lc.healthy = ok;
   }
 
-  /** instances 聚合视图真实化（每心跳刷新一次）。 */
   function syncInstancesView() {
     const lm = mgr();
     const lc = lm ? lm.get('instances') : null;

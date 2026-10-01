@@ -1,10 +1,5 @@
 'use strict';
 
-// 平台化开机自启（三端同一 setAutostart(on) / status()）—— 门面。机制：Linux systemd --user
-//   enable/disable + linger + XDG autostart；macOS launchctl bootstrap/bootout；Windows schtasks ONLOGON。
-//   外部命令一律经 platform/util/exec，能力缺失返回明确错误绝不静默成功。
-//   内核绝不写/删守卫 plist：壳启动会重建自己的定义并 bootstrap，unlink 表现为关闭不生效。
-
 const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -18,8 +13,6 @@ const isLinux = process.platform === 'linux';
 const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
 
-/** 守护进程执行路径（自启/服务定义使用）。经 exec-path 跨平台解析；无命中时回退
- *  ~/.local/bin（Windows 带 .exe）。 */
 function daemonCommand() {
   const hit = resolveExecutable('dsh-supervisor', { envVar: 'DSH_SUPERVISOR_DAEMON' });
   if (hit) return hit;
@@ -27,7 +20,6 @@ function daemonCommand() {
   return path.join(os.homedir(), '.local', 'bin', exe);
 }
 
-/** GUI 壳可执行路径（Windows watchdog 拉起面板用）。壳位置随安装方式而异，按 env 覆盖与常见安装位置解析。 */
 function guiCommand() {
   const hit = resolveExecutable('dsh-supervisor-gui', { envVar: 'DSH_SHELL_EXE' });
   if (hit) return hit;
@@ -42,11 +34,9 @@ function guiCommand() {
 
 const DEPS = { guiCommand };
 
-/** 当前自启状态（三端同一 kind/on/gui 形态）。 */
 function status() {
   if (isWindows) return win32.status();
   if (isMac) { return darwin.status(); }
-  // 未知平台：显式 kind:'none' 且不触碰 systemctl（不产生误导性的 ENOENT 噪声）。
   if (!isLinux) return { kind: 'none', unit: 'unsupported', on: false, gui: false };
   return linux.status();
 }
@@ -57,7 +47,6 @@ function setAutostart(on) {
   return linux.setAutostart(on, DEPS);
 }
 
-/** GUI（桌面壳）登录自启。三平台均已实现（win32 由 setAutostart 的 schtasks 承担）。 */
 function setGuiAutostart(on, platform) {
   const pl = platform || process.platform;
   if (pl === 'darwin') return darwin.setGuiAutostart(on, DEPS);

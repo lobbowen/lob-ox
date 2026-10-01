@@ -1,22 +1,15 @@
 'use strict';
 
-// relay 域契约声明（纯数据，零 require）。
-// exports 取自 index.js 的 module.exports 字面量键；PUBLIC_API 为对外契约面（消费方成员必须属于该表）；
-// deps.hooks 为 hooks 出处（mainOf/tokenOf）；pure 为零 IO require 的纯文件：仅 core.js。
-
 module.exports = {
   domain: 'relay',
 
   exports: ['createRelay', 'LanManager', 'FrpManager', 'frpPlatformTag', 'downloadUrls'],
 
   PUBLIC_API: [
-    // 门面导出（createRelay 服务构造）
     'createRelay', 'frpPlatformTag', 'downloadUrls',
-    // LanManager（反代/frp 编排 + 对账；remoteMode 写入属 app 动作层，域内只收敛执行）
     'localAddresses', 'list', 'frpStatus', 'frpAction', 'syncFrpc',
     'reconcile', 'targetReachable', 'removeProxyForInstance', 'syncProxy',
     'instanceStart', 'instanceStop', 'shutdown', 'applyToken',
-    // FrpManager
     'loadSettings', 'saveSettings', 'status', 'buildConfig',
     'syncFromInstances', 'restart', 'start', 'stop', 'install',
   ],

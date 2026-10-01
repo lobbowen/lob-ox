@@ -1,6 +1,3 @@
-/**
- * 设置 — 镜像源区块：自身加载、自身编辑；registry 端点失败只影响本卡。
- */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -23,7 +20,6 @@ export function RegistryCard() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const { busy, run } = useSupervisorAction();
 
-  // 展开后把 trigger 滚动到视口顶部：候选列表从 trigger 下自然排开、完整可见
   useEffect(() => {
     if (!expanded || !triggerRef.current) return;
     const t = window.setTimeout(() => {
@@ -63,12 +59,10 @@ export function RegistryCard() {
     await run("regr", () => supervisorApi.registryRefresh(), { success: "已探测镜像", refresh: false, onDone: () => void load() });
   }
 
-  // 候选镜像 -> 延迟毫秒（从 probes 查；未探测返回 null）
   const latencyOf = (origin: string): number | null => {
     const p = (reg?.probes ?? []).find((x) => x.origin === origin);
     return p && p.ok ? p.latencyMs : null;
   };
-  // 取不到延迟时必须说清为什么：非法基址与探测失败是两种完全不同的处置（改配置 / 换网络）。
   const reasonOf = (origin: string): string => {
     const r = (reg?.registries ?? []).find((x) => x.base === origin);
     if (r && !r.usable) return "形态非法：" + (r.violation || "未知");
@@ -99,13 +93,11 @@ export function RegistryCard() {
             </div>
           </div>
         ) : null}
-        {/* 候选镜像列表（标准 Collapsible：折叠时仅显示当前使用项，展开看全列表） */}
         <Collapsible open={expanded} onOpenChange={setExpanded} className="grid gap-1">
           <CollapsibleTrigger ref={triggerRef}>
             <span className="text-xs font-medium text-foreground">候选镜像列表（{candidates.length}）</span>
             {expanded ? <ChevronUp className="size-3.5 text-muted-foreground" /> : <ChevronDown className="size-3.5 text-muted-foreground" />}
           </CollapsibleTrigger>
-          {/* 折叠态：列表收起时显示当前使用项（列表本身已用「当前」徽标标注，无需额外文案） */}
           {!expanded ? (
             <div className="flex items-center justify-between gap-2 rounded-md border border-border/70 px-3 py-1.5">
               <div className="flex min-w-0 items-center gap-2">
@@ -118,7 +110,6 @@ export function RegistryCard() {
             </div>
           ) : null}
           <CollapsibleContent>
-            {/* 候选列表自然展开融入页面滚动流（无内部限高滚动——展开后页面跟随到底） */}
             <div className="rounded-md border border-border/70">
               {candidates.map((o, i) => (
                 <div key={i} className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-1.5 last:border-b-0">
@@ -154,8 +145,7 @@ export function RegistryCard() {
   );
 }
 
-/** 测试手动镜像可达性：走 POST /dist/registry/probe 由后端代理探测（本页 CSP connect-src 'self'，
- *  浏览器直连用户填写的镜像会被策略拦截）；探测规格与内核选源一致，避免「测试可达、选源不同」分叉。 */
+/** 走 POST /dist/registry/probe：本页 CSP connect-src 'self'，浏览器不可直连镜像。 */
 async function testLatency(url: string) {
   if (!/^https?:\/\//.test(url)) { toast.error("请输入合法镜像 URL"); return; }
   toast.info("测试中…");

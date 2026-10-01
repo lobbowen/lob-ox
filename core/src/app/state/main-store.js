@@ -1,7 +1,5 @@
 'use strict';
 
-// main 元数据（dsh-main.json）存储工厂（真 ctor 注入）：自己持有 live 缓存与读写实现。
-
 const fs = require('node:fs');
 const path = require('node:path');
 const { writeAtomic } = require('../../platform/util/fs');
@@ -10,15 +8,13 @@ function createMainStore(deps) {
   const g = deps || {};
   const config = () => (typeof g.getConfig === 'function' ? (g.getConfig() || {}) : {});
   const logger = () => (typeof g.getLogger === 'function' ? g.getLogger() : null);
-  let live = null; // 文件存在但读/解析失败 -> 置 corrupt，writeDshMain 拒写：否则默认值缓存（remoteToken:''）会经任一后续写把明文令牌
-    //   静默清零，且 relay 无声降级为零认证。
+  let live = null;
   let corrupt = false;
 
   function dshMainFile() {
     try { return path.join(path.dirname(config().stateFile), 'dsh-main.json'); } catch { return null; }
   }
 
-  /** 按守卫 stateFile 派生，隔离同目录多守卫。 */
   function registryFileName() {
     try {
       const b = path.basename(config().stateFile || 'state.json', '.json');
@@ -46,7 +42,6 @@ function createMainStore(deps) {
     return { guardian: false, remoteMode: 'off', remoteToken: '' };
   }
 
-  /** 历史磁盘态一次性推导（legacy 布尔对 -> remoteMode 三态）；首次写盘后旧键即消失。 */
   function legacyRemoteMode(j) {
     if (j.remoteMode === 'lan' || j.remoteMode === 'wan') return j.remoteMode;
     if (j.remoteEnabled === true && j.frpEnabled === true) return 'wan';
@@ -54,19 +49,16 @@ function createMainStore(deps) {
     return 'off';
   }
 
-  /** 读 main 元数据（无文件默认守护关、远程关），缓存到 live。 */
   function readDshMain() {
     if (live) return live;
     live = readDshMainFile();
     return live;
   }
 
-  /** 写 main 元数据（白名单字段，原子写 0600），更新 live 缓存。
-   *  fail-closed：corrupt 态拒绝以默认值覆盖写（会静默清零令牌）；
-   *  解锁唯一途径是携带显式非空 remoteToken 的写入（= 用户重设令牌）。 */
+  // fail-closed：corrupt 态拒绝以默认值覆盖写（会静默清零令牌），唯一解锁途径是携带显式非空 remoteToken 的写入。
   function writeDshMain(meta) {
     const m = meta || {};
-    if (!live) live = readDshMainFile(); // 可能在此置 corrupt
+    if (!live) live = readDshMainFile();
     if (corrupt && !(typeof m.remoteToken === 'string' && m.remoteToken)) {
       const l = logger();
       if (l && l.warn) l.warn('writeDshMain: 文件损坏态，拒绝以默认值覆盖写回');

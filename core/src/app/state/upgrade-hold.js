@@ -1,8 +1,5 @@
 'use strict';
 
-// 升级 hold 工厂（真 ctor 注入）。
-// hold 标志位落宿主瞬态字段（controller/facade 直读 _upgradeHold），经 getHold/setHold 注入。
-
 const pidlook = require('../../platform/os/pidlookup');
 
 function createUpgradeHold(deps) {
@@ -25,7 +22,7 @@ function createUpgradeHold(deps) {
       (child && child.exitCode === null && child.signalCode === null) ||
       (adoptPid !== null && adoptPid !== undefined && pidlook.isAlive(adoptPid));
     if (targetAlive) {
-      stopProcess('upgrade'); // 落实“先停后装”
+      stopProcess('upgrade');
     } else if (fields.phase() !== 'STOPPED') {
       fields.setPhase('STOPPED');
       const s = store();
@@ -34,7 +31,6 @@ function createUpgradeHold(deps) {
   }
 
   async function enterAsync() {
-    // 先捕获目标引用：enter() 内部 stopProcess 会清空 child/adoptedPid，故在调用前取出。
     const refs = { child: fields.child(), adoptedPid: fields.adoptPid() };
     enter();
     if (refs.child && refs.child.exitCode === null && refs.child.signalCode === null) {

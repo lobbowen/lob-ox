@@ -1,18 +1,7 @@
 #!/usr/bin/env bash
-# 内核平台矩阵。
-#
-# 平台清单单源 = `package.json#npmPublish.packages`（它本就是 npm scope 子包的权威声明）；
-#   不得在脚本或 workflow 里另存硬编码矩阵 —— 四处不同步就会产出「少一个平台」的发布。
-#
-# 输出（每行一条，空格分隔，不含包名——包名可由 scope + os + arch 推出）：
-#   <osTag> <plat> <arch>
-#     osTag = linux | darwin | win      （产物目录/npm 包名用）
-#     plat  = process.platform 取值      （launcher 目录名用：linux | darwin | win32）
-#     arch  = x64 | arm64
-#
-# 用法： `. release/scripts/_platforms.sh` 后调用 `dsh_platform_matrix`。
+# 平台清单单源 = package.json#npmPublish.packages；不得在脚本/workflow 另存硬编码矩阵。
+# 输出每行 <osTag> <plat> <arch>（不含包名）：osTag=linux|darwin|win，plat=process.platform（win→win32），arch=x64|arm64。
 
-# 打印全部平台（顺序固定：linux-x64 -> darwin-arm64 -> darwin-x64 -> win-x64）。
 dsh_platform_matrix() {
   node -e '
   const p = require("./package.json");
@@ -36,7 +25,6 @@ dsh_platform_matrix() {
   '
 }
 
-# 校验矩阵非空且含本机平台（发布前的健全性检查，防 package.json 被改坏）。
 dsh_platform_matrix_assert() {
   local m
   m="$(dsh_platform_matrix)"

@@ -1,14 +1,10 @@
 'use strict';
 
-// Node LTS 在线检查门面（本地判定 + 可刷新缓存）。
-// 导出形态 { methods }，方法经 this 协作。
 const fs = require('node:fs');
 const path = require('node:path');
 
 module.exports = {
   methods: {
-    /** Node LTS 状态：本地判定 + 6h 可刷新缓存，不做远端查询（避免守卫启动依赖网络）。
-     *  失败返回 { ok:false, error } 由前端降级展示，绝不抛异常。 */
     async nodeLtsStatus() {
       try {
         const cacheFile = path.join(path.dirname(this.config.stateFile), 'node-lts-cache.json');
@@ -20,7 +16,6 @@ module.exports = {
         }
         const ver = process.versions.node || '';
         const major = parseInt(String(ver).split('.')[0], 10) || 0;
-        // LTS 建议：Node 偶数主版本为 LTS 线（保守本地判定，不作远端断言）
         const ltsLine = major % 2 === 0;
         const data = {
           current: ver,

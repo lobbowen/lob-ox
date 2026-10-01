@@ -2,9 +2,6 @@
 'use strict';
 
 
-// API 契约断言测试：createServer 的响应契约回归。
-//   全部用最小 stub Supervisor（Proxy 兜底方法）；外部打开出口经 createServer 第二参在**构造期注入**假件，
-//   故本文件从不真起浏览器，也不 patch 任何模块导出。
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -15,7 +12,7 @@ const API_PORT = 28010;
 const results = [];
 const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x ? '  ← ' + x : '')); };
 
-/** 维度名单从内核源码取，不抄第二份；取不到即抛，不静默降级成硬编码名单。 */
+// 维度名单从内核源码取，不抄第二份；取不到即抛，不静默降级成硬编码名单。
 const SRC_SECTION_ORDER = (() => {
   const src = fs.readFileSync(path.join(ROOT, 'src/platform/os/environment.js'), 'utf8');
   const m = /const SECTION_ORDER = \[([^\]]*)\]/.exec(src);
@@ -33,22 +30,17 @@ const nativeManager = {
   upgradeStatus: () => ({ state: 'idle' }),
   checkUpdate: async () => ({ ok: true }),
 };
-// 门面名是 sup.routerApi（api.js 的 router 路由全走它）；Proxy 必须暴露「调用后返回对象」的函数，
-//   否则 sup.routerApi().switchToKey() 抛 'routerApi is not a function' -> catch -> 400。
+// 门面名是 sup.routerApi（api.js 的 router 路由全走它）；Proxy 必须暴露「调用后返回对象」的函数，否则 sup.routerApi().switchToKey() 抛错 -> catch -> 400。
 const routerApi = () => ({ switchToKey: async () => ({ ok: true, selected: 'k1' }) });
 const instances = {
   stopInstance: (id) => ({ ok: true, id: typeof id === 'object' ? id.id : null }),
-  // 沙箱实例条目：open-web 只对「有真实端口的条目」放行（防开放重定向），main 走 dshMainView。
   list: () => [{ id: 'main', port: 3080, name: '主实例', domain: 'native' }, { id: 'sb1', port: 3099, name: '沙箱实例', domain: 'sandbox' }],
-  // 查询接口：消费方不再直读 .instances.instances。
   find: (id) => [{ id: 'main', port: 3080, name: '主实例', domain: 'native' }, { id: 'sb1', port: 3099, name: '沙箱实例', domain: 'sandbox' }].find((x) => x.id === id),
   all: () => [],
 };
 const pluginManager = { install: async () => ({ ok: true }) };
 const lan = { list: () => ({ items: [], addresses: [] }) };
 const tokenService = { get: () => 'dsh-session-token-abc123' };
-// main 启停唯一入口要经 lifecycleManager，且 desired=stopped 时 restart 必须被**业务**拒绝；
-//   SEC 组要分得清「Origin 闸拒绝 403」与「业务拒绝 409」两档。
 const lifecycleManager = {
   get: (id) => (id === 'dsh' ? { id: 'dsh', snapshot: () => ({}) } : null),
   statusAll: () => [],
@@ -57,10 +49,8 @@ const lifecycleManager = {
   restart: async (id) => ({ ok: false, error: 'desired=stopped，请先 /start', id }),
 };
 
-// 远程访问令牌的边界样本：main 记录带明文（进程内意图字段），API 边界只该在回环交出它。
 const MAIN_VIEW = () => ({ id: 'main', name: '主实例', port: 3080, domain: 'native', remoteMode: 'lan', remoteToken: 'lan-gate-token-1' });
 
-// Proxy 兜底：任何未 stub 的方法返回 { ok: true }（route 只取所需字段）。
 const sup = new Proxy({}, {
   get(t, k) {
     if (k === 'config') return { apiPort: API_PORT, apiHost: '127.0.0.1', command: ['node', 'x'], healthUrl: 'http://127.0.0.1:1/' };
@@ -75,7 +65,6 @@ const sup = new Proxy({}, {
     if (k === 'events') return { readSince: () => [], seq: 0 };
     if (k === 'tasks') return null;
     if (k === 'dist') return { registryInfo: async () => ({ ok: true }) };
-    // 浏览器偏好门面替身：GET 状态与 POST 写入（校验与落盘判据在 PR 组）。
     if (k === 'externalBrowserStatus') return () => BROWSER_PREF;
     if (k === 'setExternalBrowser') return setPref;
     return function () { return { ok: true }; };
@@ -83,13 +72,10 @@ const sup = new Proxy({}, {
 });
 
 const { createServer } = require(path.join(ROOT, 'src', 'api', 'index'));
-// 外部打开的出口由网关**构造期注入**（createServer 第二参）：不去 patch 模块导出 —— patch 静默
-//   失效时会跑真实副作用；且三档结果必须由用例指定，才谈得上「端点是否原样透传」。
+// 外部打开出口经 createServer 第二参构造期注入：patch 模块导出会静默失效并跑真实副作用。
 const argvUrls = [];
 let owCase = null; // (url) => 三档结果，或 'throw' 模拟出口抛错
 const envCalls = [];
-// 环境表单的契约形状（字段同 platform/os/environment.js#form 的产物）：端点只负责原样交出，
-//   这里钉的是「边界没加工、没丢留痕」，不是重新判一遍表单对不对。
 const ENVIRONMENT_FORM = {
   schema: 2, at: 1700000000000, cached: false, platform: 'win32',
   identity: { platform: 'win32', arch: 'x64', hostname: 'h', user: 'u', home: 'C:\\Users\\u', node: 'v24' },
@@ -104,13 +90,9 @@ const ENVIRONMENT_FORM = {
     { id: 'c:\\ff\\firefox.exe', name: 'firefox', engine: 'firefox', bin: 'C:\\FF\\firefox.exe', baseArgs: [], sources: ['app-paths'], isDefault: false },
   ],
   pick: { how: 'user-preference', id: 'c:\\ff\\firefox.exe', name: 'firefox', wanted: 'c:\\ff\\firefox.exe', stale: false },
-  // schema 2 的维度台账：每维一条 {label, at, source, state, data, error}，端点原样交出。
-  //   夹具刻意放三种档位各一条（已判成 / 尚未刷新 / 判定为无），且代理地址以脱敏形态给出。
   sections: {
     runtime: { label: '运行时', at: 1700000000000, source: 'registered', state: 'ok', error: null,
       data: { node: 'v24.18.0', npm: '11.0.0', git: null, registry: { origin: 'https://registry.npmjs.org', mode: 'default' }, prefix: 'C:\\npm' } },
-    // 桌面壳所见（内核 platform/contract/shell-report.js 的读回）：夹具放「壳报过且读得通」那一档，
-    //   并把 reason/ageMs/writtenBy 给全 —— 面板要分得清「壳没报」与「报了但读不出」，两者处置相反。
     shell: { label: '桌面壳所见（Node/npm/镜像源/全局前缀）', at: 1700000000000, source: 'shell', state: 'ok', error: null,
       data: { available: true, reason: 'ok', path: 'C:\\s\\shell-report.json', at: 1699999900000, ageMs: 100000,
         writtenBy: 'dsh-shell 1.2.8', schema: 1,
@@ -132,8 +114,6 @@ const ENVIRONMENT_FORM = {
     capabilities: { label: 'capabilities', at: 1700000000000, source: 'self', state: 'ok', data: { openBrowser: true } },
     preference: { label: 'preference', at: 1700000000000, source: 'self', state: 'ok', data: { id: 'c:\\ff\\firefox.exe' } },
     pick: { label: 'pick', at: 1700000000000, source: 'self', state: 'ok', data: { how: 'user-preference' } },
-    // 启动既成事实由装配期注册（bootstrap 记、compose/core.js 读进台账），端点只做原样透传：
-    //   夹具给满字段，让「边界挑字段」这种漏法当场可见。
     startup: { label: '启动既成事实', at: 1700000000000, source: 'registered', state: 'ok', error: null,
       data: { bootAt: 1699999000000, envDelayMs: 3000, routerAutostart: true, routerMode: 'off',
         updateCheck: { enabled: true, initialDelayMs: 20000, intervalMs: 3600000 }, shellWatchdog: true,
@@ -150,10 +130,7 @@ const fakeBrowser = {
     return owCase(url);
   },
 };
-// 表单的假装配：只记调用参数，返回固定形状（真表单要查注册表/摸网络，CI 上既慢又不可预期）。
-//   异步维度只由 refresh 那一拍补齐，故替身必须两条口都有。
 const envRefreshCalls = [];
-// 上一拍读回口的替身：两种「没有」各留一次可切换的读数，边界必须分档交出而不是揉成一句「没数据」。
 let envLastRead = { available: false, path: 'C:\\s\\environment.json', at: null, ageMs: null, reason: 'never-written', data: null };
 const envLastCalls = [];
 const fakeEnvironment = {
@@ -161,7 +138,6 @@ const fakeEnvironment = {
   refresh: (o) => { envRefreshCalls.push(o || {}); return Promise.resolve(ENVIRONMENT_FORM); },
   lastSnapshot: (o) => { envLastCalls.push(o || {}); return envLastRead; },
 };
-// 偏好门面（app/settings/browser.js）的替身：本文件只判边界，校验与落盘判据在 PR 组。
 const BROWSER_PREF = { ok: true, configured: true, value: 'c:\\ff\\firefox.exe', stale: false, browser: ENVIRONMENT_FORM.browsers[1], candidates: ENVIRONMENT_FORM.browsers, pick: ENVIRONMENT_FORM.pick, platform: 'win32' };
 const envPrefCalls = [];
 function setPref(id) {
@@ -172,7 +148,6 @@ function setPref(id) {
 }
 const server = createServer(sup, { browser: fakeBrowser, environment: fakeEnvironment });
 
-// 本机非回环 IPv4（LAN 身份来自 socket 层，不伪造 Host 头）。
 const os = require('node:os');
 const LAN_IP = (() => {
   for (const list of Object.values(os.networkInterfaces())) {
@@ -199,7 +174,6 @@ function req(method, p, body, hostHeader, extraHeaders, via) {
   });
 }
 
-/** 逐头指定的裸请求：Origin/Host 完全由调用方掌控（**不给默认 Origin**，缺省即不带该头）。 */
 function reqH(method, p, headers, body) {
   return new Promise((resolve) => {
     const r = http.request({ host: '127.0.0.1', port: API_PORT, path: p, method, headers: headers || {}, timeout: 5000 }, (res) => {
@@ -220,7 +194,6 @@ function reqH(method, p, headers, body) {
 (async () => {
   await new Promise((r) => server.listen(API_PORT, '0.0.0.0', r)); // 绑 0.0.0.0 支持真实 LAN socket 用例
 
-  // 202 异步受理契约：ok:true 必须存在（前端按 r.ok===false 判定）。
   let r = await req('POST', '/native/install', JSON.stringify({}));
   const rInst = r;
   r = await req('POST', '/native/upgrade', JSON.stringify({}));
@@ -231,11 +204,9 @@ function reqH(method, p, headers, body) {
     && rUpg.code === 202 && rUpg.body.ok === true && r.code === 202 && r.body.ok === true,
     [rInst, rUpg, r].map((x) => x.code).join(','));
 
-  // key/use await 契约：async 方法必须 await，防 Promise 序列化成 {} 回归。
   r = await req('POST', '/router/providers/key/use', JSON.stringify({ id: 'p1', fingerprint: 'k1' }));
   check('POST key/use → 200 且 selected 透传', r.code === 200 && r.body.ok === true && r.body.selected === 'k1', r.code + ' ' + JSON.stringify(r.body));
 
-  // 写操作 ok 契约。
   r = await req('POST', '/instances/stop', JSON.stringify({ id: 'i1' }));
   const rStop = r;
   r = await req('POST', '/plugins/install', JSON.stringify({ spec: '@x/p' }));
@@ -243,8 +214,6 @@ function reqH(method, p, headers, body) {
     rStop.code === 200 && rStop.body.ok === true && r.code === 200 && r.body.ok === true,
     rStop.code + ',' + r.code);
 
-  // OW 组：open-web 把内核外部打开的三档结果**原样**交给面板（confirmed / handedOff / ok:false）。
-  //   病根即此端点：只要 spawn 没抛错就 send 200 ok:true，屏幕上什么都没有却显示成功。
   const CONFIRMED = (url) => ({ ok: true, confirmed: true, handedOff: false, reason: null, error: null, message: '已在系统浏览器打开', url, evidence: { bin: 'xdg-open', via: 'dispatcher', ownsWindow: true, exitCode: 0, exitSignal: null, error: null } });
   try {
     owCase = CONFIRMED;
@@ -259,8 +228,6 @@ function reqH(method, p, headers, body) {
     r = await req('POST', '/instances/open-web', JSON.stringify({ id: 'sb1' }));
     check('OW 每次调用重新签发一次性码（成功路径不烧码：码要留给浏览器回 /open 换 cookie）', argvUrls[1] !== firstCode && r.code === 200, argvUrls[1]);
 
-    // Windows 真机那一档：直启默认浏览器，其退出码在两个方向都不作证据（可被既有实例吸收）。
-    //   diagnostics 是「为什么没弹出」的唯一现场证据，端点不得把它裁掉。
     owCase = (url) => ({ ok: true, confirmed: false, handedOff: true, reason: null, error: null, message: '已把地址交给系统，但没拿到窗口出现的证据', url, evidence: {
       bin: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', engine: 'chromium', via: 'browser', ownsWindow: false,
       exitCode: 1, exitSignal: null, error: null,
@@ -298,8 +265,6 @@ function reqH(method, p, headers, body) {
     check('OW 出口抛错也回结构化 500（不能让请求挂死或回 200），且地址仍在场',
       r.code === 500 && r.body.ok === false && r.body.reason === 'spawn-failed' && !!r.body.url, r.code + ' ' + JSON.stringify(r.body));
 
-    // OU 组：面板代开端点与 open-web 同一出口、同一状态码语义。它是壳内面板唯一的活路
-    //   （webview 丢弃 window.open 与 target=_blank）。
     owCase = CONFIRMED;
     r = await req('POST', '/env/open-url', JSON.stringify({ url: 'http://127.0.0.1:3099/' }));
     check('OU 成功档 → 200 且三档字段原样在场（本域不重造结果）',
@@ -319,8 +284,6 @@ function reqH(method, p, headers, body) {
     check('OU 出口抛错 → 结构化 500 且地址仍在场',
       r.code === 500 && r.body.reason === 'spawn-failed' && r.body.url === 'http://a.b/', r.code + ' ' + JSON.stringify(r.body));
 
-    // EF 组：只读装配面 GET /env/environment —— 真机报「没弹出网页」时，这份表单
-    //   （候选 + 默认项来源 + 分发依据 + 每条查询留痕）就是定档依据。
     const before = argvUrls.length;
     r = await req('GET', '/env/environment');
     check('EF 表单端点 200 且字段原样交出（候选/默认/偏好/分发依据/留痕五层齐备，边界不加工）',
@@ -330,8 +293,6 @@ function reqH(method, p, headers, body) {
       && r.body.browsers.every((b) => Array.isArray(b.sources) && b.sources.length && b.engine)
       && r.body.preference.configured === true && r.body.preference.matched === true
       && r.body.pick.how === 'user-preference' && r.body.probed.length === 2, r.code + ' ' + JSON.stringify(r.body));
-    // 维度台账是 schema 2 的全部意义：边界若挑字段回传，异步维度会静默消失
-    //   （面板显示成「本机没有」而不是「尚未探测」）。
     const secs = r.body.sections || {};
     check('EF 交出整张维度台账（名单取自内核 SECTION_ORDER，任一维在边界消失即红；未刷新那维 at 为 null）',
       SRC_SECTION_ORDER.every((id) => secs[id] && typeof secs[id].state === 'string'
@@ -362,7 +323,6 @@ function reqH(method, p, headers, body) {
       && secs.startup.data.updateCheck.enabled === true && secs.startup.data.lastRefresh.dims.dsh === 'ok',
       JSON.stringify(secs.startup && secs.startup.data));
 
-    // EL 组：上一拍快照的只读回看口 —— 整份原样交出、两种「没有」分得开、跨站同样拒读。
     const beforeLast = { form: envCalls.length, refresh: envRefreshCalls.length };
     r = await req('GET', '/env/environment/last');
     check('EL 没落过盘要说成 never-written（它与「读不出」是两种处置：一个去刷新、一个去查文件）',
@@ -379,8 +339,6 @@ function reqH(method, p, headers, body) {
       envCalls.length === beforeLast.form && envRefreshCalls.length === beforeLast.refresh && envLastCalls.length === 2,
       JSON.stringify({ form: envCalls.length, refresh: envRefreshCalls.length, last: envLastCalls.length }));
 
-    // PR 组：浏览器偏好的读写边界。判据（id 必须是本机候选）住在表单，本组只钉边界三件事：
-    //   GET 原样交出状态、POST 缺字段=400 不走到门面、门面判失败=500 而不是把失败说成成功。
     r = await req('GET', '/settings/external-browser');
     check('PR GET 交出当前偏好 + 候选清单 + 这一拍的分发依据（面板据此说明「现在实际会用谁」）',
       r.code === 200 && r.body.ok === true && r.body.value === 'c:\\ff\\firefox.exe'
@@ -397,7 +355,6 @@ function reqH(method, p, headers, body) {
     r = await req('POST', '/settings/external-browser', JSON.stringify({ id: 'C:\\nope.exe' }));
     check('PR POST 非候选 id → 500 且带 error（写下去也不会生效，必须当场说清楚）',
       r.code === 500 && r.body.ok === false && !!r.body.error, r.code + ' ' + JSON.stringify(r.body));
-    // 拒写判据只有门面一处（checkPreference）：边界自己抄一份迟早分叉，故必须真走到门面一次。
     check('PR 非候选 id 确实走到门面判据一次（边界不自己复述拒写理由）',
       envPrefCalls.length === rejectBefore + 1, 'calls=' + envPrefCalls.length);
     const missingBefore = envPrefCalls.length;
@@ -405,15 +362,11 @@ function reqH(method, p, headers, body) {
     check('PR 反向：缺 id 字段 → 400 且一次都没写（漏字段不得被当成清除偏好）',
       r.code === 400 && r.body.ok === false && envPrefCalls.length === missingBefore, r.code + ' ' + envPrefCalls.length);
   } finally {
-    // 反空转：注入的出口与门面必须真被叫到，否则上面各组都只是对着空气判绿。
     check('OW/OU/EF/PR 四组真的驱动了注入出口与门面（一次都没被叫到即整组空转）',
       argvUrls.length >= 7 && envCalls.length + envRefreshCalls.length >= 2 && envPrefCalls.length >= 2,
       'argv=' + argvUrls.length + ' form=' + envCalls.length + ' refresh=' + envRefreshCalls.length + ' pref=' + envPrefCalls.length);
   }
 
-  // -- Origin 闸（跨站一律 403）：**唯一采样点** --
-  //   originAllowed 是同一个判定（src/api/domains/*.js 约 40 个调用点），逐端点重采样不产生增量证据；
-  //   端点覆盖面不丢：动作面与泄露本机事实的只读面都仍在用例里，任一端点漏挂闸即红。
   {
     const H = { Host: '127.0.0.1:' + API_PORT };
     const bad = await Promise.all([
@@ -426,14 +379,9 @@ function reqH(method, p, headers, body) {
       bad.every((x) => x.code === 403), bad.map((x) => x.code).join(','));
   }
 
-  // F1 授权收口契约：/instances 的 authUrl 仅回环 Host 请求带 DSH token；LAN 未配置 apiAccessKey
-  //   一律 401（「LAN 可 200 但不下发 token」是漏洞形态：未配置密钥时整层鉴权被跳过）。
-  //   「token 永不出本机」由 F2 的已认证 LAN 路径承接。概念清分：instances[]=沙箱、native=原生 main。
   let instR = await req('GET', '/instances');
   const instLoopback = instR.body.native;
   check('F1 回环 Host /instances 下发含 token authUrl', !!instLoopback && instLoopback.authUrl.indexOf('token=dsh-session-token-abc123') >= 0 && instLoopback.tokenPresent === true, JSON.stringify(instLoopback && instLoopback.authUrl));
-  // 远程访问令牌的明文与 DSH 会话令牌同判据（回环才交）：本机面板的「查看/修改令牌」闭环靠它，
-  //   tokenSet 布尔则对所有来源在场 —— 放宽的是本机的呈现形态，不是可达面。
   check('F1 回环 /instances 下发 remoteToken 明文 + tokenSet',
     !!instLoopback && instLoopback.remoteToken === 'lan-gate-token-1' && instLoopback.tokenSet === true,
     JSON.stringify(instLoopback && { r: instLoopback.remoteToken, s: instLoopback.tokenSet }));
@@ -441,8 +389,6 @@ function reqH(method, p, headers, body) {
   check('F1 LAN（真实非回环 socket）未配置密钥 → 401（fail-closed）',
     !LAN_IP || instR.code === 401, LAN_IP ? (instR.code + '') : '（无 LAN 地址，跳过）');
 
-  // F2 出回环访问密钥契约：配置 apiAccessKey 后，LAN/私网 Host 请求必须带
-  //   Authorization: Bearer <key> 或 ?access_key=<key>（401 否则）；回环 Host 豁免。
   const KEY = 'test-access-key-123456';
   const KEY_PORT = API_PORT + 1;
   const supKey = new Proxy({}, {
@@ -489,37 +435,27 @@ function reqH(method, p, headers, body) {
   check('F2 LAN ?access_key= 正确 → 放行 200', kr.code === 200, kr.code + '');
   kr = await reqKey('GET', '/status'); // 默认 127.0.0.1 连接 = socket 回环身份
   check('F2 回环身份豁免（无 key 放行）', kr.code === 200, kr.code + '');
-  // 自 F1 转移而来的安全属性：**已认证**的 LAN 路径上，响应仍不得包含 DSH token。
   kr = await reqKey('GET', '/instances', null, { Authorization: 'Bearer ' + KEY }, 'lan');
   const instLanAuthed = kr.body && kr.body.native;
   check('F2 已认证 LAN GET /instances → 200 且不下发 token（安全属性转移自 F1）',
     !LAN_IP || (kr.code === 200 && !!instLanAuthed && instLanAuthed.authUrl.indexOf('token=') < 0 && instLanAuthed.tokenPresent === false),
     LAN_IP ? (kr.code + ' ' + JSON.stringify(instLanAuthed && instLanAuthed.authUrl)) : '（无 LAN 地址，跳过）');
-  // LAN 侧即使已带 access key 认证，也只见到 tokenSet 布尔 —— 明文出本机不是可达面。
   check('F2 已认证 LAN GET /instances → 有 tokenSet 布尔但零 remoteToken 明文',
     !LAN_IP || (kr.code === 200 && !!instLanAuthed && instLanAuthed.tokenSet === true
       && instLanAuthed.remoteToken === undefined
       && JSON.stringify(instLanAuthed).indexOf('lan-gate-token-1') < 0),
     LAN_IP ? JSON.stringify(instLanAuthed) : '（无 LAN 地址，跳过）');
-  // 代开端点的回环闸：已认证 LAN 访客的浏览器不在这台机器上，替它开浏览器既无用又是白送的动作面。
-  //   面板据同一判据改走访客自己的 window.open，故这里必须如实拒绝而非静默成功。
   kr = await reqKey('POST', '/env/open-url', null, { Authorization: 'Bearer ' + KEY }, 'lan');
   check('OU 非回环来源 → 403 且给出可复制地址的说法',
     !LAN_IP || (kr.code === 403 && kr.body.ok === false && /复制/.test(String(kr.body.error))),
     LAN_IP ? (kr.code + ' ' + JSON.stringify(kr.body)) : '（无 LAN 地址，跳过）');
-  // 来源闸的不对称只有这一处能回答：表单端点**不带**回环闸是有意设计（远程访客的面板也要能
-  //   看到内核探到了什么），动作端点必须加回环闸。
   kr = await reqKey('GET', '/env/environment', null, { Authorization: 'Bearer ' + KEY }, 'lan');
   check('EF 已认证非回环来源 GET /env/environment → 200（只读面与动作面的来源闸不同级）',
     !LAN_IP || kr.code === 200,
     LAN_IP ? String(kr.code) : '（无 LAN 地址，跳过）');
   serverKey.close();
 
-  // SEC 组：API 安全边界的行为面 —— Host 头无权限语义、零通配 CORS、无 Origin 的 CLI 放行、
-  //   CSP frame-ancestors 指令级、nosniff、编码穿越。
   {
-    // Host 头语义：身份 = socket 事实（identity.js），Host 头既不放行也拒绝不了任何东西
-    //   （无权限语义）。两个方向同断言，防判据空转。
     const forged = await reqH('GET', '/status', { Host: 'evil.example.com:' + API_PORT });
     const local = await reqH('GET', '/status', { Host: '127.0.0.1:' + API_PORT });
     check('SEC Host 头不参与身份判定：伪造 Host 与本机 Host 同样按 socket 回环放行',
@@ -528,21 +464,15 @@ function reqH(method, p, headers, body) {
     check('SEC 零通配 CORS：响应不含 Access-Control-Allow-Origin',
       !local.headers['access-control-allow-origin'], String(local.headers['access-control-allow-origin']));
 
-    // Origin 闸的另一半（**不误伤**）：无 Origin = 非浏览器客户端（CLI/curl）必须放行，
-    //   本机面板 Origin 必须放行；跨站 403 由上方唯一采样点负责。
     let sr = await reqH('POST', '/lifecycle/dsh/restart', {}, null);
     check('SEC 无 Origin（CLI/curl）放行且业务拒绝原因透传（409 + 原因）',
       sr.code === 409 && JSON.stringify(sr.body).includes('desired=stopped'), sr.code + ' ' + JSON.stringify(sr.body));
     sr = await reqH('POST', '/lifecycle/dsh/restart', { Origin: 'http://127.0.0.1:' + API_PORT }, null);
     check('SEC 本机面板 Origin 放行（409 是业务拒绝，不是 CSRF 误伤）', sr.code === 409, sr.code + ' ' + JSON.stringify(sr.body));
 
-    // CSP 与静态资源。
     sr = await reqH('GET', '/', {}, null);
-    // UI 是**构建产物**（ui-react/ 由 release/scripts/build-ui.sh 生成，gitignored）：未先 build-ui
-    //   会得到 503「UI not built」，此处给可操作的失败信息，而不是让人误以为 CSP 逻辑坏了。
+    // UI 是构建产物（release/scripts/build-ui.sh 生成，gitignored）：未先 build-ui 会得到 503，此处给可操作失败信息而非让人以为 CSP 逻辑坏了。
     const uiMissing = sr.code === 503 || /UI not built/.test(String((sr.body && sr.body.raw) || ''));
-    // 断言到**指令级**（长度 >10 的写法对任何字符串都绿）：白名单逐个点名（面板由壳的内容 iframe
-    //   承载，挡住壳 = 面板空白）、不放开通配、也不是 'none'。
     const fa = (String(sr.headers['content-security-policy'] || '').match(/frame-ancestors([^;]*)/) || [])[1] || '';
     const shellAncestors = ['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost'];
     const missingAncestors = shellAncestors.filter((o) => !fa.includes(o));
@@ -553,13 +483,10 @@ function reqH(method, p, headers, body) {
     check('SEC nosniff 头存在', sr.headers['x-content-type-options'] === 'nosniff',
       uiMissing ? '同上：UI 未构建，安全头未走到静态分支' : '');
 
-    // 静态穿越防护（编码形态）。
     sr = await reqH('GET', '/%2e%2e/package.json', {}, null);
     check('SEC 编码穿越返回 404/403（不入白名单即拒绝）', sr.code === 404 || sr.code === 403, String(sr.code));
   }
 
-  // PU 组：API 边界纯函数面 —— originAllowed（Origin/Host 闸）、isShellOrigin（壳源 CORS 白名单）、
-  //   isPrivateHostLiteral + registryOriginViolation（镜像写入口的 SSRF 主机闸）、collectBody（有界读体）。
   {
     const { originAllowed, isShellOrigin } = require(path.join(ROOT, 'src', 'api', 'index'));
     const { isPrivateHostLiteral } = require(path.join(ROOT, 'src', 'shared', 'ip.js'));
@@ -567,15 +494,11 @@ function reqH(method, p, headers, body) {
     const P = API_PORT, R = API_PORT + 1;
     const mkH = (headers) => ({ headers });
 
-    // 只留 lan-access-boundary-test.js 没覆盖的四种风险：IPv6 回环 Host、localhost、
-    //   异端口 Origin（CSRF 向量）、畸形 Origin。
     check('K6-a IPv6 回环 / localhost Host 被接受', originAllowed(mkH({ host: '[::1]:' + P }), P) === true && originAllowed(mkH({ host: 'localhost:' + P }), P) === true);
     check('K6-b 回环 Origin + 异端口（CSRF 向量）与畸形 Origin 均被拒（fail-closed）',
       originAllowed(mkH({ host: '127.0.0.1:' + P, origin: 'http://127.0.0.1:' + R }), P) === false
       && originAllowed(mkH({ host: '127.0.0.1:' + P, origin: 'not a url' }), P) === false);
 
-    // C-7 isShellOrigin：壳 webview 是唯一被接受的非回环来源，CORS 与 CSRF 共用的单一事实源。
-    //   「http://localhost 不作壳源」「tauri 通配已收紧」是真安全不变量。
     const shellCases = [
       ['tauri: + localhost', 'tauri:', 'localhost', true],
       ['tauri: + evil.tld', 'tauri:', 'evil.com', false],
@@ -587,8 +510,6 @@ function reqH(method, p, headers, body) {
       check('C-7 isShellOrigin ' + label + ' → ' + want, isShellOrigin(p, h) === want, String(isShellOrigin(p, h)));
     }
 
-    // C-8 isPrivateHostLiteral：镜像/写入口的私网字面量闸（SSRF），全仓唯此。
-    //   覆盖私网 IPv4 三段、回环、链路本地/CGNAT/元数据、特殊字面量、IPv6 三段，并留公网反例。
     const privCases = [
       ['127.0.0.1', true], ['10.1.2.3', true], ['172.16.0.1', true], ['192.168.9.9', true],
       ['169.254.169.254', true], ['0.0.0.0', true],
@@ -599,7 +520,6 @@ function reqH(method, p, headers, body) {
     for (const [h, want] of privCases) {
       check('C-8 isPrivateHostLiteral ' + h + ' → ' + want, isPrivateHostLiteral(h) === want, String(isPrivateHostLiteral(h)));
     }
-    // 带 path 的基址是华为云/腾讯云镜像的常态形态，写入口放行；私网字面量仍拒。
     const vcases = [
       ['http://127.0.0.1:4873', true], ['http://169.254.169.254', true],
       ['https://registry.npmjs.org/path', false],
@@ -612,8 +532,7 @@ function reqH(method, p, headers, body) {
         (got !== null) === wantReject, got === null ? 'pass' : got);
     }
 
-    // C-5 collectBody：Buffer 累积（不是 string 拼接）—— 多字节汉字恰被切在 chunk 边界时不产生
-    //   U+FFFD；超限回 413。`await` 本身就是判据的一部分：不 await 则断言从不执行而汇总仍打 passed。
+    // collectBody 用 Buffer 累积（不是 string 拼接）：多字节汉字恰被切在 chunk 边界时不产生 U+FFFD；超限回 413。
     const { collectBody } = require(path.join(ROOT, 'src', 'api', 'transport', 'body.js'));
     const { Readable } = require('node:stream');
     const mkRes = (settle) => ({ headersSent: false, writeHead(code) { this.headersSent = true; settle({ code }); }, end() { this.ended = true; } });

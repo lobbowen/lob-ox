@@ -1,12 +1,8 @@
 import type { ReactNode } from "react";
 import { cn } from "../utils";
 
-/** StatusBar：页面底部状态栏，左侧（版本/状态）+ 右侧（说明文字）。 */
-
 export type StatusBarProps = {
-  /** 左侧内容（如版本号） */
   left?: ReactNode;
-  /** 右侧内容（如最近操作说明） */
   right?: ReactNode;
   className?: string;
 };

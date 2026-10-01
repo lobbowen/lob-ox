@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// 壳看护：**陈旧 phase 的时效上限**。expectedAbsence() 只要 identity.phase 是 restarting/shell-update-*
-//   就恒真，宽限期永远走 updateGraceMs（5min）而非 graceMs（90s），而 phase 只由壳写入、唯一复位点是
-//   壳成功启动时的 init_identity ⇒ 壳更新中途崩溃后自愈被拖慢数倍。修法：看护自己计时（超过 phaseMaxAgeMs 默认 10 分钟仍在该相位即判陈旧，离开即复位）。
+// expectedAbsence() 只要 identity.phase 是 restarting/shell-update-* 就恒真，宽限期永远走 updateGraceMs（5min）而非 graceMs（90s），而 phase 唯一复位点是壳成功启动 ⇒ 壳更新中途崩溃后自愈被拖慢数倍；看护须自己计时。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -12,7 +10,6 @@ const { createShellWatchdog } = require(path.join(ROOT, 'src', 'domains', 'shell
 const results = [];
 const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x !== undefined && x !== '' ? '  ← ' + x : '')); };
 
-// 注入时钟 + 注入 identity（与 shell-watchdog-test.js 的 mk 同构；不碰真实文件系统）
 const mk = (opts) => {
   const o = opts || {};
   let t = 1000000;
@@ -38,38 +35,34 @@ const mk = (opts) => {
 const GUI = '/usr/bin/dsh-supervisor-gui';
 
 (async () => {
-  // -- N-a：新鲜「更新中」相位 -> 不抢跑 --
   {
     const m = mk({ alive: false, identity: { phase: 'shell-update-download', exe: GUI } });
-    await m.w.tick();          // 首拍：record（开始计时 + 相位计时）
+    await m.w.tick();
     m.adv(1200);               // 超 graceMs(1000) 但未到 updateGraceMs(5000)
     await m.w.tick();
     check('N-a 新鲜更新相位 → 不拉起（宽限延长）且 expectedAbsence=true',
       m.calls.restarts.length === 0 && m.w.status().expectedAbsence === true, 'restarts=' + m.calls.restarts.length);
   }
 
-  // -- N-b：同一相位持续超过窗口 -> 判定陈旧 -> 按正常宽限介入 --
   {
     const m = mk({
       alive: false,
       identity: { phase: 'shell-update-download', exe: GUI },
-      config: { shellWatchdogPhaseMaxAgeMs: 2000 }, // 2s 窗口（便于测试）
+      config: { shellWatchdogPhaseMaxAgeMs: 2000 },
     });
-    await m.w.tick();          // t=1000000：进入相位，expectedSince=1000000
-    m.adv(3000);               // 3s > 2s 窗口 -> 陈旧
+    await m.w.tick();
+    m.adv(3000);
     await m.w.tick();
     check('N-b 相位陈旧 → 不再延长宽限（按正常宽限介入）且 expectedAbsence=false',
       m.calls.restarts.length === 1 && m.w.status().expectedAbsence === false, 'restarts=' + m.calls.restarts.length);
   }
 
-  // -- N-c：phase=ready --
   {
     const m = mk({ alive: false, identity: { phase: 'ready', exe: GUI } });
     await m.w.tick(); m.adv(1200); await m.w.tick();
     check('N-c phase=ready → expectedAbsence=false', m.w.status().expectedAbsence === false, 'false');
   }
 
-  // -- N-d：未确认账本 -> 仍 true（既有语义不回退）--
   {
     const m = mk({
       alive: false,
@@ -81,25 +74,22 @@ const GUI = '/usr/bin/dsh-supervisor-gui';
       m.w.status().expectedAbsence === true && m.calls.restarts.length === 0, 'restarts=' + m.calls.restarts.length);
   }
 
-  // -- N-e：离开相位 -> 计时复位 --
   {
     const m = mk({
       alive: false,
       identity: { phase: 'shell-update-download', exe: GUI },
       config: { shellWatchdogPhaseMaxAgeMs: 2000 },
     });
-    await m.w.tick();                 // 进入相位
+    await m.w.tick();
     m.adv(1500);
     m.setIdentity({ phase: 'ready', exe: GUI });
-    await m.w.tick();                 // 离开相位 -> 复位计时
+    await m.w.tick();
     m.setIdentity({ phase: 'shell-update-download', exe: GUI });
-    m.adv(1500);                      // 重新进入后仅 1.5s < 2s -> 仍新鲜
+    m.adv(1500);
     const expected = m.w.status().expectedAbsence;
     check('N-e 离开相位后计时复位（重新进入重新计时）', expected === true, String(expected));
   }
 
-  //  窗口可配置由 N-b 本身证明（它注入 shellWatchdogPhaseMaxAgeMs: 2000 并观察到 3s 后陈旧）；
-  //  `DEFAULTS.phaseMaxAgeMs === 600000` 是**默认值策略锁定**（有人有理由调到 15 分钟时无故障却判红），一并删除。
   const failed = results.filter((r) => !r);
   console.log(String.fromCharCode(10) + '结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');
   process.exit(failed.length ? 1 : 0);

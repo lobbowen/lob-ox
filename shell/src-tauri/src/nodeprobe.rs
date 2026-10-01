@@ -1,6 +1,4 @@
-//! 有界 Node 探测：探测内含无界阻塞系统调用，故分离线程执行 + 边枚举边上报 stage + 硬上限。
-//! 规则一：任何可能阻塞的调用之前都必须先 stage()（候选枚举、盘符判定、目录读取都算）。
-//! 规则二：超过硬上限（HARD_DEADLINE）即判明确失败并返回原因，即使某系统调用永久挂起，命令也一定给出结论。本文件刻意不用反引号/单引号字面量（用数值 92/58），以免跨格式传递被转义破坏。
+//! 有界 Node 探测：探测内含无界阻塞系统调用，故分离线程执行 + 边枚举边上报 stage + 硬上限。规则一：任何可能阻塞的调用之前都必须先 stage()（候选枚举、盘符判定、目录读取都算）。规则二：超过硬上限（HARD_DEADLINE）即判明确失败并返回原因，即使某系统调用永久挂起，命令也一定给出结论。本文件刻意不用反引号/单引号字面量（用数值 92/58），以免跨格式传递被转义破坏。
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
@@ -9,17 +7,14 @@ use std::time::{Duration, Instant};
 
 use crate::domain::probes::{Probe, Record};
 
-/// 一次探测的结论。`records` 只有 `Probe::Node` 一个维度：npm / registry / prefix 是它的**下游**，
-/// 由 `domain::probes::dependents` 在同一份命令输出里补齐（那里按 TTL 复用缓存）。
+/// 一次探测的结论。`records` 只有 `Probe::Node` 一个维度：npm / registry / prefix 是它的**下游**，由 `domain::probes::dependents` 在同一份命令输出里补齐（那里按 TTL 复用缓存）。
 #[derive(Clone)]
 pub struct Outcome {
     pub path: Option<PathBuf>,
     pub version: Option<String>,
     pub records: Vec<Record>,
     pub elapsed_ms: u128,
-    /// true = 本次探测已结束（成功或明确失败）；false = 仍在进行（phase 快照）。
     pub finished: bool,
-    /// 明确失败的原因（finished=true 且未找到时必有值）。
     pub error: Option<String>,
 }
 
@@ -34,19 +29,16 @@ fn live() -> &'static Mutex<Live> {
     L.get_or_init(|| Mutex::new(Live { current: None, done: Vec::new(), summary: String::new() }))
 }
 
-/// 取活进度锁。毒锁里的 `Live` 仍是完好结构体：读者本就容毒读，写方若因毒丢写，
-/// UI 会永久停在最后一条 `current` 上再也得不到更新 —— 而那条恰恰是「卡住时唯一线索」。
+/// 取活进度锁。毒锁里的 `Live` 仍是完好结构体：读者本就容毒读，写方若因毒丢写，UI 会永久停在最后一条 `current` 上再也得不到更新 —— 而那条恰恰是「卡住时唯一线索」。
 fn live_lock() -> std::sync::MutexGuard<'static, Live> {
     live().lock().unwrap_or_else(|e| e.into_inner())
 }
 
 thread_local! {
-    /// 本线程所属探测代际；`None` = 不是 worker 线程（命令线程与测试直调），其写入不受代际约束。
     static WORKER_GEN: std::cell::Cell<Option<u64>> = std::cell::Cell::new(None);
 }
 
-/// 已被作废的 worker 是否还在写共享进度。代际校验必须覆盖 `detect()` 里的 stage/finish，
-/// 否则新一代面板会读到上一轮留下的「正在做什么」与记录。
+/// 已被作废的 worker 是否还在写共享进度。代际校验必须覆盖 `detect()` 里的 stage/finish，否则新一代面板会读到上一轮留下的「正在做什么」与记录。
 fn stale_writer() -> bool {
     WORKER_GEN.with(|g| {
         g.get().map_or(false, |gen| gen != GENERATION.load(std::sync::atomic::Ordering::SeqCst))
@@ -60,7 +52,6 @@ fn live_reset() {
     l.done.clear();
 }
 
-/// 标记「即将做一件可能阻塞的事」。**调用它必须在任何 I/O 之前**（规则一）。
 fn stage(desc: &str) {
     if stale_writer() { return; }
     live_lock().current = Some((desc.to_string(), Instant::now()));
@@ -83,37 +74,30 @@ fn snapshot() -> Vec<Record> {
     live_lock().done.clone()
 }
 
-/// 当前正在做哪一步、已耗时多久。**卡住时的唯一线索。**
 pub fn current_stuck() -> Option<(String, u128)> {
     let l = live_lock();
     let (s, t) = l.current.as_ref()?;
     Some((s.clone(), t.elapsed().as_millis()))
 }
 
-/// 候选摘要（**只读缓存，不做任何 I/O**）。由探测线程在枚举完成后写入。
 pub fn candidate_summary() -> String {
     live_lock().summary.clone()
 }
 
-/// 在飞探测的实时状态（与 Outcome 分离：即使探测永不返回，也能读到进展）。
 const STALE_AFTER: Duration = Duration::from_secs(90);
 
-/// **硬上限**（规则二）：超过即判定本次探测明确失败并给出原因。
-/// 若没有它，某系统调用永久挂起时前端只能等自己的预算耗尽，结论只剩一句无信息量的「超时」；
-/// 取值毫秒；运行时可变仅为测试可注入，正式路径恒为 25000。
+/// **硬上限**（规则二）：超过即判定本次探测明确失败并给出原因。若没有它，某系统调用永久挂起时前端只能等自己的预算耗尽，结论只剩一句无信息量的「超时」；取值毫秒；运行时可变仅为测试可注入，正式路径恒为 25000。
 static HARD_DEADLINE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(25_000);
 
 fn hard_deadline() -> Duration {
     Duration::from_millis(HARD_DEADLINE_MS.load(std::sync::atomic::Ordering::Relaxed))
 }
 
-/** 仅供测试：注入硬上限。 */
 #[cfg(test)]
 pub fn set_hard_deadline_ms(ms: u64) {
     HARD_DEADLINE_MS.store(ms, std::sync::atomic::Ordering::Relaxed);
 }
 
-/** 仅供测试：让候选枚举阶段永久阻塞，用于验证「卡住时一定给出带阶段的结论」。 */
 #[cfg(test)]
 static HANG_IN_ENUMERATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -133,23 +117,18 @@ fn state() -> &'static Mutex<State> {
     S.get_or_init(|| Mutex::new(State::Idle))
 }
 
-/// 使缓存失效（Node 安装完成后调用）。
 pub fn invalidate() {
     if let Ok(mut g) = state().lock() {
-        // 显式复位：作废旧代际（防旧 worker 回写诊断）、清孤儿计数（允许重新探测）。
-        // 旧 worker 若仍在运行，线程本身依然存在（Rust 无法强制回收），此处接受重新开始。
         GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         ORPHANS.store(0, std::sync::atomic::Ordering::SeqCst);
         *g = State::Idle;
     }
 }
 
-/// 阶段快照（探测未完成，但尚未到硬上限）。
 pub fn partial() -> Outcome {
     let mut records = snapshot();
     if let Some((desc, ms)) = current_stuck() {
-        // 在飞的步骤记 `ok = None`（未知），不是失败：把它算进失败候选数会让
-        // 「还有一个候选没试完」看起来像「这个候选坏了」。
+                // 在飞的步骤记 `ok = None`（未知），不是失败：把它算进失败候选数会让「还有一个候选没试完」看起来像「这个候选坏了」。
         records.push(Record::pending(
             Probe::Node,
             "进行中",
@@ -161,7 +140,6 @@ pub fn partial() -> Outcome {
     Outcome { path: None, version: None, records, elapsed_ms: 0, finished: false, error: None }
 }
 
-/// 明确失败（带原因与已收集的记录）。
 fn failed(reason: String, elapsed_ms: u128) -> Outcome {
     let mut records = snapshot();
     if let Some((desc, ms)) = current_stuck() {
@@ -176,10 +154,7 @@ fn failed(reason: String, elapsed_ms: u128) -> Outcome {
     Outcome { path: None, version: None, records, elapsed_ms, finished: true, error: Some(reason) }
 }
 
-/// 取探测结论，绝不阻塞超过 budget。返回分三种：
-/// 正常完成；仍在进行（finished=false，由前端轮询）；明确失败（到硬上限或工作线程异常）。
 pub fn status(budget: Duration) -> Outcome {
-    // 决定「复用 / 重启 / 新建」在飞探测（持锁但几乎不耗时）
     let started_at;
     {
         let mut g = match state().lock() {
@@ -191,7 +166,7 @@ pub fn status(budget: Duration) -> Outcome {
             State::Running(rx, started) => {
                 if started.elapsed() >= STALE_AFTER {
                     let (tx, rx2) = channel();
-                    abandon_current_worker(); // 旧 worker 仍在跑，记孤儿并作废其代际
+                    abandon_current_worker();
                     live_reset();
                     spawn_worker(tx);
                     *rx = Some(rx2);
@@ -200,9 +175,7 @@ pub fn status(budget: Duration) -> Outcome {
                 started_at = *started;
             }
             State::Idle => {
-                // 若上一次的 worker 仍未退出（卡在无界系统调用），**不再新建** ——
-                // 否则用户每点一次「重试」就多一条永不退出的线程。此时给出明确结论，
-                // 等旧 worker 退出（或 invalidate() 显式复位）后即可重新探测。
+                                // 若上一次的 worker 仍未退出（卡在无界系统调用），**不再新建** —— 否则用户每点一次「重试」就多一条永不退出的线程。此时给出明确结论，等旧 worker 退出（或 invalidate() 显式复位）后即可重新探测。
                 if ORPHANS.load(std::sync::atomic::Ordering::SeqCst) > 0 {
                     return failed(
                         "上一次环境探测仍未退出（线程卡在系统调用中，无法回收）；已跳过重复启动，避免线程堆积"
@@ -212,8 +185,6 @@ pub fn status(budget: Duration) -> Outcome {
                 }
                 let (tx, rx) = channel();
                 live_reset();
-                // 规则一：在启动探测前先标记阶段 —— 线程调度本身也可能延迟，
-                // 若此处不标记，前端会看到「probing 但没有任何阶段」，与卡死无法区分。
                 stage("启动探测线程");
                 spawn_worker(tx);
                 let now = Instant::now();
@@ -223,7 +194,6 @@ pub fn status(budget: Duration) -> Outcome {
         }
     }
 
-    // 取出 receiver 等待（不持锁阻塞，避免与 invalidate 等调用相互影响）
     let rx = {
         let mut g = match state().lock() {
             Ok(g) => g,
@@ -252,14 +222,10 @@ pub fn status(budget: Duration) -> Outcome {
         }
         Err(RecvTimeoutError::Timeout) => {
             if started_at.elapsed() >= hard_deadline() {
-                // 规则二：主动给出明确失败，而不是让 probing 永远为真。
-                // 同时回到 Idle，让「重试」能重新开始一次干净探测。
                 let el = started_at.elapsed().as_millis();
                 let where_ = current_stuck()
                     .map(|(d, ms)| format!("卡在「{}」已 {} ms", d, ms))
                     .unwrap_or_else(|| "探测线程未报告任何阶段".to_string());
-                // 作废该 worker 并记孤儿（它仍在卡死中，无法回收）；
-                // 之后 status() 在孤儿未退出前不会再新建线程（见 Idle 分支）。
                 abandon_current_worker();
                 *g = State::Idle;
                 failed(
@@ -279,7 +245,6 @@ pub fn status(budget: Duration) -> Outcome {
             }
         }
         Err(RecvTimeoutError::Disconnected) => {
-            // 工作线程异常结束（不应发生）：明确失败，而不是静默停在 probing。
             let el = started_at.elapsed().as_millis();
             *g = State::Idle;
             failed("探测线程异常退出".to_string(), el)
@@ -287,12 +252,10 @@ pub fn status(budget: Duration) -> Outcome {
     }
 }
 
-/// 触发探测但不等待（UI 启动时预热）。
 pub fn start() {
     let _ = status(Duration::from_millis(1));
 }
 
-/// 便捷入口：在有界预算内尽力取回结论。
 pub fn resolve(budget: Duration) -> Option<(PathBuf, String)> {
     let out = status(budget);
     match (out.path, out.version) {
@@ -301,22 +264,16 @@ pub fn resolve(budget: Duration) -> Option<(PathBuf, String)> {
     }
 }
 
-/// 探测**代际**：每次新建 worker 自增。worker 回写诊断前比对代际，
-/// 保证「已作废的旧 worker」不会把记录写进新一轮探测（防诊断串被污染）。
 static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// 已被作废但尚未退出的 worker 数量（不可回收的线程）。
-/// worker 卡在无界阻塞系统调用时，Rust 无法回收线程；若超限后直接重来，每次「重试」都会多堆一条永不退出的线程。
-/// 故：代际作废防旧 worker 回写污染；计数孤儿并在其退出前不再新建；invalidate() 是显式复位口。
+/// 已被作废但尚未退出的 worker 数量（不可回收的线程）。worker 卡在无界阻塞系统调用时，Rust 无法回收线程；若超限后直接重来，每次「重试」都会多堆一条永不退出的线程。故：代际作废防旧 worker 回写污染；计数孤儿并在其退出前不再新建；invalidate() 是显式复位口。
 static ORPHANS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// 作废当前 worker 并记为孤儿（它仍在运行、无法回收）。
 fn abandon_current_worker() {
-    GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst); // 使旧 worker 退出时不回写诊断
+    GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     ORPHANS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 }
 
-/// 当前未退出的孤儿 worker 数（诊断用；不改变行为）。
 pub fn orphan_count() -> u64 {
     ORPHANS.load(std::sync::atomic::Ordering::SeqCst)
 }
@@ -328,12 +285,10 @@ fn spawn_worker(tx: Sender<Outcome>) {
         .spawn(move || {
             WORKER_GEN.with(|g| g.set(Some(gen)));
             let started = Instant::now();
-            // 最后一道保险：worker 内 panic 也必须产出结论，否则线程静默死亡、命令只能一直报 probing。
+                        // 最后一道保险：worker 内 panic 也必须产出结论，否则线程静默死亡、命令只能一直报 probing。
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(detect));
-            // 代际校验：若本轮已被作废（GENERATION 前进），则**不回写诊断**，
-            // 仅统计孤儿退出，避免污染新一轮的记录与候选摘要。
+                        // 代际校验：若本轮已被作废（GENERATION 前进），则**不回写诊断**，仅统计孤儿退出，避免污染新一轮的记录与候选摘要。饱和减（invalidate() 可能已把计数清零；绝不能下溢成天文数字）。
             if GENERATION.load(std::sync::atomic::Ordering::SeqCst) != gen {
-                // 饱和减（invalidate() 可能已把计数清零；绝不能下溢成天文数字）
                 let _ = ORPHANS.fetch_update(
                     std::sync::atomic::Ordering::SeqCst,
                     std::sync::atomic::Ordering::SeqCst,
@@ -363,13 +318,10 @@ fn spawn_worker(tx: Sender<Outcome>) {
         });
 }
 
-/// 返回 (路径, 版本, 明确失败原因)。
-/// 边枚举边探测、最可能慢的 PATH 放最后：若先全部枚举再探测，枚举一慢/卡，已枚举好的廉价候选也永远试不到。
-/// 于是 Node 装在标准位置的多数用户在 1) 或 2) 即命中，根本走不到 PATH 过滤。
+/// 返回 (路径, 版本, 明确失败原因)。边枚举边探测、最可能慢的 PATH 放最后：若先全部枚举再探测，枚举一慢/卡，已枚举好的廉价候选也永远试不到。于是 Node 装在标准位置的多数用户在 1) 或 2) 即命中，根本走不到 PATH 过滤。
 fn detect() -> (Option<PathBuf>, Option<String>, Option<String>) {
     #[cfg(test)]
     if HANG_IN_ENUMERATE.load(std::sync::atomic::Ordering::Relaxed) {
-        // 复刻「卡在枚举」的现场：若此处不 stage，诊断串里候选摘要 / 卡住阶段 / 探测记录会同时为空。
         stage("测试：模拟枚举阶段永久阻塞");
         std::thread::sleep(Duration::from_secs(10));
     }
@@ -382,7 +334,6 @@ fn detect() -> (Option<PathBuf>, Option<String>, Option<String>) {
         true
     };
 
-    // 1) 自己记录的路径（一次本地读；最廉价也最可信）
     stage("① 读取 runtime.json 记录路径");
     if let Some(p) = crate::env::recorded_node_path() {
         if add("记录", p.clone(), &mut out) {
@@ -394,7 +345,6 @@ fn detect() -> (Option<PathBuf>, Option<String>, Option<String>) {
     }
     set_summary(format!("{}（进行中：① 已试）", summarize(&out)));
 
-    // 2) 已知安装落点（逐个：列一个、试一个）
     stage("② 枚举已知安装落点");
     for (src, p) in known_locations() {
         if !add(&src, p.clone(), &mut out) {
@@ -407,7 +357,6 @@ fn detect() -> (Option<PathBuf>, Option<String>, Option<String>) {
         }
     }
 
-    // 3) PATH（最后：这是唯一需要逐盘符系统调用的阶段）
     let dirs = path_dirs_staged();
     let total = dirs.len();
     set_summary(format!("{}（进行中：③ PATH 已过滤 {} 条）", summarize(&out), total));
@@ -427,7 +376,6 @@ fn detect() -> (Option<PathBuf>, Option<String>, Option<String>) {
     (None, None, None)
 }
 
-/// 探测单个候选：stage -> 可用性判定 -> 执行取版本 -> 落一条 `Probe::Node` 记录。返回版本（成功时）。
 fn try_probe(source: &str, cand: &Path) -> Option<String> {
     let p = cand.to_string_lossy().to_string();
     stage(&format!("探测候选 {}（{}）", source, p));
@@ -471,9 +419,8 @@ fn summarize(c: &[(String, PathBuf)]) -> String {
 }
 
 
-/// PATH 目录，逐条 stage 并做本地盘过滤（过滤本身也可能阻塞 —— 见 env.rs 的盘符缓存）。
 fn path_dirs_staged() -> Vec<PathBuf> {
-    /// PATH 条目上限：极端长的 PATH 不应把探测拖成分钟级。
+        /// PATH 目录，逐条 stage 并做本地盘过滤（过滤本身也可能阻塞 —— 见 env.rs 的盘符缓存）。PATH 条目上限：极端长的 PATH 不应把探测拖成分钟级。
     const MAX_PATH_ENTRIES: usize = 64;
     stage("③ 过滤 PATH（跳过网络盘/UNC）");
     let mut v = crate::env::path_dirs_local_only();
@@ -483,9 +430,6 @@ fn path_dirs_staged() -> Vec<PathBuf> {
     v
 }
 
-/// 已知安装落点（平台判定），实现下沉在 platform 层：Unix 为 /usr/local、/opt/homebrew、volta/nvm/fnm 布局；
-/// Windows 为 ProgramFiles(x86)、Chocolatey、scoop、volta、nvm 等。不得硬编码 `C:\Program Files`：
-/// 真实路径随系统盘符与系统语言变化，一律经环境变量推导。内部会做 read_dir，调用方必须先 stage() 上报。
 fn known_locations() -> Vec<(String, PathBuf)> {
     crate::platform::current()
         .node_candidate_paths()
@@ -498,12 +442,10 @@ fn known_locations() -> Vec<(String, PathBuf)> {
 mod tests {
     use super::*;
 
-    /// 这两个用例共享全局注入（挂起标志 + 硬上限），必须串行执行，
-    /// 否则并行时一个用例的注入会污染另一个。
+        /// 这两个用例共享全局注入（挂起标志 + 硬上限），必须串行执行，否则并行时一个用例的注入会污染另一个。
     static SERIAL: Mutex<()> = Mutex::new(());
 
-    /// 核心性质：枚举阶段永久阻塞时，必须给出带阶段信息的明确结论。
-    /// 对应故障形态：卡在枚举（GetDriveTypeW / read_dir），而候选摘要 / 卡住阶段 / 探测记录全空。
+        /// 核心性质：枚举阶段永久阻塞时，必须给出带阶段信息的明确结论。对应故障形态：卡在枚举（GetDriveTypeW / read_dir），而候选摘要 / 卡住阶段 / 探测记录全空。
     #[test]
     fn hard_deadline_yields_actionable_failure_when_enumeration_hangs() {
         let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -512,7 +454,6 @@ mod tests {
         set_hang_in_enumerate(true);
 
         let t0 = Instant::now();
-        // 第一次：仍在进行，但**阶段必须可见**（规则一已生效）
         let first = status(Duration::from_millis(30));
         assert!(!first.finished, "首查不应立刻结束");
         let stuck = current_stuck();
@@ -523,7 +464,6 @@ mod tests {
             stuck
         );
 
-        // 持续轮询：应在硬上限附近得到**明确失败**，而不是永远 probing
         let mut last = first;
         while !last.finished && t0.elapsed() < Duration::from_secs(20) {
             std::thread::sleep(Duration::from_millis(50));
@@ -544,9 +484,6 @@ mod tests {
         invalidate();
     }
 
-    /// 孤儿 worker 未退出前不得再新建（防线程堆积）：作废时记孤儿，
-    /// 孤儿未退出前 Idle 分支拒绝新建并给出明确结论。越过硬上限后连续多次 status()
-    /// 不得让孤儿计数继续增长。
     #[test]
     fn orphan_workers_do_not_accumulate_on_repeated_retry() {
         let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -565,7 +502,6 @@ mod tests {
         let after_first = orphan_count();
         assert_eq!(after_first, 1, "首次超限应恰好产生 1 个孤儿，实得 {}", after_first);
 
-        // 反复重试：孤儿仍未退出，必须拒绝新建（计数不得增长）
         for i in 0..6 {
             let o = status(Duration::from_millis(30));
             assert!(o.finished, "第 {} 次重试应立刻给出结论（不再新建线程）", i + 1);
@@ -589,7 +525,6 @@ mod tests {
         assert_eq!(orphan_count(), 0, "invalidate 后应可重新探测");
     }
 
-    /// 注入未开启时，正常探测必须完成（确认测试钩子未污染正常路径）。
     #[test]
     fn normal_probe_completes() {
         let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());

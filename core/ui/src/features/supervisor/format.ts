@@ -1,7 +1,4 @@
-/**
- * supervisor 共享格式化：页面一律走这里，禁止页面级重定义 fmt 函数。
- * 覆盖后端时间形态：ISO 字符串 / 毫秒时间戳 / Date。
- */
+/** 后端时间形态：ISO 字符串 / 毫秒时间戳 / Date。 */
 const pad = (n: number) => String(n).padStart(2, "0");
 
 function toDate(v: string | number | Date | null | undefined): Date | null {

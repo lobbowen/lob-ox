@@ -5,11 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dsh-supervisor — 环境引导</title>
 <style>
-  /* ============================================================
-   * dsh-supervisor 引导页（健壮版）
-   * 职责单一：检测环境 -> 桌面版本 -> 内核版本 -> 服务就绪 -> 进入面板。更新为强制，不得绕开。
-   * 关键原则：每步真实成败；失败可重试、可诊断；**绝不假成功**。
-   * ============================================================ */
   :root {
     --brand: #2F54EB; --brand-soft: rgb(47 84 235 / 12%);
     --text: #0F1115; --status: #6b747d; --line: #DDE3EC; --ok: #10b981; --err: #e5484d;
@@ -40,8 +35,6 @@
     -webkit-mask: url("/dsh-logo.svg") center / contain no-repeat; }
   .startup-name { font-size: 22px; font-weight: 760; line-height: 1; letter-spacing: .02em; }
   .startup-status { color: var(--status); font-size: 13px; line-height: 1.5; text-align: center; min-height: 20px; }
-  /* 条只由真分母驱动（唯一写入点 10-ui.js::installMeter）：没有分母时它是隐藏的。
-     按代码顺序涨的假条比没有条更糟 —— 那正是当初整体删除进度条的理由。 */
   .dl-meter { display: none; width: 100%; max-width: 320px; height: 4px; margin: 8px auto 0; appearance: none; -webkit-appearance: none; border: none; background: var(--line); }
   .dl-meter::-webkit-progress-bar { background: var(--line); border-radius: 0; }
   .dl-meter::-webkit-progress-value { background: var(--brand); border-radius: 0; }
@@ -63,7 +56,6 @@
   .fail-actions button { border: 1px solid var(--line); background: var(--brand); color: #fff;
     border-radius: 8px; padding: 7px 16px; font-size: 12.5px; cursor: pointer; }
   .fail-actions button.ghost { background: transparent; color: var(--status); }
-  /* 镜像设置（仅失败态显示） */
   .mirror { display: grid; gap: 8px; width: 100%; border-top: 1px solid var(--line); padding-top: 12px; }
   .mirror-title { font-size: 12.5px; font-weight: 650; text-align: center; }
   .mirror-hint { font-size: 11.5px; color: var(--status); text-align: center; word-break: break-word; }
@@ -85,14 +77,9 @@
   .choice-actions button { border: 1px solid var(--line); background: var(--brand); color: #fff;
     border-radius: 8px; padding: 7px 16px; font-size: 12.5px; cursor: pointer; }
   .choice-actions button.ghost { background: transparent; color: var(--status); }
-  /* 进度条整体移除 —— 所有下载/安装**一律只显示文字**。
-     原进度条与真实进度常脱节（分段下载、解包阶段没有字节数可算），
-     反而让用户把「进度没动」误读成「卡死」；现在四种 kind 共用 NS.install.* 的文字形态。 */
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* 唯一窗口栏（壳提供：产品 WindowTitlebar 同款视觉）
-     引导页是**主帧**（架构修复后窗口直接加载本页），
-     故这里的 win_ctl 是主帧 IPC，必然可用（iframe 内的 IPC 会被 Tauri 拒绝）。*/
+  /* 唯一窗口栏（壳提供：产品 WindowTitlebar 同款视觉）。引导页是**主帧**（架构修复后窗口直接加载本页），故这里的 win_ctl 是主帧 IPC，必然可用（iframe 内的 IPC 会被 Tauri 拒绝）。*/
   #titlebar { position: fixed; top: 0; left: 0; right: 0; height: 40px; z-index: 10;
     display: flex; align-items: center; justify-content: space-between;
     background: #f9fafb; border-bottom: 1px solid rgb(0 0 0 / 5%);
@@ -106,13 +93,11 @@
     transition: background .15s, color .15s; }
   .tb-btns button:hover { background: rgb(0 0 0 / 5%); color: #0f1115; }
   .tb-btns button.close:hover { background: #e81123; color: #fff; }
-  /* 内容区下移，避免被固定标题栏遮住 */
   .page { padding-top: 40px; }
 </style>
 </head>
 <body>
-  <!-- 致命错误横幅（不变量 F2/F3）：全局 onerror / unhandledrejection 与启动自检显示它。
-       默认隐藏；一旦显示即说明界面已无法继续，并给出可复制的具体原因。 -->
+  <!-- 致命错误横幅（不变量 F2/F3）：全局 onerror / unhandledrejection 与启动自检显示它。默认隐藏；一旦显示即说明界面已无法继续，并给出可复制的具体原因。 -->
   <div id="fatal" style="display:none;position:fixed;left:0;right:0;top:0;z-index:9999;
        background:#7f1d1d;color:#fff;padding:10px 14px;font:13px/1.5 system-ui,sans-serif;
        border-bottom:2px solid #dc2626">
@@ -133,7 +118,6 @@
       <div class="startup-name">DSH-SUP</div>
       <div class="startup-status" id="status">正在检测环境…</div>
       <progress class="dl-meter" id="dlMeter" max="1" value="0"></progress>
-      <!-- 阶段固定五步：检测环境 -> 桌面版本 -> 内核版本 -> 服务就绪 -> 进入面板。 -->
       <div class="steps" id="steps" style="display:none">
         <span class="step active" id="st-env"><span class="dot"></span>检测环境</span>
         <span class="step-arrow">›</span>
@@ -149,16 +133,10 @@
         <div class="fail-msg" id="failMsg"></div>
         <div class="fail-actions">
           <button id="btnRetry">重试</button>
-          <!-- 环境探测失败时的**关键出口**：
-               下载 Node 并不需要本机已有 Node —— 故「检测不出来」不应是死胡同。
-               仅在环境超时后出现，避免普通用户误用。 -->
           <button id="btnForceNode" style="display:none">跳过检测，直接安装 Node</button>
           <button id="btnDiag" class="ghost">复制诊断</button>
           <button id="btnMirror" class="ghost">网络/镜像设置</button>
         </div>
-        <!-- 镜像设置（**仅失败时出现**，避免干扰普通用户）：
-             壳装机那一刻没有内核，面板里的「镜像源」卡不可用；
-             若镜像不可达，用户将没有任何自助出口。此处只给最小可用的输入。 -->
         <div class="mirror" id="mirrorBox" style="display:none">
           <div class="mirror-title">镜像源（下载 Node / 内核时使用）</div>
           <div class="mirror-hint" id="mirrorHint">正在探测各镜像延迟…</div>
@@ -188,9 +166,7 @@
       </div>
     </div>
   </div>
-<!-- 引导脚本按职责拆分为 9 个文件。
-     原为 802 行单块脚本：一处语法错会导致**全页不执行**（已真实发生）。
-     现每个文件独立语法检查（门禁 G5）；80-init 必须最后加载。 -->
+<!-- 引导脚本按职责拆分为 9 个文件：原为 802 行单块脚本，一处语法错会导致**全页不执行**（已真实发生）。现每个文件独立语法检查；80-init 必须最后加载。 -->
   <script src="js/00-runtime.js"></script>
   <script src="js/10-ui.js"></script>
   <script src="js/20-env.js"></script>

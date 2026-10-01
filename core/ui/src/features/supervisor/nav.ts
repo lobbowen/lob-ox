@@ -1,4 +1,3 @@
-/** supervisor 功能域导航（7 域）；数据契约与页面均独立于 skiff 清理工具 App。 */
 import {
   Activity, Boxes, LayoutDashboard, ListChecks, Package, Settings, Wifi,
   type LucideIcon,
@@ -21,9 +20,7 @@ export const SUPERVISOR_NAV: Array<{
   { key: "settings", label: "设置", icon: Settings },
 ];
 
-/** 展示组件语义色取值 */
 export type Tone = "ok" | "warn" | "err" | "boot" | "off";
-/** DSH phase -> label + tone */
 export const SUP_PHASE_META: Record<string, { label: string; tone: Tone }> = {
   RUNNING: { label: "运行中", tone: "ok" },
   STOPPED: { label: "已停止", tone: "off" },
@@ -33,7 +30,6 @@ export const SUP_PHASE_META: Record<string, { label: string; tone: Tone }> = {
   OBSERVED: { label: "运行中（未守护）", tone: "ok" },
 };
 
-/** 实例生命周期 -> 文本 + tone */
 export function instancePhaseMeta(lp?: string, running?: boolean): { label: string; tone: Tone } {
   if (running) return { label: "运行中", tone: "ok" };
   if (lp === "INSTALLING") return { label: "安装中…", tone: "warn" };
@@ -43,7 +39,6 @@ export function instancePhaseMeta(lp?: string, running?: boolean): { label: stri
   return { label: "已停止", tone: "off" };
 }
 
-/** 任务类型/动作/状态 中文 */
 export const TASK_KIND_LABEL: Record<string, string> = {
   native: "原生 DSH", instance: "沙箱实例", plugin: "插件", "proxy-app": "反代应用",
 };
@@ -59,7 +54,7 @@ export const TASK_STATE_META: Record<string, { label: string; tone: Tone }> = {
   canceled: { label: "已取消", tone: "off" },
 };
 
-/** 最近故障原因 -> 友好中文（绝不对外暴露内部码） */
+/** 绝不对外暴露内部码 */
 const FAILURE_META: Record<string, string> = {
   manual: "手动重启", start_timeout: "启动超时", child_exit: "进程退出", adopted_exit: "实例退出",
   main_down: "原生实例未运行", systemd_start_failed: "启动失败", spawn_error: "启动失败",
@@ -76,7 +71,6 @@ export function friendlyFailure(reason?: string | null): string {
   return "异常";
 }
 
-/** 事件类型 -> 中文标签（对齐 EVENT_META label；noise 已在 hook 过滤） */
 export const EVENT_LABELS: Record<string, string> = {
   guard_started: "守卫启动", guard_exit: "守卫退出", desired_changed: "期望变更",
   spawn: "拉起", spawned: "已拉起", spawn_failed: "拉起失败", spawn_error: "拉起错误",
@@ -120,7 +114,6 @@ export const EVENT_LABELS: Record<string, string> = {
   plugin_update_done: "插件更新完成", plugin_update_job_failed: "插件更新失败",
   plugin_uninstall_started: "插件卸载开始", plugin_uninstall_done: "插件卸载完成",
   plugin_uninstall_job_failed: "插件卸载失败",
-  // 扩展类型：与后端事件发射全集（EVENT_META）对齐补齐
   access_key_changed: "访问密钥变更", adopt_token_reclaim_started: "令牌回收重建",
   autostart_changed: "自启变更", dist_registry_selected: "分发源选定",
   dist_registry_choice_migrated: "镜像选择文档迁移",

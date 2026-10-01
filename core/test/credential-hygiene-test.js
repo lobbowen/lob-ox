@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 凭据卫生的可执行部分：全部用**临时夹具库**跑 cred.sh，断言退出码与落盘结果（不判脚本/仓库现状文本）。
-//   标准（CREDENTIALS-STANDARD.md）：库 0700 / 库内每个文件 0600（不按扩展名挑食）；令牌只存引用不存值
-//   且必须有唯一 name；禁止 ephemeral 目录。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -13,7 +10,7 @@ const ROOT = path.join(__dirname, '..');
 const CRED_SH = path.join(ROOT, 'release', 'scripts', 'cred.sh');
 
 const results = [];
-// Windows 无 POSIX 权限位（chmod 只切换只读位，mode 常为 666）——权限语义断言必须平台自感知。
+// Windows 无 POSIX 权限位（chmod 只切换只读位，mode 常为 666）：权限语义断言必须平台自感知。
 const IS_POSIX = process.platform !== 'win32';
 const check = (n, c, x) => {
   results.push(!!c);
@@ -22,9 +19,7 @@ const check = (n, c, x) => {
 const TOKEN_RE = /github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}/;
 const modeOf = (p) => { try { return (fs.statSync(p).mode & 0o777).toString(8).padStart(3, '0'); } catch { return null; } };
 
-// put/backup 的行为级探针：stdin 经 execFileSync 的 input 显式喂入（空串=真空输入）。
-//   先抹平宿主的确认位再叠加 envExtra —— 否则残留的 DSH_CRED_ALLOW_OVERWRITE / DSH_CRED_BACKUP_DIR
-//   会让「应被拒绝」的负例因环境而变绿；写入一律落在 TMP 内。
+// 先抹平宿主确认位再叠加 envExtra：残留的 DSH_CRED_ALLOW_OVERWRITE / DSH_CRED_BACKUP_DIR 会让「应被拒绝」的负例因环境而变绿。
 function runCredIn(dir, args, input, envExtra) {
   const base = {
     DSH_CRED_DIR: dir,
@@ -43,7 +38,6 @@ function runCredIn(dir, args, input, envExtra) {
   }
 }
 
-// 造夹具库；opts.kernelMissing=true 时该条目置 missing。
 function fixture(dir, opts) {
   const o = opts || {};
   const kf = path.join(dir, 'kernel-test.pat');
@@ -62,7 +56,6 @@ function fixture(dir, opts) {
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
 
-// D 组：规则本身（夹具库，任意宿主可跑）。
 {
   const d1 = path.join(TMP, 'ok');
   fixture(d1);
@@ -73,7 +66,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
   const f2 = fixture(d2);
   fs.chmodSync(f2.kf, 0o644);
   const r2 = runCredIn(d2, ['doctor']);
-  // Windows 无 POSIX 权限位：chmod 0644 不会被判「过宽」-> 仅 POSIX 断言该失败语义。
   check('D-2 库内文件权限过宽（0644）-> doctor 失败（POSIX）/ Windows 跳过',
     IS_POSIX ? r2.code !== 0 : true,
     IS_POSIX ? 'exit=' + r2.code : 'Windows 无 POSIX 权限位');
@@ -86,7 +78,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
   const d4 = path.join(TMP, 'outside');
   const f4 = fixture(d4);
   const j4 = JSON.parse(fs.readFileSync(f4.idxPath, 'utf8'));
-  // 形态取自真机事故现场（实例附件目录），但根用 TMP —— 判据是「条目指向库外」，不是本机路径。
   j4.entries[0].file = path.join(TMP, 'home', '.dsh', 'supervisor', 'instances', 'inst-1', 'data', '.dsh', 'attachments', 'x', 'gh_token.txt');
   fs.writeFileSync(f4.idxPath, JSON.stringify(j4, null, 2));
   const r4 = runCredIn(d4, ['doctor']);
@@ -94,7 +85,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
 
   const r5 = runCredIn(d1, ['list']);
   const r5b = runCredIn(d1, ['path', 'kernel']);
-  // list/path/get 的输出可消费判据：路径必须是绝对路径（POSIX 以 / 开头，Windows 形如 C:/... 或 C:\...）。
   const absPath = /^([A-Za-z]:[\\/]|\/)/.test(r5b.out.trim());
   const r5c = runCredIn(d1, ['get', 'kernel']);
   const r5d = runCredIn(d1, ['get', 'nonexistent']);
@@ -106,7 +96,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
   fixture(d6, { kernelMissing: true });
   runCredIn(d6, ['put', 'kernel'], 'new-secret-value');
   const kf6 = path.join(d6, 'kernel-test.pat');
-  // Windows 上 chmod 不产生 POSIX 0600（常为 666）——仅断言文件确实写入。
   check('D-6 put 写入文件且权限 0600（POSIX）/ Windows 仅断言写入',
     fs.existsSync(kf6) && (IS_POSIX ? modeOf(kf6) === '600' : true),
     IS_POSIX ? String(modeOf(kf6)) : 'Windows 无 POSIX 权限位');
@@ -114,7 +103,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
     JSON.parse(fs.readFileSync(path.join(d6, 'index.json'), 'utf8')).entries[0].status === 'active'
     && runCredIn(d6, ['doctor']).code === 0, 'ok');
 
-  // -- D-7 空输入 fail-closed：被拒的 put 不得写出 0 字节文件 --
   const d7 = path.join(TMP, 'put-empty');
   const f7 = fixture(d7, { kernelMissing: true });
   fs.writeFileSync(f7.kf, 'OLD-VALUE');
@@ -122,18 +110,15 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
   check('D-7 空 stdin 的 put 被拒（非零退出），目标文件未被截断、清单状态不变',
     r7.code !== 0 && fs.readFileSync(f7.kf, 'utf8') === 'OLD-VALUE'
     && JSON.parse(fs.readFileSync(f7.idxPath, 'utf8')).entries[0].status === 'missing', 'exit=' + r7.code);
-  // 被拒的 put 不得留下任何中间产物（.tmp / .bak）。
   check('D-7 不留 .tmp / .bak 残留（校验与备份都发生在动目标之前）',
     fs.readdirSync(d7).filter((x) => x.indexOf('.tmp.') >= 0 || x.indexOf('.bak-') >= 0).length === 0,
     fs.readdirSync(d7).join(','));
 
-  // -- D-8 只有空白的输入同样拒（printf '\n' 是误敲，不是凭据）--
   const r8 = runCredIn(d7, ['put', 'kernel'], '\n  \t \n');
   check('D-8 全空白 stdin 同样被拒（同一 fail-closed 判据的第二输入）且原值仍在',
     r8.code !== 0 && fs.readFileSync(f7.kf, 'utf8') === 'OLD-VALUE',
     'exit=' + r8.code);
 
-  // -- D-9 覆盖前备份（真机库两层确认闸由 destructive-op-safety W-1..W-4 覆盖，此处不重复）--
   const d9 = path.join(TMP, 'put-backup');
   const f9 = fixture(d9);
   fs.writeFileSync(f9.kf, 'OLD-VALUE');
@@ -147,16 +132,13 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
   check('D-9 备份权限 0600（POSIX）/ Windows 跳过',
     !IS_POSIX || (!!bak9p && modeOf(bak9p) === '600'), bak9p ? String(modeOf(bak9p)) : '(无备份)');
 
-  // -- D-10 backup：目标必须显式且不得是 ephemeral 实例子目录 --
   const r10a = runCredIn(d1, ['backup'], '');
   check('D-10 不给目标目录 -> 拒绝且不用默认值', r10a.code !== 0, 'exit=' + r10a.code);
   const inInst = path.join(TMP, 'inst-root', 'supervisor', 'instances', 'inst-1', 'bak');
   const r10b = runCredIn(d1, ['backup', inInst], '');
-  // 反斜杠形态：Windows 传进来的就是这种路径，闸若只认 POSIX 分隔符则在 win 上整条漏判。
   const r10w = runCredIn(d1, ['backup', 'X:\\ephemeral\\supervisor\\instances\\inst-9\\bak'], '');
   check('D-10 目标在实例目录内（POSIX 与反斜杠两种形态）-> 拒绝且不创建目标目录',
     r10b.code !== 0 && !fs.existsSync(inInst) && r10w.code !== 0, 'exit=' + r10b.code + '/' + r10w.code);
-  // 真机凭据文件名无扩展名；按 *.pat 通配的备份会「报成功而一份凭据都没带走」。
   const noextBak = path.join(d1, 'git-credentials');
   fs.writeFileSync(noextBak, 'https://x-access-token:dummy-not-a-real-token@github.com');
   fs.chmodSync(noextBak, 0o600);
@@ -164,7 +146,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
   const r10c = runCredIn(d1, ['backup', okBak], '');
   const outs = r10c.code === 0 ? fs.readdirSync(okBak) : [];
   const sub = outs.length ? path.join(okBak, outs[0]) : null;
-  // 副本目录命名、内容一致（含无扩展名者）、回显面、权限位一次判完。
   check('D-10 合法目标 -> 带时间戳副本目录，含清单与每个凭据文件（含无扩展名者，内容一致），输出不回显令牌值',
     outs.length === 1 && /^dsh-credentials-\d{14}$/.test(outs[0] || '')
     && !!sub && fs.existsSync(path.join(sub, 'index.json'))
@@ -178,7 +159,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
       && modeOf(path.join(sub, 'git-credentials')) === '600'),
     IS_POSIX && sub ? modeOf(sub) + '/' + modeOf(path.join(sub, 'kernel-test.pat')) : 'Windows 无 POSIX 权限位');
 
-  // -- D-11 入口分发的两条尾账 --
   const r11 = runCredIn(d1, ['frobnicate'], '');
   const r12 = runCredIn(d1, ['put', 'nope'], 'x');
   check('D-11 未知子命令 -> exit 1（用法错误）；D-12 put 未知条目 -> 拒绝且不落任何文件',
@@ -193,7 +173,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
   check('D-13 清单只存引用：清单含令牌值 -> doctor 失败（夹具在 tmp，不进 S-1 扫描面）',
     r13.code !== 0, 'exit=' + r13.code);
 
-  // -- D-14 权限面必须覆盖**无扩展名**的凭据文件（真机文件都无扩展名，*.pat 通配会让审计静默漏空）--
   const d14 = path.join(TMP, 'perm-noext');
   fixture(d14);
   const noext = path.join(d14, 'github-pat');
@@ -209,7 +188,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
     IS_POSIX ? (r14b.code === 0) : true,
     IS_POSIX ? 'ok' : 'Windows 无 POSIX 权限位');
 
-  // -- D-15 条目必须可寻址：工具一律按 name 查（缺 name / name 重复同判）--
   const d15 = path.join(TMP, 'nameless');
   const f15 = fixture(d15);
   const j15 = JSON.parse(fs.readFileSync(f15.idxPath, 'utf8'));
@@ -226,8 +204,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
   check('D-15 缺 name / name 重复 -> doctor 均判红，且缺 name 时 path 确实失效（不可达是真实后果）',
     r15.code !== 0 && r15c.code !== 0 && r15b.code !== 0, 'exit=' + r15.code + '/' + r15c.code + '/' + r15b.code);
 
-  // -- D-16 清单一致性不得按 kind 挑食：真机 kind 是 github-fine-grained-pat /
-  //   git-credential-store / npm-token，只审某一种会让库外路径照样绿。
   const d16 = path.join(TMP, 'kind-outside');
   const f16 = fixture(d16);
   const j16 = JSON.parse(fs.readFileSync(f16.idxPath, 'utf8'));
@@ -238,14 +214,12 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
   check('D-16 非 github-pat kind 的条目指向库外 -> doctor 判红（不得按 kind 过滤）',
     r16.code !== 0, 'exit=' + r16.code);
 
-  // -- D-17 verify 的尾账：未知条目不得假绿，且不得依赖 curl --
   const r17 = runCredIn(d1, ['verify', 'nope']);
   const r17b = runCredIn(d1, ['verify', 'kernel']);
   check('D-17 verify 未知条目 -> 非零退出；无 API 打点的条目如实说明并退出 0',
     r17.code !== 0 && r17b.code === 0, 'exit=' + r17.code + '/' + r17b.code);
 }
 
-// S 组：仓库本地不变量（任何宿主都成立）。
 {
   const exts = ['.js', '.json', '.md', '.sh', '.yml', '.yaml', '.txt', '.rs', '.ts', '.tsx'];
   const hits = [];

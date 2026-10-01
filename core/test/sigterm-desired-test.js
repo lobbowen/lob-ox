@@ -1,7 +1,5 @@
 'use strict';
 
-// SIGTERM desired 契约：守卫被 SIGTERM/SIGINT 停止（systemd stop/重启、升级）后 DSH 期望状态（desired）
-//   必须保持不变 ——「守卫退出不动 DSH」是硬约束。用法：node test/sigterm-desired-test.js
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -65,7 +63,6 @@ async function main() {
   const s2 = await waitStatus((x) => x.dshPid === pid, 12000);
   check('新守卫接管原实例（adopted）', !!s2 && s2.dshPid === pid, JSON.stringify(s2));
 
-  // SIGTERM 不得改动 desired。等一个稳定窗口后才判，兼验收敛循环不翻转 desired。
   await sleep(2000);
   const s3 = await api(28190, 'GET', '/status');
   check('SIGTERM 后 desired 保持 running（稳定窗口后仍成立）',

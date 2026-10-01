@@ -1,6 +1,3 @@
-/**
- * 插件商店（supervisor plugins）— 市场（搜索/筛选/分页）+ 已装（实例分组 + 启用/停用/更新/卸载）
- */
 import { useEffect, useMemo, useState } from "react";
 import { Package, Power, RefreshCw, Rocket, Search, Store, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -21,7 +18,6 @@ import { cn } from "../../framework/utils";
 type Tab = "market" | "installed";
 const PAGE = 24;
 
-/** 批量 job 轮询汇总：全部到终态后给出统一成败提示；无 jobId 时静默跳过。 */
 async function pollJobsSummary(jobIds: string[], verb: string, total: number) {
   if (!jobIds.length) return;
   const t = toast.loading("正在" + verb + " " + total + " 个插件…（0/" + jobIds.length + "）");
@@ -37,9 +33,8 @@ async function pollJobsSummary(jobIds: string[], verb: string, total: number) {
 }
 
 /**
- * 快照轮询：内核的市场重建与更新检测是「立即回快照 + 后台跑」（等同步响应只会被 15s 客户端计时误判成失败）。
- * busy 为读端点的在飞标记；超时上限须大于服务端构建预算（市场默认 4 分钟）。
- * 注意：force 只能发一次，轮询拍必须读非 force 快照——否则每拍都会再触发一轮构建，永不收敛。
+ * force 只能发一次，轮询拍必须读非 force 快照，否则每拍再触发构建、永不收敛；同步响应会被 15s 客户端计时误判成失败。
+ * 超时上限须大于服务端构建预算（市场默认 4 分钟）。
  */
 async function pollSnapshot<T>(read: () => Promise<T>, busy: (r: T) => boolean, timeoutMs = 300_000, intervalMs = 2_000): Promise<T> {
   let r = await read();
@@ -53,7 +48,7 @@ async function pollSnapshot<T>(read: () => Promise<T>, busy: (r: T) => boolean, 
 
 export function PluginsPage() {
   const [tab, setTab] = useState<Tab>("market");
-  const [marketNonce, setMarketNonce] = useState(0);   // 刷新收尾后让市场列表重读快照（否则要点「已安装」再回来才见新索引）
+  const [marketNonce, setMarketNonce] = useState(0);
   return (
     <div className="grid content-start gap-4">
       <div className="flex items-center justify-between">
@@ -85,7 +80,6 @@ function MarketRefresh({ onSettled }: { onSettled?: () => void }) {
     try {
       const first = await supervisorApi.market(true);
       const r = first.building ? await pollSnapshot(() => supervisorApi.market(), (x) => !!x.building) : first;
-      // error 非空就是构建失败，此时 plugins 是沿用下来的旧索引 —— 不能报「已刷新」
       if (r.error) toast.error("索引刷新失败：" + r.error + "（暂用旧索引的 " + r.plugins.length + " 个）");
       else if (r.plugins.length) toast.success("插件索引已刷新（" + r.plugins.length + " 个）");
       else toast.error("索引刷新失败：无结果");
@@ -115,7 +109,6 @@ function MarketTab({ nonce = 0 }: { nonce?: number }) {
 
   useEffect(() => {
     let alive = true;
-    // 冷启动（磁盘无索引）时内核自己会起一次构建，这里只读快照轮询，不再额外 force
     void (async () => {
       try {
         let r = await supervisorApi.market();
@@ -131,7 +124,6 @@ function MarketTab({ nonce = 0 }: { nonce?: number }) {
       } catch (e) { if (alive) { setBuilding(false); setLoadErr(String(e)); } }
     })();
     return () => { alive = false; };
-    // nonce：市场刷新收尾后重读快照（非 force，不会点燃第二轮构建）
   }, [nonce]);
 
   const filtered = useMemo(() => {
@@ -164,7 +156,6 @@ function MarketTab({ nonce = 0 }: { nonce?: number }) {
       const r = await supervisorApi.pluginInstall(installTarget.name, target);
       if (r.ok === false) { toast.error(r.error || "安装失败"); return; }
       setInstallTarget(null);
-      // 安装为 job 模型：轮询到终态给出进度与成败，不停在「已提交」
       if (r.jobId) {
         const t = toast.loading("正在安装 " + installTarget.name + "…");
         const res = await pollJob(() => supervisorApi.pluginInstallStatus(r.jobId as string));
@@ -268,15 +259,11 @@ function MarketTab({ nonce = 0 }: { nonce?: number }) {
 const srcLabel = (s: string) => ({ npm: "npm", github: "GitHub", community: "社区", official: "官方" }[s] ?? s);
 const srcTone = (s: string): "ok" | "err" | "warn" | "boot" | "off" => s === "official" ? "boot" : s === "npm" ? "ok" : s === "github" ? "warn" : "off";
 
-/**
- * 已安装插件：表格（勾选 + 版本/大小/来源列）。
- * 批量操作在标题栏（更新/停用/启动/卸载所选）；「检查更新」后有更新的行显示「可更新」徽标。
- */
 function InstalledTab() {
   const [data, setData] = useState<{ inventoryReachable?: boolean; targets?: Array<{ id: string; name: string }>; thirdParty?: InstalledPlugin[] } | null>(null);
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [updatable, setUpdatable] = useState<Map<string, string>>(new Map()); // name -> 最新版
+  const [updatable, setUpdatable] = useState<Map<string, string>>(new Map());
   const [checking, setChecking] = useState(false);
   const { busy, run } = useSupervisorAction();
   const askConfirm = useConfirm();
@@ -291,7 +278,6 @@ function InstalledTab() {
   const pluginTargets = (p: InstalledPlugin) => (p.targets && p.targets.length ? p.targets : ["native"]);
   const shown = list.filter((p) => filter === "all" || pluginTargets(p).includes(filter));
 
-  // 勾选操作
   const toggleOne = (name: string) => setSelected((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const allChecked = shown.length > 0 && shown.every((p) => selected.has(p.name));
   const toggleAll = () => setSelected(allChecked ? new Set() : new Set(shown.map((p) => p.name)));
@@ -303,7 +289,6 @@ function InstalledTab() {
   async function checkUpdates() {
     setChecking(true);
     try {
-      // force 只发一次，其余拍读快照；「取不到版本」与「已是最新」必须分开报
       const first = await supervisorApi.pluginsCheckUpdates(true);
       const r = first.refreshing ? await pollSnapshot(() => supervisorApi.pluginsCheckUpdates(), (x) => !!x.refreshing) : first;
       const m = new Map<string, string>();
@@ -326,10 +311,8 @@ function InstalledTab() {
     const names = selRows.filter((p) => updatable.has(p.name)).map((p) => p.name);
     if (!names.length) { toast.info("所选插件均无可用更新"); return; }
     setSelected(new Set());
-    // 所选已提交更新：从 updatable 移除，按钮回归「检查更新」态
     setUpdatable((prev) => { const n = new Map(prev); for (const x of names) n.delete(x); return n; });
     await run("upd-sel", async () => {
-      // 收集 jobId 统一轮询到终态再汇总反馈
       const jobIds: string[] = [];
       for (const n of names) {
         try { const r = await supervisorApi.pluginUpdate(n); if (r.jobId) jobIds.push(r.jobId); } catch { /* 单点失败跳过 */ }
@@ -378,7 +361,6 @@ function InstalledTab() {
         subtitle={filter === "all" ? "全部实例" : "实例：" + ((data?.targets ?? []).find((t) => t.id === filter)?.name ?? filter)}
         actions={
           <>
-            {/* 常态「检查更新」，勾选可更新项后变「更新(n)」 */}
             {hasUpdatableSel ? (
               <Button disabled={busy === "upd-sel"} onClick={() => void updateSelected()} size="sm">
                 <RefreshCw className="size-3.5" />更新（{selRows.filter((p) => updatable.has(p.name)).length}）
@@ -442,11 +424,9 @@ function InstalledTab() {
                       checked && "bg-muted/70 shadow-[inset_3px_0_0_var(--primary)]",
                     )}
                   >
-                    {/* 来源 badge（首列，对齐原版管理源） */}
                     <span className="inline-flex w-fit min-w-0 items-center">
                       <Pill tone={p.bundle ? "boot" : p.source?.includes("github") ? "warn" : p.source === "npm" ? "ok" : "off"}>{p.bundle ? "bundle" : p.source === "npm" ? "npm" : p.source?.includes("github") ? "GitHub" : p.source && p.source !== p.name ? "本地" : "—"}</Pill>
                     </span>
-                    {/* 插件名 + 描述 + 状态 */}
                     <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
                       <span className="grid min-w-0 gap-0.5">
                         <span className="flex min-w-0 items-center gap-2">
@@ -456,7 +436,6 @@ function InstalledTab() {
                         {p.description ? <span className="truncate text-xs leading-tight text-muted-foreground">{p.description}</span> : null}
                       </span>
                     </span>
-                    {/* 版本：有更新 -> 徽标 */}
                     <span className="min-w-0">
                       {latest ? (
                         <span className="inline-flex flex-wrap items-center gap-1.5">

@@ -1,14 +1,8 @@
 'use strict';
 
-// API 契约面（**声明**，非强制）：显式声明每个路由的分类与消费者，供人阅读与前端/壳侧对照。
-// 分类语义：public=一方客户端消费（前端 UI/CLI/桌面壳）；operational=运维/监控/审计外部工具消费（一方 UI 不调用，可观测接口）；internal=守卫内部消费（不承诺稳定性）；
-// deprecated=兼容保留（必须写明移除条件/替代，避免静默删除破坏旧客户端）。
-
 const CATEGORIES = ['public', 'operational', 'internal', 'deprecated'];
 
-/** 精确路由（pathname ===）。methods 为实际支持的方法。 */
 const SURFACE = [
-  // 生命周期域（lifecycle.js）
   { path: '/status',         methods: ['GET'],  domain: 'lifecycle', category: 'public',      consumers: ['UI(polling)', 'CLI(status)'], note: '状态摘要' },
   { path: '/events',         methods: ['GET'],  domain: 'lifecycle', category: 'public',      consumers: ['UI(timeline)'], note: '增量事件' },
   { path: '/healthz',        methods: ['GET'],  domain: 'lifecycle', category: 'public',      consumers: ['壳(握手探针)'], note: '存活探针' },
@@ -21,7 +15,6 @@ const SURFACE = [
   { path: '/lifecycle',      methods: ['GET'],  domain: 'lifecycle', category: 'public',      consumers: ['UI'], note: '模块生命周期一览（=/lifecycle/status）' },
   { path: '/lifecycle/status', methods: ['GET'], domain: 'lifecycle', category: 'public',     consumers: ['UI'], note: '同上（显式别名）' },
 
-  // 守卫/设置域（guard.js）
   { path: '/changelog',            methods: ['GET'],  domain: 'guard', category: 'public',      consumers: ['UI(AboutCard)'], note: 'DSH 更新日志（text/plain）' },
   { path: '/guard/changelog',      methods: ['GET'],  domain: 'guard', category: 'public',      consumers: ['UI(AboutCard)'], note: '管家更新日志（CHANGELOG.md）' },
   { path: '/guard/version',        methods: ['GET'],  domain: 'guard', category: 'public',      consumers: ['UI(AboutCard)'], note: '本地版本（无网络 I/O）' },
@@ -43,7 +36,6 @@ const SURFACE = [
   { path: '/self-update/apply',    methods: ['POST'], domain: 'guard', category: 'deprecated',  consumers: ['无'], note: '单写入者=壳：返回 410 KERNEL_UPDATE_SINGLE_WRITER；替代 = 桌面壳 kernel_update_apply' },
   { path: '/self-update/restart-guard', methods: ['POST'], domain: 'guard', category: 'deprecated', consumers: ['无'], note: '守卫不自重启：返回 410；替代 = 壳在安装后经服务管理器重启守卫' },
 
-  // 原生 DSH（native.js）
   { path: '/native/status',       methods: ['GET'],  domain: 'native', category: 'public', consumers: ['UI(OverviewPage)', 'CLI(status)'], note: '安装状态 + 版本 + 升级状态机' },
   { path: '/native/check-update', methods: ['POST'], domain: 'native', category: 'public', consumers: ['UI(OverviewPage)'], note: '触发版本检查' },
   { path: '/native/install',      methods: ['POST'], domain: 'native', category: 'public', consumers: ['UI(OverviewPage)', 'CLI'], note: '异步安装（202）' },
@@ -51,19 +43,14 @@ const SURFACE = [
   { path: '/native/upgrade',      methods: ['POST'], domain: 'native', category: 'public', consumers: ['UI(OverviewPage)', 'CLI(upgrade)'], note: '一键升级（失败回滚）' },
   { path: '/native/settings',     methods: ['POST'], domain: 'native', category: 'public', consumers: ['UI(OverviewPage)'], note: 'main 元数据补丁（仅 guardian；远程意图唯一入口在 /remote/*）' },
 
-  // 沙箱实例（instances.js）
   { path: '/instances',           methods: ['GET'],  domain: 'instances', category: 'public', consumers: ['UI(InstancesPage)'], note: '实例列表（+ POST /instances/{action}）；远程访问令牌明文仅回环来源下发（其余只见 tokenSet 布尔），authUrl 的 ?token= 同判据' },
-  // /open 是 open-web 的落地跳转：由系统浏览器直接访问（非 UI fetch），
-  // 凭一次性码换取 dsh-auth cookie 后 303 到 DSH 页面。
   { path: '/open',                methods: ['GET'],  domain: 'instances', category: 'public', consumers: ['UI(open-web → 本机系统浏览器一次性码跳转)'], note: '一次性码换取 dsh-auth cookie 并回跳实例 DSH 页面（令牌不进 URL/argv）' },
 
-  // 插件（plugins.js）
   { path: '/plugins/market',         methods: ['GET'], domain: 'plugins', category: 'public', consumers: ['UI(PluginsPage)'], note: '市场索引（TTL 缓存）' },
   { path: '/plugins/installed',      methods: ['GET'], domain: 'plugins', category: 'public', consumers: ['UI(PluginsPage)'], note: '已装第三方插件' },
   { path: '/plugins/check-updates',  methods: ['GET'], domain: 'plugins', category: 'public', consumers: ['UI(PluginsPage)'], note: '已装插件更新检测' },
   { path: '/plugins/install-status', methods: ['GET'], domain: 'plugins', category: 'public', consumers: ['UI(PluginsPage, job 轮询)'], note: '插件任务进度' },
 
-  // 智能路由（router.js）
   { path: '/router/status',          methods: ['GET'],  domain: 'router', category: 'public',   consumers: ['UI(RouterPage)'], note: '中转状态 + 用量' },
   { path: '/router/providers',       methods: ['GET'],  domain: 'router', category: 'public',   consumers: ['UI(RouterPage)'], note: '供应商 + 账号 + 实例视图' },
   { path: '/router/ports',           methods: ['GET'],  domain: 'router', category: 'internal', consumers: ['p2p-api 契约测试（域分离验证）'], note: 'router 自治段端口视图（daemon 模式物理分离）' },
@@ -85,26 +72,16 @@ const SURFACE = [
   { path: '/router/proxy/update/check',   methods: ['POST'], domain: 'router', category: 'public', consumers: ['UI(RouterPage)'], note: '反代版本检测' },
   { path: '/router/proxy/update/status',  methods: ['GET'],  domain: 'router', category: 'public', consumers: ['UI(RouterPage, job 轮询)'], note: '反代更新进度' },
 
-  // 镜像源（dist.js）
   { path: '/dist/registry',         methods: ['GET'],  domain: 'dist', category: 'public', consumers: ['UI(RegistryCard)'], note: '镜像源状态' },
   { path: '/dist/registry/refresh', methods: ['POST'], domain: 'dist', category: 'public', consumers: ['UI(RegistryCard)'], note: '镜像源测速刷新' },
   { path: '/dist/registry/set',     methods: ['POST'], domain: 'dist', category: 'public', consumers: ['UI(RegistryCard)'], note: '镜像源手动固定' },
-  // 同源单源探活：页面带 CSP connect-src 'self'，浏览器直连镜像会被拦截，
-  // 「测试」按钮必须经本端点由服务端探测（复用内核选源的同一探测规格）。
   { path: '/dist/registry/probe',   methods: ['POST'], domain: 'dist', category: 'public', consumers: ['UI(RegistryCard 测试按钮)'], note: '同源单源探活（服务端，不受页面 CSP 限制）' },
 
-  // 远程控制（relay.js：/lan-access 只读列表 + /remote/* 意图面）。
-  // 写动作按 act 切片分派（pathname.startsWith('/remote/')），四个 POST 子动作归 /remote/ 前缀行登记；
-  // 精确行必须在源码以 pathname === 字面出现，act 切片形态列精确行即幽灵条目。
   { path: '/lan-access',       methods: ['GET'],  domain: 'relay', category: 'public', consumers: ['UI(LanPage)'], note: '远程代理列表（脱敏：任何令牌字段都不外传；remote 视图为访问 URL/就绪判定的单一来源）' },
   { path: '/remote/frp',       methods: ['GET'],  domain: 'relay', category: 'public', consumers: ['UI(LanPage)'], note: 'frpc 状态（设置 + 运行态 + wan 暴露清单）' },
 
-  // 任务（tasks.js）
   { path: '/tasks', methods: ['GET'], domain: 'tasks', category: 'public', consumers: ['UI(TasksPage)'], note: '统一任务列表（+ /tasks/{id}）' },
 
-  // 桌面壳更新安全网（shell.js）：内核不是壳的更新源（壳直连 npm CDN 自更新），本域只做观察/审计；
-  // 壳不受监督（崩溃无人拉起），内核是唯一能救它的角色。
-  // 更新策略：有新版必须强制更新，不得跳过、不得隐式回退；紧急回退仅由发布通道的 `rollback` dist-tag 显式触发。
   { path: '/shell/status',         methods: ['GET'],  domain: 'shell', category: 'public',      consumers: ['UI(壳状态卡)', 'CLI'], note: '壳身份 + 更新账本 + 判定结论' },
   { path: '/shell/health',         methods: ['POST'], domain: 'shell', category: 'operational', consumers: ['运维：排障时手工上报壳阶段（壳未接线，实测零调用）'], note: '诊断用途：phase=ready 即更新确认信号，供排障手工驱动安全网；当前 evaluate() 因缺输入恒 idle' },
   { path: '/shell/update-pending', methods: ['POST'], domain: 'shell', category: 'operational', consumers: ['运维：排障时手工建立更新账本（壳未接线，实测零调用）'], note: '诊断用途：建立更新账本（待重启确认），供排障手工驱动内核侧安全网' },
@@ -112,8 +89,6 @@ const SURFACE = [
   { path: '/shell/restart',        methods: ['POST'], domain: 'shell', category: 'public',      consumers: ['UI(关于卡)'], note: '重启桌面壳以应用更新（壳门 0 在新进程内完成安装）' },
 
 ];
-
-/** 前缀路由（pathname.startsWith）。{prefix} 表示动态段。 */
 
 const PREFIXES = [
   { prefix: '/dist/',        domain: 'dist',      category: 'public',      consumers: ['UI'], note: '/dist/registry/{refresh|set}' },
@@ -132,7 +107,6 @@ const PREFIXES = [
   { prefix: '/tasks/',       domain: 'tasks',     category: 'public',      consumers: ['UI'], note: '/tasks/{id}' },
 ];
 
-/** 汇总统计（供审计/文档生成）。 */
 function summary() {
   const byCat = {};
   for (const c of CATEGORIES) byCat[c] = 0;

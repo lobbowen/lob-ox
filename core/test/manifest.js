@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// 测试登记表 —— test/_runner.js 读取后逐条起子进程执行。
-//   tier 决定选跑范围：CI 矩阵腿只跑 --tier=L2，L1 只在 ubuntu 的 test job 跑一遍 ⇒ 有真宿主依赖却标 L1
-//   等于该回归在 win32/darwin 永不执行。os 列出的宿主才跑，其余由 gaps() 汇总成 SKIP 台账。
+// tier 决定选跑范围：CI 矩阵腿只跑 --tier=L2，L1 只在 ubuntu 的 test job 跑一遍 ⇒ 有真宿主依赖却标 L1 等于该回归在 win32/darwin 永不执行。
 
 const ENTRIES = [
   { file: "test/relay-dshauth-test.js", tier: "L2", os: "all", why: "起真 HTTP 中继" },
@@ -81,27 +79,23 @@ const ENTRIES = [
 
 const ALL_OS = ['linux', 'darwin', 'win32'];
 
-/** 不带 -test 后缀但按测试登记的两个文件（不改名，避免大范围改动）。 */
 const IN_CHAIN_LEGACY = ['smoke.js', 'ports-verify.js'];
 
 function osSet(entry) {
   return entry.os === 'all' ? ALL_OS.slice() : entry.os.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
-/** 链条目（登记表全量，保持登记顺序；按宿主筛由 select 负责）。 */
 function chain() {
   return ENTRIES.map((e) => e.file);
 }
 
-/** 按 tier / 宿主筛选要跑的条目。tier='all' 取全量且不按宿主过滤：平台不适用的条目
- *   由测试自己打 SKIP（诚实可见），静默不跑会把「没验过」伪装成「通过」。 */
+// tier='all' 取全量且不按宿主过滤：平台不适用的条目由测试自己打 SKIP，静默不跑会把「没验过」伪装成「通过」。
 function select(tier, platform) {
   const pl = platform || process.platform;
   if (tier === 'all') return ENTRIES.slice();
   return ENTRIES.filter((e) => e.tier === tier && osSet(e).indexOf(pl) >= 0);
 }
 
-/** 本宿主应跑但表里标了别的 OS 的 L2 条目 = 该平台缺口（供 SKIP 台账读）。 */
 function gaps(platform) {
   const pl = platform || process.platform;
   if (ALL_OS.indexOf(pl) < 0) return [];

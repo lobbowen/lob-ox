@@ -1,5 +1,3 @@
-/** client.ts 单元测试：错误归一化 / 请求超时 / 访问密钥携带 / 2xx 假成功判据。
- *  不依赖真实后端：vi.stubGlobal 注入 fetch。 */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { failureFromResult, supervisorApi, setStoredAccessKey, LONG_TIMEOUT_MS } from "./client";
 
@@ -36,14 +34,11 @@ describe("supervisorApi http 客户端", () => {
     let receivedSignal: AbortSignal | null | undefined;
     vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => {
       receivedSignal = init?.signal;
-      // 永不 resolve 的挂起请求（模拟后端无响应）；由 http 的 AbortController 兜底
       return new Promise((_resolve) => undefined);
     }));
     const p = supervisorApi.status();
-    // 断言请求确实带上了可 abort 的信号（withTimeout 已装配）
     expect(receivedSignal).toBeDefined();
     expect(receivedSignal?.aborted).toBe(false);
-    // 清理挂起 promise，避免泄漏
     await Promise.resolve();
     p.catch(() => undefined);
   });
@@ -54,7 +49,6 @@ describe("supervisorApi http 客户端", () => {
 });
 
 describe("访问密钥携带与 401 语义", () => {
-  /** 最小 localStorage 替身（client 经 globalThis.localStorage 可选链访问） */
   function stubLocalStorage() {
     const store: Record<string, string> = {};
     vi.stubGlobal("localStorage", {
@@ -76,7 +70,6 @@ describe("访问密钥携带与 401 语义", () => {
     }));
     await supervisorApi.status();
     expect(sent?.["Authorization"]).toBe("Bearer sekret-123");
-    // POST 路径同时保留 Content-Type（注入不得挤掉既有头）
     await supervisorApi.instanceStop("i1");
     expect(sent?.["Authorization"]).toBe("Bearer sekret-123");
     expect(sent?.["Content-Type"]).toBe("application/json");
@@ -119,9 +112,7 @@ describe("访问密钥携带与 401 语义", () => {
   });
 });
 
-/** 2xx 响应体里的 { ok:false } 是「假成功」形态：http() 只看状态码（探测类端点 ok:false 属数据），
- *  判失败的责任在 failureFromResult，由共享动作 hook run() 消费。
- *  （vitest 环境为 node，无法挂载 React hook，故这里只测纯判据。） */
+/** vitest 环境为 node，无法挂载 React hook：这里只测纯判据。 */
 describe("假成功判据 failureFromResult", () => {
   it("ok:false + error → 返回后端拒因", () => {
     expect(failureFromResult({ ok: false, error: "安全策略：仅允许公网地址" })).toBe("安全策略：仅允许公网地址");

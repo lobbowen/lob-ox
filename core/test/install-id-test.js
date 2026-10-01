@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 安装标识（installId）：灰度按 installId 定向匹配，标识**漂移**（每次启动换新 / 读失败时顺手新建）
-//   会让名单突然失配，或名单 UUID 被别的机器占用 ⇒ 「生成一次、此后只读、失败不新建」。
-//   ID-1 生成 UUIDv4 落盘 · ID-2 幂等（核心）· ID-3 权限 0600 · ID-4 环境变量覆盖优先 · ID-5 读坏内容不覆盖 · ID-6 写失败不返回内存临时值。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -16,21 +13,17 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
 
 const POSIX = process.platform !== 'win32';
 
-/** 在隔离的状态根里跑一段脚本（绝不碰真实状态根）。
- *  隔离变量必须用 **DSH_SUPERVISOR_HOME**（与 test/_preload.js 同口径）：只设 XDG_STATE_HOME
- *  会"看似隔离实则没有"（preload 优先级更高），断言于是检查了真实状态根。 */
+// 隔离变量必须用 DSH_SUPERVISOR_HOME（与 test/_preload.js 同口径）：只设 XDG_STATE_HOME 会看似隔离而实检真实状态根。
 function runIn(tmp, body, extraEnv) {
   const env = Object.assign({}, process.env, { DSH_SUPERVISOR_HOME: tmp, DSH_CANARY_ID: '' }, extraEnv || {});
   delete env.XDG_STATE_HOME; // 避免与 DSH_SUPERVISOR_HOME 语义混淆（后者是权威）
   return execFileSync(process.execPath, ['-e', body], { cwd: ROOT, env, encoding: 'utf8' });
 }
-// 路径**问被测代码**（不硬拼）：否则"路径口径"断言会退化成测试自己的假设（自证）。
 const ID_PATH_PING = "const m = require('./src/platform/service/install-id');"
   + " process.stdout.write(JSON.stringify(m.installIdPath()));";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-installid-'));
 
-// -- ID-1 / ID-2 / ID-3：生成、幂等、权限 --
 {
   const out = runIn(tmp, `
     const m = require('./src/platform/service/install-id');
@@ -53,7 +46,6 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-installid-'));
   }
 }
 
-// -- ID-4：环境变量覆盖 --
 {
   const out = runIn(tmp, `
     const m = require('./src/platform/service/install-id');
@@ -63,7 +55,6 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-installid-'));
   check('ID-4 环境变量覆盖优先且 trim', r && r.source === 'env' && r.id === '550e8400-e29b-41d4-a716-446655440000', JSON.stringify(r));
 }
 
-// -- ID-5：读坏内容**不覆盖**（关键不变量）--
 {
   const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-installid-bad-'));
   const fp = JSON.parse(runIn(tmp2, ID_PATH_PING));
@@ -79,10 +70,8 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-installid-'));
   fs.rmSync(tmp2, { recursive: true, force: true });
 }
 
-// -- ID-6：写失败不返回内存临时值 --
 {
   const tmp3 = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-installid-ro-'));
-  // 把 install-id 的**父目录**做成只读 -> 生成时写盘必失败
   const fp3 = JSON.parse(runIn(tmp3, ID_PATH_PING));
   const rootDir = path.dirname(fp3);
   fs.mkdirSync(rootDir, { recursive: true });

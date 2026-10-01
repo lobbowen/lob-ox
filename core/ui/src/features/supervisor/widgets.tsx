@@ -1,9 +1,7 @@
-/** supervisor 展示基件：状态点/胶囊/卡片/指标等；一律使用框架令牌，页面零硬编码。 */
 import type { ReactNode } from "react";
 import { cn } from "../../framework/utils";
 import type { Tone } from "./nav";
 
-/** 语义状态点（呼吸光晕）：phase/守护/运行状态 */
 export function ToneDot({ tone = "off", ping = false, className }: { tone?: Tone; ping?: boolean; className?: string }) {
   const inner = tone === "ok" ? "bg-status-ok shadow-[0_0_6px_2px_var(--status-ok-ring)]"
     : tone === "err" ? "bg-status-error shadow-[0_0_6px_2px_var(--status-error-ring)]"
@@ -23,7 +21,6 @@ export function ToneDot({ tone = "off", ping = false, className }: { tone?: Tone
   );
 }
 
-/** 语义胶囊（状态徽标），用 token 语义色 */
 export function Pill({ tone = "off", className, children }: { tone?: Tone; className?: string; children: ReactNode }) {
   return (
     <span className={cn(
@@ -40,7 +37,6 @@ export function Pill({ tone = "off", className, children }: { tone?: Tone; class
   );
 }
 
-/** 结果卡片容器（白底圆角描边） */
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
   return (
     <div className={cn("overflow-hidden rounded-lg border border-border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04)]", className)}>
@@ -49,7 +45,6 @@ export function Card({ className, children }: { className?: string; children: Re
   );
 }
 
-/** 卡片标题行：标题/副标题 + 右侧操作区 */
 export function CardTitle({ title, subtitle, actions, className }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; className?: string }) {
   return (
     <div className={cn("flex min-h-[52px] items-center justify-between gap-4 border-b border-border/70 bg-muted px-5", className)}>
@@ -62,7 +57,6 @@ export function CardTitle({ title, subtitle, actions, className }: { title: Reac
   );
 }
 
-/** 单指标（label + value，值可 mono/warn） */
 export function Metric({ icon, label, value, mono = false, warn = false, className }: { icon?: ReactNode; label: string; value: ReactNode; mono?: boolean; warn?: boolean; className?: string }) {
   return (
     <div className={cn("flex min-w-0 flex-col gap-2", className)}>
@@ -80,7 +74,6 @@ export function Metric({ icon, label, value, mono = false, warn = false, classNa
   );
 }
 
-/** 用量框：label+icon 上 / 主值下，白底描边小框并排；危险态(>=100/rate-limited)主值用 destructive。 */
 export function QuotaBox({ icon, label, value, note, danger = false }: {
   icon?: ReactNode; label: string; value: ReactNode; note?: ReactNode; danger?: boolean;
 }) {
@@ -94,12 +87,10 @@ export function QuotaBox({ icon, label, value, note, danger = false }: {
   );
 }
 
-/** 域徽标：原生/沙箱 */
 export function DomainBadge({ domain }: { domain: "native" | "sandbox" }) {
   return <Pill tone={domain === "native" ? "boot" : "off"}>{domain === "native" ? "原生" : "沙箱"}</Pill>;
 }
 
-/** 等宽截断文本 */
 export function MonoEllipsis({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <span className={cn("max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap font-mono text-sm leading-tight text-muted-foreground", className)}>

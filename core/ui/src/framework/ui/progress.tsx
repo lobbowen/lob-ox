@@ -3,7 +3,6 @@ import { cn } from "../utils";
 type ProgressProps = {
   value: number;
   className?: string;
-  /** 无障碍标签（默认中文 "加载进度"） */
   ariaLabel?: string;
 };
 

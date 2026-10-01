@@ -3,9 +3,6 @@
 const parseModule = require('./parse');
 const { readUpstreamBody, trackUpstreamBody } = require('./upstream-body');
 
-// 转发 IO 层：上游请求 + 重试循环 + 流式透传；依赖全部经 ctor deps 注入，本文件只 require ./parse 与 ./upstream-body（纯）。
-// 在途计数不变量：每次 begin 恰有一次结束——各显式/异常路径统一经 endInflight 幂等收口。
-
 const crypto = require('node:crypto');
 const http = require('node:http');
 const https = require('node:https');
@@ -26,10 +23,8 @@ function createForwarder(deps) {
   const getPricing = d.getPricing || (() => null);
   const readBody = d.readBody || parse.readBody;
   const agents = d.agents || {};
-  // 单次上游请求实现可注入（注入名用别名 forwardOnceImpl，避免遮蔽下方 forwardOnce 定义）。
   const callUpstream = d.forwardOnceImpl || ((...a) => forwardOnce(...a));
 
-  /** 唯一在途结束执行器：所有结束路径共用，effects 必须全部执行（漏跑会丢延后重启补刀）。 */
   function endInflight(acc, prov) {
     const inst = parse.instOf(prov, acc);
     const lifecycle = !!(prov && prov.supports && prov.supports('instanceLifecycle'));
@@ -43,7 +38,6 @@ function createForwarder(deps) {
   }
   function recordError() { try { inflight.recordError(); } catch {} usage.recordError(); }
 
-  /** 按指定供应商作用域转发（各自 API 地址与账号池，绝不跨池 failover）。 */
   async function proxyFor(prov, req, res) {
     const started = Date.now();
     if (!prov) { res.writeHead(502, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'no provider' })); }
@@ -70,8 +64,7 @@ function createForwarder(deps) {
     const attempts = Math.max((prov.accounts || []).length, 1);
     let stripInjectionRetried = false, injectedThisAttempt = false;
     const triedKeys = new Set();
-    // inflight.begin 之后任何跳出都不许留在途计数：endAttempt 幂等，漏调由 finally 兜底。
-    // 泄漏后果：inflight>0 是 arbitrateStop 的「不可停」判据，计数不归零 => 实例悬挂、restartPending 永不补做。
+    // begin 之后任何跳出都不许留在途计数：inflight>0 是 arbitrateStop 的「不可停」判据，泄漏会让实例悬挂、restartPending 永不补做。
     let attemptEnded = true;
     let activeProv = prov;
     const endAttempt = () => {
@@ -85,7 +78,6 @@ function createForwarder(deps) {
       acc = switcher.pickFor(prov, { excludeKeys: triedKeys });
       if (!acc || triedKeys.has(acc.key)) break;
       triedKeys.add(acc.key);
-      // 按需可服务化必须在 resolveTarget 之前（实例未就绪 port=null，否则死锁）；进程动作只经门面 ensureServable。
       activeProv = prov;
       const curInst = parse.instOf(activeProv, acc);
       if (activeProv && activeProv.supports && activeProv.supports('instanceLifecycle') && curInst) {
@@ -120,8 +112,6 @@ function createForwarder(deps) {
           }
         }
         if (!isTimeout) {
-          // 必须先 stopInstance 再清 pid：arbitrateStop 的 kill 段以 inst.pid 为判据，先抹 pid 会让
-          // kill 路径恒不可达、进程留场占端口。endAttempt 已在上方执行，inflight 归零后不会走 pendingStop 延后分支。
           try {
             const inst2 = parse.instOf(activeProv, acc);
             if (activeProv && inst2 && inst2.pid
@@ -163,13 +153,11 @@ function createForwarder(deps) {
         res.writeHead(act.status || status, act.headers || ur.headers);
         return res.end(act.body !== undefined ? act.body : text);
       }
-      // 2xx 才清零失败计数（请求级熔断）
       const okInst = parse.instOf(activeProv, acc);
       if (activeProv && okInst
           && activeProv.supports && activeProv.supports('instanceLifecycle')) {
         try { activeProv.markRequestOk(okInst); } catch {}
       }
-      // writeThrough 接管本 attempt 的结束权（finishOK/finishAborted/close 三处收口）。
       attemptEnded = true;
       return writeThrough(req, res, out, acc, rt.prov, { started, model, streamRequested, status });
     }
@@ -182,7 +170,6 @@ function createForwarder(deps) {
     }
   }
 
-  /** 上游->客户端透传：头复制 + 流式转发 + 用量记账。 */
   function writeThrough(req, res, out, acc, prov, meta) {
     const ur = out.res;
     const status = meta.status;
@@ -220,7 +207,6 @@ function createForwarder(deps) {
       completed = true;
       endInflight(acc, prov);
       log('STREAM_ABORTED key=' + maskKey(acc.key) + ' bytes=' + bytes);
-      // 归属必须是实例而非账号：markInstanceNetFail 只在实参带 pid 时计数，传 acc 等于不计数，流式中断将从不进熔断。
       if (prov && prov.supports && prov.supports('instanceLifecycle')) {
         const inst = parse.instOf(prov, acc);
         if (inst) { try { prov.markInstanceNetFail(inst); } catch {} }
@@ -228,7 +214,6 @@ function createForwarder(deps) {
       if (events) events.append('router_stream_aborted', { key: maskKey(acc.key), model: meta.model, bytes });
       try { res.destroy(); } catch {}
     };
-    // 上游体透传统一走 handlers/upstream-body.js；非流式带总时长上限（流式长流不限）。
     const body = trackUpstreamBody(ur, {
       res, streamRequested: meta.streamRequested,
       onData: (c) => { bytes += c.length; tailText += c.toString('utf8'); if (tailText.length > 131072) tailText = tailText.slice(-65536); return res.write(c); },
@@ -236,11 +221,9 @@ function createForwarder(deps) {
       onAbort: () => finishAborted(),
     });
     res.on('close', () => {
-      // 收口判据只用 completed（已覆盖 finishOK/abort 两条路径）；不得按 readableEnded 早退——
-      // 上游读完但 onEnd 未跑时早退会永久泄漏在途计数。readableEnded 只作诊断日志。
       if (completed) return;
       completed = true;
-      body.cancel(); // 其它结束路径须清掉非流式体守卫的定时器
+      body.cancel();
       endInflight(acc, prov);
       if (logger && logger.warn) logger.warn('[stream] CLIENT-ABORT key=' + maskKey(acc.key) + ' bytesSent=' + bytes + ' upstreamReadableEnded=' + !!ur.readableEnded + ' content=' + JSON.stringify((tailText || '').slice(0, 400)));
       destroyUpstream();
@@ -248,7 +231,6 @@ function createForwarder(deps) {
     return undefined;
   }
 
-  /** 单次上游请求（connectGuard 15s / responseGuard 180s；长流不限）。 */
   function forwardOnce(target, method, srcHeaders, bodyBuf, key, clientRes) {
     return new Promise((resolve) => {
       const startedAtRef = Date.now();

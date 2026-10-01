@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 破坏性操作防误伤：任何**破坏性**子命令必须对真机库默认拒绝（而不是默默执行）、测试夹具必须与
-//   真机结构隔离且隔离失效时**失败**而非降级、覆盖前留旧值备份使操作可逆。
-//   W-1 真机库上 put 默认拒绝 · W-2 未带确认 -> exit 2 且文件字节不变 · W-3 写前备份 .bak-<时间戳> · W-4 夹具模式仍可写。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -21,8 +18,7 @@ const check = (n, c, x) => {
 
 const sha = (p) => { try { return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex').slice(0, 16); } catch { return null; } };
 
-// -- W-1/W-2/W-3：真机库保护（用 DSH_REAL_HOME 把「真机库」指向临时目录）--
-//   cred.sh 的真机库 = dsh_real_home()/develop/.credentials，_npm-auth.sh 支持 DSH_REAL_HOME 覆盖。
+// cred.sh 的真机库 = dsh_real_home()/develop/.credentials，_npm-auth.sh 支持 DSH_REAL_HOME 覆盖。
 {
   const T = fs.mkdtempSync(path.join(os.tmpdir(), 'realsim-'));
   fs.chmodSync(T, 0o700);
@@ -51,13 +47,12 @@ const sha = (p) => { try { return crypto.createHash('sha256').update(fs.readFile
     }
   };
   const before = sha(kf);
-  const rDeny = runReal(['put', 'kernel']);        // 无确认 —— 必须被拒
+  const rDeny = runReal(['put', 'kernel']);
   const afterDeny = sha(kf);
   check('W-1 「真机库」上 put 无确认时被拒绝（exit 2）', rDeny.code === 2, 'exit=' + rDeny.code);
   check('W-2 被拒绝时凭据文件**字节未变**', before !== null && before === afterDeny, before + ' vs ' + afterDeny);
   check('W-1 拒绝信息解释原因并给出两种正确用法',
     /显式确认/.test(rDeny.out) && /DSH_CRED_DIR/.test(rDeny.out), 'ok');
-  // 带确认 -> 应成功且**自动备份旧值**
   let rAllow = { code: -1, out: '' };
   try {
     const out = execFileSync('bash', ['-c', 'printf %s rotated-value | bash "$0" put kernel', CRED_SH], {
@@ -75,7 +70,6 @@ const sha = (p) => { try { return crypto.createHash('sha256').update(fs.readFile
   fs.rmSync(T, { recursive: true, force: true });
 }
 {
-  //  夹具模式（DSH_CRED_DIR）必须仍可写入：真机保护不得误伤测试隔离路径（W-4）。
   const T = fs.mkdtempSync(path.join(os.tmpdir(), 'wbak-'));
   const kf = path.join(T, 'a.pat');
   fs.writeFileSync(kf, 'old-value', { mode: 0o600 });

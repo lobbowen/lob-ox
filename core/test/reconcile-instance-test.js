@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 实例对账（reconcile）契约（PROXY-LIFECYCLE-STANDARD 形态），验证生命周期引擎（pool.js 期望集 +
-//   restart.js 执行面）：R1 期望集恒为「在用1+预热1」且对账幂等 · R2 sticky 与退位回收 · R3 绝不为不可用
-//   账号保活 · R4 冻结即时回收/恢复回池 · R6 ready+满额矛盾落盘前归位 frozen · R11 重启幸存者弃用重拉 · R12 停服台账 · R14 锁收敛。
 
 const http = require('node:http');
 const path = require('node:path');
@@ -18,9 +15,7 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
 const mockApp = path.join(TMP, 'verproxy.js');
 fs.writeFileSync(mockApp, "const http = require('node:http');\nconst argv = process.argv.slice(2);\nfunction arg(name, def){ const i=argv.indexOf('--'+name); return i>=0 && argv[i+1] ? argv[i+1] : def; }\nconst port = parseInt(arg('port','18999'),10);\nhttp.createServer((req,res)=>{ if (req.url === '/health') { res.writeHead(200, {'Content-Type':'application/json'}); res.end(JSON.stringify({status:'ok', version:'1.2.3'})); return; } res.writeHead(404); res.end('nf'); }).listen(port,'127.0.0.1',()=>console.log('verproxy on '+port));\nprocess.on('SIGTERM',()=>process.exit(0));\n");
 
-// 进程泄漏防线：登记本测试 spawn 的全部子进程 pid，进程退出前强制 SIGKILL 兜底——
-// stopInstance 的 SIGKILL 兜底是 .unref() 定时器（1.5s），若测试进程先退出则不触发 -> 子进程孤儿
-// 残留占用 4100x 端口 -> 干扰后续测试文件（跨文件 flaky 根因）。
+// 进程泄漏防线：登记本测试 spawn 的全部子进程 pid，退出前强制 SIGKILL —— stopInstance 的兜底是 unref 定时器，测试进程先退出即留孤儿占 4100x 端口。
 const allProviders = [];
 const spawnedPids = new Set();
 function killSpawnedSync() {
@@ -34,7 +29,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
 
 (async () => {
   const { ProxyProvider } = require(path.join(ROOT, 'src', 'domains', 'router', 'providers', 'proxy'));
-  // 子进程追踪：包装 _doStart 完成后登记 pid（exit 钩子 SIGKILL 兜底防孤儿残留跨文件污染）
   const _origDoStart = ProxyProvider.prototype._doStart;
   ProxyProvider.prototype._doStart = async function (inst) {
     const r = await _origDoStart.call(this, inst);
@@ -47,8 +41,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
   const log = { info(){}, warn(){}, error(){}, debug(){} };
   const app = { id: 'vm', name: 'VM', command: ['node', mockApp, '--port', '{{port}}', '--api-key', '{{key}}'], healthPath: '/health', upstream: 'http://127.0.0.1:0', real: false, quota: { type: 'commandcode-billing', apiBase: 'http://127.0.0.1:9' } };
 
-  // 构造账号+实例映射（与 addAccount 同构：实例 keyId = keyFingerprint(key)）
-  // registeredAt 显式传入：期望集顺序判据（登记序）不能建立在 Date.now() 并列之上。
   const addAcc = async (p, key, pct, status, extraQ, regAt) => {
     const inst = await p.ensureInstance(key);
     const quota = Object.assign({ weekly: { status: 'ok', percent: pct }, monthly: { status: 'ok', percent: pct }, monthlyRemaining: 10 }, extraQ || {});
@@ -57,14 +49,12 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     return acc;
   };
 
-  // 公共夹具：Provider 构造 + activated 开关（activated 显式可关：R5 需在断言「未跑实例 → idle」前保持未激活）。
   const mkProv = (id, appOverride, activated) => {
     const p = new ProxyProvider({ id, name: id.toUpperCase(), kind: 'proxy', proxyAppId: 'vm', app: appOverride || app, logger: log, events: null, dist: null, onPersist: () => {} });
     p.activated = activated !== false;
     return p;
   };
 
-  // R1 期望集 = 在用1+预热1（registeredAt 登记序）+ 等待区零进程零端口 + 幂等
   {
     const p = mkProv('p1');
     const A = await addAcc(p, 'sk-a1', 10, 'ready', null, 1000);
@@ -79,22 +69,19 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     check('R1c 等待区账号零进程且端口归零（LC 核心-3）', !cInst.pid && !cInst.port && !ports.byOwner('proxy:' + C.keyId), 'pid=' + cInst.pid + ' port=' + cInst.port);
     check('R1d 期望集账号保留绑定端口（防漂移，冷账号可再拉起）',
       !!p.instanceOf(A).port && !!p.instanceOf(B).port, '');
-    // 第二次对账幂等
     const r2 = await p.reconcileInstances();
     check('R1e 对账幂等（不重复 spawn）', r2.started.length === 0, JSON.stringify(r2.started));
-    // 清理
     for (const i of p.instances) { if (i.pid) p.stopInstance(i); }
     await new Promise((res) => setTimeout(res, 400));
   }
 
-  // R2 在用归属 + 预热 sticky：selected 提为在用后预热留任；退位者回收、下一拍端口释放
   {
     const p = mkProv('p2');
     const A = await addAcc(p, 'sk-b1', 10, 'ready', null, 1000);
     const B = await addAcc(p, 'sk-b2', 20, 'ready', null, 2000);
     const C = await addAcc(p, 'sk-b3', 30, 'ready', null, 3000);
     await p.reconcileInstances(); // 在用 A + 预热 B（sticky 记录进 _prewarmKeyId）
-    p.selectedAccountKeyId = C.keyId; // 用户显式切换：C 提为在用
+    p.selectedAccountKeyId = C.keyId;
     const r = await p.reconcileInstances();
     check('R2b selected 提为在用，预热 sticky 留任（期望集 = C,B 而非 C,A）',
       r.desired.length === 2 && r.desired.includes(C.keyId) && r.desired.includes(B.keyId) && !r.desired.includes(A.keyId), JSON.stringify(r.desired));
@@ -108,12 +95,10 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     await new Promise((res) => setTimeout(res, 400));
   }
 
-  // R3 满额账号（ready+rate-limited）绝不被拉起/保活：对账后其实例回收、端口归零
   {
     const p = mkProv('p3');
     const ok = await addAcc(p, 'sk-ok', 10, 'ready', null, 1000);
     const bad = await addAcc(p, 'sk-bad', 100, 'ready', { weekly: { status: 'rate-limited', percent: 100 } }, 2000); // ready 但满额
-    // 先把 bad 的实例手动拉起（模拟旧 bug 残留：满额账号已被预热）-> 对账应收敛停掉
     const badInst = p.instanceOf(bad);
     await p.startInstance(badInst);
     await new Promise((res) => setTimeout(res, 800));
@@ -125,16 +110,14 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     await new Promise((res) => setTimeout(res, 400));
   }
 
-  // R4 状态事件表：冻结即时回收（进程+端口零宽限）+ 恢复回池，满额账号不被拉起
   {
     const p = mkProv('p4');
     const resident = await addAcc(p, 'sk-r4', 85, 'ready', null, 1000);
     const spare = await addAcc(p, 'sk-s4', 10, 'ready', null, 2000);
     const full = await addAcc(p, 'sk-f4', 100, 'ready', { weekly: { status: 'rate-limited', percent: 100 } }, 3000);
     p.selectedAccountKeyId = resident.keyId;
-    await p.reconcileInstances(); // 在用 resident + 预热 spare
+    await p.reconcileInstances();
     const rInst = p.instanceOf(resident);
-    // 冻结常驻（模拟上游 400/429 响应驱动 markQuotaExhausted）——事件表要求**同步**回收，不等对账
     p.markQuotaExhausted(resident, 3600000);
     check('R4a 冻结即同步回收：进程与端口零宽限归零（_onStatusTransition→reclaimAccount）',
       !rInst.pid && !rInst.port && !ports.byOwner('proxy:' + resident.keyId), 'pid=' + rInst.pid + ' port=' + rInst.port);
@@ -146,7 +129,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     await new Promise((res) => setTimeout(res, 400));
   }
 
-  // R5 usage 纯派生
   {
     const p = mkProv('p5', null, false);
     const a = await addAcc(p, 'sk-u', 10);
@@ -154,7 +136,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     p.markInUse(a.keyId);
     check('R5b markInUse → in-use', p.usageOf(a) === 'in-use', p.usageOf(a));
     p.activeAccount = null;
-    // 实例在跑但非在用 -> warming
     p.activated = true;
     const sr = await p.startInstance(p.instanceOf(a));
     await new Promise((res) => setTimeout(res, 600));
@@ -166,7 +147,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
   }
 
 
-  // R7 孤儿收敛：discard 时请求在途 -> 孤儿实例 reconcile 后回收（不再永久泄漏）
   {
     const p = mkProv('p7');
     const key = 'sk-orph'; const inst = await p.ensureInstance(key);
@@ -183,7 +163,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     await new Promise((res) => setTimeout(res, 400));
   }
 
-  // R8 在途请求结束补刀：stopInstance 在途延迟 -> 请求结束即停（不再一次性 timer 泄漏）
   {
     const p = mkProv('p8');
     const key = 'sk-infl'; const inst = await p.ensureInstance(key);
@@ -201,7 +180,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     await new Promise((res) => setTimeout(res, 300));
   }
 
-  // R9 交替切换不启停追逐（selected 锚定期望集 + sticky 预热）：资源稳定
   {
     const p = mkProv('p9');
     const addA = async (key, pct, at) => { const inst = await p.ensureInstance(key); const acc = { key, keyId: inst.keyId, maskedKey: '...' + key.slice(-6), status: 'ready', quota: { weekly: { status: 'ok', percent: pct }, monthly: { status: 'ok', percent: pct }, monthlyRemaining: 10 }, registeredAt: at }; p.accounts.push(acc); return acc; };
@@ -213,7 +191,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     p.stopInstance = function (i) { stops++; return ost(i); };
     for (let rr = 0; rr < 10; rr++) {
       const a = (rr % 2 === 0) ? a1 : a2;
-      // 真实请求路径：forward 选定账号后经引擎门面 ensureServable 保证可服务（门面）
       await p.ensureServable(a);
       p.markInUse(a.keyId);
       if (rr % 2 === 1) { await p.reconcileInstances(); }
@@ -223,7 +200,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     await new Promise((res) => setTimeout(res, 400));
   }
 
-  // R10 reconcile 单飞：并发调用不交错、不重复 spawn
   {
     const p = mkProv('p10');
     const key = 'sk-single'; const inst = await p.ensureInstance(key);
@@ -242,8 +218,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     await new Promise((res) => setTimeout(res, 400));
   }
 
-  // R11 重启幸存者一律弃用重拉（禁 adopt）：幸存进程 stdio 归属已死 daemon，首个请求写日志即 EPIPE 楔死，
-  //   而 /health 秒回 ⇒ 健康与否不再作为复用判据。断言：绑定端口幸存者被 SIGKILL、同端口全新实例、无幽灵、端口不漂移。
   {
     const app2 = Object.assign({}, app, { pkg: 'verproxy' }); // 带 cmdline 可匹配标记（幸存判定前提）
     const pidlook = require(path.join(ROOT, 'src', 'platform', 'os', 'pidlookup'));
@@ -268,7 +242,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
       if (inst.pid) pr.stopInstance(inst);
       await new Promise((res) => setTimeout(res, 500));
     };
-    // R11a 健康幸存者（两代）
     {
       const p1 = mkP('p11a-1');
       const inst1 = await mkAcc(p1, 'sk-surv-h', 10);
@@ -281,7 +254,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
       inst2.port = boundPort; // 模拟重启：绑定端口恢复 + pid 空
       await assertReclaimed('a', p2, inst2, boundPort, survivorPid);
     }
-    // R11b 不健康幸存者：预登记绑定端口 -> 放 /health 500 进程占端口（cmdline 命中标记）-> 弃用重拉
     {
       const p = mkP('p11b');
       const key = 'sk-surv-s';
@@ -299,7 +271,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     }
   }
 
-  // R12 停服台账：忽略 SIGTERM 的子进程也能被确认杀净（waitAllStopped SIGKILL 兜底）——防停服孤儿化
   {
     const pidlook = require(path.join(ROOT, 'src', 'platform', 'os', 'pidlookup'));
     const p = mkProv('p12');
@@ -313,9 +284,8 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     await p.startInstance(inst);
     const pid = inst.pid;
     await new Promise((res) => setTimeout(res, 600));
-    p.stopInstance(inst); // SIGTERM -> 被 stub 忽略
-    // Windows 无 POSIX 信号语义：carrier L1 的终止经 killTree 落为 `taskkill /T /F`（等价 SIGKILL），
-    //   而它是**异步** spawn，落刀有几十~几百 ms 窗口 ⇒ 在升级 SIGKILL 预算前给 1200ms 有界等待，判据不空转。
+    p.stopInstance(inst);
+    // Windows 的 carrier 终止经 killTree 落为 taskkill /T /F 且是异步 spawn ⇒ 升级 SIGKILL 预算前给 1200ms 有界等待。
     const winNoSig = process.platform === 'win32';
     if (winNoSig) {
       const deadline = Date.now() + 1200;
@@ -325,16 +295,12 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     }
     check('R12c stopInstance 后进程处理（POSIX：仍在=TERM 被忽略；Windows：taskkill 强杀在升级预算内杀净=无 SIGTERM 语义可抗）',
       winNoSig ? !pidlook.isAlive(pid) : pidlook.isAlive(pid), 'alive=' + pidlook.isAlive(pid));
-    // zombie（已退出未回收）判据必须走平台原语：Linux 读 /proc、macOS 看 ps 的 state 列、win32 无此形态 ——
-    //   只读 /proc 会让 macOS 上「SIGKILL 已投递、仅待父进程回收」被判成活孤儿。
+    // zombie 判据必须走平台原语（Linux 读 /proc、macOS 看 ps 的 state 列、win32 无此形态）：只读 /proc 会让 macOS 上「SIGKILL 已投递、仅待回收」被判成活孤儿。
     const deadOrZombie = (one) => !pidlook.isAlive(one) || pidlook.isZombie(one);
     const why = (one) => 'alive=' + pidlook.isAlive(one) + ' zombie=' + pidlook.isZombie(one);
     const okW = await p.waitAllStopped(3000); // unref SIGKILL(1.5s) 或本方法超时兜底
-    // zombie 亦视为已死（SIGKILL 已投递、端口/stdio 已释放，仅待父进程回收）
     check('R12e waitAllStopped 后进程已死或已投递 SIGKILL（不留活孤儿）', okW === true && deadOrZombie(pid), why(pid));
     check('R12g 端口已释放（无孤儿占端口）', !pidlook.findListeningPid(inst.port), 'listener=' + pidlook.findListeningPid(inst.port));
-    // force 语义（停服专用）：ready+usable 且被选中/在用的账号，stopInstance 仅 defer（不杀）；force=true 强制杀——
-    // 否则停服时在用实例逃脱关停 -> 孤儿（426880/677630/795363 三次实锤）
     const key2 = 'sk-stub2';
     const inst2 = await p.ensureInstance(key2);
     const acc2 = { key: key2, keyId: inst2.keyId, maskedKey: '...stub2', status: 'ready', quota: { weekly: { status: 'ok', percent: 5 }, monthly: { status: 'ok', percent: 5 }, monthlyRemaining: 10 }, registeredAt: Date.now() };
@@ -353,7 +319,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     await new Promise((res) => setTimeout(res, 300));
   }
 
-  // R13 上游超时实例级自愈：restartInstance('upstream-timeout') kill 旧进程 -> 同端口全新拉起
   {
     const pidlook = require(path.join(ROOT, 'src', 'platform', 'os', 'pidlookup'));
     const p = mkProv('p13', Object.assign({}, app, { pkg: 'verproxy' }));
@@ -380,14 +345,12 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     await new Promise((res) => setTimeout(res, 500));
   }
 
-  // R14 锁收敛：可用账号才可锁；serialize 收敛（冻结账号的锁**不落盘**）在别处无覆盖。
   {
     const p = mkProv('p14');
     const key = 'sk-lk';
     const inst = await p.ensureInstance(key);
     const acc = { key, keyId: inst.keyId, maskedKey: '...lk', status: 'ready', quota: { weekly: { status: 'ok', percent: 10 }, monthly: { status: 'ok', percent: 10 }, monthlyRemaining: 10 }, registeredAt: Date.now() };
     p.accounts.push(acc);
-    // serialize 前置收敛：锁定账号不可用（frozen）-> 不落盘
     acc.status = 'ready';
     p.selectedAccountKeyId = acc.keyId;
     acc.status = 'frozen'; // 绕过状态机构造「锁+冻结」矛盾态

@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 原生 DSH 端口运行时再推导回归：mock DSH 以 --port N 运行（用户改端口），守卫配置端口无监听但进程在跑
-//   -> _findManagedDshPort 推真实端口 -> _applyMainPort 更正注册。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -39,7 +37,6 @@ const freePort = () => new Promise((res) => { const s = http.createServer(); s.o
   fs.writeFileSync(cfgPath, JSON.stringify(cfg));
   await new Promise((resolve) => { const t0 = Date.now(); const t = () => { http.get({ host: '127.0.0.1', port: realPort, path: '/', timeout: 500 }, (s) => { s.resume(); resolve(); }).on('error', () => { if (Date.now() - t0 > 5000) resolve(); else setTimeout(t, 150); }); }; t(); });
   const sup = new Supervisor(cfg, cfgPath);
-  // 概念清分：main 是守卫核心服务，不再登记为沙箱实例；端口唯一事实源 = config.targetPort。
   const found = sup._findManagedDshPort();
   check('从进程推导出真实端口 ' + realPort, found && found.port === realPort, JSON.stringify(found));
   const applied = sup._applyMainPort(found.port, found.pid);

@@ -1,8 +1,5 @@
 'use strict';
 
-// 智能路由底座（RouterService）：薄门面，只做组合与委托，零业务逻辑。
-// 业务下沉 store/ops/endpoint/views/scheduler + forward-core/router-ops 显式工厂。
-
 const { DirectProvider } = require('./providers/direct');
 const { ProxyProvider } = require('./providers/proxy');
 const { SwitchEngine } = require('./switch');
@@ -29,7 +26,7 @@ class RouterService {
     this.tasks = opts.tasks || null;
     this.providerFile = opts.providerFile;
     this.usageTotalsFile = opts.usageTotalsFile || null;
-    if (opts && opts.portsFile) ports.configureFile(opts.portsFile); // 端口注册表隔离（独立文件）
+    if (opts && opts.portsFile) ports.configureFile(opts.portsFile);
 
     const state = ops.createState();
     this._state = state;
@@ -43,8 +40,8 @@ class RouterService {
       createInstance: (i) => ProxyInstance.fromJSON(i), apps: PROXY_APPS,
       logger: this.logger, events: this.events, dist: this.dist, onPersist: () => this._save(), config: this.config,
     }));
-    for (const p of state.providers) { // 恢复持久化 apiPort 登记（owner=providerApi:<id>，防重复分配）：写口须 allocateMark（ports/pool.js:198-205）
-      if (p.apiPort) { try { if (!ports.isRegistered(p.apiPort)) ports.allocateMark(p.apiPort, 'providerApi', 'providerApi:' + p.id); } catch {} } // 该号取自 providerApi 池，registerUser 会被池守卫拒绝（pool.js:113-114）
+    for (const p of state.providers) {
+      if (p.apiPort) { try { if (!ports.isRegistered(p.apiPort)) ports.allocateMark(p.apiPort, 'providerApi', 'providerApi:' + p.id); } catch {} }
     }
     this.switcher = new SwitchEngine({ logger: this.logger, events: this.events, onPersist: () => this._save() });
 
@@ -109,7 +106,6 @@ class RouterService {
   recordUsage(entry) { return this._forward.usage.recordUsage(entry); }
   recordError() { return this._forward.recordError(); }
 
-  /* 注册表 + 生命周期 */
   addDirectProvider(o) { return this._ops.addDirectProvider(o); }
   addProxyProvider(o) { return this._ops.addProxyProvider(o); }
   removeProvider(id) { return this._ops.removeProvider(id); }
@@ -118,7 +114,6 @@ class RouterService {
   stopAndWait(t) { return this._ops.stopAndWait(t); }
   stopAllInstances() { return this._ops.stopAllInstances(); }
 
-  /* 调度 */
   _startMaintenance() { return this._scheduler.start(); }
   _stopMaintenance() { return this._scheduler.stop(); }
   _ensureProxyInstances() { return this._scheduler.ensureProxyInstances(); }
@@ -126,7 +121,6 @@ class RouterService {
   _stopIdleProxyInstances() { return this._scheduler.reconcileInstances(); }
   _ensureProviderInstances(p) { return this._scheduler.ensureProviderInstances(p); }
 
-  /* 运维门面 */
   commandcodeLoginStart() { return this._aux.commandcodeLoginStart(); }
   commandcodeLoginWait(t) { return this._aux.commandcodeLoginWait(t); }
   proxyApps() { return this._aux.proxyApps(); }

@@ -1,6 +1,5 @@
 'use strict';
 
-// 域：原生 DSH 生命周期 API（唯一通道）。
 function owns(pathname) {
   return pathname.startsWith('/native/');
 }
@@ -25,7 +24,6 @@ function handle(ctx) {
       collectBody(req, res, 1024, (body) => {
         let version = null;
         try { const j = body ? JSON.parse(body) : {}; if (typeof j.version === 'string' && j.version) version = j.version; } catch {}
-        // 异步任务模式：前置检查不过返回 400；通过返回 202，进度经 /native/status 轮询
         const r = sup.nativeManager.startInstall(version);
         if (r && r.ok === false) return send(400, r);
         return send(202, { ok: true, accepted: true, state: 'installing' });
@@ -40,7 +38,7 @@ function handle(ctx) {
         if (sup.nativeManager.busy()) {
           return send(409, { error: 'upgrade already in progress', state: sup.nativeManager.upgradeState });
         }
-        sup.nativeManager.upgrade(requested).catch(() => {}); // 异步升级，前端轮询 /native/status.upgrade
+        sup.nativeManager.upgrade(requested).catch(() => {});
         send(202, { ok: true, accepted: true });
       });
       return;
@@ -51,8 +49,6 @@ function handle(ctx) {
       if (r && r.ok === false) return send(400, r);
       return send(202, { ok: true, accepted: true, state: 'uninstalling' });
     }
-    // 原生主干(main)设置：main 的设置不经 /instances（沙箱域），统一走本入口。
-    // 白名单：仅 guardian(守护自动拉起)；远程控制意图（模式/令牌）唯一入口在 /remote/*。
     if (req.method === 'POST' && pathname === '/native/settings') {
       if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       collectBody(req, res, 4096, (body) => {
@@ -67,7 +63,6 @@ function handle(ctx) {
       });
       return;
     }
-  // 域内未匹配(方法/子路径)：全局兜底语义
   if (req.method === 'GET' || req.method === 'POST') return send(404, { error: 'not found', path: pathname });
   return send(405, { error: 'method not allowed' });
 }

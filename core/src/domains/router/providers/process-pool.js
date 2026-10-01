@@ -1,9 +1,5 @@
 'use strict';
 
-// process-pool 能力面（mixin）：实例进程治理契约方法在此实现，调用方以 supports(cap) 守卫、不按 kind
-// 分支；外部只经 ensureServable / reclaimAccount / _onStatusTransition 门面驱动，ctor 接线在此装配。
-// POOL_CAPS：instanceLifecycle=池存在；reconcile=对账；processPool=伞能力；gracefulStop=在途收敛。
-
 const life = require('./instance-lifecycle');
 const restart = require('./restart');
 const probe = require('./probe');
@@ -25,8 +21,6 @@ function withProcessPool(Base) {
         logger: this.logger,
         isStopping: () => this._stopping,
       });
-      // 删账号钩子：force 回收 + 释放端口 + 剪除实例记录。删除是永久摘除（在途丢弃属预期），
-      // 记录不留场，杜绝 reconcile 以 'orphan' 名义补停，也打破 base 到池的 this.stopInstance 反向边。
       this._hooks = this._hooks || {};
       this._hooks.onDiscardAccount = (acc) => {
         if (acc.instance) { try { this.stopInstance(acc.instance, true); } catch {} }
@@ -42,7 +36,6 @@ function withProcessPool(Base) {
       return POOL_CAPS.includes(cap) || super.supports(cap);
     }
 
-    /** 实例在场是池能力：在基座使用状态（in-use/idle）上覆写派生 warming。 */
     usageOf(acc) {
       const r = super.usageOf(acc);
       if (r !== 'idle') return r;
@@ -52,13 +45,11 @@ function withProcessPool(Base) {
 
     accountOf(inst) { return this.accounts.find((a) => a.key === inst.key) || null; }
 
-    /** 账号 -> 实例映射（一账号一实例硬规则）。 */
     instanceOf(acc) {
       if (!acc) return null;
       return (this.instances || []).find((i) => i.keyId === acc.keyId) || acc.instance || null;
     }
 
-    /** 启动实例：并发去重（startingPromise）+ 全局串行（_startLock，防 npm 缓存锁风暴）。 */
     async startInstance(inst) {
       if (inst.pid) return { ok: true, already: true };
       if (inst.startingPromise) return inst.startingPromise;
@@ -80,17 +71,13 @@ function withProcessPool(Base) {
       return inst.startingPromise;
     }
 
-    /** 启动实例底层治理（spawn/探活在 probe.js）；留在 mixin 侧是为 this 图单向。 */
     async _doStart(inst) { return probe.spawnInstance(this, inst); }
 
-    /** 请求级熔断计数清零；独立于健康监测的 _monitorFails。 */
     markRequestOk(inst) {
       if (!inst) return;
       inst._unhealthyCount = 0;
     }
 
-    /** 统一可服务化门面：幂等启动 + 预算内同步等待，外部不裸调 start/kill。
-     *  budgetMs=null 表示等满探活周期（显式切换预算）；超时诚实报错，绝不静默换号。 */
     async ensureServable(acc, opts) {
       const inst = this.instanceOf(acc);
       if (!inst) return { ok: false, error: '实例不存在' };
@@ -106,12 +93,8 @@ function withProcessPool(Base) {
       return { ok: false, warming: !!inst.pid, error: '实例未在等待期内就绪' };
     }
 
-    /** 等待区回收唯一入口：force 终止 + 释放端口，账号进程层面同一轮零存在。
-     *  冻结零宽限：发不出请求的账号不该继续占进程；丢弃在途属预期语义。幂等。 */
     reclaimAccount(acc) { return life.reclaimAccount(this, acc); }
 
-    /** 状态迁移事件表的进程侧接线（freeze.js setStatus 调用）：进等待区立即回收；
-     *  回 ready 立即重算期望集补缺口，不等周期对账。 */
     _onStatusTransition(acc, prev, status) {
       if (status === 'frozen' || status === 'banned' || status === 'discarded') {
         try { this.reclaimAccount(acc); } catch {}
@@ -120,13 +103,10 @@ function withProcessPool(Base) {
       }
     }
 
-    /** 实例停止仲裁（在途/在用延后、force 跳过的语义在 instance-lifecycle.js）。 */
     stopInstance(inst, force) { return life.arbitrateStop(this, inst, force); }
     _retryPendingStop(acc) { return life.retryPendingStop(this, acc); }
     async _waitHealthy(inst, tries) { return life.waitHealthy(this, inst, tries); }
 
-    /** 实例重启：在途延后（_restartPending）+ 单实例退避（_restartAt）+ force 停止 + 重拉委托。
-     *  退避只在真正执行重启时置位；stop 失败必须可观测（重新记待重启并清退避，不静默黑洞）。 */
     restartInstance(inst, reason) {
       if (!inst || this._stopping) return;
       if (!inst.pid && !inst.port) return;
@@ -155,7 +135,6 @@ function withProcessPool(Base) {
       this._restart.respawn(inst, { acc, hadPid });
     }
 
-    /** 请求级熔断：连续 >=2 次报错 -> 重启实例（与健康监测 _monitorFails 独立）。 */
     markInstanceProblem(instOrAcc, reason) {
       try {
         const inst = instOrAcc && instOrAcc.pid ? instOrAcc : null;
@@ -171,10 +150,8 @@ function withProcessPool(Base) {
       } catch {}
     }
 
-    /** 兼容旧名别名。 */
     markInstanceNetFail(instOrAcc) { this.markInstanceProblem(instOrAcc, 'net-error'); }
 
-    /** 实例空闲后补做被延后的重启（_restartPending 的唯一消费点）。 */
     flushRestartPending(inst) {
       if (!inst || !inst._restartPending) return;
       const acc = this.accountOf(inst);

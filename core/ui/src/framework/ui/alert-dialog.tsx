@@ -3,9 +3,7 @@ import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
 import { cn } from "../utils"
 
-/** 危险动作确认层。与 dialog.tsx 的分工只有一条：AlertDialog 是「必须给出是/否决定」的出口，
- *  因此不提供右上角 X、点遮罩不关闭（Radix AlertDialog 语义），Esc 等价于取消。
- *  表单/详情这类「可以不做决定就走」的窗口仍用 Dialog。 */
+/** 必须给出是/否决定的出口（Radix 语义：无 X、点遮罩不关闭、Esc 等价取消）；可跳过的窗口用 dialog.tsx。 */
 function AlertDialog({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
@@ -32,8 +30,7 @@ function AlertDialogOverlay({
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
       className={cn(
-        // z-[70] 高于 dialog.tsx 的 z-50：确认框要能盖在已打开的表单 Dialog 之上（删除/移除类动作
-        // 常从 Dialog 行内发起），不靠「后挂载者盖前者」这种顺序巧合决定谁在上面。
+        // z-[70]：需盖过 dialog.tsx 的 z-50，不依赖挂载顺序决定谁在上层。
         "fixed inset-0 z-[70] bg-black/45 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
         className
       )}

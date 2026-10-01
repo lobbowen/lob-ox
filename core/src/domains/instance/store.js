@@ -1,8 +1,6 @@
 'use strict';
 
-// 持久化：instances.json 原子读写（内容未变不写盘）+ 端口登记全量对账 + 沙箱目录创建。
-// 唯一持有 instances 活数组：外部经 index 的 getter 取同一引用，替换须原地改写，
-// 绝不换数组对象（app/state/store.js 等 20+ 处持引用直读/splice）。
+// 唯一持有 instances 活数组：外部经 getter 取同一引用，替换须原地改写，绝不换数组对象（20+ 处持引用直读/splice）。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,7 +16,6 @@ class InstanceStore {
     this.logger = logger;
     this.tokens = tokens || null;
     this.instancesFile = path.join(dir, 'instances.json');
-    // 沙箱实例各自独立根目录（数据+依赖），与原生(~/.dsh)及彼此零共享
     this.instancesRoot = instancesRoot || path.join(dir, 'instances');
     this.instances = [];
     this._lastBody = null;
@@ -29,7 +26,6 @@ class InstanceStore {
     try {
       raw = fs.readFileSync(this.instancesFile, 'utf8');
     } catch (e) {
-      // ENOENT=首启尚无文件，属合法空态（不告警/不备份）；其余读失败按损坏处理。
       if (e && e.code === 'ENOENT') this._replace([]);
       else this._quarantineCorrupt(e);
     }
@@ -42,21 +38,16 @@ class InstanceStore {
     for (const inst of this.instances) {
       model.normalizeInstance(inst);
       this._stripLegacyStateKeys(inst);
-      // 唯一令牌节点：沙箱实例登记「源」（journald 单元 dsh-web@<id>），令牌获取/分发由服务统一负责；
-      // 只登记 journald、不登记 file：沙箱重启后新令牌只写 journal，恢复文件会缓存旧令牌 block journal。
       if (inst.domain === 'sandbox' && this.tokens) this.tokens.attach(inst.id, { unit: 'dsh-web@' + inst.id });
     }
     this.syncPorts();
     return this.instances;
   }
 
-  /** 清遗留的未声明 state 字段（只在内存删，本方法不写盘；save() 全量序列化自然落地，故幂等）。 */
   _stripLegacyStateKeys(inst) {
     if (inst.state && Object.prototype.hasOwnProperty.call(inst.state, 'version')) delete inst.state.version;
   }
 
-  /** 损坏现场隔离：先告警，再把损坏文件改名为 .corrupt-<ts> 保留现场，最后清空内存——
-   *  rename 必须先于清空，后续 save 才不会覆盖原损坏文件。 */
   _quarantineCorrupt(err) {
     const bak = this.instancesFile + '.corrupt-' + Date.now();
     this.logger && this.logger.warn && this.logger.warn('instances.json 读取/解析失败，备份后清空: ' + (err && err.message) + ' -> ' + bak);
@@ -65,9 +56,8 @@ class InstanceStore {
     this._replace([]);
   }
 
-  /** 原地替换数组内容（保持数组对象身份，外部引用不失效）。 */
   _replace(list) {
-    if (list === this.instances) return; // 自赋值：先清空会丢数据
+    if (list === this.instances) return;
     this.instances.length = 0;
     for (const i of list) this.instances.push(i);
   }
@@ -75,11 +65,9 @@ class InstanceStore {
   replace(list) { this._replace(list); }
 
   save() {
-    // 落盘失败（磁盘满/权限/只读）必须降级不抛：本方法从 5s tick 循环调用，抛错会经 setInterval 到
-    // uncaughtException 触发守卫退出重启。内存是权威，失败只记日志，下次内容变化时重试。
     try {
       const body = JSON.stringify({ instances: this.instances }, null, 2);
-      if (body === this._lastBody) return; // 内容未变不写盘（tick 每 5s 全量调用，稳态零写放大）
+      if (body === this._lastBody) return;
       this._lastBody = body;
       fs.mkdirSync(this.dir, { recursive: true });
       writeAtomic(this.instancesFile, body, { mode: 0o600 });
@@ -88,9 +76,6 @@ class InstanceStore {
     }
   }
 
-  /** 端口登记派生同步：真源是内存数组（用户配置值），registry 的 inst:* 记录只是派生投影，
-   *  把配置端口纳入全局冲突视图。全量对账：内存有而 registry 缺则 registerUser，反之 unregister；
-   *  端口变更时先卸旧登记再按新端口注册，否则旧 inst:* 记录因「该 id 仍存在」永久泄漏。 */
   syncPorts() {
     for (const inst of this.instances) {
       const id = String(inst.id || '');
@@ -111,8 +96,6 @@ class InstanceStore {
     } catch {}
   }
 
-  /** 为沙箱实例建独立目录（根 + 数据 + 依赖 + 临时）。实例根一次性收紧权限：
-   *  同机他用户的跨舱互读是隔离清单里唯一未被目录布局本身挡住的一格。 */
   ensureDirs(inst) {
     const r = fileProtect.ensurePrivateDir(sandbox.root(this.instancesRoot, inst));
     if (r && r.ok === false) this.logger && this.logger.warn && this.logger.warn('实例根权限收紧失败 ' + r.mode + ': ' + r.reason);

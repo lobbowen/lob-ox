@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// Cookie 属性断言：/open 的 Set-Cookie 用 SameSite=Strict（src/api/domains/instances.js 拼出），
-//   LAN 门卫 cookie 用 SameSite=Lax（src/domains/relay/core.js）—— 属性写错不改变「能不能访问」，
-//   而改变**跨站是否携带**，属安全面。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -14,7 +11,6 @@ const check = (n, c, x) => {
   console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x !== undefined ? '  <- ' + x : ''));
 };
 
-// 1. LAN 门卫 cookie：SameSite=Lax + HttpOnly + Path=/ + 只存派生值。
 {
   const core = require(path.join(ROOT, 'src', 'domains', 'relay', 'core.js'));
   if (typeof core.tokenGateDecision !== 'function') {
@@ -28,19 +24,16 @@ const check = (n, c, x) => {
       /(^|;\s*)Path=\//.test(ck) && /HttpOnly/.test(ck) && /SameSite=Lax/.test(ck), ck);
     check('门卫 cookie 只存派生 64hex 且不含令牌原文',
       /^dsh_lan_token=[0-9a-f]{64}(;|$)/.test(ck) && !ck.includes('lan-secret'), ck);
-    // 已持有效派生 cookie 时直接放行。
     const okReq = { url: '/', headers: { cookie: 'dsh_lan_token=' + core.lanGateCookieValue('lan-secret', 'salt-A') } };
     check('门卫：持有效派生 cookie → 放行', core.tokenGateDecision(okReq, 'lan-secret', 'salt-A').ok === true);
   }
 }
 
-// 2. /open 的 Set-Cookie：SameSite=Strict + Location 用实例真实端口。
 (async () => {
   const EXCH = path.join(ROOT, 'src', 'platform', 'service', 'token', 'exchange.js');
   const INST = path.join(ROOT, 'src', 'api', 'domains', 'instances.js');
   const seen = [];
   try {
-    // 注入：不真发回环请求，返回可识别的派生 cookie 值。
     require.cache[EXCH] = {
       id: EXCH, filename: EXCH, loaded: true,
       exports: {
@@ -61,7 +54,6 @@ const check = (n, c, x) => {
       const res = { writeHead: (s, h) => { head = { s, h }; }, end: () => {} };
       const ctx = {
         sup: { config: { apiPort: 3000 }, instances: { list: () => [{ id: 'sb1', port: 28222 }] } },
-        // url 由 req.url 自解析（网关 ctx 不含 url 键）
         req: { url: '/open?code=' + code, headers: { host: '127.0.0.1:3000' } },
         res,
         identity: { loopback: true },

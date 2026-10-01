@@ -1,19 +1,13 @@
 'use strict';
 
-// 具名协作方装配（真 ctor 注入）。
-// state/session/control 由工厂构造并自持实现，host 保留旧方法名兼容外壳，公共面（api）不变；
-// ctl/daemons/main/views/ui 由 THIN_SPEC 声明为薄委托，转发到 host 上的既有实现；audit 是真 ctor 工厂。
-
 const { createStateStore } = require('../state/collaborator');
 const { createSession } = require('../session/machine');
 const { createControlPlane } = require('../control/collaborator');
 const { createCtl } = require('../ctl/collaborator');
 const { createOrphanScan } = require('../audit/collaborator');
 const { ENTRY_FIELDS, PROC_FIELDS } = require('../state/field-tables');
-// 换名别名字典的唯一声明处（与 config.normalize 同源）：注入 state 供 persistConfigPatch 清理旧键。
 const { aliases: CONFIG_ALIASES } = require('../settings/domain-config');
 
-// 薄委托切面 -> { 协作方公开名: host 上的既有方法名 }
 const THIN_SPEC = {
   ctl: {
     call: '_ctlCall', lanCall: '_lanCtlCall',
@@ -50,7 +44,6 @@ const THIN_SPEC = {
 };
 const THIN_NAMES = Object.keys(THIN_SPEC);
 
-/** 装配期校验：薄委托接口表里每个公开名都指向 host 上真实存在的函数。 */
 function assertCollaboratorTargets(host) {
   const missing = [];
   for (const name of THIN_NAMES) {
@@ -61,7 +54,6 @@ function assertCollaboratorTargets(host) {
   if (missing.length) throw new Error('app/assembly/collaborators: 接口表指向缺失方法: ' + missing.join(', '));
 }
 
-/** 字段 helper（_mXxx/_mSetXxx）兼容外壳：委托到 state 协作方。 */
 function installFieldHelpers(host, state) {
   for (const [suf, field] of ENTRY_FIELDS) {
     host['_m' + suf] = function () { return state.field(field); };
@@ -73,7 +65,6 @@ function installFieldHelpers(host, state) {
   }
 }
 
-/** 安装 State 协作方，并把旧方法名转发到它上面。 */
 function installState(host) {
   const state = createStateStore({
     getConfig: () => host.config, getConfigPath: () => host.configPath,
@@ -121,11 +112,9 @@ function installState(host) {
   host._enterUpgradeHoldAsync = () => state.enterUpgradeHoldAsync();
   host._exitUpgradeHold = (explicit) => state.exitUpgradeHold(explicit);
   installFieldHelpers(host, state);
-  // 兼容访问器（phase/desired/child/...）安装到 host 实例（非 prototype）。
   for (const name of Object.keys(state.accessors)) Object.defineProperty(host, name, state.accessors[name]);
 }
 
-/** 安装 Session 协作方 + 旧方法名/字段兼容外壳。 */
 function installSession(host) {
   const session = createSession({
     events: () => host.events,
@@ -136,11 +125,7 @@ function installSession(host) {
   host.sessionState = () => session.state();
   host._setSessionState = (s) => { session.setState(s); };
   host._sessionHalting = () => session.halting();
-    // 意图轴单源谓词：「守卫/会话正在退出」= _stopping（守卫关停）或 session halting。
-    //   自愈/拉起/收敛/补做入口一律经本谓词门禁，禁止在调用点各自拼合子集（谓词漂移即门禁失效）。
-    //   _shellHalted 不在内：它是桌面壳域的持久退出意图（跨守卫重启），只否决壳看护；主 DSH 的恢复权威是 desired，混入会破坏恢复语义并在 headless 下永久死锁（见 _shellExitIntended）。
   host._exitIntended = () => !!(host._stopping || session.halting());
-  // 桌面壳域退出判据：通用退出 或 持久 _shellHalted。仅供壳看护（bootstrap）使用。
   host._shellExitIntended = () => !!(host._exitIntended() || host._shellHalted);
   host._shouldRun = () => session.shouldRun();
   Object.defineProperty(host, '_sessionState', {
@@ -149,7 +134,6 @@ function installSession(host) {
   });
 }
 
-/** 安装 Control 协作方 + 旧方法名兼容外壳。 */
 function installControl(host) {
   const control = createControlPlane({
     getLifecycleManager: () => host.lifecycleManager,
@@ -172,7 +156,6 @@ function installControl(host) {
   host._syncManagedRegistry = () => control.syncManagedRegistry();
 }
 
-/** 安装其余薄委托协作方（ctl/daemons/main/views/audit/ui）。 */
 function installThin(host) {
   for (const name of THIN_NAMES) {
     const obj = {};
@@ -183,11 +166,6 @@ function installThin(host) {
   }
 }
 
-/**
- * 安装 audit 协作方（真 ctor 工厂）：host.audit.orphan() 直达工厂（唯一消费点 control/scheduler.js）。
- * deps 全为惰性取值（装配期 host 尚未就绪）；12 项 deps 只在此声明一处，节流簿记落在
- * host._lastOrphanKey / _lastOrphanAt（与 compose/core.js 的初始化点同源）。
- */
 function installAuditFactory(host) {
   host.audit = createOrphanScan({
     getConfig: () => host.config,
@@ -205,11 +183,6 @@ function installAuditFactory(host) {
   });
 }
 
-/**
- * 安装 ctl 协作方（真 ctor 工厂）：公开键 = THIN_SPEC.ctl，覆盖 installThin 的转发器，
- * 使 host.ctl.* 与 host._* 走同一实现。宿主 getter 必须每次重取 + bind，不得固化实现
- * （固化后外部覆写 host._lanCtlCall 即失效，门面路径剔除令牌的验证面随之丢失）。
- */
 function installCtlFactory(host) {
   host.ctl = createCtl({
     getConfig: () => host.config,
@@ -221,14 +194,11 @@ function installCtlFactory(host) {
   });
 }
 
-/** 把协作方落到 host 实例（先真 ctor，后薄委托；validate 时校验薄委托目标存在）。 */
 function installCollaborators(host, options) {
   installState(host);
   installSession(host);
   installControl(host);
   installThin(host);
-    // 工厂化切面：必须在 installThin 之后（要覆盖 ctl 转发器）且 installState/Control 之后
-    //   （domain-actions 经 state/views/lifecycleManager 取事实）。
   installCtlFactory(host);
   installAuditFactory(host);
   if (options && options.validate) assertCollaboratorTargets(host);

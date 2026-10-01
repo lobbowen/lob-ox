@@ -1,19 +1,13 @@
-/*
- * ============================================================================
- * 滚动条样式：隐藏原生滚动条，由 ScrollArea 组件绘制自动隐藏指示条
- * ============================================================================
- */
 .scrollbar-none {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE/Edge 旧 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 .scrollbar-none::-webkit-scrollbar {
-  display: none; /* WebKit / Blink */
+  display: none;
   width: 0;
   height: 0;
 }
 
-/* 应用其余可滚动区域（非 ScrollArea）也统一为 overlay 细条或隐藏 */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

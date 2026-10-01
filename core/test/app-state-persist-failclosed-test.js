@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// app state/config 持久化的 **fail-closed 拒写**纪律（createDesired / createMainStore / lan-panel 三个写口）：
-//   读不到或解析不了既存配置时一律拒绝写回并保留原字节 —— config.json 半截/根为数组/EISDIR、
-//   dsh-main.json 损坏（默认值覆盖 = 令牌静默清零 -> 零认证降级，显式重设是唯一解锁）。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -19,7 +16,6 @@ const check = (n, c, x) => {
 const { createDesired } = require(path.join(ROOT, 'src', 'app', 'state', 'desired.js'));
 const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main-store.js'));
 
-// config.json 读/解析失败 -> **拒绝写回**（fail-closed）且原字节保留；仅 ENOENT（首启）照常写入。
 {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), 'a1-config-'));
   const cf = path.join(t, 'config.json');
@@ -45,7 +41,6 @@ const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main
   check('A1a 故障解除后可正常再写',
     d.persistConfigPatch({ apiPort: 7 }) === true && JSON.parse(fs.readFileSync(cf, 'utf8')).apiPort === 7, 'ok');
 
-  // -- legacy 键清理由别名字典驱动（与 domain-config 声明同源，不硬编码键名）--
   fs.rmSync(cf);
   fs.writeFileSync(cf, JSON.stringify({ switcherAutoStart: true }));
   d.persistConfigPatch({ apiPort: 6001 });
@@ -53,17 +48,15 @@ const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main
     JSON.parse(fs.readFileSync(cf, 'utf8')).switcherAutoStart === true, 'ok');
 }
 
-// dsh-main.json 损坏 -> 读回默认值但标记 corrupt，后续**不带显式 remoteToken 的写回一律拒绝**
-//   （默认值覆盖 = 令牌静默清零 -> 零认证降级）；显式重设令牌是唯一解锁路径。
 {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), 'a1-main-'));
   const sf = path.join(t, 'state.json');
   const mf = path.join(t, 'dsh-main.json');
   const warns = [];
   const mkStore = () => createMainStore({ getConfig: () => ({ stateFile: sf }), getLogger: () => ({ warn: (m) => warns.push(String(m)) }) });
-  mkStore().writeDshMain({ guardian: true, remoteToken: 'TK-1' }); // 首启：无文件照常写
+  mkStore().writeDshMain({ guardian: true, remoteToken: 'TK-1' });
   const first = JSON.parse(fs.readFileSync(mf, 'utf8')).remoteToken;
-  fs.writeFileSync(mf, '{"guardian":true,"remoteToken":"TK-SECRET"'); // 损坏态
+  fs.writeFileSync(mf, '{"guardian":true,"remoteToken":"TK-SECRET"');
   const ms = mkStore();
   ms.writeDshMain({ guardian: true }); // 先写后读：内部首次读即判 corrupt
   check('A1b 首启写入正常；corrupt 态**拒绝默认值覆盖写**（原字节保留）',
@@ -78,8 +71,6 @@ const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main
   check('A1b 解锁后普通写恢复', JSON.parse(fs.readFileSync(mf, 'utf8')).guardian === true, 'ok');
 }
 
-// lan-panel 写口归一：setLanPanel 不自拼 read-merge-write，与 access.js 同口径走
-//   state.persistConfigPatch（唯一入口）+ verifyPersisted（写后读回）；配置损坏时原字节保留且回 ok:false。
 {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), 'b24-lanpanel-'));
   const cf = path.join(t, 'config.json');
@@ -91,7 +82,6 @@ const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main
       getEvents: () => ({ append() {} }),
       fields: {}, store: {},
     });
-    // 重绑门控是「changed && api().close 存在」；此处只需满足换 cookie 口的形状。
     return Object.assign({}, lpMethods, {
       config: { apiHost: '0.0.0.0', apiPort: 3080, apiAccessKey: 'k' },
       configPath: cf, logger: { warn() {}, info() {}, error() {} },
@@ -99,7 +89,7 @@ const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main
     });
   };
   {
-    fs.writeFileSync(cf, '{"apiAccessKey":"SECRET","swit'); // 半截 JSON
+    fs.writeFileSync(cf, '{"apiAccessKey":"SECRET","swit');
     const r = mk().setLanPanel(false);
     check('配置损坏：经 fail-closed 单源拒写、原字节保留、如实回 ok:false',
       r.ok === false && fs.readFileSync(cf, 'utf8') === '{"apiAccessKey":"SECRET","swit', JSON.stringify(r.error));

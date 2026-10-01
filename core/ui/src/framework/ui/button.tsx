@@ -7,11 +7,8 @@ const buttonVariants = cva(
   {
     variants: {
       size: {
-        // 默认：页面主操作 / Toolbar 动作
         default: "h-9 px-3 text-sm",
-        // 紧凑：卡片行内操作
         sm: "h-8 px-3 text-sm",
-        // 胶囊/圆角小操作（检测更新等 chip 形态）
         chip: "h-7 rounded-full px-2.5 text-xs",
       },
       variant: {
@@ -54,5 +51,4 @@ export function Button({
   );
 }
 
-/** 变体工厂导出：AlertDialog 等组合组件复用同一套按钮令牌。 */
 export { buttonVariants };

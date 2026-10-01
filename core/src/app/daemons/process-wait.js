@@ -1,11 +1,8 @@
 'use strict';
 
-// 受管 daemon 的等待原语（IO：轮询 / 端口 bind 探测）。无 this、无状态，全部为具名 async 函数，依赖显式入参。
-
 const net = require('node:net');
 const pidlook = require('../../platform/os/pidlookup');
 
-/** 轮询等待：某 pid 进程真正消失（/proc 确认）。 */
 async function waitProcessExit(pid, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -15,7 +12,6 @@ async function waitProcessExit(pid, timeoutMs) {
   return false;
 }
 
-/** 轮询等待：端口可绑（无监听者）——用 bind 探测（与真实监听语义一致，见 platform/service/ports.js）。 */
 async function portFree(port) {
   return new Promise((resolve) => {
     let done = false;

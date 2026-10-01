@@ -1,25 +1,15 @@
-/**
- * 任务（job）进度轮询：提交返回 jobId，status 端点派生 running/done/failed，前端轮询到终态。
- * 不依赖 React，可在 action 内 await。
- */
-
 export type JobState = "running" | "done" | "failed";
 
 export interface PollJobOptions {
-  /** 轮询间隔（默认 1200ms；插件安装耗时数秒~数分钟） */
   intervalMs?: number;
-  /** 总超时（默认 10 分钟；超时返回最后一次快照并标记 timedOut） */
   timeoutMs?: number;
-  /** 每次成功取到快照时回调（UI 可据此更新进度文案） */
   onTick?: (snap: unknown) => void;
-  /** 中止信号（组件卸载/用户取消） */
   signal?: { aborted: boolean };
 }
 
 export interface PollJobResult<T> {
   state: JobState;
   snapshot: T | null;
-  /** 超时未达终态（仍为 running） */
   timedOut?: boolean;
   error?: string | null;
 }
@@ -31,10 +21,7 @@ function readState(snap: unknown): JobState | null {
   return null;
 }
 
-/**
- * 轮询任务直到 done/failed（或超时/中止）。
- * @param fetchStatus 取状态快照（如 supervisorApi.pluginInstallStatus(jobId)）
- */
+/** @param fetchStatus 取状态快照，如 supervisorApi.pluginInstallStatus(jobId) */
 export async function pollJob<T>(
   fetchStatus: () => Promise<T>,
   opts: PollJobOptions = {},
@@ -48,7 +35,7 @@ export async function pollJob<T>(
     try {
       const snap = await fetchStatus();
       last = snap;
-      if (opts.onTick) { try { opts.onTick(snap); } catch { /* UI 回调异常不影响轮询 */ } }
+      if (opts.onTick) { try { opts.onTick(snap); } catch { /* 忽略回调异常 */ } }
       const st = readState(snap);
       if (st === "done") return { state: "done", snapshot: snap, error: null };
       if (st === "failed") {
@@ -61,7 +48,7 @@ export async function pollJob<T>(
         return { state: "failed", snapshot: snap, error: String(rawErr) };
       }
     } catch {
-      // 单次查询失败（网络抖动/守卫重启）：继续重试直到超时
+      // 单次失败：继续重试
     }
     if (Date.now() - started >= timeoutMs) {
       return { state: "running", snapshot: last, timedOut: true };

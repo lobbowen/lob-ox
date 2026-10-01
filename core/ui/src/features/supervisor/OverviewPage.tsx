@@ -1,6 +1,3 @@
-/**
- * 控制面板（supervisor overview）：数据经 supervisorStore /status + /events + /instances 快照。
- */
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, ArrowUpRight, ExternalLink, Power, RefreshCw, Rocket,
@@ -28,7 +25,6 @@ export function OverviewPage() {
   const { busy, run } = useSupervisorAction();
   const askConfirm = useConfirm();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
-  // main(原生 DSH) 守护开关
   const [mainGuardian, setMainGuardian] = useState<boolean | null>(null);
   const s = snap.status;
   const native = s?.native;
@@ -41,17 +37,14 @@ export function OverviewPage() {
   const upg = s?.upgrade;
   const phaseMeta = SUP_PHASE_META[s?.phase ?? ""] ?? { label: s?.phase || "未知", tone: "off" as const };
 
-  // 原生主干不是沙箱实例列表成员：openWeb 固定目标 main（服务端仅打开浏览器，无沙箱语义）
   const running = Boolean(s?.dshPid);
   const upgradeRunning = upg?.state === "running";
 
   const events = useMemo(() => snap.events.filter((e) => !NOISE.has(e.type)), [snap.events]);
 
   async function toggleDsh() {
-    // 启停统一走 /lifecycle/dsh/start|stop（单一控制路径）
     await run("dsh", () => (running ? supervisorApi.lifecycleStop("dsh") : supervisorApi.lifecycleStart("dsh")), { success: running ? "正在停止 DSH…" : "正在启动 DSH…" });
   }
-  /** 停止运行中的主干 DSH 会中断在飞请求，属高危动作：经统一确认出口后再停。 */
   async function stopDsh() {
     if (!(await askConfirm({
       title: "停止 DSH？",
@@ -61,7 +54,7 @@ export function OverviewPage() {
     await toggleDsh();
   }
   async function openWeb() {
-    // 三档结果与地址一律由 notifyOpen 呈现（run 的通用判据会把「只是交出去了」也报成一条丢地址的错误）
+    // 三档结果与地址由 notifyOpen 呈现：run 的通用判据会把「只是交出去了」也报成丢地址错误
     await run("web", () => runOpenExternal(() => supervisorApi.instanceOpenWeb("main")).then(() => undefined));
   }
   async function checkUpdate() {
@@ -74,12 +67,10 @@ export function OverviewPage() {
         toast.success("已是最新版本" + (res.installed ? "（" + res.installed + "）" : ""));
       }
     });
-    // run 已自动 refresh；后端异步推进由 2s 统一心跳呈现，不再加固定延时
   }
   async function upgradeDsh() {
     setUpgradeOpen(false);
     await run("upg", () => supervisorApi.nativeUpgrade(), { success: "升级已开始，请耐心等待…" });
-    // 升级为异步任务：状态机经 /status.upgrade 呈现，由 2s 轮询推进
   }
   async function installDsh() {
     if (!(await askConfirm({
@@ -99,18 +90,16 @@ export function OverviewPage() {
     await run("uni", () => supervisorApi.nativeUninstall(), { success: "开始卸载…" });
   }
 
-  // main 守护开关读 A 平面真值（instances.native.guardian = dshMainView 持久化源，即时准确）；
-  // 不走 /lifecycle/dsh——B 平面由心跳约 5s 同步，打开后立即刷新会读到旧值导致开关弹回。
+  // 读 instances.native.guardian（即时准确）；/lifecycle/dsh 由心跳约 5s 同步，立即刷新会读到旧值使开关弹回。
   useEffect(() => {
     if (!installed) return;
     supervisorApi.instances().then((r2) => {
       const g = r2?.native?.guardian;
       if (typeof g === "boolean") setMainGuardian(g);
     }).catch(() => {});
-  }, [installed, s?.dshPid]); // dshPid 变化(启停)后重读，保证开关与状态同步
+  }, [installed, s?.dshPid]);
 
   async function toggleMainGuardian() {
-    // 点击翻转，消费后端返回值即时刷新（与实例页守护按钮同款形态）
     const v = !(mainGuardian === true);
     await run("gu", () => supervisorApi.nativeSettings({ guardian: v }).then((r2) => {
       const g = r2?.main?.guardian;
@@ -126,7 +115,6 @@ export function OverviewPage() {
 
   return (
     <div className="grid content-start gap-4">
-      {/* 主状态卡 */}
       <Card>
         <div className="grid grid-cols-1 @min-[720px]:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
           <div className="flex flex-col gap-5 border-b border-border px-6 py-5 md:border-b-0 md:border-r">
@@ -178,7 +166,6 @@ export function OverviewPage() {
               <p className="text-xs text-destructive">升级失败：{upg.lastError || "未知原因"}{upg.rolledBack ? "（已回滚）" : ""}</p>
             ) : null}
 
-            {/* 原生安装进度日志 */}
             {nBusy && (native?.installLog ?? []).length ? (
               <pre className="max-h-[120px] overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/70 p-3 font-mono text-xs leading-relaxed text-muted-foreground">
                 {(native?.installLog ?? []).slice(-6).join("\n")}
@@ -196,11 +183,9 @@ export function OverviewPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 px-6 py-3">
-          {/* 左：环境检测（Node 版本 + LTS 更新提示）——中屏以下(<980px 视口)隐藏, 位置让给右侧按钮 */}
           <div className="hidden lg:block">
             <EnvDetect />
           </div>
-          {/* 右：安装/运行操作 + 分隔线 + 危险操作——ml-auto: 左信息隐藏(窄屏)时按钮组靠右对齐 */}
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {!installed && !nBusy ? (
               <Button size="sm" disabled={busy === "inst"} onClick={() => void installDsh()}>
@@ -211,12 +196,9 @@ export function OverviewPage() {
                 <Button disabled={!running} onClick={() => void openWeb()} size="sm" variant="outline" className="hidden md:inline-flex">
                   <ExternalLink className="size-4" />DSH Web
                 </Button>
-                {/* 主 DSH 由守卫统一自 spawn（始终守护拉起）；运行操作统一白底 outline
-                    （卸载 DSH 为唯一高危实色按钮） */}
                 <Button disabled={busy === "dsh"} onClick={() => void (running ? stopDsh() : toggleDsh())} size="sm" variant="outline">
                   {running ? <><Power className="size-4 text-status-error" />停止 DSH</> : <><Rocket className="size-4 text-primary" />启动 DSH</>}
                 </Button>
-                {/* 分割线（自停止/启动 DSH 后开始分割）-> 进程守护按钮（实例页同款按钮式，非 Switch） */}
                 <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
                 <Button className="h-[30px]" disabled={busy === "gu" || mainGuardian === null} onClick={() => void toggleMainGuardian()} size="sm" variant="outline">
                   <ShieldCheck className={cn("size-4", mainGuardian === true ? "text-status-ok" : "text-muted-foreground")} />
@@ -226,7 +208,6 @@ export function OverviewPage() {
             ) : null}
             {installed && !nBusy ? (
               <>
-                {/* 守护与危险操作直接相邻，中间无分割线 */}
                 <Button className="hidden h-[30px] md:inline-flex" disabled={busy === "uni"} onClick={() => void uninstallDsh()} size="sm" variant="destructive">
                   <Trash2 className="size-4" />卸载 DSH
                 </Button>
@@ -236,13 +217,11 @@ export function OverviewPage() {
         </div>
       </Card>
 
-      {/* 下端两栏（对齐环境变量左右结构）：左=事件日志（懒加载）/ 右=端口管理 */}
       <div className="grid items-start gap-4 @min-[860px]:grid-cols-[minmax(0,1fr)_420px]">
         <EventLogPanel events={events} />
         <PortPanel providers={snap.providers?.providers ?? []} />
       </div>
 
-      {/* 升级确认弹窗 */}
       <Dialog open={upgradeOpen} onOpenChange={setUpgradeOpen}>
         <DialogContent className="max-w-[420px]">
           <DialogHeader><DialogTitle>升级 DeepSeek Harness</DialogTitle></DialogHeader>
@@ -274,8 +253,7 @@ export function OverviewPage() {
   );
 }
 
-/** 环境检测：声明式消费 /env/status 的 catalog 必填项（Node 与 npm 一律同现）；
- *  LTS 线提示取 /env/node-lts（那是 LTS 建议，不是工具链清单）。 */
+/** 必填项取 /env/status 的 catalog（Node 与 npm 一律同现）；LTS 提示取 /env/node-lts（LTS 建议，非工具链清单）。 */
 function EnvDetect() {
   const [node, setNode] = useState<NodeLtsStatus | null>(null);
   const [items, setItems] = useState<Record<string, EnvCatalogItem> | null>(null);
@@ -319,8 +297,7 @@ function EnvDetect() {
           </span>
         );
       })}
-      {/* 环境表单（内核 platform/os/environment.js 的装配面）：候选浏览器、系统默认项来源、
-          图形会话与外部打开的分发依据都在这里，用户的浏览器偏好也在这里定。 */}
+      {/* 环境表单：装配面在内核 platform/os/environment.js */}
       <EnvironmentCard />
       {node?.ltsLine === false ? (
         <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-warning-background px-2 py-0.5 font-semibold text-warning" title={node.suggested || undefined}>
@@ -334,7 +311,6 @@ function EnvDetect() {
   );
 }
 
-/** 事件日志（懒加载）：先渲染 PAGE 条；滚到底部哨兵出现 -> 每次 +PAGE，直到全部渲染完。 */
 function EventLogPanel({ events }: { events: SupervisorEvent[] }) {
   const PAGE = 12;
   const [visible, setVisible] = useState(PAGE);
@@ -387,12 +363,10 @@ function EventRow({ e }: { e: SupervisorEvent }) {
   );
 }
 
-/** 事件 -> 人性化描述（对齐后端遥测语义；无匹配则空串——标签已表达类型） */
 function eventDetail(e: SupervisorEvent): string {
   const d = e.data;
   if (!d) return "";
   const fmt = (n: unknown) => Number(n ?? 0).toLocaleString("en-US");
-  // 显式 message/reason 优先
   if (typeof d.message === "string") return d.message;
   if (typeof d.reason === "string") return friendlyFailure(d.reason);
   if (typeof d.desired === "string") return "期望 " + d.desired;
@@ -404,7 +378,6 @@ function eventDetail(e: SupervisorEvent): string {
   if (e.type === "provider_quota_refreshed") return (d.provider || "") + " 额度已刷新";
   if (e.type === "proxy_update_available") return [(d.pkg || ""), (d.from || ""), (d.to || "")].filter(Boolean).join(" → ");
   if (e.type === "proxy_instance_started") return "port=" + (d.port ?? "") + (d.pid ? " pid=" + d.pid : "");
-  // 守护/远程开关变更：写清对象（原生/实例名）+ 目标状态（远程控制三态：关闭/局域网/公网）
   if (e.type === "dsh_guardian_changed" || e.type === "inst_guardian_changed") {
     const who = d.name || (d.id === "main" ? "原生 DSH" : d.id || "实例");
     return who + " · 进程守护" + (d.enabled === true ? " → 开启" : " → 关闭");
@@ -426,7 +399,6 @@ function eventDetail(e: SupervisorEvent): string {
   return parts.join(" · ");
 }
 
-/** 事件类型 -> tone */
 const EVENT_TONE: Record<string, "ok" | "err" | "warn" | "boot" | "off"> = {
   running: "ok", adopted: "ok", spawned: "ok", main_instance_registered: "ok",
   upgrade_installed: "ok", upgrade_done: "ok", api_listening: "ok",
@@ -445,7 +417,6 @@ const EVENT_TONE: Record<string, "ok" | "err" | "warn" | "boot" | "off"> = {
   sigkill_sent: "err", start_timeout: "err", crash_loop_entered: "err",
   guard_exit: "warn", version_check_failed: "warn", restart_triggered: "warn",
   dsh_not_installed: "warn", sigterm_sent: "warn", account_review: "warn",
-  // 配置/开关变更(黄 warn)——与运行状态绿、异常红、启动蓝区分
   dsh_guardian_changed: "warn", inst_guardian_changed: "warn",
   dsh_remote_changed: "warn", inst_remote_changed: "warn",
   dsh_remote_token_changed: "warn", inst_remote_token_changed: "warn", lan_frp_blocked: "warn",

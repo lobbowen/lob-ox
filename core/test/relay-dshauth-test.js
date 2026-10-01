@@ -1,8 +1,5 @@
 'use strict';
 
-// 远程控制 relay（createRelay）行为测试：DSH 浏览器会话桥（新版 DSH 对根 URL 强制会话认证，relay 需持
-//   启动令牌向回环换取签名 cookie（dsh-auth-*）并注入转发请求，客户端自带同名 cookie 时不重复换取）·
-//   LAN 门卫（?token= → 派生 cookie、原文不可当会话、失败退避）· 转发面（状态/响应体/上游头透传，Origin/Referer/Host 呈现为回环权威）。
 
 const http = require('node:http');
 const pathMod = require('node:path');
@@ -31,9 +28,6 @@ const listen = (srv) => new Promise((r) => srv.listen(0, '127.0.0.1', r));
 async function main() {
   const LAUNCH = 'launch-token-abc123';
 
-  // -- mock 上游：模拟新版 DSH 的浏览器会话认证 + 记录每个请求的权威头与 path --
-  // GET /?token=<launchToken> -> 303 + Set-Cookie: dsh-auth-xxx=<sig>
-  // 其他路径：带 dsh-auth-xxx cookie -> 200；无 -> 401（"dsh web authentication required"）
   const seenReqs = [];
   const upstream = http.createServer((q, s) => {
     const url = new URL(q.url, 'http://127.0.0.1');
@@ -55,7 +49,6 @@ async function main() {
   await listen(upstream);
   const targetPort = upstream.address().port;
 
-  // -- 场景 1：配置 dshToken -> relay 自动换取并注入 cookie，根 URL 200 --
   const relay = createRelay('127.0.0.1', targetPort, { dshToken: LAUNCH });
   await listen(relay);
   const relayPort = relay.address().port;
@@ -65,11 +58,9 @@ async function main() {
   const r2 = await req(relayPort, 'GET', '/api/session/list');
   check('场景1: /api 路径同样放行（非 401）', r2.code === 200, String(r2.code));
 
-  // -- 场景 2：客户端自带同名 DSH cookie 时不重复注入 --
   const r3 = await req(relayPort, 'GET', '/', { Cookie: 'dsh-auth-mock=abcdef123' });
   check('场景2: 客户端自带 DSH cookie 仍 200', r3.code === 200, String(r3.code));
 
-  // -- 场景 3/4：LAN 门卫与 DSH 桥并存（同一个 relay，门卫在最外层）--
   const relay2 = createRelay('127.0.0.1', targetPort, { token: 'lan-secret', dshToken: LAUNCH });
   await listen(relay2);
   const p2 = relay2.address().port;
@@ -78,11 +69,9 @@ async function main() {
   check('场景3: 无 LAN 令牌 → 401', noToken.code === 401, String(noToken.code));
   const withToken = await req(p2, 'GET', '/?token=lan-secret');
   const sc2 = String((withToken.headers['set-cookie'] || []).join(';'));
-  // 凭据响应不得被任何中间缓存保存：401（拒绝）与 302（种 cookie）两侧都要 no-store。
   check('场景3: 401/302 凭据响应均带 Cache-Control: no-store',
     String(noToken.headers['cache-control'] || '') === 'no-store' && String(withToken.headers['cache-control'] || '') === 'no-store',
     JSON.stringify([noToken.headers['cache-control'], withToken.headers['cache-control']]));
-  // 种下的 cookie 必须是派生会话值：门卫令牌原文不再有任何会话通道。
   check('场景3: ?token=lan-secret → 302 且所种 cookie 为派生 64hex（不含令牌原文）',
     withToken.code === 302 && /^dsh_lan_token=[0-9a-f]{64}(;|$)/.test(sc2) && !sc2.includes('lan-secret'),
     withToken.code + ' ' + sc2);
@@ -92,23 +81,19 @@ async function main() {
   const rawAsCookie = await req(p2, 'GET', '/', { Cookie: 'dsh_lan_token=lan-secret' });
   check('场景3: 门卫令牌原文冒充 cookie → 401（原文只容 ?token= 一次性出示）', rawAsCookie.code === 401, String(rawAsCookie.code));
 
-  // -- 场景 4：转发面（透传 + 回环权威）--
   const rf = await req(p2, 'GET', '/anything', { Cookie: lanCk, Origin: 'http://192.168.3.64:3088', Referer: 'http://192.168.3.64:3088/' });
   check('场景4: HTTP 转发透传状态与响应体、上游响应头透传',
     rf.code === 200 && rf.body === 'mock-dsh' && rf.headers['x-mark'] === 'up', rf.code + ' ' + rf.body + ' ' + rf.headers['x-mark']);
-  // 门卫令牌不得随 path 泄进上游（DSH 访问日志）；其余查询参数原样保留。
   await req(p2, 'GET', '/api/x?token=lan-secret&keep=1', { Cookie: lanCk });
   const forwarded = seenReqs.filter((x) => x.path.indexOf('/api/x') === 0).pop() || {};
   check('场景4: 上游收到的路径已剥离 token 参数（其余参数原样）', forwarded.path === '/api/x?keep=1', String(forwarded.path));
-  // 上游必须看到「回环权威」而不是 LAN 客户端的地址（否则 DSH 的 Origin 门禁会拒掉转发请求）。
+  // 上游必须看到「回环权威」而不是 LAN 客户端地址，否则 DSH 的 Origin 门禁会拒掉转发请求。
   const fwd = seenReqs.filter((x) => x.path === '/anything').pop() || {};
   check('场景4: Origin/Referer/Host 呈现为回环权威（三面同源）',
     fwd.origin === 'http://127.0.0.1:' + targetPort && String(fwd.referer || '').startsWith('http://127.0.0.1:' + targetPort + '/')
     && fwd.host === '127.0.0.1:' + targetPort, JSON.stringify(fwd));
 
-  // -- 场景 3b：同 IP 失败退避（HTTP 与 WS 共享账本）--
-  //   成功放行必须先清零账本，否则起点被上一条 401 污染；阈值 = 累计 10 次失败，
-  //   故前 10 次各回 401（未越阈），第 11 次起 429，且锁定期即使出示正确令牌也 429。
+  // 失败退避账本：成功放行须先清零，否则起点被上一条 401 污染；阈值 = 累计 10 次失败 ⇒ 前 10 次 401，第 11 次起 429，锁定期出示正确令牌也 429。
   const prePass = await req(p2, 'GET', '/', { Cookie: lanCk });
   check('场景3b: 成功放行清零失败账本（前置）', prePass.code === 200, String(prePass.code));
   const codes3 = [];
@@ -119,19 +104,12 @@ async function main() {
     && locked.code === 429 && !!locked.headers['retry-after'],
     codes3.join(',') + ' locked=' + locked.code + ' ra=' + JSON.stringify(locked.headers['retry-after']));
 
-  // ==========================================================================
-  // 场景 5–8：中继反代域纯函数面（原 test/defects-batch-f-test.js 按域拆入）
-  // ==========================================================================
   const core = require(pathMod.join(ROOT, 'src', 'domains', 'relay', 'core.js'));
 
-  // -- 场景 5：projectRemoteView —— 远程访问视图的唯一事实源 --
-  //   off 短路、reasons 优先级、访问令牌只计入 wan、accessUrl 与 ready 正交、host 按 mode 选、
-  //   端口缺席不拼半截 URL。判据只锁「因的条数/顺序 + 关键因包含关系」，不锁内部措辞。
   console.log('== 场景5 projectRemoteView（访问视图唯一事实源）==');
   {
     const pv = (x) => core.projectRemoteView(x);
     const greenLan = { mode: 'lan', relayListening: true, tokenSet: true, cookieReady: true, lanAddress: '192.168.3.64', wanPort: 22001 };
-    // off 短路：即使运行时事实全部就绪也不出 URL/不报因（关 = 无访问态可言）
     {
       const v = pv(Object.assign({}, greenLan, { mode: 'off', serverAddr: '203.0.113.9', frpcRunning: true }));
       check('视图: off 短路 {ready:false, accessUrl:null, reasons:[]}',
@@ -142,7 +120,6 @@ async function main() {
       check('视图: 非法/缺省 mode 归一为 off（normalizeRemoteMode 单一入口）',
         v.mode === 'off' && pv({}).mode === 'off', JSON.stringify(v));
     }
-    // 未就绪逐条给因 + 优先级：relay 未监听 在 会话注入 之前（else-if 不重复报）
     {
       const v = pv({ mode: 'lan' });
       check('视图: lan 全缺 → 唯一因是 relay 未监听（缺令牌不计入 lan）',
@@ -153,8 +130,6 @@ async function main() {
       check('视图: lan 监听后会话未注入 → 只报注入一条（不叠加 relay 因）',
         v.reasons.length === 1 && /会话/.test(v.reasons[0]), JSON.stringify(v));
     }
-    // host 选择 + 令牌不计入 lan：lan 用局域网地址、wan 用 serverAddr——另一个字段放诱饵值，选错即红；
-    // 缺令牌对 lan 不构成访问不通（门卫空令牌恒放行），把它计入 = 明明能扫码却被判不可用。
     {
       const v = pv(Object.assign({}, greenLan, { serverAddr: '203.0.113.9', tokenSet: false }));
       check('视图: lan 就绪 → accessUrl 用局域网地址、缺令牌不降级（serverAddr 诱饵未被选中）',
@@ -163,7 +138,6 @@ async function main() {
       check('视图: wan 就绪 → accessUrl 用 frps 公网地址（扫码进公网口）',
         w.ready === true && w.accessUrl === 'http://203.0.113.9:22001/', JSON.stringify(w));
     }
-    // 未就绪也要给出可复制地址；wan 附加两因可并存（各报一条，顺序 = 判定优先级）
     {
       const v = pv(Object.assign({}, greenLan, { relayListening: false }));
       check('视图: 未就绪（relay 未监听）仍出 accessUrl（地址与 ready 正交）',
@@ -176,14 +150,12 @@ async function main() {
       check('视图: serverAddr 纯空白视同未配（trim 判定，防拼出 http:// :port/）',
         v3.reasons.length === 1 && /地址/.test(v3.reasons[0]) && v3.accessUrl === null, JSON.stringify(v3));
     }
-    // 端口/地址缺席不拼半截 URL（同号纪律下 relay 口即公网口，缺位 = 还没绑定）
     {
       const v = pv(Object.assign({}, greenLan, { wanPort: null }));
       const v2 = pv(Object.assign({}, greenLan, { lanAddress: '' }));
       check('视图: wanPort 缺席 / lanAddress 空 → accessUrl=null（宁缺不半截，就绪判定不受影响）',
         v.accessUrl === null && v2.accessUrl === null && v2.ready === true, JSON.stringify([v, v2]));
     }
-    // 反向防空转：ready 必须真依赖 reasons 全清（漏一条原因字段必被检出）。五个原因字段各翻一次。
     {
       const base = { mode: 'wan', relayListening: true, tokenSet: true, cookieReady: true, serverAddr: '203.0.113.9', frpcRunning: true, lanAddress: 'h', wanPort: 1 };
       const flips = [
@@ -199,8 +171,6 @@ async function main() {
     }
   }
 
-  // -- 场景 6：upstreamPath —— 门卫令牌不得随 path 泄进上游（HTTP 与 tunnel 共用本实现）--
-  //   本文件的场景 4 已从**集成面**钉过同一条（真请求 → 上游收到的 path）；这里钉纯函数的边界用例。
   console.log('== 场景6 upstreamPath（门卫令牌不进上游）==');
   {
     const cases = [
@@ -214,8 +184,6 @@ async function main() {
     }
   }
 
-  // -- 场景 6b：backoffGate —— 门卫失败退避的纯判定（计时与账本在 proxy 层）--
-  //   判据是「达阈值 → 非 null 的剩余窗口」与「超窗重置」，不是锁死 lockMs 的算法写法。
   console.log('== 场景6b backoffGate（失败退避判定）==');
   {
     const locked = core.backoffGate({ failCount: 10, firstAt: 1000, now: 5000 });
@@ -225,8 +193,6 @@ async function main() {
     check('backoffGate: 超窗重置 → null（可立即再试）', reset.waitMs === null, JSON.stringify(reset));
   }
 
-  // -- 场景 7：令牌强度闸与门卫 cookie 派生（shared/credential + relay/core）--
-  //   remoteTokenStrength 被 relay/instance 两域 + app 编排层三处消费，wan 闸（validateWanAccess）即在本域 core.js。
   console.log('== 场景7 令牌强度闸（wan 前置）与门卫 cookie 派生 ==');
   {
     const cred = require(pathMod.join(ROOT, 'src', 'shared', 'credential.js'));
@@ -241,8 +207,6 @@ async function main() {
       const r = cred.remoteTokenStrength(input);
       check('令牌强度: ' + label + ' → ok=' + wantOk, r.ok === wantOk, JSON.stringify(r));
     }
-    // 门卫 cookie 派生值：本文件场景 3 已从集成面钉了「?token= → 302 种派生 cookie / 原文冒充 → 401 /
-    //   派生 cookie 放行」，此处只补集成面拿不到的**轮换**语义（换 salt / 换 token 即换值）。
     const v1 = core.lanGateCookieValue('tok12345678', 'salt-A');
     check('门卫 cookie: 换 salt 即换值（进程重启全员失效）',
       core.lanGateCookieValue('tok12345678', 'salt-B') !== v1, core.lanGateCookieValue('tok12345678', 'salt-B'));
@@ -250,8 +214,6 @@ async function main() {
       core.lanGateCookieValue('tok87654321', 'salt-A') !== v1, core.lanGateCookieValue('tok87654321', 'salt-A'));
   }
 
-  // -- 场景 8：readUpstreamBody —— 上游响应体的有界读取（router 反代面）--
-  //   跨 chunk 多字节不损坏（Buffer 累积，不是 string 拼接）+ 尊重 maxBytes。
   console.log('== 场景8 readUpstreamBody（上游响应体有界读取）==');
   {
     const { readUpstreamBody } = require(pathMod.join(ROOT, 'src', 'domains', 'router', 'handlers', 'upstream-body.js'));

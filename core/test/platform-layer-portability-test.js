@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 平台层「可移植性」穷举：service / portable / autostart / file-protect / netinfo / exec-path / carrier 线，
-//   加载期捕获 platform 的模块（service / autostart）经**子进程伪造 platform** 后穷举。
-//   未知平台必须显式 kind:'none'（不得 fallthrough 谎报 systemd）；环境事实（如 icacls 是否可用）不得靠推演写进判据。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -17,13 +14,10 @@ const check = (n, c, x) => {
   console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x !== undefined && x !== '' ? '  ← ' + x : ''));
 };
 
-/** 子进程伪造 platform/arch 后执行（加载期捕获 platform 的模块只能这样测）。 */
 function underFake(platform, body, opts) {
   const o = opts || {};
   const code = [
     "Object.defineProperty(process, 'platform', { value: " + JSON.stringify(platform) + " });",
-    // realPath：保留宿主 PATH。缺省清空 PATH 是「探测类能力必须如实失败」的夹具形态；
-    //   但 win32 宿主需要「真实环境」那一侧的证据（X-6 icacls 一致性），此时必须留着 PATH。
     o.realPath ? '' : "process.env.PATH = ''; delete process.env.Path;",
     o.home ? ("process.env.HOME = " + JSON.stringify(o.home) + "; delete process.env.USERPROFILE;") : '',
     body,
@@ -37,10 +31,8 @@ function underFake(platform, body, opts) {
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
 
-// -- X-3：service —— 分派 kind + 方法集一致 + 未知平台显式抛错 --
 {
-  // 分派口径（平台档位由实测决定，不写死）：伪造 linux 且清空 PATH 下 systemd-run 必然测不到
-  // -> 必须落 portable（容器/WSL1 正是这个形状）；darwin/win32 恒 portable；未知平台恒 none。
+  // 分派档位由实测决定：伪造 linux 且清空 PATH 下 systemd-run 必然测不到 ⇒ 必须落 portable；darwin/win32 恒 portable；未知平台恒 none。
   const kinds = { linux: 'portable', darwin: 'portable', win32: 'portable', freebsd: 'none' };
   const sets = {};
   for (const [p, want] of Object.entries(kinds)) {
@@ -54,18 +46,15 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     check('X-3 ' + p + ' provider.kind = ' + want, !!j && j.kind === want, j ? j.kind : out.slice(0, 60));
     if (j) sets[p] = j.keys;
   }
-  // 方法集一致必须对**三个真实 Provider** 静态对账（_testProviders 缝）：伪造 linux 在任意宿主
-  // 都拿不到 systemd 键集，旧判据只比派发产物会静默失去覆盖面（假绿）。
+  // 方法集一致必须对三个真实 Provider 静态对账（_testProviders 缝）：旧判据只比派发产物会静默失去覆盖面。
   const tp = require(path.join(ROOT, 'src', 'platform', 'os', 'service.js'))._testProviders;
   const norm = (o) => Object.keys(o).sort();
   const ref = JSON.stringify(norm(tp.systemd));
   const bad = Object.keys(tp).filter((k) => JSON.stringify(norm(tp[k])) !== ref);
-  // 三个 Provider 的方法集必须逐字一致（不锁方法条数：数量棘轮会在合法新增方法时误红）。
   check('X-3 systemd/portable/NONE 三方**方法集完全一致**（含 setLimits，防"声明了却没实现"）',
     bad.length === 0 && JSON.stringify(sets.linux || []) === ref,
     bad.length ? ('不一致: ' + bad.join(',')) : (norm(tp.systemd).length + ' 个成员一致'));
 
-  // 未知平台：必须**显式抛错**（带档位标签），绝不静默 no-op（darwin/win32 落 portable，不适用）。
   const thrown = underFake('freebsd', [
     "const svc = require('./src/platform/os/service.js');",
     "const c = svc.current();",
@@ -90,7 +79,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   check('X-3 portable 无任何锚点时 isUnitActive=null（无从查询不得被当成已停止）',
     inactP === 'null', inactP);
 
-  // 真实环境侧：分派结果必须**等于** systemd-run 可执行实测。
   const dis = underFake('linux', [
     "const svc = require('./src/platform/os/service.js');",
     "const ep = require('./src/platform/os/exec-path.js');",
@@ -104,19 +92,16 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     !!dj && dj.kind === (dj.has ? 'systemd' : 'portable'), dis.slice(0, 60));
 }
 
-// -- X-3b：portable provider 纯逻辑（pidlookup 打桩，任意宿主确定） --
 {
   const out = underFake('linux', [
     "const fs=require('fs'), os=require('os'), path=require('path');",
     "const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'dsh-port-'));",
     "const pf=path.join(tmp,'run.pid');",
     "const CMD='node /opt/inst/install/lib/node_modules/@deepseek-ai/dsh/lib/bin.js web --port 8111';",
-    // stopUnit 会对 run.pid 命中的 pid 发真实信号——必须用一个探测出的**不存在**的 pid，
-    // 绝不能在 CI 宿主上误伤恰好占用 4242 之类的无关进程。
+    // stopUnit 会对 run.pid 发真实信号 ⇒ 必须用一个探测出的不存在的 pid，绝不误伤宿主上的无关进程。
     "let FP=null; for (let q=4194200;q>4190000;q--){ try { process.kill(q,0); } catch (e) { FP=q; break; } }",
     "if (FP===null) { process.stdout.write('{\"FPFAIL\":true}'); process.exit(0); }",
     "let alive=true, cmd=CMD, listen=null, calls=0, limit=1e9;",
-    // 加载期 require.cache 注入（构造期替换范式；patch 模块导出不被允许）：portable 在其后首次 require 时绑到假 pidlookup。
     "const plPath=require.resolve('./src/platform/os/pidlookup');",
     "require.cache[plPath]={ id: plPath, filename: plPath, loaded: true, exports: {",
     "  isAlive: function(){ calls++; return alive && calls<=limit; },",
@@ -159,7 +144,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   ].join(String.fromCharCode(10)));
   let j = null;
   try { j = JSON.parse(out); } catch { /* EXECFAIL */ }
-  // 按失效语义分 4 条（一条 check 内塞 23 项时，红了只打印键名列表、不打印哪一项的值）。
   const groups = [
     ['pidfile 读取三态（正常数值/垃圾串/文件缺失）', ['pidOk', 'pidBad', 'pidMissing']],
     ['锚点归属与 ownGroup 宽严（命中/不命中/空锚/端口不属我们/端口与 pidfile 同值则跳过）', ['anchorHit', 'anchorMiss', 'anchorEmpty', 'pfOwn', 'anchorMismatchNull', 'portNotOwn', 'portEqPidfileSkipped']],
@@ -173,14 +157,10 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   }
 }
 
-// -- X-3c：portable 真实拉起/终止链（真实宿主，不伪造）--
 {
-  // 真 spawn 一个监听临时端口的 node 子进程，验「拉起写 run.pid -> 锚点归属 -> 停止确认并清 pidfile」：
-  //   伪造平台验不了真进程，真实宿主验不了别家平台，故三端各跑自己那段（POSIX 组信号 / taskkill）。
   const { portable } = require(path.join(ROOT, 'src', 'platform', 'os', 'portable.js'));
   const tmpd = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-port-real-'));
   const pf = path.join(tmpd, 'run.pid');
-  // 端口经 _ports.js 分段取（T1/T2 纪律）：真实 listen，必须落在安全段而非 ephemeral。
   const port = require(path.join(__dirname, '_ports.js')).safePort('platform-layer-portability');
   const entry = path.join(tmpd, 'entry.js');
   fs.writeFileSync(entry, "require('net').createServer().listen(" + port + ",'127.0.0.1');setInterval(function(){},1000);");
@@ -201,12 +181,9 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   try { fs.rmSync(tmpd, { recursive: true, force: true }); } catch { /* 尽力清 */ }
 }
 
-// -- X-3d：systemd 档 setLimits 的 argv 实录（exec 打桩，绝不碰宿主 systemd）--
-//   真发 systemctl --user set-property 会留真实副作用，故在执行器边界打桩：断言 argv 逐字、有界超时、fail-closed。
 {
   const out = underFake('linux', [
     "const calls = [];",
-    // 加载期 require.cache 注入（构造期替换范式；patch 模块导出不被允许）。
     "const exPath = require.resolve('./src/platform/util/exec.js');",
     "require.cache[exPath] = { id: exPath, filename: exPath, loaded: true, exports: {",
     "  run: function (c, a, o) { calls.push([c, a, o]); return ''; },",
@@ -233,22 +210,18 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   check('X-3d 非法单元名 fail-closed（与 stopUnit 同闸，绝不进 systemctl argv）', !!j && j.bad === true, j ? String(j.bad) : '-');
 }
 
-// -- X-4：autostart —— daemonCommand 平台差异 + status().kind 与能力档位一致 --
 {
   const cmds = {};
   for (const p of ['linux', 'darwin', 'win32']) {
     const out = underFake(p, [
       "const a = require('./src/platform/os/autostart');",
-      // daemonCommand 与 guiCommand 同源不同物（守卫 exe vs 壳 exe）：两者都必须给**绝对路径** ——
-      //   否则 schtasks /TR、launchd plist、XDG .desktop 拿到裸名，登录自启静默失效。
+      // daemonCommand/guiCommand 必须给绝对路径，否则 schtasks /TR、launchd plist、XDG .desktop 拿到裸名，登录自启静默失效。
       "process.stdout.write(JSON.stringify({ d: a.daemonCommand(), g: a.guiCommand() }));",
     ].join(String.fromCharCode(10)), { home: '/H' });
     let j = null;
     try { j = JSON.parse(out); } catch { /* EXECFAIL */ }
     cmds[p] = j || { d: out, g: '' };
   }
-  // 断言应当表达**平台差异这一不变量**（win 带 .exe / posix 不带），而非某个绝对前缀：
-  //   硬编码 path.join('/H', ...) 依赖 underFake 的 home 注入，而 Windows 宿主产品用的是真实 home。
   const base = (x) => path.basename(String(x));
   check('X-4 win32 daemonCommand 带 .exe（否则 Windows 上守卫永不起）',
     /^dsh-supervisor[.]exe$/i.test(base(cmds.win32.d)) && path.isAbsolute(cmds.win32.d), cmds.win32.d);
@@ -256,16 +229,12 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     base(cmds.linux.d) === 'dsh-supervisor' && base(cmds.darwin.d) === 'dsh-supervisor'
     && path.isAbsolute(cmds.linux.d) && path.isAbsolute(cmds.darwin.d),
     cmds.linux.d + ' | ' + cmds.darwin.d);
-  // guiCommand（全仓唯此）：壳可执行名与守卫不同（dsh-supervisor-gui），故只钉**平台差异不变量**
-  //   （绝对路径 + Windows 带扩展名），不硬编码产品名 —— 硬编码会变成环境事实断言。
   check('X-4 guiCommand 平台差异：win32 带 .exe、posix 不带，且三端均为绝对路径',
     path.isAbsolute(cmds.win32.g) && /\.exe$/i.test(cmds.win32.g)
     && path.isAbsolute(cmds.linux.g) && !/\.exe$/i.test(cmds.linux.g)
     && path.isAbsolute(cmds.darwin.g) && !/\.exe$/i.test(cmds.darwin.g),
     [cmds.win32.g, cmds.linux.g, cmds.darwin.g].join(' | '));
 
-  // status().kind 必须与 capabilityProfile().hostService 表达**同一事实**
-  // （两者词汇不同：launchagent/launchd、schtasks/windows-service；未知平台必须同为 none）
   const pairs = [
     ['linux', 'systemd', 'systemd'],
     ['darwin', 'launchagent', 'launchd'],
@@ -288,7 +257,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
       check('X-4 未知平台 on=false（不谎报已启用）', !!j && j.on === false, j ? String(j.on) : '-');
     }
   }
-  // 未知平台不得触碰 systemctl（否则产生误导性的 ENOENT 噪声）
   const noNoise = underFake('freebsd', [
     "const a = require('./src/platform/os/autostart');",
     "process.stdout.write(String(a.status().unit));",
@@ -297,13 +265,10 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     noNoise === 'unsupported', noNoise);
 }
 
-// -- X-6：file-protect —— POSIX 分支 + Windows 不得静默成功 --
 {
   const fp = require(path.join(ROOT, 'src', 'platform', 'os', 'file-protect.js'));
   check('X-6 hasIcacls(linux/darwin) 恒 false（POSIX 绝不探测 icacls）',
     fp.hasIcacls('linux') === false && fp.hasIcacls('darwin') === false, 'false');
-  // Windows 分支：探测不到 icacls 时必须**如实失败**（不得静默 ok）。
-  //   两侧各验自己的不变量（POSIX 清空 PATH -> 必不可用；win32 真实 PATH -> 可用不谎报 none / 不可用不假称收紧）。
   const winMissing = path.join(TMP, 'nonexistent-xyz');
   const probeBody = [
     "const fp = require('./src/platform/os/file-protect.js');",
@@ -323,9 +288,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   } else {
     const realOut = underFake('win32', probeBody, { realPath: true });
     let wr = null; try { wr = JSON.parse(realOut); } catch { /* EXECFAIL */ }
-    // 环境事实也立判据（不留「绿着掩盖生产退化」的缝）：真实 PATH 下 icacls 必须可用。
-    //   若此例判红，回显里的 探针 字段区分两种根因——err 含 ENOENT = 解析不到（路径/环境问题）；
-    //   code 非 0 = icacls 自身对 /? 的退出码不为 0，那就是**产品缺陷**（hasIcacls 探测方式要改）。
+    // 真实 PATH 下 icacls 必须可用；判红时回显的探针字段区分「解析不到（ENOENT）」与「icacls 自身退出码非 0 = 产品缺陷」。
     check('X-6 win32 真实 PATH：icacls 可用（生产机拿不到 ACL 收紧即为缺陷，不静默放行）',
       !!wr && wr.i === true, wr ? JSON.stringify({ icacls可用: wr.i, 探针: wr.p }) : '-');
     check('X-6 win32 真实 PATH 一致性：可用 ⇒ 绝不谎报 mode=none；不可用 ⇒ 如实 ok=false/mode=none',
@@ -334,7 +297,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
         : (wr.f.ok === false && wr.f.mode === 'none' && wr.d.ok === false && wr.d.mode === 'none')),
       wr ? JSON.stringify({ icacls可用: wr.i, f: wr.f, d: wr.d }) : '-');
   }
-  // POSIX 分支（仅本机为 POSIX 时才有意义）——断言模式名契约
   if (process.platform !== 'win32') {
     const t = fs.mkdtempSync(path.join(os.tmpdir(), 'fp-'));
     const file = path.join(t, 'x');
@@ -348,10 +310,8 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   }
 }
 
-// -- X-7：netinfo —— 平台支持矩阵 + 未知平台显式空 + pick 纯逻辑 --
 {
   const ni = require(path.join(ROOT, 'src', 'platform', 'os', 'netinfo.js'));
-  // X-7 pick 是纯函数：判**行为**而不是 typeof。
   check('X-7 pick：滤掉虚拟/回环/链路本地接口，默认路由网卡优先且同网卡静态地址优先',
     JSON.stringify(ni.pick([
       { iface: 'docker0', addr: '172.17.0.1', dyn: false },
@@ -379,9 +339,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   }
 }
 
-// X-1 / X-2 / X-9：exec-path 命令解析线 —— 同一平台事实只留本处一个校验点。
-//   X-1 候选名/标准目录（含**排位**，防 PATHEXT 默认值假绿）· X-2 platform/env 注入**必须向下传播**
-//   （不传 platform 时在 Windows 上返回裸 `npm` ⇒ 必 ENOENT）· X-9 POSIX 0644 不得被判成「已安装」。
 {
   const ep = require(path.join(ROOT, 'src', 'platform', 'os', 'exec-path.js'));
 
@@ -396,7 +353,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     JSON.stringify(ep.candidateNames('npm', 'linux')));
 
   const wDirs = ep.standardDirs('win32', '/H', { APPDATA: '/A', LOCALAPPDATA: '/L' });
-  // 分隔符归一化：Windows 单反斜杠路径必须被识别（匹配两个反斜杠的写法在 win 上不生效）。
+  // 分隔符归一化：Windows 单反斜杠路径必须被识别（只匹配两个反斜杠的写法在 win 上不生效）。
   const norm = (d) => String(d).replace(/[\\/]+/g, '/');
   check('X-1 win32 标准目录含 APPDATA\\npm、LOCALAPPDATA\\Programs\\dsh-supervisor 与 .local/bin 兼容目录',
     wDirs.some((d) => d === path.join('/A', 'npm'))
@@ -411,10 +368,8 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     dDirs.includes('/opt/homebrew/bin') && dDirs.includes('/usr/local/bin'), JSON.stringify(dDirs));
 }
 
-// -- X-2：P1-C 复现 —— 在任意宿主上验证注入的 platform/env 真的生效 --
 {
   const ep = require(path.join(ROOT, 'src', 'platform', 'os', 'exec-path.js'));
-  // 造一个只有 npm.cmd 的目录（模拟 Windows 上 npm 的真实形态）
   const fakeBin = path.join(TMP, 'winbin');
   fs.mkdirSync(fakeBin, { recursive: true });
   const fakeCmd = path.join(fakeBin, 'npm.cmd');
@@ -430,7 +385,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     ep.npmBin({ platform: 'linux', env }) === 'npm' && ep.npmBin({ platform: 'darwin', env }) === 'npm',
     ep.npmBin({ platform: 'linux', env }));
 
-  // win32 但解析不到 -> 必须回退 npm.cmd（而不是裸 npm，否则 Windows 必 ENOENT）
   const emptyDir = path.join(TMP, 'empty');
   fs.mkdirSync(emptyDir, { recursive: true });
   check('X-2 win32 解析不到时 npm/npx 回退 .cmd（不是裸名，否则 Windows 必 ENOENT）',
@@ -441,12 +395,10 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   fs.writeFileSync(fakeNpx, '@echo off\r\n');
   check('X-2 npx win32 命中注入的 npx.cmd',
     ep.npxBin({ platform: 'win32', env }) === fakeNpx, ep.npxBin({ platform: 'win32', env }));
-  // 反向（原 cross-platform 的「解析不到 → null」）：解析不出可执行时绝不返回猜测路径。
   check('X-2 resolveExecutable 对不存在的名字返回 null（不拿不可执行路径去 spawn）',
     ep.resolveExecutable('dsh-nonexistent-xyz-123', { platform: 'linux', env: { PATH: emptyDir } }) === null, 'null');
 }
 
-// -- X-9：可执行位判定 + spawn 前可用性预检 --
 {
   const ep = require(path.join(ROOT, 'src', 'platform', 'os', 'exec-path.js'));
   const nf = path.join(TMP, 'plain-0644');
@@ -462,7 +414,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     String(ep.isExecutableFile(nf, 'win32')));
 }
 
-// -- X-6b：ensurePrivateDir / writePrivate（真权限位 + 原子写无 .tmp 残留）--
 {
   const fp = require(path.join(ROOT, 'src', 'platform', 'os', 'file-protect.js'));
   const dir = path.join(TMP, 'priv');
@@ -476,7 +427,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     modeOk = modeOk && fr.ok === true && (fs.statSync(f).mode & 0o777) === 0o600;
     contentOk = fr.ok === true && JSON.parse(fs.readFileSync(f, 'utf8')).token === 'x';
   } else {
-    // win 无 POSIX 权限位：只判「走 icacls 或明确降级」，不得静默假称已收紧。
     modeOk = modeOk && (pr.mode === 'icacls-dir' || pr.mode === 'none');
   }
   check('X-6b ensurePrivateDir/writePrivate 真权限位（POSIX 0700/0600；win 走 icacls 或明确降级）',
@@ -489,7 +439,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     (() => { try { return fp.protectFile(path.join(TMP, 'nope')).ok === false; } catch { return false; } })(), '');
 }
 
-// -- X-12：保护状态可观测（源自 cross-platform；`statusSummary().dataDirProtected` 全仓唯此）--
 {
   const { Supervisor } = require(path.join(ROOT, 'src', 'supervisor'));
   const s = new Supervisor({
@@ -502,18 +451,14 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     s.statusSummary().dataDirProtected === true, String(s.statusSummary().dataDirProtected));
 }
 
-// X-11：反代载体契约冒烟（PROXY-ISOLATION-STANDARD 的实机牙齿），**全仓唯此**：
-//   carrier 真 spawn -> 真监听 -> 锚点归属 -> 真终止 -> 端口释放 -> 同端口重拉（打桩后四平台 CI 恒绿）。
 (async function () {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const carrier = require(path.join(ROOT, 'src', 'platform', 'os', 'carrier'));
   const pidlookup = require(path.join(ROOT, 'src', 'platform', 'os', 'pidlookup'));
-  // 端口经 _ports.js 分段取（本文件段号 26，用第 2 个号，避开 X-3c 的真实 listen）。
   const PORT = require(path.join(__dirname, '_ports.js')).safePort('platform-layer-portability', 1);
   const PKG_MARKER = 'fakeproxy-demo-pkg';
   const dir = path.join(TMP, PKG_MARKER);
   fs.mkdirSync(dir, { recursive: true });
-  // 30s 硬保险：本测试进程中途死掉也不留孤儿（全局作业规则）；SIGTERM 速退。
   const entry = path.join(dir, 'entry.js');
   fs.writeFileSync(entry, "'use strict';\n"
     + "const http = require('node:http');\n"
@@ -540,7 +485,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   check('X-11 真监听：/health 200（本平台 spawn→端口全链可用）', health, health ? 'ok' : '10s 超时');
   const st1 = carrier.probe(identity);
   check('X-11 归属 ours（pidFile+锚点）', st1.state === 'ours' && st1.pid === h.pid, JSON.stringify(st1));
-  // 删 run.pid 只剩端口反查：npx 形态里载体进程与监听子孙不同 pid，锚点必须仍认领（同语义面）。
   fs.unlinkSync(pidFile);
   check('X-11 无 run.pid 时端口锚点仍 ours（npx 子孙监听形态）', carrier.probe(identity).state === 'ours', JSON.stringify(carrier.probe(identity)));
   const stF = carrier.probe({ port: PORT, pidFile: null, anchors: ['no-such-vendor-pkg'] });
@@ -567,4 +511,3 @@ function finish() {
   console.log(String.fromCharCode(10) + '结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');
   process.exit(failed.length ? 1 : 0);
 }
-// 收尾由上面的 X-11 异步块调用 finish()（顺序执行到最后一段再判总结果）。

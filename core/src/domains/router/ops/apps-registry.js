@@ -1,7 +1,5 @@
 'use strict';
 
-// 反代应用注册表与更新（IO）。deps 注入；更新 job 状态收敛于本工厂闭包（jobs）。
-// npx 缓存清理统一走 providers/pkg-cache（缓存目录是平台事实）。
 const { PROXY_APPS } = require('../proxy-apps');
 const { invalidatePkgCache } = require('../providers/pkg-cache');
 const { semverCompare } = require('../../../shared/version');
@@ -22,7 +20,7 @@ function createAppsRegistryOps(deps) {
       const c = cache[a.id] || {};
       const instVers = [];
       for (const p of getProviders() || []) {
-        if (p.proxyAppId === a.id) { // proxyAppId 只在 process-pool 形态上有值
+        if (p.proxyAppId === a.id) {
           for (const inst of (p.instances || [])) if (inst.version) instVers.push(inst.version);
         }
       }
@@ -47,22 +45,18 @@ function createAppsRegistryOps(deps) {
       } catch (e) { why = (e && e.message) || String(e); }
       const prev = c.latest || null;
       cache[a.id] = { pkg: a.registry, latest: ver, checkedAt: Date.now(), error: ver ? null : (why || 'query failed') };
-      // 仅存在旧基线且版本真实变化才发事件（冷启动首查不视为新版本）
       if (ver && prev && ver !== prev && events) events.append('proxy_update_available', { appId: a.id, pkg: a.registry, from: prev, to: ver });
       results[a.id] = ver;
     }
     return results;
   }
 
-  /** 反代更新（job 模型）：立即返回 jobId，异步 stop->start 各实例，前端经 proxyUpdateStatus 轮询。 */
   async function applyProxyUpdate(appId) {
     const a = PROXY_APPS[appId];
     if (!a) return { ok: false, error: 'unknown app ' + appId };
     const targets = (getProviders() || []).filter((p) => p.proxyAppId === appId && (p.instances || []).length);
     if (!targets.length) return { ok: false, error: 'no running ' + a.name + ' instances' };
     if (jobs[appId] && jobs[appId].state === 'running') return { ok: true, jobId: appId, already: true };
-    // 步骤集只快照标签（providerId+keyId+maskedKey）；执行时按 keyId 重取活实例——
-    // 常驻实例在 stop/start 之间被重建后若仍用旧引用，会静默空转/假成功。
     const insts = targets.flatMap((provider) => (provider.instances || []).map((i) => ({ providerId: provider.id, keyId: i.keyId, maskedKey: i.maskedKey })));
     const job = {
       state: 'running', startedAt: Date.now(), finishedAt: null, restarted: 0, errors: 0,
@@ -74,19 +68,16 @@ function createAppsRegistryOps(deps) {
       task = tasks.begin('proxy-app', 'update', { id: appId, name: a.name }, { to: a.registry, createdBy: 'user' });
       tasks.start(task.id);
       tasks.log(task.id, '更新 ' + a.name + '（' + a.registry + '）');
-      // 逐实例步骤登记进统一 task（前端进度事实源）；job.steps 与 task.steps 同源更新。
       for (const { maskedKey } of insts) tasks.step(task.id, maskedKey);
       job.taskId = task.id;
     }
     (async () => {
-      // 先清该 app 的 npx 缓存（强制重新拉取最新版）
       try { invalidatePkgCache(a.pkg); } catch {}
       const setStep = (i, state, reason) => {
         job.steps[i].state = state; job.steps[i].ts = Date.now();
         if (reason) job.steps[i].reason = reason;
         if (task) { try { tasks.stepState(task.id, i, state); } catch {} }
       };
-      // 按 keyId 重取活实例；取不到即如实失败。
       const resolveStep = (i) => {
         const { providerId, keyId } = insts[i];
         const p = (getProviders() || []).find((x) => x.id === providerId);
@@ -103,8 +94,6 @@ function createAppsRegistryOps(deps) {
         const live = resolveStep(i);
         if (!live) continue;
         setStep(i, 'stopping');
-        // force=true：在用/常驻实例不带 force 只会挂待停标记，进程未死则随后的 startInstance
-        // 因 pid 仍在返回 already:true，job 报 done 而旧进程从未重启（假成功）。
         try { live.provider.stopInstance(live.inst, true); } catch (e) { job.errors++; setStep(i, 'failed', (e && e.message) || '停止失败'); }
       }
       await new Promise((r) => setTimeout(r, 600));
@@ -121,7 +110,6 @@ function createAppsRegistryOps(deps) {
           setStep(i, 'done');
         } else { job.errors++; setStep(i, 'failed', (r && r.error) || '启动失败'); }
       }
-      // 供应商对象同样重取（targets 是创建时快照）；只对仍存在的置 proxyRunning。
       for (const providerId of new Set(insts.map((s) => s.providerId))) {
         const p = (getProviders() || []).find((x) => x.id === providerId);
         if (p) p.proxyRunning = true;
@@ -143,12 +131,9 @@ function createAppsRegistryOps(deps) {
     return { ok: true, jobId: appId };
   }
 
-  /** 更新进度查询（优先统一任务；无历史任务回退 job）。 */
   function proxyUpdateStatus(appId) {
     const t = tasks ? tasks.list('proxy-app').find((x) => x.target.id === appId) : null;
     if (t) {
-      // 本映射与 instance/model.js 的 taskStateToView、plugin/model.js 的 taskStateToJobState
-      // 有意保持三份平行（各自状态词表不同），不抽跨域公共函数；任一状态词表变更时三处一并核对。
       return {
         state: (t.state === 'succeeded' || t.state === 'skipped') ? 'done' : (t.state === 'failed' || t.state === 'canceled') ? 'failed' : 'running',
         restarted: (t.steps.filter((s) => s.state === 'done')).length,

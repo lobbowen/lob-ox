@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 响应驱动冻结机制端到端验证：markQuotaExhausted 恢复点 = 上游 429 body 的精确 ISO 时间（非默认 +5h）；
-//   冻结后 _probeAfterResponseFreeze 自动补探测刷新 quota + 未超限时自动解冻；
-//   commandcode-billing 上游报文契约。方法：本地 mock billing（credits + subscriptions 两路）+ 真实 ProxyProvider，不 spawn 真实实例。
 
 const http = require('node:http');
 const path = require('node:path');
@@ -21,7 +18,6 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   ports.configureFile(path.join(TMP, 'ports-router.json'));
   const log = { info(){}, warn(){}, error(){}, debug(){} };
 
-  // -- mock Command billing：可编程响应（credits 面 / subscriptions 面各一路）--
   let billingState = {
     limited: true,
     exceeded: 'fiveHour',
@@ -30,7 +26,6 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   };
   let billingHits = 0; // billing server 被请求次数（验证补探测）
   let subHits = 0;     // subscriptions 面被请求次数（D 组：防风控判据）
-  // credits 面默认报文（A/B/C 组消费；D 组逐场景改写）
   let creditsReply = () => ({
     credits: { monthlyCredits: 0.5, purchasedCredits: 0, freeCredits: 0, belowThreshold: false, creditThreshold: 0 },
     windowLimits: billingState,
@@ -50,11 +45,10 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   const billingPort = billing.address().port;
   const billingBase = 'http://127.0.0.1:' + billingPort;
 
-  // fixture 必须与生产配置（proxy-apps.js）对齐：缺 subscriptionsPath 会让订阅面永远走常量回退，
-  //   缺 windowMap.monthly 则 monthly 窗口语义漂移 —— 那样测的就不是生产路径。
+  // 夹具必须与生产配置 proxy-apps.js 对齐：缺 subscriptionsPath 会让订阅面永远走常量回退，缺 windowMap.monthly 则 monthly 窗口语义漂移。
   const app = {
     id: 'cc-test', name: 'CC Test', real: false,
-    command: ['node', '/bin/true'], // 不真实 spawn
+    command: ['node', '/bin/true'],
     upstream: 'http://127.0.0.1:0',
     quota: {
       type: 'commandcode-billing', apiBase: billingBase, creditsPath: '/alpha/billing/credits',
@@ -64,71 +58,57 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     },
   };
 
-  // 独立测试区（互不干扰）
   async function mkProvider(id) {
     const p = new ProxyProvider({ id, name: id, kind: 'proxy', proxyAppId: 'cc-test', app, logger: log, events: null, dist: null, onPersist: () => {} });
     p.activated = true;
     return p;
   }
   async function addAcc(p, key) {
-    const inst = await p.ensureInstance(key); // 只建对象不 spawn
+    const inst = await p.ensureInstance(key);
     const acc = { key, keyId: inst.keyId, maskedKey: '...' + key.slice(-6), status: 'ready', quota: null, registeredAt: Date.now() };
     p.accounts.push(acc);
     p.instances.push(inst);
     return { p, inst, acc };
   }
 
-  // --- 修复 A：429 body ISO 精确恢复点 ---
   console.log('== 修复 A：markQuotaExhausted 用 429 body 的精确 ISO 恢复点（非默认 +5h）==');
   {
     const { p, acc } = await addAcc(await mkProvider('pa'), 'sk-freeze-a');
-    // 429 body：与 upstream-credits-test.js 的同型样本去重（那边只证「解析对」，此处只证
-    //   解析结果被真正消费成 nextResetAt / status —— 两层不同风险，判据必须留下）。
+    // 429 body 样本与 upstream-credits-test.js 去重：那边只证「解析对」，此处只证解析结果真被消费成 nextResetAt / status。
     const bodyText = JSON.stringify({ error: { message: 'CC API 429: rate limited, resets at ' + new Date(Date.now() + 2 * 3600 * 1000).toISOString() + '. Please wait.' } });
     const { bodyResetMs, headerRetryMs } = require(path.join(ROOT, 'src', 'domains', 'router', 'providers', 'base'));
     const retryMs = bodyResetMs(bodyText);
-    // 冻结：传 retryMs 给 markQuotaExhausted（等价 reactToFailure effect 路径）
     p.markQuotaExhausted(acc, headerRetryMs({}) || retryMs);
     check('A3/A4 冻结恢复点 = body 的精确 ISO（≈now+2h 非 +5h 默认），状态 frozen + limit.window',
       acc.nextResetAt > Date.now() + 1.8 * 3600 * 1000 && acc.nextResetAt < Date.now() + 2.2 * 3600 * 1000
       && acc.status === 'frozen' && !!acc.limit && acc.limit.kind === 'window', String(acc.nextResetAt));
-    // 等 A 组补探测定时器完成再清理（防跨组定时器交错污染计数）
+    // 各组之间等定时器排空再清理，防跨组定时器交错污染计数。
     await new Promise((r) => setTimeout(r, 450));
     billingHits = 0;
   }
 
-  // --- 修复 B：冻结后自动补探测刷新 quota ---
   console.log('== 修复 B：429/400 冻结后 _probeAfterResponseFreeze 自动补探测（quota 不再 stale）==');
   {
     const { p, inst, acc } = await addAcc(await mkProvider('pb'), 'sk-freeze-b');
     const hitsBefore = billingHits;
-    // 冻结（走 markQuotaExhausted 覆写 -> 触发 _probeAfterResponseFreeze 的 300ms 定时补探测）
     p.markQuotaExhausted(acc, 5 * 3600 * 1000);
-    // 等 300ms 定时补探测完成（其效果由 B2/B3 断言，此处不设恒真标记）
     await new Promise((r) => setTimeout(r, 800));
-    // 补探测应命中 billing server（detectInstanceQuota 直连 mock）
     check('B2 补探测已访问 billing server（冻结后 quota 不再 stale）', billingHits > hitsBefore, 'hits ' + hitsBefore + '→' + billingHits);
-    // quota 应刷新为真实超限（fiveHour exceeded -> percent 100 / rate-limited），且恢复点收敛到 billing resetAt
     const rl = (acc.quota || inst.quota || {}).rolling;
     check('B3/B4 补探测后 rolling = 100%/rate-limited，nextResetAt 收敛到 billing 的 resetAt（官方精确）',
       !!rl && rl.status === 'rate-limited' && rl.percent === 100
       && Math.abs(acc.nextResetAt - new Date(billingState.fiveHour.resetAt).getTime()) < 2000,
       JSON.stringify(rl) + ' nextResetAt=' + acc.nextResetAt);
-    // 等 B 组残留定时器全部排空（B 的 mark 排了定时器 + reconcileNow 异步）
     await new Promise((r) => setTimeout(r, 450));
     billingHits = 0;
   }
 
-  // --- 修复 B 自愈：billing 显示未超限 -> 冻结误判自动解冻 ---
   console.log('== 修复 B 自愈：补探测发现未超限 → applyDetection 自动解冻 ==');
   {
     const { p, acc } = await addAcc(await mkProvider('pc'), 'sk-freeze-c');
-    // 先制造一次真实超限冻结，再让 billing 变健康
     billingState = { limited: false, exceeded: null, fiveHour: { used: 0.5, cap: 3, exceeded: false, resetAt: new Date(Date.now() + 3600 * 1000).toISOString() }, weekly: { used: 1, cap: 6, exceeded: false, resetAt: null } };
-    // 冻结后 300ms 补探测会读到「健康」billing -> applyDetection 解冻回 ready
     const hitsC = billingHits;
     p.markQuotaExhausted(acc, 5 * 3600 * 1000);
-    // 轮询等待补探测完成（最多 3s）：避免固定 800ms 与跨组定时器竞态
     for (let w = 0; w < 30 && billingHits === hitsC; w++) await new Promise((r) => setTimeout(r, 100));
     await new Promise((r) => setTimeout(r, 300)); // 让 applyDetection 落定
     check('C1/C2/C3 billing 恢复健康 → 补探测自动解冻 ready、limit 清空、quota 刷新为健康（rolling 未满）',
@@ -136,12 +116,8 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
       'status=' + acc.status + ' limit=' + JSON.stringify(acc.limit));
   }
 
-  // --- D：commandcode-billing 上游报文契约（复用本文件真 http mock）---
-  //   只留有独立风险的上游兼容判据：100%-无-exceeded 不矛盾 / data 信封 / 字符串 used·cap /
-  //   currentPeriodEnd→monthlyResetAt / cancelAtPeriodEnd→null / 额度充足不取订阅（防风控）。
   console.log('== D：commandcode-billing 上游报文契约（credits 面 + 订阅面）==');
   {
-    // D1 100% 周窗口、上游不返 exceeded -> 不得存出 status:ok + percent:100 的矛盾记录。
     creditsReply = () => ({
       windowLimits: { fiveHour: { cap: 2000, used: 200, resetAt: Date.now() + 3600000 }, weekly: { cap: 100, used: 100, resetAt: Date.now() + 604800000 } },
       credits: { monthlyCredits: 4, purchasedCredits: 0, freeCredits: 0 },
@@ -152,21 +128,18 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     check('D1 周 100% 无 exceeded → rate-limited（不再 status:ok 矛盾）',
       r1.ok && d1.inst.quota.weekly.status === 'rate-limited' && d1.inst.quota.weekly.percent === 100, JSON.stringify(d1.inst.quota.weekly));
 
-    // D2 信封形态 { data: { windowLimits } }（上游把结果包在 data 里）
     creditsReply = () => ({ data: { windowLimits: { fiveHour: { cap: 10, used: 10, resetAt: null } }, credits: {} } });
     const d2 = await addAcc(await mkProvider('pd2'), 'sk-quota-d2');
     const r2 = await d2.p.detectInstanceQuota(d2.inst);
     check('D2 data 信封解包 → 5h 100% rate-limited',
       r2.ok && d2.inst.quota.rolling.status === 'rate-limited' && d2.inst.quota.rolling.percent === 100, JSON.stringify(d2.inst.quota.rolling));
 
-    // D3 used/cap 为字符串（上游兼容形态）
     creditsReply = () => ({ windowLimits: { fiveHour: { cap: '2000', used: '300', resetAt: Date.now() + 3600000 }, weekly: { cap: '100', used: '50', resetAt: null } } });
     const d3 = await addAcc(await mkProvider('pd3'), 'sk-quota-d3');
     const r3 = await d3.p.detectInstanceQuota(d3.inst);
     check('D3 字符串 used/cap 解析 → 5h 15% ok',
       r3.ok && d3.inst.quota.rolling.percent === 15 && d3.inst.quota.rolling.status === 'ok', JSON.stringify(d3.inst.quota.rolling));
 
-    // D4 credits-limited 账号取订阅：currentPeriodEnd -> monthlyResetAt 精确恢复点
     const periodEnd = Date.now() + 23 * 24 * 3600 * 1000;
     creditsReply = () => ({
       credits: { monthlyCredits: 0, purchasedCredits: 0, freeCredits: 0 },
@@ -178,14 +151,12 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     check('D4 credits-limited 取订阅 → monthlyResetAt = currentPeriodEnd',
       r4.ok && d4.inst.quota.monthlyResetAt === periodEnd, JSON.stringify({ mr: d4.inst.quota.monthlyResetAt, periodEnd }));
 
-    // D5 cancelAtPeriodEnd（订阅不可靠）-> 不赌续订，回退轮询
     subReply = { success: true, data: { status: 'active', cancelAtPeriodEnd: true, currentPeriodEnd: new Date(Date.now() + 25 * 24 * 3600 * 1000).toISOString() } };
     const d5 = await addAcc(await mkProvider('pd5'), 'sk-quota-d5');
     const r5 = await d5.p.detectInstanceQuota(d5.inst);
     check('D5 cancelAtPeriodEnd → monthlyResetAt=null（回退轮询，不赌续订）',
       r5.ok && d5.inst.quota.monthlyResetAt === null, JSON.stringify(d5.inst.quota.monthlyResetAt));
 
-    // D6 额度充足 -> 不取订阅（零额外 API，防风控；唯一有运维代价的一条）
     subHits = 0;
     subReply = { success: true, data: { currentPeriodEnd: new Date(Date.now() + 20 * 24 * 3600 * 1000).toISOString() } };
     creditsReply = () => ({
@@ -197,7 +168,6 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     check('D6 额度充足 → 不取订阅（subHits=0）且 monthlyResetAt=null',
       r6.ok && subHits === 0 && d6.inst.quota.monthlyResetAt === null, JSON.stringify({ subHits, mr: d6.inst.quota.monthlyResetAt }));
 
-    // 复位默认应答（D 组在末尾，仍显式复位，避免后续追加场景被残留场景污染）
     creditsReply = () => ({
       credits: { monthlyCredits: 0.5, purchasedCredits: 0, freeCredits: 0, belowThreshold: false, creditThreshold: 0 },
       windowLimits: billingState,

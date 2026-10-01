@@ -1,88 +1,52 @@
 name: core-build-release
 
-# 内核产线（monorepo `lobox`：`core/` = 内核，`shell/` = 桌面壳）。
-# tag `core-<内核版本>`（例 core-0.1.6-BETA.20）→ verify + build:launcher + npm 子包发布；
-#   壳的构建/冒烟/安装程序归 shell.yml，其 tag 命名空间是 `shell-<壳版本>`（两者互不触发，见 `on.push`）。
-#
-# 硬标准（不可协商）：**所有平台构建与发布必须经 GitHub CI 完成；本地不得产生发布产物。**
-#   四平台全部由 CI 产出（ubuntu-22.04 / windows-latest / macos-latest / macos-14）。
-#   本工作流**每一步都只在 core/ 内工作**，不读取、构建或依赖 shell/ 源码 —— 合仓后的隔离由
-#   **目录约定**维持（`actions/checkout` 检出整仓，仓库边界不再提供隔离）。发布结构不变：内核发 npm 子包。
-#   跨语言契约仍只经「已发布产物 / schema / 测试向量」消费。
+# monorepo：core/ = 内核（本工作流），shell/ = 桌面壳（.github/workflows/shell.yml）。
+# 两条产线的 tag 命名空间互不触发：内核 `core-<内核版本>`，壳 `shell-<壳版本>`。
 on:
   push:
     tags:
-      # ── tag 命名空间 ──
-      # 内核与壳**各自独立版本号**（core/package.json ↔ shell/src-tauri/tauri.conf.json），
-      #   而 **path 过滤对 tag 推送不生效**（见下方 `paths:` 的说明）⇒ 两条产线若共用 `v*`，
-      #   **任一 tag 都会同时触发内核与壳两条完整产线**（四平台构建 + 发布）。
-      #   故按**组件前缀**分命名空间：内核 = `core-<内核版本>`，壳 = `shell-<壳版本>`。
-      # **不带 `v` 前缀**：`core-` 之后就是 `core/package.json#version` 的字面值，于是 tag 与
-      #   组件版本**可直接对账**（`core-0.1.6-BETA.20` ↔ package.json "0.1.6-BETA.20"），
-      #   由下面 precheck job 的 tag 对账步执行该比对。
+      # ⚠ GitHub 的 path 过滤对 tag 推送不生效 ⇒ tag 命名空间必须按组件前缀分开。
+      # 命名空间不带 `v`：`core-` 之后就是 `core/package.json#version` 的字面值，可逐字对账。
       - 'core-*'
-    # 日常推送也要跑回归（见下方 `test` job）。分支名必须是本仓**默认分支** `main`：
-    #   写错分支名等于 push 回归**永不触发**（PR 路径不受影响，故不易察觉）。
+    # 必须写本仓默认分支 main；写错分支名等于 push 回归永不触发。
     branches:
       - main
-    # ── monorepo path 过滤 ──
-    # 只在 `core/**` 或本工作流文件变化时触发：否则壳的一次改动会连带跑内核四平台的完整构建/发布产线。
-    # ⚠ **path 过滤对 tag 推送不生效**（GitHub 文档「Events that trigger workflows」→ push）：
-    #   tag 推送恒定触发本工作流 —— release 正需要如此；也正因如此，`tags:` 的命名空间必须按组件
-    #   分开：`paths:` 拦不住 tag，只有 tag 名本身能拦。
     paths:
       - 'core/**'
       - '.github/workflows/core.yml'
   pull_request:
-    # 同上：PR 只在 core/ 或本工作流文件变化时触发。
     paths:
       - 'core/**'
       - '.github/workflows/core.yml'
   workflow_dispatch:
     inputs:
-      # published-smoke 的目标版本。留空 = 取 core/package.json#version（tag 运行本就走该单源）；
-      #   仅手动补跑「发布后冒烟」时填一个已发布的 <ver> 用；不影响 build/test/precheck 任何 job。
       ver:
         description: '发布后冒烟目标版本（须为**裸版本**，如 0.1.6-BETA.20；不要写 tag＝不要带 core-/v 前缀。留空则取 core/package.json#version）'
         required: false
         default: ''
 
-# ── 顶层最小权限 + 同 ref 串行 ──
-# permissions：顶层只给 contents: read，各 job 按需向上声明（build 另加 id-token: write、
-#   release 另加 contents: write）⇒ 新增 job 默认只读（fail-closed）。
-# concurrency：同一 ref 的 run 不并发。本产线的发布部分**不是幂等的**（npm 同版本不可重发 +
-#   Release 资产挂载竞态）⇒ **tag 运行取 cancel-in-progress=false**：正在发布的 run 不能被取消。
+# 顶层只给 contents: read ⇒ 新增 job 默认只读（fail-closed）；各 job 按需向上声明。
+# 发布不幂等（npm 同版本不可重发 + Release 资产挂载竞态）⇒ tag 运行不得取消进行中的 run。
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
-# ⚠ group 里的 `github.workflow` = 本文件 `name:`。同一 ref 上两个工作流若同名，group 会**撞车**
-#   ⇒ 互相 cancel-in-progress（内核 tag 发布被壳的 push 取消是灾难）。
-#   故本文件 name 定为 `core-build-release` 以与壳工作流区分。
+# ⚠ group 里的 github.workflow = 本文件 name:。两条产线若同名，同 ref 的 group 会撞车并互相取消
+#    ⇒ 本文件 name 必须与 shell.yml 区分。
 
-# uses 全部钉 40 位 commit SHA（行尾注释保留可读版本名）。均为可变 tag 引用（@v4 = 上游随时可把
-#   该 tag 移到新提交），而本产线既读 secrets 又产出发布物 —— 上游被劫持即等于供应链注入。
-#   升级 = 显式改 SHA（可审、可回滚），不由上游代决。
-#   核对来源：GitHub API /repos/<owner>/<repo>/git/ref/tags/<tag>（附注标签已解引用到提交）。
+# uses 钉 40 位 commit SHA（行尾注释是可读版本名）：@v4 之类是可变 tag，而本产线既读 secrets
+#   又产出发布物 ⇒ 上游移动 tag 即等于供应链注入。
 
-# ── 目录基准 ──
-# 内核的命令原本假设「仓库根 = 内核根」。合仓后内核根变成 `core/`，故在 **workflow 级**把 run 步骤的
-# cwd 统一钉到 core/：**命令字面量一字不改**，只改目录基准（本文件 5 个 job 全都需要在 core/ 下运行）。
-# ⚠ 本设置**只影响 `run:` 步骤**。`uses:` 步骤的输入路径（upload-artifact / download-artifact、
-#   action-gh-release 的 `files`）仍以 **workspace 根（= lobox/）** 为基准 ⇒ 必须显式加 `core/` 前缀。
-#   `actions/checkout` 本文件未用 `path:`（默认落 workspace 根）。
+# 合仓后内核根 = core/：workflow 级把 run 步骤 cwd 统一钉到 core/（命令字面量一字不改）。
+# ⚠ 只影响 `run:` 步骤。`uses:` 的输入路径（upload-artifact / download-artifact、action-gh-release
+#   的 `files`）仍以 workspace 根为基准 ⇒ 必须显式加 `core/` 前缀（checkout 未用 `path:`）。
 defaults:
   run:
     working-directory: core
 
 jobs:
-  # ── test：内核回归测试 ──
-  # 专用快速回归执行点：先备齐前端产物（build-ui.sh，api-security-test 的面板安全头断言需要它），
-  #   再跑 `npm test` = `test/_runner.js` 读 `test/manifest.js` 登记表逐条起子进程。
-  #   纯 JS 项目，ubuntu-latest 约 1 分钟；四平台完整构建/发布由 `build` 矩阵承担。
-  #   本 job 不读取 shell/ 的源码（合仓后隔离靠目录约定）。
   test:
     runs-on: ubuntu-latest
     steps:
@@ -95,37 +59,25 @@ jobs:
 
       - name: 构建前端产物（npm test 的面板安全头断言**依赖它**）
         shell: bash
-        # **必须先构建前端**：否则 api-security-test 的两条面板安全头断言（「面板带 CSP 头」/
-        #   「nosniff 头存在」）会因静态分支返回 HTTP 503「UI not built」而失败 —— 它们正是面板
-        #   安全头的唯一断言点；跳过断言等于删掉该门禁。
-        #   monorepo：本步 cwd = core/，脚本自算 ROOT = core/，ui/ 与 ui-react/ 都在 core/ 内。
+        # 必须先构建前端：否则面板安全头断言（CSP / nosniff）因 503「UI not built」失败——
+        #   它们是这两条安全头的唯一断言点。
         run: bash release/scripts/build-ui.sh
 
       - name: 安装 Xvfb（图形会话前置条件）
         shell: bash
-        # **必须先提供图形会话**：守护看护在拉起 GUI 壳前会先判定「有没有图形会话」——
-        #   linux 判据 = DISPLAY/WAYLAND_DISPLAY 环境变量 或 /tmp/.X11-unix/X* 或 wayland socket
-        #   （src/platform/os/desktop.js::sessionAvailable）。这是**刻意的设计**：防「无显示时拉起
-        #   必失败 → 重启风暴」。而 GitHub ubuntu runner 是无头的（三者皆无）⇒ 看护按设计拒绝拉起，
-        #   于是 shell-watchdog-e2e-test 的 4 条断言失败。
-        # 修法：装 Xvfb，并以 xvfb-run 跑 npm test，让这条 E2E **真的拉起**壳（而不是把断言改成跳过）。
+        # 无头 runner 下看护判定「无图形会话」而拒绝拉起壳（linux 判据见
+        #   src/platform/os/desktop.js::sessionAvailable）⇒ watchdog E2E 断言失败；故装 Xvfb 真拉起。
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq xvfb
 
       - name: 内核回归测试（npm test · 经 Xvfb 提供图形会话）
         shell: bash
-        # 本 job 自包含：不读取 shell/ 的源码（合仓后隔离靠目录约定，见文件头）。
         run: |
-          # 不截断：测试失败时断言文案就是排障依据。
           set -o pipefail
           xvfb-run -a npm test
 
-  # ── precheck：该 tag 版本是否已在 npm 全部发布？ ──
-  # 目的是**防重复发布**（npm 同版本不可重发），并让「四平台齐备」成为可验证的收敛条件。
-  #   判据：package.json#npmPublish.packages 声明的**每个**平台子包，在该版本下是否都已存在于 npm。
-  #   `need_build=false` 只作用于 `release` job 与 build 里的 `--publish` 判定；
-  #   `build` 矩阵**每次 push / PR 都跑**，不得条件跳过。
+  # need_build=false 只影响 release job 与 --publish 判定；build 矩阵每次 push/PR 都跑。
   precheck:
     runs-on: ubuntu-latest
     outputs:
@@ -139,38 +91,23 @@ jobs:
         with:
           node-version: '24'
 
-      # ── tag ↔ 组件版本对账 ──
-      # 覆盖范围（如实登记，不夸大）：**只**覆盖「tag 名 ↔ core/package.json#version 逐字一致」。
-      #   **不**覆盖：
-      #     · package.json ↔ package-lock.json 的多源一致 —— `verify:versions`
-      #       （= release/scripts/verify-versions.js --core）只校验 package.json 单源的**格式**
-      #       （semver 形态正则），既不比对 package-lock.json 的 version 字段、也不看 tag；
-      #     · registry 上已发布产物的版本 —— 那是下面 probe 步与 published-smoke job 的职责。
-      # 仅 tag 事件生效：非 tag 的 push / PR / workflow_dispatch 下本步被记成 **skipped**（不是失败）。
-      # 位置：紧随 checkout + setup-node（本步要用 node 读 package.json），但**早于** probe 步
-      #   （probe 要打 npm registry 网络）⇒ 本 job 的最早失败点。
       - name: tag ↔ 组件版本对账（仅 tag；不一致即失败）
         if: github.ref_type == 'tag'
         shell: bash
         env:
-          # 与 github.ref_name 同一事实源；显式经 env 传入，使「读的是哪个表达式」在文件里可见。
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          # ⚠ 本步带 -e（runner 的 bash 默认如此，下面再显式声明），`VAR=$(cmd)` 非零会**直接
-          #   终止脚本**，连下面的 ::error:: 都打不出来 ⇒ 取值类赋值一律带 `|| { ...exit 1; }` 兜底。
+          # ⚠ 本步带 -e：`VAR=$(cmd)` 非零会直接终止脚本，连 ::error:: 都打不出来
+          #    ⇒ 取值类赋值一律带 `|| { ...exit 1; }` 兜底。
           set -euo pipefail
-          # `:-` 兜底：即便 TAG_NAME 未定义也不让 -u 以 unbound variable 中止（本步必须给出自己的文案）。
           TAG="${TAG_NAME:-}"
           [ -n "$TAG" ] || { echo "::error::tag 事件下 github.ref_name 为空，无法完成对账"; exit 1; }
           case "$TAG" in
             core-*) ;;
             *) echo "::error::tag 名 ${TAG} 不带 core- 前缀（本工作流只认 core-<内核版本>，见文件头 tags: 段）"; exit 1 ;;
           esac
-          # 前缀剥离：命名空间不带 `v`，`core-` 之后就是 package.json#version 的**字面值**。
-          #   ⚠ 刻意不做 `${...#v}` 的历史兼容剥离：写成 core-v0.1.6-BETA.20 应在这里**如实判红**，
-          #   否则命名空间漂移会静默通过。
+          # 刻意不做 `${...#v}` 历史兼容剥离：core-v<x> 应在这里如实判红，否则命名空间漂移会静默通过。
           VER_TAG="${TAG#core-}"
-          # 本步 cwd = core/（workflow 级 defaults.run.working-directory）⇒ ./package.json = core/package.json。
           VER_PKG="$(node -p "require('./package.json').version")" || {
             echo "::error::读取 core/package.json#version 失败（node -p 非零）；tag=${TAG}，对账无法完成"; exit 1; }
           echo "  tag          = $TAG"
@@ -185,7 +122,6 @@ jobs:
       - name: 探测该版本是否已全部发布
         id: probe
         shell: bash
-        # monorepo：本步 cwd = core/ ⇒ `./package.json` 即 core/package.json（命令未改，仅基准变了）。
         run: |
           VER="$(node -p "require('./package.json').version")"
           echo "  版本: $VER"
@@ -209,27 +145,15 @@ jobs:
 
   build:
     needs: precheck
-    # 四平台完整构建在**每次 push / PR 都跑**，不得被条件跳过（否则「已发布版本之后的改动」
-    #   从未经过四平台构建验证，PR 也照样能合）。**发布**仍保留一次性闸：见下方产线步骤里的
-    #   need_build 判定（npm 同版本不可重发）。
-    # 本 job 只负责构建与发布 npm 子包（挂 Release 由文件末尾的 release job 承担）。
     permissions:
       contents: read
-      # npm --provenance 供应链溯源用 OIDC 短时令牌（替代 npm 端长存凭据参与证明签发）；
-      # 仅 id-token: write，其余权限不扩。
       id-token: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          # ⚠ Linux **必须**用 ubuntu-22.04 基座（glibc 2.35）：在 24.04（glibc 2.39）构建的产物
-          #   无法在 22.04 / Debian 12 运行（Rust std 对 pidfd_* 的弱引用被解析成硬性 verneed）。
-          #   防线两层：
-          #     ① runner 标签本身 —— 人工约定：矩阵里必须是 ubuntu-22.04（改标签前请自行确认 glibc 基座）。
-          #     ② 产物 ELF 的 GLIBC_* 符号上限 —— ci-core.sh 的 [3.5/5] 步对 dist/ 下每个 ELF 调
-          #        ci/check-glibc.sh ≤ 2.35。**当前形态（纯 JS launcher，无 SEA）下 Linux 产物没有
-          #        ELF**，该步如实打印「无对象可检」；重新引入原生产物即自动执法。
-          #   壳的 Rust 产物由其自己的工作流与仓内同名脚本自理。
+          # ⚠ Linux 必须用 ubuntu-22.04（glibc 2.35）：24.04（glibc 2.39）的产物无法在
+          #   22.04 / Debian 12 运行；ci-core.sh [3.5/5] 另调 ci/check-glibc.sh 卡 ≤ 2.35。
           - os: ubuntu-22.04
             artifact: linux-x64
             arch_override: ""
@@ -239,9 +163,7 @@ jobs:
           - os: macos-latest
             artifact: darwin-arm64
             arch_override: ""
-            # 本仓仍用 macos-14(arm64) + DSH_ARCH_OVERRIDE=x64 出 darwin-x64：launcher 是架构无关
-            #   纯 JS，仅 npm os/cpu 元数据区分，产物等价。切 macos-15-intel（GitHub 有原生 Intel 标签）
-            #   属**矩阵行为变更**，需真实构建验证，留待下一次发版评估。
+            # darwin-x64 由 macos-14(arm64) + DSH_ARCH_OVERRIDE=x64 产出：launcher 架构无关。
           - os: macos-14
             artifact: darwin-x64
             arch_override: x64
@@ -250,17 +172,12 @@ jobs:
       DSH_ARCH_OVERRIDE: ${{ matrix.arch_override }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      # ⚠ monorepo：checkout 未用 `path:` ⇒ 整仓（含 shell/）落在 workspace 根，内核根 = core/。
-      #   本 job 所有 run 步骤 cwd = core/（workflow 级 defaults），下面的 artifact path 另加 core/。
 
       - name: Install Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
 
-      # ⚠ Linux leg 需要 Xvfb：ci-core.sh 的 L2 腿含看护 E2E（「壳缺失 → 真的被拉起」），
-      #   而看护在拉起 GUI 壳前会先判定图形会话；无头 runner 判定为 false → 按设计拒绝拉起 →
-      #   该 E2E 四条失败。darwin / win32 的判定恒为真，故只有 Linux 需要装。
       - name: 安装 Xvfb（图形会话前置条件 · 仅 Linux）
         if: runner.os == 'Linux'
         shell: bash
@@ -268,22 +185,14 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq xvfb
 
-      # 发布产线核心逻辑单源：release/scripts/ci-core.sh（本机亦可复跑）。
-      # 内核 launcher 为纯 JS（Node ≥18 运行时），无需 Rust/系统库依赖。
-      # 脚本自算 ROOT = 其所在目录上溯两级 = core/ ⇒ 与 cwd 无关。
-      #
-      # **验证腿不带发布令牌**：若把 NPM_TOKEN 挂在 build job env 上，ci-core.sh 内的 ui npm ci
-      #   postinstall 钩子与矩阵腿回归等所有第三方代码进程树都能读到它（供应链失窃面）。
-      #   故本步只跑验证（verify + build:launcher + 子包 dry-run），任何事件（push/PR/tag）都跑；
-      #   发布拆到下一步，令牌仅存在于「内核发布」步骤的进程树。
+      # ci-core.sh 自算 ROOT = core/，与 cwd 无关。
+      # ⚠ 验证腿不带发布令牌：令牌若挂在 build job env 上，ui npm ci 的 postinstall 钩子等所有
+      #   第三方进程树都能读到（供应链失窃面）⇒ 令牌只存在于「内核发布」步骤。
       - name: 内核发布产线（verify + build:launcher + 子包 dry-run · 不带发布令牌）
         shell: bash
         run: bash release/scripts/ci-core.sh
 
-      # 安装包冒烟：把上一步 dry-run 产出的子包目录真装成全局命令，跑「装出来的那条命令」。
-      #   产物路径按 publish-core.sh 的口径计算（含 DSH_ARCH_OVERRIDE），不硬编码当前平台名。
-      #   push / PR / tag 四平台都跑（无 job 级/step 级 tag-only if）。
-      #   cwd = core/ ⇒ `./package.json`、`./dist/npm/...` 均相对 core/ 解析。
+      # 产物路径按 publish-core.sh 的口径计算（含 DSH_ARCH_OVERRIDE），不硬编码平台名。
       - name: 安装包冒烟（npm i -g dry-run 子包 · 全局命令自举）
         shell: bash
         run: |
@@ -298,17 +207,13 @@ jobs:
           [ -d "$PKG" ] || { echo "::error::缺少子包目录 $PKG（dry-run 步应已产出）"; exit 1; }
           bash release/scripts/install-smoke-core.sh --pkg "$PKG" --ver "$VER"
 
-      # 唯一发布入口。⚠ 令牌非空判断**必须在 run 内**：step 级 if 的上下文里没有 secrets
-      #   （引用即 workflow 解析错误 → 整文件 0-job 红）。
-      # 条件 = tag + 有 NPM_TOKEN + need_build；need_build=false 表示已全平台发布 ⇒ 构建照跑（上面的验证步）、本步跳过。
-      # ci-core.sh --publish-only：只跑 [5/5] 真发布，复用同 workspace 上一步的构建产物
-      #   （缺产物时 publish-core.sh 的存在性检查即闸）。
+      # ⚠ 令牌非空判断必须在 run 内：step 级 if 的上下文里没有 secrets（引用即 workflow 解析错误
+      #    → 整文件 0-job 红）。--publish-only 只跑 [5/5] 真发布，复用同 workspace 上一轮构建产物。
       - name: 内核发布（tag 触发 · NPM_TOKEN 唯一持有步）
         if: startsWith(github.ref, 'refs/tags/core-') && needs.precheck.outputs.need_build == 'true'
         shell: bash
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          # provenance 逃生阀：仓库 variables 设 DSH_NPM_PROVENANCE=0 可关（如无 OIDC 的环境）。
           DSH_NPM_PROVENANCE: ${{ vars.DSH_NPM_PROVENANCE }}
         run: |
           if [ -z "$NPM_TOKEN" ]; then
@@ -317,10 +222,8 @@ jobs:
           fi
           bash release/scripts/ci-core.sh --publish-only
 
-      # ⚠ upload-artifact 的 `path:` 是**相对 workspace 根（lobox/）**，不受 workflow 级
-      #   `defaults.run.working-directory: core` 影响 ⇒ 必须显式加 `core/` 前缀。
-      #   ⚠ 前缀不改变 artifact 内布局：upload-artifact 仍取匹配路径的**最小公共祖先**
-      #   （此处 = core/dist/launcher）为根 ⇒ 下载后 artifact 根目录依旧直接是 launcher 的内容。
+      # ⚠ upload-artifact 的 `path:` 相对 workspace 根，不受 defaults.run.working-directory 影响
+      #    ⇒ 必须显式加 `core/` 前缀；artifact 内布局取匹配路径的最小公共祖先（= core/dist/launcher）。
       - name: Upload artifacts（内核 launcher 构建物）
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -329,38 +232,30 @@ jobs:
             core/dist/launcher/**
             core/dist/launcher/README.md
 
-  # ── Release 附加：**单独一个 job，只跑一次** ──
-  # 不能放在 build 矩阵里：矩阵各腿会**并发**向同一个 Release 上传资产，产生竞态；
-  #   且各平台的 dist/launcher/** 内含**同名文件**（如 core.cjs），直接挂会互相覆盖/冲突。
-  # 现形态：build 只上传 artifact → 本 job 汇总、按平台打成**唯一命名**的 tar.gz 后一次性挂载。
+  # 不能放进 build 矩阵：各腿会并发向同一 Release 上传（竞态），且 dist/launcher/** 含同名文件
+  #    （如 core.cjs）会互相覆盖 ⇒ build 只上传 artifact，本 job 汇总后一次性挂载。
   release:
     needs: [precheck, build]
-    # 需要 build 真正跑过（跳过 build 时没有 artifact 可汇总，故不挂 Release）。
     if: startsWith(github.ref, 'refs/tags/core-') && needs.precheck.outputs.need_build == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # 挂 Release 需 GITHUB_TOKEN contents:write
+      contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: 收集各平台构建产物
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          # ⚠ download-artifact 的 `path:` 同样是 workspace 根基准 ⇒ 显式落在 `core/artifacts`。
-          #   下面 run 块 cwd = core/，其 `artifacts/*/` 正好对上。
+          # ⚠ download-artifact 的 `path:` 同样是 workspace 根基准 ⇒ 显式落在 core/artifacts。
           path: core/artifacts
 
-      # ⚠ 本 run 块 cwd = core/ ⇒ 脚本里的 `out/` 实际是 `core/out/`。
-      #   脚本内 `artifacts/*/` 对应上一步下载到的 `core/artifacts/*/`（逐条已核对，无需改脚本）。
+      # 本 run 块 cwd = core/ ⇒ 脚本里的 out/ 实际是 core/out/。
       - name: 按平台打包为唯一命名的 tar.gz
         shell: bash
         run: |
           VER="$(node -p "require('./package.json').version")"
           mkdir -p out
           echo "  版本: $VER"
-          # ⚠ artifact 内的布局取决于 upload-artifact 的路径剥离：上传 `path: core/dist/launcher/**`
-          #   时它以**最小公共祖先** core/dist/launcher 为根，故下载后 artifact 根目录**直接就是**
-          #   launcher 的内容，不含 dist/launcher 前缀。两种形态都兼容，避免路径假设变化导致打包为空。
           for d in artifacts/*/; do
             plat="$(basename "$d")"
             if [ -d "$d/dist/launcher" ]; then SRC="$d/dist/launcher"; else SRC="$d"; fi
@@ -369,25 +264,17 @@ jobs:
           done
           echo "  产物:"
           ls -lh out/ | sed "s/^/    /"
-          # 断言：必须有产物，否则「静默挂空 Release」比失败更糟
           if [ -z "$(ls -A out 2>/dev/null)" ]; then echo "::error::未生成任何 Release 资产"; exit 1; fi
 
-      # ⚠ `uses:` 步骤的 `files` 又是 **workspace 根**基准，而 tar.gz 落在 core/out/
-      #   ⇒ 必须写 `core/out/*.tar.gz`。（asset 名取 basename，故 Release 上的资产名不变。）
+      # ⚠ `uses:` 的 `files` 是 workspace 根基准，而 tar.gz 落在 core/out/ ⇒ 写 core/out/*.tar.gz。
       - name: 附加到 GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: core/out/*.tar.gz
           generate_release_notes: true
 
-  # ── 发布后冒烟：从**公开 registry** 装已发布子包，证明线上产物可自举 ──
-  # 与 build job 内的安装包冒烟共用同一脚本，区别只在装的是 registry 里的包而非本地 dist/。
-  #   registry 上架到可被解析有分钟级延迟（npm 自身摄取 + 前置缓存 max-age=300），故重试数轮；
-  #   只有最后一轮的失败才决定判据（早期轮失败不算永久红）。公开包无需 NPM_TOKEN。
-  # ⚠ 必须 needs release：npm 发布在 build job 的「内核发布」步，release 又 needs 四条 build 腿，
-  #   故 needs 里带上 release 才真正等到上传完成；只依赖 build 在并行度上不等发布。
-  #   always() 不可省：tag 之外的运行里 release 是 skipped，不加 always 本 job 会被连带跳过（假绿）。
-  # （本 job 的 run 步骤 cwd = core/；RUNNER_TEMP 是绝对路径，不受影响。）
+  # registry 上架有分钟级延迟（npm 摄取 + 前置缓存 max-age=300），故重试；只有最后一轮决定判据。
+  # ⚠ always() 不可省：非 tag 运行里 release 是 skipped，不加 always 本 job 会被连带跳过（假绿）。
   published-smoke:
     needs: [precheck, build, release]
     if: ${{ always() && (github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/core-') && needs.release.result == 'success')) }}
@@ -430,8 +317,6 @@ jobs:
           SPEC="@dsh-sup/dsh-core-$OS_TAG-$ARCH@$VER"
           echo "  发布后冒烟目标: $SPEC"
           ATTEMPTS=10
-          # 窗口必须盖过 registry 前置缓存的 max-age=300：首轮取到的「尚无此版本」packument
-          # 会在缓存里存活 5 分钟，短窗重试等于反复读同一份陈旧元数据。
           SLEEP_SEC=75
           ROUND_DIR="${RUNNER_TEMP:-$(mktemp -d)}"
           i=0
@@ -447,8 +332,7 @@ jobs:
             else
               rc=$?
               cat "$ROUND_LOG"
-              # 只对「registry 还看不到这个版本」重试：装上了却挂在 self-check/healthz 是真缺陷，
-              #   重试只会把同一条缺陷抄满预算，还白占四台 runner 的时间。
+              # 只对「registry 还看不到该版本」重试：装上了却挂是真缺陷，重试只是白占 runner。
               if ! grep -Eq 'ETARGET|notarget|E404|404 Not Found' "$ROUND_LOG"; then
                 echo "  第 $i 轮不是传播类失败，不再重试"
                 break
@@ -462,9 +346,5 @@ jobs:
             exit "$rc"
           fi
 
-  # 前端门禁（typecheck/lint/test/build）不在独立 job 里：由 `release/scripts/ci-core.sh` 的 **[1/5]**
-  #   执行 —— 先 `(cd ui && npm ci)`，再 `(cd ui && npm run verify)`
-  #   （verify = typecheck + lint + test + build，见 ui/package.json），最后 `DSH_UI_SKIP_INSTALL=1`
-  #   出镜像产物。⇒ 本地发布路径与 CI 的 `build` 矩阵腿都真正跑到了前端门禁；
-  #     `test` job 侧只调 `build-ui.sh`（该脚本**只构建、不测试**：npm ci + npm run build +
-  #     supervisor.html 产物自检），其目的是给 api-security-test 的面板安全头断言备好静态产物。
+  # 前端门禁（typecheck/lint/test/build）不设独立 job：由 release/scripts/ci-core.sh 的 [1/5] 跑
+  #    （cd ui && npm ci && npm run verify）。test job 侧只调 build-ui.sh，它只构建、不测试。

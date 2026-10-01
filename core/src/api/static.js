@@ -1,21 +1,15 @@
 'use strict';
 
-// api/static —— UI 产物目录解析 + MIME + CSP + 静态托管。
-// 本文件是安全面（CSP / nosniff / 路径穿越防护 / 禁止缓存），语义不得"顺手优化"。
-
 const fs = require('node:fs');
 const path = require('node:path');
 
-// 前端静态资源目录解析：打包后 __dirname 不再等于源码目录，故多候选探测覆盖全部发行形态：
-// $DSH_UI_DIR 显式注入 / core.cjs 或可执行文件旁的 ui-react / repo 根 ui-react / 开发态 ui/dist。
-// 命中 supervisor.html 即用，候选顺序即优先级。
 function resolveUiDir() {
   const exeDir = (function () {
     try { return path.dirname(process.execPath); } catch { return __dirname; }
   })();
   const candidates = [
     process.env.DSH_UI_DIR || null,
-    path.join(__dirname, 'ui-react'),         // launcher 统一形态（core.cjs 旁）
+    path.join(__dirname, 'ui-react'),
     path.join(exeDir, 'ui-react'),
     path.join(exeDir, '..', 'ui-react'),
     path.join(__dirname, '..', '..', 'ui-react'),
@@ -42,20 +36,16 @@ const MIME = {
   '.png': 'image/png',
   '.ico': 'image/x-icon',
 };
-// frame-ancestors 必须是**壳 origin 白名单**而不是 'none'：桌面壳以内容 iframe 承载本面板（壳主帧 origin 与
-//   api/security.js 的 isShellOrigin 同一集合），'none' 连它一起拒 -> 面板永远空白。白名单不外溢：不放 'self'，
-//   第三方页仍全禁——写操作是同源 fetch 且 originAllowed 对同源 iframe 同样放行，故框架禁令是 Origin 闸外的唯一防线。
+// frame-ancestors 必须是壳 origin 白名单而非 'none'：'none' 连壳 iframe 一起拒，面板永远空白。
 const FRAME_ANCESTORS = "tauri://localhost http://tauri.localhost https://tauri.localhost";
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors " + FRAME_ANCESTORS;
 
 function serveStatic(res, file, corsOrigin) {
   if (!UI_DIR) {
-    // UI 缺失（未构建/部署裁剪）：显式 503，绝不抛 TypeError 触发守卫自杀重启
     res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
     return res.end('UI not built — run release/scripts/build-ui.sh or set DSH_UI_DIR');
   }
   const full = path.join(UI_DIR, file);
-  // 路径穿越防护：relative 必须落在 UI_DIR 内部
   const rel = path.relative(UI_DIR, full);
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
     res.writeHead(403);
@@ -70,7 +60,6 @@ function serveStatic(res, file, corsOrigin) {
       'X-Content-Type-Options': 'nosniff',
     };
     if (corsOrigin) { headers['Access-Control-Allow-Origin'] = corsOrigin; }
-    // 面板资源一律 no-store：前端改动立即生效，避免浏览器缓存旧版导致渲染异常。
     headers['Cache-Control'] = 'no-store';
     res.writeHead(200, headers);
     res.end(content);

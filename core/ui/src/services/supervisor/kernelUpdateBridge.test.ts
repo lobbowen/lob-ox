@@ -1,4 +1,3 @@
-// 面板 -> 壳 内核更新桥的行为测试。三条判据的失败模式都是静默的（伪造成功、进度丢失、超时误报后重试即并发写同一个 npm 全局包），故按行为钉住。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BRIDGE_PROTOCOL_VERSION,
@@ -8,8 +7,6 @@ import {
   type KernelUpdateResult,
 } from "./kernelUpdateBridge";
 
-// 线格式在测试里重写字面量（不复用模块常量）：桥两侧各自持常量，
-//   测试若复用同一常量就等于「用实现验证实现」，改错常量时两边一起错。
 const REQUEST = "dsh:kernel-update-request";
 const RESULT = "dsh:kernel-update-result";
 const PROGRESS = "dsh:kernel-update-progress";
@@ -24,7 +21,7 @@ function installWindow(withShellHost: boolean) {
     removeEventListener: (_t: string, h: Handler) => { handlers.delete(h); },
     postMessage: vi.fn(),
   };
-  win.parent = withShellHost ? { postMessage: toParent } : win; // 顶层窗口：parent === window
+  win.parent = withShellHost ? { postMessage: toParent } : win;
   vi.stubGlobal("window", win as unknown as Window & typeof globalThis);
   const dispatch = (data: unknown, source: unknown = win.parent) => {
     for (const h of Array.from(handlers)) h({ data, source } as MessageEvent);
@@ -32,7 +29,6 @@ function installWindow(withShellHost: boolean) {
   return { toParent, dispatch, listeners: () => handlers.size };
 }
 
-/** 取面板发出的 requestId（每请求随机，必须由实现给出而非测试拼一个）。 */
 function requestIdOf(toParent: { mock: { calls: unknown[][] } }): string {
   const call = toParent.mock.calls[0] as [unknown, string];
   return (call[0] as { requestId: string }).requestId;

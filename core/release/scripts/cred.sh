@@ -18,38 +18,26 @@
 #
 set -u
 
-# 真实用户 home：$HOME 被 DSH 重定向到实例数据目录，故经 _npm-auth.sh 的
-#   dsh_real_home()（getent/dscl/USERPROFILE）解析 —— **不得硬编码任何机器路径**。
+# 真实 home 经 _npm-auth.sh 的 dsh_real_home() 解析，不得硬编码机器路径。
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=./_npm-auth.sh
 . "$SCRIPT_DIR/_npm-auth.sh"
 REAL_HOME="$(dsh_real_home)"
-# 归一为 /（Windows 路径含反斜杠）——必须与下方 STORE 的归一保持一致，
-# 否则 IS_REAL 比较（STORE == CANON_STORE）在 Windows 上恒假 -> 真机保护被绕过。
-# 规范库根：真实 home 下 develop/.credentials（随开发环境长期存在、多项目共享，不进任何项目仓）。
-#   只由 REAL_HOME 派生，与 _npm-auth.sh 同源，不得写死任何机器绝对路径。换机/测试经 DSH_CRED_DIR 覆盖。
+# 归一为 /：否则 IS_REAL 比较（STORE == CANON_STORE）在 Windows 上恒假 -> 真机保护被绕过。
+# 规范库根只由 REAL_HOME 派生（与 _npm-auth.sh 同源），不得写死机器路径；可用 DSH_CRED_DIR 覆盖。
 CANON_STORE="$(printf '%s' "$REAL_HOME/develop/.credentials" | tr '\\' '/')"
 
-# 凭据库根：默认 = 真实 home 下的规范位置；可用 DSH_CRED_DIR 覆盖（测试 / 换机 / 多套环境）。
 STORE=${DSH_CRED_DIR:-$CANON_STORE}
-#  跨平台归一：Windows 传入路径可能含反斜杠，而本脚本多处把
-#   $STORE / $INDEX 放进**双引号 shell 串**（反斜杠=转义，会被吃）；
-#   node 在 Windows 上同样接受正斜杠。故统一归一为 /。
+#  Windows 反斜杠路径放进双引号 shell 串会被当转义吃掉；node 在 Windows 也接受 /，故统一归一为 /。
 STORE=$(printf '%s' "$STORE" | tr '\\' '/')
 INDEX="$STORE/index.json"
-#  导出供 node 子进程读取：**禁止**把路径插进 JS 源码字符串 ——
-#   Windows 路径含反斜杠，在 JS 单引号串里是**无效转义**（\U \A 等被吃），
-#   会导致 require 失败 / 行为错乱。
+#  禁止把路径插进 JS 源码字符串：Windows 反斜杠在 JS 单引号串里是无效转义（\U \A 等被吃）。
 export INDEX STORE
 
 [ -f "$INDEX" ] || { echo "凭据清单缺失: $INDEX" >&2; exit 1; }
 
-entry_field() { # <name> <field>
-  #  字段名必须用**单引号**写 e['$2']：
-  #   - e[$2]  -> node 当成变量名（file is not defined）
-  #   - e["$2"] -> bash 在双引号串内遇到未转义的 " 会**提前结束字符串**，
-  #               到 node 手里退化成 e[file] —— 同样是未定义变量。
-  #   单引号在 bash 双引号串内是字面量，故 e['$2'] 是唯一正确形态。
+entry_field() {
+  #  字段名必须写 e['$2']：e[$2] 被 node 当变量名；e["$2"] 的 " 会提前结束 bash 字符串，退化成 e[file]。
   node -e "const j=require(process.env.INDEX);const e=j.entries.find(x=>x.name==='$1');
     process.stdout.write(e && e['$2']!=null ? String(e['$2']) : '');"
 }
@@ -80,10 +68,6 @@ case "${1:-list}" in
   put)
     f=$(file_of "$2");
     [ -n "$f" ] || { echo "未知条目: $2" >&2; exit 1; }
-    #  覆盖保护（真机库 = STORE 与 CANON_STORE 同路径）：
-    #   1) put 必须显式确认：--yes 或 DSH_CRED_ALLOW_OVERWRITE=1；
-    #      目标文件已存在时再要求 DSH_CRED_FORCE=1。测试用 DSH_CRED_DIR 不受此限。
-    #   2) 旧值先备份到 <file>.bak-<时间戳>（0600），使覆盖可逆。
     IS_REAL=0
     [ "$STORE" = "$CANON_STORE" ] && IS_REAL=1
     if [ "$IS_REAL" = '1' ] && [ "${DSH_CRED_ALLOW_OVERWRITE:-}" != '1' ] && [ "${3:-}" != '--yes' ]; then
@@ -98,8 +82,7 @@ case "${1:-list}" in
       echo "  如确需轮换，设 DSH_CRED_FORCE=1（会自动备份旧值到 .bak-<时间戳>）。" >&2
       exit 2
     fi
-    # **空 stdin 一律拒写**，且必须在动目标之前 fail-closed（否则会写出 0 字节凭据并把 status 置 active）。
-    #   顺序也是判据的一部分：**先校验输入，再备份/落盘**，否则一次被拒的 put 会留下无意义的 .bak-<时间戳>。
+    # 空 stdin 一律拒写，且必须在动目标之前 fail-closed（否则会写出 0 字节凭据并把 status 置 active）。
     TMP_IN="$f.tmp.$$"
     if ! ( umask 077; mkdir -p "$(dirname "$f")"; cat > "$TMP_IN" ); then
       rm -f "$TMP_IN" 2>/dev/null || true
@@ -110,15 +93,12 @@ case "${1:-list}" in
       echo "拒绝：stdin 为空（或只有空白）—— 不落 0 字节凭据、不改 status。$f 保持原样。" >&2
       exit 2
     fi
-    # 备份是**尽力安全网**，不得成为写入的硬闸：cp/chmod 链失败只 warn 继续，
-    #   否则应急轮换路径被堵死。确认项 1) 不受影响，仍为硬闸。
     if [ -f "$f" ]; then
       BK="$f.bak-$(date +%Y%m%d%H%M%S)"
       ( cp -p "$f" "$BK" && chmod 600 "$BK" ) 2>/dev/null \
         || echo "警告：旧值备份失败（${BK} 未落），写入仍继续；如需保底请先手工复制 ${f}。" >&2
     fi
-    # 写穿目标（而非 rename）：保留目标为符号链接时的语义；内容已校验非空，
-    # 故此处截断不存在「截断后写不进」的窗口。
+    # 写穿目标而非 rename：保留目标为符号链接时的语义；内容已校验非空，无「截断后写不进」窗口。
     cat "$TMP_IN" > "$f"; rm -f "$TMP_IN" 2>/dev/null || true; chmod 600 "$f"
     node -e "
       const fs=require('fs'),p=process.env.INDEX;
@@ -130,15 +110,12 @@ case "${1:-list}" in
     ;;
 
   backup)
-    # 持久化保障：把规范库整份复制到**操作者指定的**持久位置。
-    #  默认**必须显式给目录**：不给默认值，避免写进实例子目录（ephemeral，换会话即失效）。
-    #  在 case 分支里 $1 是**子命令名**（"backup"），目标目录是 $2。
+    #  不给默认目标：避免把凭据备份进 ephemeral 实例子目录（换会话即失效）。
     DEST="${2:-}"
     [ -n "$DEST" ] || DEST="${DSH_CRED_BACKUP_DIR:-}"
     [ -n "$DEST" ] || { echo "用法: cred.sh backup <目标目录>（或设 DSH_CRED_BACKUP_DIR）" >&2
       echo "  拒绝用默认值：历史事故就是把凭据放进了**实例目录**（ephemeral，换会话即失效）。" >&2; exit 2; }
-    # 分隔符归一后再判：Windows 侧传进来的是反斜杠路径，POSIX 形态的 glob 闸会整体漏判，
-    # 而这条闸防的正是「把凭据备份进 ephemeral 实例子目录」——漏判即失效。
+    # Windows 反斜杠路径会让 POSIX 形态的 glob 闸整体漏判；该闸防的是备份进 ephemeral 实例子目录。
     DEST_NORM=${DEST//\\//}
     case "$DEST_NORM" in
       */.dsh/supervisor/instances/*|*/instances/inst-*)
@@ -150,7 +127,7 @@ case "${1:-list}" in
     mkdir -p "$OUT" && chmod 700 "$OUT"
     cp "$INDEX" "$OUT/" && chmod 600 "$OUT/index.json"
     n=0
-    # 必须覆盖库内每个普通文件：真机凭据文件名无扩展名，按 *.pat 通配会静默漏掉全部凭据
+    # 必须 readdir 覆盖每个普通文件：真机凭据文件名无扩展名，按 *.pat 通配会静默漏掉全部凭据
     others=$(node -e "const fs=require('fs'),p=require('path');for(const x of fs.readdirSync(process.env.STORE)){if(x!=='index.json'){try{if(fs.statSync(p.join(process.env.STORE,x)).isFile())process.stdout.write(x+String.fromCharCode(10))}catch(e){}}}")
     while IFS= read -r x; do
       [ -n "$x" ] || continue
@@ -160,8 +137,8 @@ case "${1:-list}" in
     echo "  ⚠ 该副本含**明文令牌**：请置于加密卷/密码管理器，勿入版本库与聊天工具。"
     ;;
   verify)
-    # 用 node fetch 而非 curl：本机与精简 runner 不保证有 curl，缺工具时不能伪装成 HTTP 异常。
-    # 令牌在进程内读文件，不落命令行参数；条目名经 env 传入，不插进 JS 源码。
+    # 用 node fetch 而非 curl：精简 runner 不保证有 curl，缺工具时不能伪装成 HTTP 异常。
+    # 令牌在进程内读文件，不落命令行参数；条目名经 env 传入。
     VERIFY_WANT="${2:-}" node -e "
       const fs=require('fs');
       const j=require(process.env.INDEX);
@@ -191,8 +168,7 @@ case "${1:-list}" in
   doctor)
     rc=0
     echo '== 1) 目录与文件权限 =='
-    #  权限位读取用 node 而非 `stat -c %a`（GNU 专有：macOS 的 BSD stat 不认 -c，Windows 没有 stat），
-    #  三平台通用；Windows 无 POSIX 权限位，用 IS_WIN 跳过断言。
+    #  权限位用 node 读而非 `stat -c %a`（GNU 专有，macOS 的 BSD stat / Windows 都不认）；Windows 无 POSIX 权限位，用 IS_WIN 跳过断言。
     IS_WIN=$(node -e "process.stdout.write(process.platform==='win32'?'1':'0')")
     perm_of() { node -e "try{process.stdout.write((require('fs').statSync(process.argv[1]).mode & 0o777).toString(8).padStart(3,'0'))}catch(e){process.stdout.write('?')}" "$1"; }
     if [ "$IS_WIN" = '1' ]; then
@@ -200,7 +176,6 @@ case "${1:-list}" in
     else
       dm=$(perm_of "$STORE")
       if [ "$dm" = '700' ]; then echo "  OK   库目录 0700"; else echo "  FAIL 库目录权限 ${dm}（应为 700）"; rc=1; fi
-      # 按 readdir 覆盖每个普通文件：真机凭据文件名无扩展名，*.pat / *.json 通配会在真机上全漏
       files=$(node -e "const fs=require('fs'),p=require('path');for(const n of fs.readdirSync(process.env.STORE)){try{if(fs.statSync(p.join(process.env.STORE,n)).isFile())process.stdout.write(n+String.fromCharCode(10))}catch(e){}}")
       if [ -z "$files" ]; then echo "  FAIL 库内没有任何文件（清单本身也缺失？）"; rc=1; fi
       while IFS= read -r n; do
@@ -242,9 +217,7 @@ case "${1:-list}" in
       if(!bad) console.log('  OK   无缺项');
       if(bad) process.exitCode=1;
     " || rc=1
-    #  第 4 项是**真机检查**：别名/散落副本都锚定在真实库根。
-    #   当 DSH_CRED_DIR 覆盖了库根（测试夹具）时，这些真机事实与本库无关，必须跳过 ——
-    #   否则夹具模式会因"别名指向另一个库根"而误报。
+    #  第 4 项锚定真机库根（别名/散落副本）；DSH_CRED_DIR 覆盖库根时必须跳过，否则夹具模式误报。
     if [ "$STORE" != "$CANON_STORE" ]; then
       echo '== 4) 失效散落副本（真机检查）=='
       echo '  SKIP  DSH_CRED_DIR 已覆盖库根 —— 该项只对真机库有意义'
@@ -254,7 +227,6 @@ case "${1:-list}" in
     fi
     echo '== 4) 失效散落副本（已知的 ephemeral 位置）=='
     hits=0
-    # 兼容别名为**符号链接**指向库内 -> 合规（单一副本）；普通文件 -> 散落副本
     LEGACY="$REAL_HOME/.dsh/github-pat-advgyxqamf"
     if [ -L "$LEGACY" ]; then
       tgt=$(readlink -f "$LEGACY" 2>/dev/null || echo '')

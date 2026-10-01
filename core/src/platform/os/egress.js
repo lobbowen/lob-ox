@@ -1,33 +1,20 @@
 'use strict';
 
-// 出网条件探测层（L0）：只回答两件事 —— 这台机器把地址交给外界时经过什么，以及某个域现在直不直得通。
-//   不 launch、不选浏览器、不解释窗口结局（那是 ./browser.js 与 ./environment.js 的事）。
-// 冷档案隔离窗口（独立 user-data-dir、无痕、无扩展、无既有登录态）能否出内容，取决于出网靠的是
-//   系统/环境代理还是档案里的东西，故本层只摸这条系统事实。
-// 三端各写一处，读数一律三态：true 判过且成立 / false 判过且不成立 / null 无从判定。把「读不到」
-//   折成 false 会在 DNS 被污染的机器上凭空砍掉隔离能力，把超时折成 true 会让空白窗口冒充「已交出」。
-// 读数带 TTL 缓存，由 ./environment.js 的 egress 维度按拍取用并留痕。
-
 const tls = require('node:tls');
 const dns = require('node:dns');
 const exec = require('../util/exec');
 const registry = require('./registry');
 
-/** 单次系统查询/通路判定的上界：与浏览器探测同口径，不得吃掉面板的动作预算。 */
 const PROBE_TIMEOUT_MS = 2500;
 
-/** 读数复用窗口：代理一改必须由 invalidate 显式作废，TTL 只是兜底，不是「按时间猜代理没变」。 */
 const READ_TTL_MS = 60000;
 
-/** 只取主机名：判据的对象是「这台机器到那个域有没有路」，与路径、查询串无关。 */
 function hostOf(url) {
   try { return new URL(String(url)).hostname.toLowerCase() || null; } catch { return null; }
 }
 
-/** win32 系统代理：HKCU 的 Internet Settings 是唯一文档化读取位置。ProxyEnable 是 DWORD、
- *  ProxyServer / AutoConfigURL 是字符串 —— 三者缺一不能定「有没有代理」（只配 PAC 时 ProxyEnable 也是 0，
- *  配了 ProxyServer 但 ProxyEnable=0 是「存着但没开」）。
- *  异步 runner：这三条查询在 HTTP 路径上同步跑就是最长 3 x 2.5s 的事件循环冻结。 */
+// win32 系统代理只认 HKCU Internet Settings（唯一文档化位置）：ProxyEnable 是 DWORD，ProxyServer/AutoConfigURL 是字符串，三者缺一不能定有无代理。
+// 三条查询必须异步：在 HTTP 路径上同步跑是最长 3 x 2.5s 的事件循环冻结。
 function proxyWin(runner, note) {
   const KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
   const read = (args) => Promise.resolve(runner('reg.exe', args));
@@ -45,8 +32,6 @@ function proxyWin(runner, note) {
   });
 }
 
-/** darwin：`scutil --proxy` 是系统代理的文档化读取口（输出为 `Key : value` 行）。
- *  取不到输出即 unknown，不拿「没读到」当「没配」。 */
 function proxyMac(runOut, note) {
   return Promise.resolve(runOut('scutil', ['--proxy'])).then((out) => {
     if (!out) {
@@ -73,8 +58,6 @@ function proxyMac(runOut, note) {
   });
 }
 
-/** linux：环境变量是唯一文档化口径（大小写都认）。一个都没导出 = unknown 而不是 off：
- *  systemd/服务语境本就 import-environment 不全。 */
 function proxyLinux(env, note) {
   const pick = (k) => (typeof env[k] === 'string' && env[k].trim() ? env[k].trim() : null);
   const server = pick('https_proxy') || pick('HTTPS_PROXY') || pick('http_proxy') || pick('HTTP_PROXY')
@@ -85,16 +68,12 @@ function proxyLinux(env, note) {
   return { state, server, pac: pick('PAC_FILE') || null, noProxy, source: 'env' };
 }
 
-/** 未知平台与抛错一律 unknown：本层不得替任何平台猜一个「没代理」。 */
 function proxyUnknown(reason) {
   return { state: 'unknown', server: null, pac: null, source: reason };
 }
 
 const _proxyCache = new Map();
 
-/** 系统代理读数（异步口径：会起 reg.exe / scutil 子进程，HTTP 路径与启动装配只走这条）。
- *  @param {{platform?:string, runOut?:Function, env?:object, force?:boolean, ttlMs?:number, now?:Function}} [o]
- *  @returns {Promise<{platform,state,server,pac,source,at,cached?,probed:object[]}>} */
 function proxy(o) {
   const ov = o || {};
   const pl = ov.platform || process.platform;
@@ -126,16 +105,11 @@ function proxy(o) {
   return out;
 }
 
-/** 已读到的系统代理读数（同步取，绝不在此起子进程）：从未探过即 null，由调用方标成 unknown。 */
 function proxyRead() {
   const hit = _proxyCache.get(process.platform);
   return hit ? hit.value : null;
 }
 
-/** 一次通路判定：DNS 解析 -> TLS 握手（带 SNI）依次留痕。判据停在 TLS 完成，不发业务请求 ——
- *  那是「浏览器能不能渲染这个站」的最低充分事实，取内容属于消费方。
- *  ok 三态：明确否定（NXDOMAIN / 连接被拒 / TLS 报错）才是 false，没有答案（解析服务器不响应、
- *  连接超时）一律 null —— null 不支撑任何砍能力的结论。 */
 function reachWith(deps, host, port, timeoutMs) {
   const d = deps || {};
   const ms = timeoutMs || PROBE_TIMEOUT_MS;
@@ -166,9 +140,6 @@ function reachWith(deps, host, port, timeoutMs) {
 
 const _reachCache = new Map();
 
-/** 带复用的通路判定：同一主机在 TTL 内不重复摸网。`force` 与 invalidate 是仅有的两条重探路。
- *  @param {{lookup?:Function, connect?:Function, now?:Function, timeoutMs?:number, force?:boolean,
- *           ttlMs?:number, port?:number}} [o] */
 function reach(host, o) {
   const ov = o || {};
   const h = String(host || '').toLowerCase();
@@ -185,19 +156,16 @@ function reach(host, o) {
   });
 }
 
-/** 已读到的通路判定（同步取，绝不在这里发网络请求）：冷档案判据只念这一份。 */
 function reachRead(host) {
   const h = String(host || '').toLowerCase();
   const hit = _reachCache.get(h);
   return hit ? hit.value : null;
 }
 
-/** 本层已知的目标主机（按探测先后去重）：快照与面板据此说明「这张表对哪些域判过路」。 */
 function hosts() {
   return [..._reachCache.keys()];
 }
 
-/** 作废读数：代理一改，旧判定必须当场失效而不是等 TTL。未传参即全清。 */
 function invalidate(host) {
   if (host === undefined || host === null) {
     const n = _reachCache.size + _proxyCache.size;

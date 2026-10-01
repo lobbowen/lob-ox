@@ -5,15 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dsh-supervisor</title>
 <style>
-  /* ============================================================================
-   * dsh-supervisor —— 共用壳（唯一自绘窗口；窗口逻辑全部在此，内核是纯网页）
-   * 窗口加载本页：顶部 40px 产品窗口栏（对齐 ui WindowTitlebar 视觉）+ 空白内容区 iframe。
-   * 引导页 / 内核面板都是 iframe 内容（纯网页, 不参与任何窗口逻辑）。
-   * ============================================================================ */
   :root {
-    --sidebar: #f9fafb;          /* tokens: --sidebar（浅） */
+    --sidebar: #f9fafb;
     --sidebar-foreground: #61666b;
-    --text: #0f1115;             /* --foreground */
+    --text: #0f1115;
     --border: rgb(0 0 0 / 5%);
     --destructive: #e81123;
   }
@@ -24,7 +19,6 @@
   html, body { width: 100%; height: 100%; height: 100dvh; }
   body { margin: 0; background: transparent; color: var(--text); overflow: hidden;
     font-family: Inter, "Noto Sans SC", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  /* 自定义窗口 = 圆角卡片：窗口透明无边框, .window 即窗口外观(圆角+边框+阴影) */
   .window {
     position: fixed; inset: 0; display: flex; flex-direction: column;
     background: var(--sidebar);
@@ -34,7 +28,6 @@
     box-shadow: 0 24px 80px rgb(15 23 42 / 0.16);
   }
 
-  /* 唯一窗口栏（产品 WindowTitlebar 同款视觉） */
   #titlebar {
     height: 40px; flex: none; display: flex; align-items: center; justify-content: space-between;
     background: var(--sidebar);
@@ -50,14 +43,12 @@
   .tb-btns button:hover { background: rgb(0 0 0 / 5%); color: var(--text); }
   .tb-btns button.close:hover { background: var(--destructive); color: #fff; }
 
-  /* 内容区（空白容器, iframe 纯网页） */
   #content { flex: 1; min-height: 0; position: relative; background: transparent; }
   #content iframe { width: 100%; height: 100%; border: 0; display: block; background: transparent; }
 </style>
 </head>
 <body>
   <div class="window">
-  <!-- 唯一窗口栏（壳提供：产品 WindowTitlebar 同款） -->
   <div id="titlebar">
     <div class="tb-drag" id="dragRegion" data-tauri-drag-region="deep"></div>
     <div class="tb-btns">
@@ -67,7 +58,6 @@
     </div>
   </div>
 
-  <!-- 内容区：引导页 / 内核面板（纯网页） -->
   <div id="content">
     <iframe id="frame" title="内容"></iframe>
   </div>
@@ -82,23 +72,20 @@
     document.getElementById('btnMin').addEventListener('click', function () { wctl('minimize'); });
     document.getElementById('btnMax').addEventListener('click', function () { wctl('toggle-maximize'); });
     document.getElementById('btnClose').addEventListener('click', function () { wctl('hide'); });
-    // 显式拖动（Linux WebKit drag-region 常不生效的可靠替代）
+        // 显式拖动（Linux WebKit drag-region 常不生效的可靠替代）
     document.getElementById('dragRegion').addEventListener('mousedown', function () { wctl('drag'); });
     var panelUrl = null;
     var retried = 0;
     var loadPanel = function (u) { panelUrl = u; frame.src = u; };
-    // 回引导页 = 全仓唯一的恢复链（那里重跑 guard_start 与就绪轮询）。引导页是**独立主帧页面**，
-    //   只能主帧导航，不能再塞进 iframe。
+        // 回引导页 = 全仓唯一的恢复链（那里重跑 guard_start 与就绪轮询）。引导页是**独立主帧页面**，只能主帧导航，不能再塞进 iframe。
     var backToBootstrap = function () {
       try { window.location.replace('bootstrap.html'); } catch (e) {}
     };
-    // 有界等守卫就绪后再重载面板（内核更新后专用）。
-    // 固定延时导航会把「新守卫还没听完端口」变成引擎自己的拒绝连接页，而 iframe 被拒不触发
-    //   error 事件、本页永不重试；URL 也必须现取，守卫可能因端口被占而顺延。
+        // 有界等守卫就绪后再重载面板（内核更新后专用）。固定延时导航会把「新守卫还没听完端口」变成引擎自己的拒绝连接页，而 iframe 被拒不触发 error 事件、本页永不重试；URL 也必须现取，守卫可能因端口被占而顺延。
     var reloadPanelWhenReady = function (n) {
       if (!core) return;
       var retry = function () {
-        if (n >= 40) return backToBootstrap(); // 20s 仍不服役：交回引导页，不做无判据导航
+        if (n >= 40) return backToBootstrap();
         setTimeout(function () { reloadPanelWhenReady(n + 1); }, 500);
       };
       core.invoke('guard_ready').then(function (r) {
@@ -106,7 +93,7 @@
         return core.invoke('shell_panel_url').then(function (p) {
           var u = (p && p.url) || panelUrl;
           if (!u) return;
-          if (p.serving === false) return retry(); // 就绪探针刚过又掉了：继续等，别投未判据的 URL
+          if (p.serving === false) return retry();
           panelUrl = u;
           retried = 0;
           var sep = u.indexOf('?') >= 0 ? '&' : '?';
@@ -115,23 +102,17 @@
       }).catch(retry);
     };
 
-    // 引导完成后把内容区切到面板
     if (evt) {
       evt.listen('shell:goto-panel', function (e) {
-        // 守卫托管面板 URL（Rust go_panel 从 config apiPort 动态给出, 同源直连守卫 API）
         var p = (e && e.payload) || {};
-        // 面板 URL 的唯一出口是 Rust 的 panel_view（与「此刻能不能投」同出一个判据）。
-        //   事件里没有 url 就是契约破了：兜一个相对路径只会把主帧导航到一个不存在的文档，
-        //   交回引导页才是如实降级（与 reloadPanelWhenReady 无判据不导航的口径一致）。
         var u = p.url;
         if (!u) { backToBootstrap(); return; }
         panelUrl = u;
-        // force=true（用户重新显示窗口）时强制重载取最新 UI；否则同 URL 不重载（守卫重启延时重发不刷面板）
         if (p.force || u !== frame.src) { retried = 0; frame.src = u; }
       });
       evt.listen('shell:goto-bootstrap', function () { backToBootstrap(); });
     }
-    // 面板加载失败兜底（守卫尚未就绪/瞬时错误）：同一 URL 最多重试 2 次（一次性 nonce 破缓存）
+        // 面板加载失败兜底（守卫尚未就绪/瞬时错误）：同一 URL 最多重试 2 次（一次性 nonce 破缓存）
     frame.addEventListener('error', function () {
       if (!panelUrl || retried >= 2) return;
       retried++;
@@ -139,10 +120,6 @@
       frame.src = panelUrl + sep + 'dsh_retry=' + Date.now();
     });
 
-    // 内核更新消息桥（单写入者契约；docs/DESIGN-SHELL-ARCHITECTURE.md 3.2c 节）
-    // 面板由**内核**托管、运行在内容 iframe 内，没有 Tauri IPC（IPC 仅主帧）。
-    // 故面板经 postMessage 请求本主帧代执行「更新内核」—— 内核包唯一写入者是壳。
-    // 版本/消息类型/命令名由 Rust 的 shell_bridge_contract 下发（不在此硬编码）。
     var BRIDGE = null;
     var isLoopbackOrigin = function (origin) {
       try {
@@ -155,17 +132,13 @@
     var replyToPanel = function (src, origin, msg) {
       try { src.postMessage(msg, origin); } catch (e) {}
     };
-    // 内核安装进度转发给面板。面板没有 IPC，本主帧是唯一能听到 install_* 事件的人：
-    //   不转发，面板就只能停在「正在更新内核…」，而壳在 npm install 上最多要花 17 分钟（预算见 src/bridge.rs）。
-    //   一次只有一个在途请求（面板按钮在收到终结消息前是禁用态），故只记一份 pending，
-    //   换源/重启等阶段各自都会发一帧，收尾时随终结消息一起清空。
+        // 内核安装进度转发给面板。面板没有 IPC，本主帧是唯一能听到 install_* 事件的人：不转发，面板就只能停在「正在更新内核…」，而壳在 npm install 上最多要花 17 分钟（预算见 src/bridge.rs）。一次只有一个在途请求（面板按钮在收到终结消息前是禁用态），故只记一份 pending，换源/重启等阶段各自都会发一帧，收尾时随终结消息一起清空。
     var kernelPending = null;
     if (evt) {
       evt.listen('install_progress', function (e) {
         if (!kernelPending || !BRIDGE) return;
         var p = (e && e.payload) || {};
-        // kind 的字面量来自契约下发（唯一来源是 Rust 的 InstallKind::as_str，门禁 G-12B）；
-        //   在这里写死 "kernel" 就是给「哪些东西可被安装」开第二份账。
+                // kind 的字面量来自契约下发（唯一来源是 Rust 的 InstallKind::as_str，门禁 G-12B）；在这里写死 "kernel" 就是给「哪些东西可被安装」开第二份账。
         if (p.kind !== BRIDGE.kernelKind) return;
         replyToPanel(kernelPending.src, kernelPending.origin, {
           v: BRIDGE.v, type: BRIDGE.types.progress, requestId: kernelPending.id,
@@ -175,16 +148,12 @@
       });
     }
     if (core) {
-      // 取桥契约（拿到后才加载面板，保证面板首次请求就能被识别，消除竞态）。
-      // 可用性优先：即使契约拉取失败，也必须照常加载面板（否则白屏），只是更新桥不可用。
+            // 取桥契约（拿到后才加载面板，保证面板首次请求就能被识别，消除竞态）。可用性优先：即使契约拉取失败，也必须照常加载面板（否则白屏），只是更新桥不可用。
       core.invoke('shell_bridge_contract').then(function (c) {
         BRIDGE = c || null;
       }).catch(function () {}).then(function () {
         if (panelUrl === null) {
           core.invoke('shell_panel_url').then(function (r) {
-            // 主帧加载是全仓唯一**必然发生**的面板导航，判据必须在这里，不能只放在 Rust 的
-            //   goto-panel 那一侧：未服役就把 URL 交给 iframe，用户看到的是引擎自己的
-            //   「127.0.0.1 拒绝连接」，而 iframe 被拒不触发 error 事件、本页无从重试。
             if (!r) return;
             if (r.serving === false) return backToBootstrap();
             if (r.url) loadPanel(r.url);
@@ -194,21 +163,18 @@
     }
     window.addEventListener('message', function (ev) {
       if (!BRIDGE || !BRIDGE.types || !ev || !ev.data || typeof ev.data !== 'object') return;
-      if (ev.data.v !== BRIDGE.v) return;                       // K1：协议版本必须一致
+      if (ev.data.v !== BRIDGE.v) return;                       // K1：协议版本必须一致。K2：只接受「内容 iframe」且 origin 为回环 —— 其他窗口/页面一律忽略。K3：回复 targetOrigin = ev.origin，绝不回 '*'。
       if (ev.data.type !== BRIDGE.types.request) return;
-      // K2：只接受「内容 iframe」且 origin 为回环 —— 其他窗口/页面一律忽略。
       if (!frame.contentWindow || ev.source !== frame.contentWindow) return;
       if (!isLoopbackOrigin(ev.origin)) return;
       var rid = String(ev.data.requestId || '');
       if (!rid) return;
       var origin = ev.origin, src = ev.source;
-      if (!core || !BRIDGE.cmd) {                               // K3：回复 targetOrigin = ev.origin，绝不回 '*'
+      if (!core || !BRIDGE.cmd) {
         replyToPanel(src, origin, { v: BRIDGE.v, type: BRIDGE.types.result, requestId: rid, ok: false, error: 'Tauri IPC 不可用' });
         return;
       }
-      // 单写入者契约的另一半：同一个 npm 全局前缀不允许被两次安装并发写。
-      //   面板超时（旧版 6 分钟）后按钮会解禁，而壳**仍在**逐源安装 —— 此时重试必须被明确拒绝，
-      //   并把「正在进行中」如实说回去（比悄悄起第二个进程、两边互相覆盖要好）。
+            // 单写入者契约的另一半：同一个 npm 全局前缀不允许被两次安装并发写。面板超时（旧版 6 分钟）后按钮会解禁，而壳**仍在**逐源安装 —— 此时重试必须被明确拒绝，并把「正在进行中」如实说回去（比悄悄起第二个进程、两边互相覆盖要好）。
       if (kernelPending) {
         var mins = typeof BRIDGE.maxWaitMs === 'number' ? '（最长 ' + Math.round(BRIDGE.maxWaitMs / 60000) + ' 分钟）' : '';
         replyToPanel(src, origin, {
@@ -218,12 +184,11 @@
         return;
       }
       kernelPending = { id: rid, src: src, origin: origin };
-      // 终结消息（成功/失败/异常）都必须先清 pending：否则中继会把后续事件发给已结束的请求。
+            // 终结消息（成功/失败/异常）都必须先清 pending：否则中继会把后续事件发给已结束的请求。
       var finish = function (msg) {
         if (kernelPending && kernelPending.id === rid) kernelPending = null;
         replyToPanel(src, origin, msg);
       };
-      // 第一帧带上 maxWaitMs：面板的等待上界由此**取**自后端事实（bridge.rs），不再自己编一个数。
       replyToPanel(src, origin, {
         v: BRIDGE.v, type: BRIDGE.types.progress, requestId: rid, stage: 'start',
         maxWaitMs: typeof BRIDGE.maxWaitMs === 'number' ? BRIDGE.maxWaitMs : null,
@@ -237,7 +202,6 @@
           restartUncertain: !!(r && r.restartUncertain),
           error: (r && r.error) || null,
         });
-        // K5：重启成功后等守卫重新就绪再重载面板（守卫已换新二进制）。
         if (ok) reloadPanelWhenReady(0);
       }).catch(function (e) {
         finish({ v: BRIDGE.v, type: BRIDGE.types.result, requestId: rid, ok: false, error: String(e) });

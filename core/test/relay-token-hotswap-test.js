@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// relay 门卫令牌必须**可热换**：syncProxy 的「已存在则 return」快路径不重读 remoteToken、applyToken 只处理
-//   dshToken ⇒ 令牌闸已放行而 relay 进程内 token 仍是空串（tokenGate 恒放行，门卫形同不存在）。
-//   H-a 弱令牌即拒且不留半改 · H-b 只换令牌即触发 onRemoteChange · H-c 同值幂等不触发 · H-d 清空同样触发 · H-e 真实 relay 的 hasToken 三态。
+// syncProxy 的「已存在则 return」快路径不重读 remoteToken ⇒ 令牌闸已放行而 relay 进程内 token 仍是空串（门卫形同不存在）。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -14,7 +12,6 @@ const check = (n, c, x) => {
   console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x !== undefined && x !== '' ? '  <- ' + x : ''));
 };
 
-// 行为：真实 createOps 断言「只改令牌」一条链走通
 const { createOps } = require(path.join(ROOT, 'src', 'domains', 'instance', 'ops.js'));
 const seen = [];
 const it2 = { id: 'i1', name: 'n', port: 29051, guardian: true, remoteMode: 'lan', remoteToken: 'tok-a-01234567' };
@@ -25,7 +22,6 @@ const ops2 = createOps({
   hooks: { onRemoteChange(i) { seen.push('sync:' + i.remoteToken); } },
 });
 
-// 弱令牌写入口即拒，且**不改任何字段**（半改状态防线）
 {
   const before = it2.guardian;
   const r = ops2.updateInstance('i1', { guardian: false, remoteToken: 'B' });
@@ -43,7 +39,6 @@ check('H-c 行为：同值幂等写不再触发钩子/事件（防空转刷屏�
 ops2.updateInstance('i1', { remoteToken: '' });
 check('H-d 行为：清空令牌同样触发（暴露闸与隧道必须收到清空信号）', seen.includes('sync:'), seen.join(','));
 
-// 行为：真实 createRelay，断言 setToken 后门卫生效（空令牌 = 闸恒放行）
 const { createRelay } = require(path.join(ROOT, 'src', 'domains', 'relay', 'index.js'));
 const srv = createRelay('127.0.0.1', 9, { token: '', logger: null });
 const seq = [srv.hasToken()];

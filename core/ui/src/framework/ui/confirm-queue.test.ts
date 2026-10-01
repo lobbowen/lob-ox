@@ -1,5 +1,4 @@
-// 确认队列的行为测试。弹窗组件没有 DOM 测试设施（vitest 跑 node 环境），但真正会出错的地方恰恰在
-// 组件之外：两条危险动作同时发起时谁先出现、上一条的关闭事件晚到会不会把下一条误判成「用户取消」。
+// vitest 跑 node 环境，无 DOM 测试设施。
 import { describe, expect, it, vi } from "vitest";
 import { createConfirmQueue } from "./confirm-queue";
 
@@ -44,7 +43,7 @@ describe("关闭事件晚到不得误决议下一条", () => {
     q.settle(aId, true);
     const second = q.open(askB());
     const bId = q.peek()!.id;
-    // Radix 的 onOpenChange(false) 会在 Action 关闭动画后到达，携带的是上一条的 id。
+    // Radix 的 onOpenChange(false) 在关闭动画后到达，携带上一条的 id。
     q.settle(aId, false);
     expect(q.peek()?.id).toBe(bId);
     expect(q.pending()).toBe(1);

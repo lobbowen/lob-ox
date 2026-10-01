@@ -9,10 +9,6 @@ const hub = require('../../platform/service/log/hub');
 const logcore = require('../../platform/service/log/logcore');
 const { createCtlServer } = require('../../platform/ctl/server');
 
-// router-daemon —— 智能路由独立进程。仅装配 + 启动，零业务判断。
-// 运行：node src/domains/router/daemon.js [-c <configPath>]。ctl 白名单见 ./config。
-// 共享文件写权独占：providers.json / router-usage-totals.json / ports-router.json（config.json 只读）。
-
 const path = require('node:path');
 const { DEFAULT_CTL_PORT, ROUTER_CTL_METHODS, loadConfig } = require('./config');
 const { ensurePorts } = require('./ports-bootstrap');
@@ -21,7 +17,6 @@ function main() {
 
   const config = loadConfig();
   const swDir = config.stateFile ? path.dirname(path.resolve(config.stateFile)) : stateRoot.supervisorDir();
-  // 本进程自行声明日志汇聚源：域名词留在域内，避免 domains -> app 上行依赖。
   hub.registerSource("router-daemon", { key: "router" });
   const core = logcore.init({
     process: 'router-daemon',
@@ -36,14 +31,12 @@ function main() {
   const dist = new DistributionManager({
     registries: (config.registries && config.registries.length) ? config.registries : ['https://registry.npmjs.org'],
     registryFile: path.join(swDir, 'registry.json'),
-    // 选择文档在此进程只读：本 daemon 的 ctl 方法表没有镜像写入口。
     registryChoiceFile: path.join(swDir, 'registry-choice.json'),
     events,
     logger,
   });
   const tasks = new TaskRegistry({ stateDir: swDir, logger, events });
 
-  // 必须在 RouterService 构造之前（ports-bootstrap）：构造后执行会以内存空表覆盖历史绑定。
   ensurePorts({ swDir, logger });
 
   const router = new RouterService({
@@ -57,7 +50,6 @@ function main() {
     tasks,
   });
 
-  // 守卫控制通道：白名单按域注入，内部方法永不可达；dispatcher 见 platform/ctl/server.js。
   const ctlPort = Number(config.routerCtlPort) || DEFAULT_CTL_PORT;
   const ctl = createCtlServer({ target: router, allowMethods: ROUTER_CTL_METHODS, logger, events });
   ctl.listen(ctlPort, '127.0.0.1', () => {
@@ -81,7 +73,6 @@ function main() {
     process.exit(1);
   });
 
-  // 优雅退出：SIGTERM 时停 router 并确认实例子进程已死再退出，防停服遗留孤儿进程。
   let shuttingDown = false;
   const shutdown = async () => {
     if (shuttingDown) return;
@@ -101,5 +92,4 @@ function main() {
   });
 }
 
-// 入口守卫：仅直接运行时启动（require 本文件不得拉起真实 daemon）。
 if (require.main === module) main();

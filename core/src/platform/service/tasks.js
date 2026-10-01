@@ -1,17 +1,12 @@
 'use strict';
 
-// 统一安装/更新任务注册表：全部安装/升级/卸载/更新操作收敛到同一状态机
-// pending -> running -> succeeded|failed|skipped|canceled，step 级进度 + 有界日志，持久化到 <产品状态根>/supervisor/tasks.json，守卫重启后仍可观测。
-// canceled 为防御性识别态：全仓无取消生产者，_finish 仍接受该值、下游按 canceled -> failed 归类；不要再新增取消路径。
-
 const path = require('node:path');
 const taskStore = require('./task-store');
 
-const MAX_TASKS = 200;      // 历史保留上限（超出清理最旧）
-const MAX_LOG_LINES = 200;  // 单任务日志有界行数
-const MAX_STEP_LOG = 30;    // 单 step 日志行数
+const MAX_TASKS = 200;
+const MAX_LOG_LINES = 200;
+const MAX_STEP_LOG = 30;
 
-/** 任务 id 生成（跨守卫重启唯一：时间戳 + 随机）。 */
 function taskId() {
   return 'task-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
 }
@@ -22,8 +17,8 @@ class TaskRegistry {
     this.logger = (opts && opts.logger) || null;
     this.events = (opts && opts.events) || null;
     this.file = this.stateDir ? path.join(this.stateDir, 'tasks.json') : null;
-    this.tasks = [];      // 按创建时间倒序（最新在前）
-    this._current = {};   // kind:target -> taskId（当前 running/pending 任务）
+    this.tasks = [];
+    this._current = {};
     this._load();
   }
 
@@ -35,7 +30,6 @@ class TaskRegistry {
     if (this.events && this.events.append) { try { this.events.append(type, data); } catch {} }
   }
 
-  /* 持久化 */
   _load() {
     const loaded = taskStore.loadTasks(this.file, (t) => this._log('warn', 'recovered interrupted task ' + t.id + ' as failed'));
     if (loaded) this.tasks = loaded;
@@ -54,7 +48,6 @@ class TaskRegistry {
     }
   }
 
-  /* 任务创建与查询 */
   begin(kind, action, target, opts) {
     const o = opts || {};
     const now = Date.now();
@@ -83,8 +76,6 @@ class TaskRegistry {
     return task;
   }
 
-  /** 统一作业执行器：begin->start->fn->succeed/fail 封装，作业体异常一律落 failed；
-   *  finally 清 _current 索引，任务绝不永久占用。 */
   async run(kind, targetId, action, opts, fn) {
     if (this.isBusy(kind, targetId)) {
       const cur = this.current(kind, targetId);
@@ -103,7 +94,6 @@ class TaskRegistry {
       this._log('error', 'task ' + task.id + ' crashed: ' + ((e && e.stack) || e));
       return { ok: false, error: (e && e.message) || String(e), task: this.get(task.id) };
     } finally {
-      // 仅当 _current 仍指向本任务且已终态才清索引（防止误删后继任务）
       const cur = this._current[kind + ':' + targetId];
       if (cur === task.id) {
         const t = this.get(task.id);
@@ -112,7 +102,6 @@ class TaskRegistry {
     }
   }
 
-  /** 目标当前是否已有运行中/排队任务。 */
   isBusy(kind, targetId) {
     const id = this._current[kind + ':' + targetId];
     if (!id) return false;
@@ -120,7 +109,6 @@ class TaskRegistry {
     return !!(t && (t.state === 'running' || t.state === 'pending'));
   }
 
-  /** 目标当前运行中任务（无则 null）。 */
   current(kind, targetId) {
     const id = this._current[kind + ':' + targetId];
     if (!id) return null;
@@ -131,18 +119,15 @@ class TaskRegistry {
   get(taskId) {
     return this.tasks.find((t) => t.id === taskId) || null;
   }
-  /** 全部任务（按时间倒序）；可按 kind 过滤。 */
   list(kind) {
     if (kind) return this.tasks.filter((t) => t.kind === kind);
     return this.tasks;
   }
 
-  /** 所有当前运行中任务（跨 kind）。 */
   running() {
     return this.tasks.filter((t) => t.state === 'running' || t.state === 'pending');
   }
 
-  /* 任务推进 */
   start(taskId) {
     const t = this.get(taskId);
     if (!t || t.state !== 'pending') return null;
@@ -193,7 +178,6 @@ class TaskRegistry {
     return this._finish(taskId, 'failed', error, extra);
   }
 
-  /** 任务跳过（无需执行，如已是最新）。 */
   skip(taskId, reason, extra) {
     return this._finish(taskId, 'skipped', reason, extra);
   }
@@ -212,8 +196,6 @@ class TaskRegistry {
     return t;
   }
 
-  /* 视图 */
-  /** 前端视图：安全字段（不暴露内部细节）。 */
   view(task) {
     if (!task) return null;
     return {
@@ -234,7 +216,6 @@ class TaskRegistry {
     };
   }
 
-  /** 概览：按 kind 聚合当前运行中任务。 */
   overview() {
     const cur = {};
     for (const t of this.running()) {

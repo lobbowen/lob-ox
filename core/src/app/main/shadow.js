@@ -1,8 +1,5 @@
 'use strict';
 
-// 影子记账（_actNote/_mainActualAction/_shadowExcluded/_shadowTickNote/_shadowHeartbeatBeat）。影子对照真实收敛动作，
-//   连续零 diff 是收敛切换门槛的观测依据。导出 { methods }，由 app/assembly/facets.js 装到 host；方法名与 { methods }
-//   形态不可改。事实经 depsOf(host) 惰性缓存取得。
 const DEPS = new WeakMap();
 function depsOf(host) {
   let d = DEPS.get(host);
@@ -14,7 +11,6 @@ function depsOf(host) {
       events() { return host.events; },
       upgradeHold() { return host._upgradeHold; },
       stopping() { return host._stopping; },
-      // 兄弟方法/字段 helper 经 host 既有安装转发。
       mAdopted() { return host._mAdopted(); },
       mainActualAction(t0) { return host._mainActualAction(t0); },
       shadowExcluded(r) { return host._shadowExcluded(r); },
@@ -39,8 +35,6 @@ function depsOf(host) {
 
 module.exports = {
   methods: {
-  /** 实际执行动作记账（拍窗口内）。仅在 tick 收敛窗口内生效（_actWindow）；
-   *  窗口外的外部动作（child exit / 升级钩子）不记账——其迁移由后续拍相位对分类覆盖。 */
   _actNote(action, reason) {
     const d = depsOf(this);
     if (!d.readActWindow()) return;
@@ -48,7 +42,6 @@ module.exports = {
     d.readMainTickActs().push({ action, reason });
   },
 
-  /** 本拍实际执行的迁移动作：优先拍内执行器记录（最精确且含 reason），否则按相位对分类。 */
   _mainActualAction(t0) {
     const d = depsOf(this);
     const acts = d.readMainTickActs() || [];
@@ -71,24 +64,18 @@ module.exports = {
     if (p === 'BACKOFF>STARTING') return { action: 'start', reason: 'backoff_spawn' };
     if (p === 'BACKOFF>RUNNING') return d.mAdopted() === true ? { action: 'adopt', reason: 'backoff_adopt' } : { action: 'enterRunning', reason: 'backoff_enter' };
     if (p === 'OBSERVED>RUNNING') return { action: 'adopt', reason: 'observed_promote' };
-    // desired=stopped / 升级 hold 的收敛停止迁移
     if (d.state().desired() === 'stopped' || d.upgradeHold()) {
       return { action: 'stop', reason: d.upgradeHold() ? 'upgrade_hold' : 'desired_stopped' };
     }
     return { action: 'none', reason: 'unclassified:' + p };
   },
 
-    /**
-   * 影子 diff 排除集：异步事件/守卫业务钩子触发的迁移（升级钩子 / child exit / spawn error / 假死）不计入 diff 与零 diff
-   * 门槛。排除项的意义是豁免异步事件触发的迁移，而不是给凭据驱动的重启开后门。
-   */
   _shadowExcluded(reason) {
     if (!reason) return false;
     const r = String(reason);
     return /^(exit:|spawn_error|http_unhealthy|upgrade|upgrade_hold|port_occupied)/.test(r);
   },
 
-  /** 拍末影子记账（tick finally 调用：本拍实际迁移已收敛完成）。 */
   _shadowTickNote(t0) {
     const d = depsOf(this);
     try {
@@ -97,7 +84,6 @@ module.exports = {
       const shadow = d.main().decideAction(t0);
       const exActual = d.shadowExcluded(actual && actual.reason);
       const diff = !!(actual && shadow) && (actual.action !== shadow.action) && !exActual;
-      // 序号自增：初值 undefined 时 Number(undefined)+1 === NaN，这是刻意的起点语义（非漏初始化）。
       const seq = Number(d.readShadowSeq()) + 1;
       d.writeShadowSeq(seq);
       const rec = {
@@ -118,8 +104,6 @@ module.exports = {
     }
   },
 
-  /** 心跳拍聚合（dsh adapter supervise 调用）：有新 tick 记录才记账/发事件；无则不刷。
-   *  连续 5 拍零 diff 记 info（收敛切换门槛观测）。 */
   _shadowHeartbeatBeat() {
     const d = depsOf(this);
     try {

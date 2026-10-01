@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// 卸载类离线夹具测试（NativeManager 状态探测 / 环境检查 / 清单记录 / 全量卸载清理）：夹具用临时 npm 全局根，
-//   不碰宿主环境；ops.uninstall 会真起 npm 子进程且 bin 链接经 fs.symlinkSync 造（Windows 需特权）⇒
-//   未入 test/manifest.js 登记表，链内的卸载行为面由 test/uninstall-timeout-behavior-test.js（npmBin 注入）承担。
+// 未入 test/manifest.js 登记表（真起 npm 子进程 + symlink 需特权）；链内的卸载行为面由 test/uninstall-timeout-behavior-test.js 承担。
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -19,14 +17,12 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   const npmRoot = path.join(TMP, 'npm-root');
   fs.mkdirSync(npmRoot, { recursive: true });
 
-  // 1. 未安装状态识别
   const nm1 = new NativeManager({ config: { command: ['node', '/nonexistent/bin/dsh', 'web'] }, stateDir: TMP, npmRoot, logger: { info(){}, warn(){}, error(){} }, events: null });
   const s1 = nm1.status();
   check('未安装状态识别', s1.installed === false && s1.state === 'uninstalled', JSON.stringify(s1));
   const env = nm1.checkEnvironment();
   check('环境检查通过（node/npm 可用）', env.ok === true, JSON.stringify(env));
 
-  // 2. 已安装状态识别（模拟 npm 全局布局：node_modules/@deepseek-ai/dsh + bin 链接）
   const fakeBin = path.join(TMP, 'bin', 'dsh');
   fs.mkdirSync(path.dirname(fakeBin), { recursive: true });
   const pkgDir = path.join(npmRoot, '@deepseek-ai', 'dsh');
@@ -37,14 +33,12 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   const nm2 = new NativeManager({
     config: { command: ['node', fakeBin, 'web'] },
     stateDir: TMP, npmRoot,
-    // 卸载动作走真实执行器（前缀已隔离到 TMP/npm-root），dist 不注入则连子进程都不会起。
     dist: require(path.join(ROOT, 'src', 'platform', 'distribution', 'install.js')),
     logger: { info(){}, warn(){}, error(){} }, events: null,
   });
   const s2 = nm2.status();
   check('已安装状态识别', s2.installed === true && s2.version === '0.1.1-rc.2', JSON.stringify(s2));
 
-  // 3. 安装清单记录 + 全量卸载
   nm2._recordManifest('0.1.1-rc.2');
   const m = nm2._manifest();
   check('清单记录（含真实 npmRoot）', m && m.version === '0.1.1-rc.2' && m.packageDir === pkgDir, JSON.stringify(m));

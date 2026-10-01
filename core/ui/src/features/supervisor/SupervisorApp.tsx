@@ -1,5 +1,3 @@
-/** Supervisor App（dsh-supervisor 控制面板宿主）：以同源 supervisor HTTP API 为后端的 7 域面板。
- *  数据：supervisorStore 统一轮询快照，页面只读消费、动作经 supervisorApi；skiff 清理工具 App 是另一独立宿主，两者各自挂载（main.tsx 按宿主/路由选择）。 */
 import { Component, lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -13,8 +11,6 @@ import { toast } from "sonner";
 import { supervisorStore, useSupervisorData } from "../../services/supervisor";
 import { SUPERVISOR_NAV, type SupervisorViewKey } from "./nav";
 
-// 功能页面按需分包（React.lazy），首包不含全部页面体积；
-// 具名导出经 .then(m => ({ default: m.X })) 适配 lazy 的 default 契约。
 const OverviewPage = lazy(() => import("./OverviewPage").then((m) => ({ default: m.OverviewPage })));
 const InstancesPage = lazy(() => import("./InstancesPage").then((m) => ({ default: m.InstancesPage })));
 const PluginsPage = lazy(() => import("./PluginsPage").then((m) => ({ default: m.PluginsPage })));
@@ -39,11 +35,9 @@ export function SupervisorApp() {
   const [routerActions, setRouterActions] = useState<{ onAdd: () => void; onDelete: () => void } | null>(null);
   const { snap } = useSupervisorData();
   const online = snap.online;
-  const authFailed = snap.authFailed; // 401 鉴权被拒 != 离线，呈现可操作错误
+  const authFailed = snap.authFailed;
   const status = snap.status;
 
-  // 轮询生命周期与宿主绑定：start 只在装配层调用一次，卸载即 stop；
-  // start->stop->start 幂等，兼容 React 19 StrictMode 开发双挂载。
   useEffect(() => {
     supervisorStore.start();
     return () => supervisorStore.stop();
@@ -64,8 +58,6 @@ export function SupervisorApp() {
   const sessionState = status?.sessionState;
   const running = Boolean(status?.dshPid);
 
-  // 共用壳架构：窗口栏唯一由壳框架 shell.html 提供；
-  // 面板无论浏览器还是壳内 iframe 都统一 web 铺满纯内容，不自绘窗口栏。
   return (
     <AppShell mode="classic">
       <AppLayout
@@ -89,7 +81,6 @@ export function SupervisorApp() {
                 </Button>
               ) : view === "router" && routerActions ? (
                 <>
-                  {/* 添加/删除供应商: 小屏(<=640px)隐藏——供应商管理经卡片内操作(用户定稿) */}
                   <Button onClick={routerActions.onAdd} variant="outline" className="hidden md:inline-flex">
                     <Plus className="size-4" />添加供应商
                   </Button>
@@ -134,17 +125,12 @@ export function SupervisorApp() {
               </>
             }
             right={
-              // 安装标识（UUID）：灰度名单按它匹配（RELEASE-CHANNEL-CONTRACT），需完整可读、可复制上报。
-              // StatusBar right 容器 overflow-hidden 且各页共用，故让 UUID 自身 shrink-0 不被截断；
-              // 极窄窗口下被压缩的是运行状态文字（可读摘要，缩窄时整体转纵向布局）。
               <span className="inline-flex min-w-0 items-center gap-2">
                 {status?.installId ? (
                   <button
                     type="button"
                     onClick={() => {
                       const id = String(status.installId);
-                      // 127.0.0.1 属 secure context，clipboard 通常可用；
-                      // 面板也可能经局域网别名/非常规来源打开，故保留回退路径。
                       const fallback = () => {
                         try {
                           const ta = document.createElement("textarea");
@@ -173,8 +159,6 @@ export function SupervisorApp() {
                   </button>
                 ) : null}
                 {
-                  // 会话生命周期优先：stopping/stopped 是整个服务链的运行相位，
-                  // 比单看 main phase 准确（退出中 main 可能已 STOPPED），须明确呈现「退出中/已退出」。
                   sessionState === "stopping" ? (
                 <span className="inline-flex items-center gap-1.5 text-xs leading-tight text-muted-foreground">
                   <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
@@ -227,7 +211,6 @@ function PageFallback() {
   );
 }
 
-/** 页面级错误边界：lazy chunk 加载失败 / 页面运行时异常时兜底，不白屏 */
 class PageErrorBoundary extends Component<
   { children: ReactNode },
   { error: Error | null }

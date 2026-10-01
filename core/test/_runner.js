@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// 测试链 runner —— 读 test/manifest.js，逐条起独立子进程执行。
-//   一条一个进程：链中测试普遍以 process.exit() 收尾，in-process 串联会被首个退出码掐断。
-//   用法：--tier=L2 只跑依赖真实宿主 OS 的那批（CI 矩阵腿用）/ --only=a,b / --fail-fast（默认跑完汇总全部红点）。
+// 一条一个进程：链中测试普遍以 process.exit() 收尾，in-process 串联会被首个退出码掐断。
 
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -20,11 +18,9 @@ const TIER = flag('tier', 'all');
 const ONLY = flag('only', '').split(',').map((s) => s.trim()).filter(Boolean);
 const KEEP_GOING = !has('fail-fast');
 const ROOT = path.join(__dirname, '..');
-// 必须相对：子进程 cmdline 会被被测层当归属锚点读回来，而绝对路径把检出目录名写进每条 cmdline，
-//   src/app/main/signals.js 的接管判据含「命令行出现过 dsh」子串匹配 ⇒ 测试进程被守卫 SIGTERM。
+// 必须相对：子进程 cmdline 会被被测层当归属锚点读回来，而绝对路径把检出目录名写进每条 cmdline，src/app/main/signals.js 的接管判据含「命令行出现过 dsh」子串匹配 ⇒ 测试进程被守卫 SIGTERM。
 const PRELOAD = './test/_preload.js';
 
-// tier=all 不按宿主过滤（见 manifest.select）；--tier=L2 才按当前宿主筛。
 let picked = MANIFEST.select(TIER === 'os' ? 'L2' : TIER, process.platform);
 if (ONLY.length) {
   const norm = (f) => path.basename(f);

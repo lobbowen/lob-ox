@@ -1,9 +1,5 @@
 'use strict';
 
-// 供应商注册表（CRUD）+ 服务生命周期 + 端口释放；并持有域状态容器（createState）。
-// 副作用经注入的 endpoint/scheduler/ports 执行，本文件不 require 实现。
-
-/** 域内唯一可变状态的家（纯内存）。 */
 function createState(opts) {
   const o = opts || {};
   return {
@@ -33,7 +29,6 @@ function createState(opts) {
 
 function findProvider(providers, id) { return (providers || []).find((p) => p.id === id) || null; }
 
-/** 释放某供应商在端口注册表中的全部记录（providerApi:<id> 与各 proxy:<keyId>）。 */
 function releaseProviderPorts(p, ports) {
   if (!p || !ports) return;
   try { ports.unregister('providerApi:' + p.id); } catch {}
@@ -93,11 +88,8 @@ function createOps(deps) {
     const idx = state.providers.findIndex((p) => p.id === id);
     if (idx < 0) return { ok: false, error: '供应商不存在' };
     const removed = state.providers.splice(idx, 1)[0];
-    endpoint.stopProviderServer(id); // 删除即停用：关闭其独立端点
-    // 删除路径必须 force 停实例：不带 force 时账号被 selected/activeAccount 指向则只置
-    // _stopPendingUntilIdle 就返回，provider 摘除后该标记不可达，反代进程永不被回收。
+    endpoint.stopProviderServer(id);
     if (removed.supports('instanceLifecycle')) { for (const i of removed.instances || []) { try { removed.stopInstance(i, true); } catch {} } }
-    // 端口登记级联释放（「删除对象即释放端口」契约）：否则 owner 永久累积、池最终耗尽。
     try { releaseProviderPorts(removed, ports); } catch (e) { if (logger && logger.warn) logger.warn('release provider ports ' + id + ': ' + (e && e.message)); }
     save();
     return { ok: true };
@@ -117,12 +109,11 @@ function createOps(deps) {
 
   function stopAll() {
     state.running = false;
-    state.stopped = true; // 先置闸：在途/后续的 ensure/预热/探测不得再拉起实例
-    for (const p of state.providers) { if (p && p.supports('processPool')) p._stopping = true; } // 预启动拒绝 + spawn 完成即自清
+    state.stopped = true;
+    for (const p of state.providers) { if (p && p.supports('processPool')) p._stopping = true; }
     scheduler.stop();
-    stopAllInstances(); // 服务停止 = 实例一并停止（防孤儿进程残留占用动态端口段）
-    for (const id of Object.keys(state.providerServers)) endpoint.stopProviderServer(id); // 供应商独立端点一并关闭
-    // 账本节流落盘：停服前强制 flush，未到点的账不丢。
+    stopAllInstances();
+    for (const id of Object.keys(state.providerServers)) endpoint.stopProviderServer(id);
     try { if (d.usage && typeof d.usage.flush === 'function') d.usage.flush(); } catch (e) { logger.warn && logger.warn('usage flush: ' + ((e && e.message) || e)); }
     if (events) events.append('router_stopped', {});
     return { ok: true };
@@ -130,7 +121,6 @@ function createOps(deps) {
 
   function stop() { return stopAll(); }
 
-  /** 优雅退出：停实例并【确认子进程已死】再返回（daemon shutdown 专用）。 */
   async function stopAndWait(timeoutMs) {
     stopAll();
     for (const p of state.providers) {
@@ -141,9 +131,7 @@ function createOps(deps) {
     return { ok: true };
   }
 
-  /** 停止全部反代实例进程（守护进程优雅退出用）。 */
   function stopAllInstances() {
-    // force=true：服务停服/优雅退出，无视在用/在途仲裁强制停。
     for (const p of state.providers) {
       if (!p.supports('instanceLifecycle')) continue;
       for (const i of (p.instances || [])) { try { p.stopInstance(i, true); } catch {} }

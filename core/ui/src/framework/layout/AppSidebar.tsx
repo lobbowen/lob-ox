@@ -1,14 +1,12 @@
 import type { ComponentType, ReactNode } from "react";
 import { cn } from "../utils";
 
-/** AppSidebar：通用应用侧边栏（品牌区 + 导航项列表 + 底部扩展区），完全由 props 驱动。 */
 
 export type SidebarItem = {
   key: string;
   label: string;
   icon: ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
   active?: boolean;
-  /** 右侧徽标文字（如体积/数量） */
   badge?: string;
   disabled?: boolean;
   onClick: () => void;
@@ -21,7 +19,6 @@ export type AppSidebarProps = {
     slogan?: string;
   };
   items: SidebarItem[];
-  /** 底部扩展区（模式切换、用户区等） */
   footer?: ReactNode;
   className?: string;
 };

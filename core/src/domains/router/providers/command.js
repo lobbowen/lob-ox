@@ -1,16 +1,11 @@
 'use strict';
 
-// 命令拼装：纯函数，零 IO / 零 require。缓存命中 -> 直接 node <bin>，未命中走注入的 npx 成对启动
-// 形态（win32 无 shell spawn .cmd 垫片必 EINVAL；形态解析归 platform/os/npx-forms#npxLauncher）。
-// 凭证不在本模块处理：{{key}} / --api-key 的剔除是调用方的凭证纪律，本模块绝不持有密钥。
+// win32 无 shell spawn .cmd 垫片必 EINVAL，故未命中缓存时走注入的 npx 成对启动形态。
 
-/** 由 app 模板 + 端口构造 spawn argv。ctx = { app, port, cachedBin, registry, launcher, execPath }，
- *  launcher = platform 解析出的成对启动形态；返回 { ok, cmd, registry }。 */
 function buildCommand(ctx) {
   const { app, port, cachedBin, registry, launcher, execPath } = ctx || {};
   if (!app || !Array.isArray(app.command)) return { ok: false, error: '无效应用命令模板', cmd: [], registry: registry || null };
   if (cachedBin) {
-    // 标准参数统一注入（host/port）——api-key 绝不写入 cmdline
     const args = ['--host', '127.0.0.1', '--port', String(port)];
     const STANDARD = new Set(['--host', '--port', '--api-key', 'npx', '--yes']);
     const extra = [];
@@ -25,7 +20,6 @@ function buildCommand(ctx) {
     }
     return { ok: true, cmd: [execPath, cachedBin, ...extra, ...args], registry: registry || null };
   }
-  // fallback：npx 形态拉起（首次安装/缓存丢失）——只替换 {{port}}；{{key}}/--api-key 交由调用方剔除
   const mapped = app.command.map((t) => String(t).replace('{{port}}', String(port)));
   const cmd = mapped;
   const args = [...cmd.slice(1)];
@@ -35,7 +29,6 @@ function buildCommand(ctx) {
     else { args.unshift(registry); args.unshift('--registry'); }
   }
   if (cmd[0] === 'npx') {
-    // 成对形态优先：node-direct 时 program=node、args 前置 npx-cli.js 路径。
     const l = launcher || { program: 'npx', args: [], source: 'path' };
     return { ok: true, cmd: [l.program, ...l.args, ...args], registry: registry || null };
   }

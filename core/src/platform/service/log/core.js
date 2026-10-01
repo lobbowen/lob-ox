@@ -1,8 +1,5 @@
 'use strict';
 
-// 共享读路径契约：窗口派生读只实现一次，EventHub 与 EventReader 共用，避免逻辑漂移。
-// 纯函数 + 空对象适配器，无 IO。
-
 const { isInternalEvent } = require('./sources');
 
 function visibleFrom(win, after, limit) {
@@ -61,7 +58,6 @@ function metricsFrom(win, seq) {
   return { gseq: seq, events: total, bySource, topTypes, lastEventAt: lastTs, sinceLastMs: lastAt ? Math.max(0, now - lastAt) : null, ts: new Date().toISOString() };
 }
 
-// 降级读路径（空对象模式）：hub 不可用时把本地事件流适配成与 EventHub 相同的读接口。
 class EventReader {
   constructor(events) { this.events = events; }
   get seq() { return this.events.seq; }
@@ -69,10 +65,10 @@ class EventReader {
   read(after, limit) { return this.events.readSince(after, limit); }
   readVisible(after, limit) { return visibleFrom(this.window(), after, limit); }
   readFiltered(filter, after, limit) { return filteredFrom(this.window(), filter, after, limit); }
-  tailLog() { return []; } // 降级模式无聚合日志（各 stream 返回空）
+  tailLog() { return []; }
   exportLines(after, limit) { return exportFrom(this.window(), after, limit); }
   metrics() { return metricsFrom(this.window(), this.seq); }
-  sync() { return Promise.resolve(); } // 无聚合流水位需同步
+  sync() { return Promise.resolve(); }
 }
 
 module.exports = { visibleFrom, filteredFrom, exportFrom, metricsFrom, EventReader };

@@ -4,11 +4,6 @@ import { Select as SelectPrimitive } from "radix-ui"
 
 import { cn } from "../utils"
 
-/**
- * Select：基于 radix-ui Select 的令牌化下拉封装（替代页面裸 <select>），样式全走 CSS 变量令牌；
- * 键盘可达 + ARIA 由 Radix 保证。
- */
-
 function Select({ ...props }: React.ComponentProps<typeof SelectPrimitive.Select>) {
   return <SelectPrimitive.Select data-slot="select" {...props} />
 }

@@ -1,8 +1,5 @@
 'use strict';
 
-// 统一安装/更新任务注册表：状态机 pending -> running -> succeeded/failed/skipped/canceled · step 级进度与日志 ·
-//   持久化（tasks.json 落盘，守卫重启后恢复历史）· 中断恢复（running 任务跨重启标记为 failed）·
-//   当前任务索引 isBusy/current。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -18,7 +15,6 @@ function check(name, ok, extra) {
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'task-reg-test-'));
 
 async function main() {
-  // -- 场景 1：创建与状态流转 --
   const reg = new TaskRegistry({ stateDir: TMP });
   const t = reg.begin('native', 'upgrade', { id: 'main', name: '原生 DSH' }, { from: '0.1.1', to: '0.1.2' });
   check('创建任务为 pending，isBusy 与 current 同步可见', t.state === 'pending' && reg.isBusy('native', 'main') === true && reg.current('native', 'main').id === t.id);
@@ -35,7 +31,6 @@ async function main() {
   check('步骤推进与日志留痕（同一任务的两面簿记）',
     reg.get(t.id).steps[0].state === 'done' && reg.get(t.id).log.length === 2 && reg.get(t.id).log[0].includes('安装中'));
 
-  // -- 场景 2：失败与 skip --
   const t2 = reg.begin('plugin', 'install', { id: 'native', name: '原生' }, { to: 'x' });
   reg.start(t2.id);
   reg.fail(t2.id, 'npm 退出码 1');
@@ -45,11 +40,9 @@ async function main() {
   reg.skip(t3.id, '已是最新');
   check('skip → skipped', reg.get(t3.id).state === 'skipped');
 
-  // -- 场景 3：持久化 + 重启恢复 --
   const t4 = reg.begin('instance', 'upgrade', { id: 'inst-1', name: '实例1' }, {});
   reg.start(t4.id);
   reg.step(t4.id, '安装');
-  // 模拟守卫崩溃：不调用任何 finish
   const reg2 = new TaskRegistry({ stateDir: TMP }); // 重新加载（等价守卫重启）
   const recovered = reg2.get(t4.id);
   check('重启后任务历史保留', recovered !== null);
@@ -58,9 +51,7 @@ async function main() {
   check('已完成任务状态保留 succeeded', t1 && t1.state === 'succeeded');
   check('重启后 isBusy 释放', reg2.isBusy('instance', 'inst-1') === false);
 
-  // -- 场景：**跨进程**双写者不得丢失更新 --
-  //   守卫与 router-daemon 各持一个 TaskRegistry 实例写同一个 tasks.json，而 _save 是整份覆盖 ⇒ 先写的会被抹掉；
-  //   修法：落盘前重读磁盘并按 id 合并（本方优先）。
+  // 守卫与 router-daemon 各持一个 TaskRegistry 写同一个 tasks.json，而 _save 整份覆盖 ⇒ 落盘前必须重读磁盘按 id 合并（本方优先）。
   {
     const TMP2 = fs.mkdtempSync(path.join(os.tmpdir(), 'task-xproc-'));
     const guard = new TaskRegistry({ stateDir: TMP2 });   // 模拟守卫进程
@@ -73,7 +64,6 @@ async function main() {
     const kinds = disk.tasks.map((x) => x.kind + '/' + x.action);
     check('跨进程：守卫与 daemon 的任务都留在磁盘（不得只留一侧）',
       kinds.indexOf('native/install') >= 0 && kinds.indexOf('proxy-app/update') >= 0, kinds.join(','));
-    // 反向：同 id 必须以本方为准（不能出现重复条目）
     const g2 = guard.begin('native', 'upgrade', { id: 'main', name: '原生 DSH' }, {});
     guard.start(g2.id);
     const disk2 = JSON.parse(fs.readFileSync(path.join(TMP2, 'tasks.json'), 'utf8'));
@@ -81,7 +71,6 @@ async function main() {
     check('跨进程：任务 id 无重复', new Set(ids).size === ids.length, String(ids.length));
     check('跨进程：daemon 的条目在守卫后续写入后仍在',
       disk2.tasks.some((x) => x.kind === 'proxy-app'), 'ok');
-    // 反向：本进程自己的条目数不被合并放大
     check('跨进程：守卫自己看到 2 条', guard.list().length === 2, String(guard.list().length));
     fs.rmSync(TMP2, { recursive: true, force: true });
   }

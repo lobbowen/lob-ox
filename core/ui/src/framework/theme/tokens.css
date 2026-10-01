@@ -2,24 +2,9 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/*
- * ============================================================================
- * DSH 通用 UI 框架 — 设计令牌（Design Tokens）
- * ============================================================================
- * 这是整个框架的"单一事实源"。所有颜色、圆角、字体均由这里的 CSS 变量驱动。
- *
- * 用法：
- *  - Tailwind 语义类：bg-primary / text-muted-foreground / border-border ...
- *  - 直接引用：style={{ color: "var(--primary)" }}
- *
- * 主题机制：
- *  - :root = 亮色主题；.dark = 暗色主题（由 ThemeProvider attribute="class" 切换）
- *  - 系统级暗色跟随：next-themes enableSystem
- * ============================================================================
- */
+/* .dark 由 next-themes ThemeProvider attribute="class" 切换；系统暗色跟随 enableSystem */
 
 :root {
-  /* 面板强调渐变 */
   --panel-accent-gradient: linear-gradient(135deg, rgba(65,118,230,0.06), rgba(65,118,230,0.015) 60%, transparent);
   --radius: 0.5rem;
   --background: #ffffff;
@@ -30,7 +15,6 @@
   --popover-foreground: #0f1115;
   --primary: #4176e6;
   --primary-foreground: #ffffff;
-  /* 主按钮立体渐变（渐变底 + 内高光；令牌化定义，页面不自造） */
   --primary-btn-grad: linear-gradient(180deg, #3d5ef0 0%, #2f54eb 100%);
   --primary-btn-grad-hover: linear-gradient(180deg, #4f7bf0 0%, #2f54eb 100%);
   --primary-btn-shadow: 0 1px 2px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.22);
@@ -182,7 +166,7 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  /* 字号 scale（Tailwind text-* 依赖这些变量） */
+  /* Tailwind text-* 依赖这些 --text-* 变量 */
   --text-xs: 0.75rem;
   --text-xs--line-height: 1rem;
   --text-sm: 0.875rem;
@@ -197,18 +181,11 @@
   --text-2xl--line-height: 2rem;
 }
 
-/*
- * ============================================================================
- * 基础样式（Base Reset）
- * ============================================================================
- */
-
 * {
   box-sizing: border-box;
 }
 
 html {
-  /* 根字号基线：rem 单位基于此缩放 */
   font-size: 16px;
 }
 
@@ -217,9 +194,7 @@ body,
 #root {
   width: 100%;
   height: 100%;
-  /* 移动/平板浏览器地址栏可见时，100% 落在含浏览器 UI 的 layout viewport，
-     底部被盖。100dvh = 动态可见视口高，随地址栏伸缩始终铺满可见区。
-     桌面无地址栏时 dvh == vh，行为不变 —— 结构零改动，仅修正视口单位。 */
+  /* 移动端地址栏可见时 100% 会被遮挡；100dvh 随地址栏伸缩，桌面下等于 vh */
   height: 100dvh;
   overflow: hidden;
   background: transparent;
@@ -234,7 +209,7 @@ body {
   background: transparent;
   color: var(--foreground);
   font-family: inherit;
-  font-size: 0.875rem; /* text-sm 为正文默认 */
+  font-size: 0.875rem;
   line-height: 1.25rem;
   user-select: none;
   -webkit-user-select: none;

@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// lan-daemon（进程解耦）机制集成测试：从 lan-state.json 快照拉起 relay（mock 目标），
-//   wanPort 绑定的唯一权威是端口注册表（与守卫共写 ports.json 单本账，claimSlot byOwner），
-//   测试经 ctl list 回读实际端口，不硬编码。含 ctl list/frpStatus/health、状态 diff、SIGTERM 优雅退出。
 
 const http = require('node:http');
 const path = require('node:path');
@@ -15,7 +12,7 @@ const ROOT = path.join(__dirname, '..');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'lan-daemon-test-'));
 const TARGET_A = safePort('lan-daemon', 0);
 const TARGET_B = safePort('lan-daemon', 1);
-// wanPort 不再硬编码：绑定权威是 daemon 侧端口注册表，实际端口经 ctl list 回读（portA/portB）。
+// wanPort 权威在 daemon 侧端口注册表（与守卫共写 ports.json 单本账），期望值只能经 ctl list 回读。
 const CTL = safePort('lan-daemon', 5); // 避开段内 28104 默认位，防与未来生产冲突（config.lanCtlPort 覆盖）
 
 let passed = 0;
@@ -55,8 +52,6 @@ function ctlCall(method, payload, timeout = 8000) {
 }
 
 async function main() {
-  // -- 环境准备：config（自生成最小配置 + 平台默认值兜底，测试隔离）--
-  //  本测试的 config.json 给 **lan-daemon 进程**读，按 buildDefaults(域注入) 取完整默认值与生产模板同形。
   let realCfg = {};
   try { realCfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.dsh', 'supervisor', 'config.json'), 'utf8')); } catch {}
   const { buildDefaults } = require('../src/platform/service/config');
@@ -84,8 +79,6 @@ async function main() {
 
   writeState({ updatedAt: Date.now(), instances: [makeInst('it-a', TARGET_A), makeInst('it-b', TARGET_B)], tokens: {} });
 
-  // -- 启动 lan-daemon --
-  // 诊断：stdio 由 ignore 改为捕获 stderr——wanPort 未监听失败时打印 daemon 错误（Windows 平台调试）。
   const daemonErr = [];
   const child = spawn(process.execPath, [path.join(ROOT, 'src', 'domains', 'relay', 'daemon.js'), '-c', cfgPath], { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
   child.stderr.on('data', (c) => { daemonErr.push(c.toString()); if (daemonErr.length > 200) daemonErr.shift(); });
@@ -93,7 +86,6 @@ async function main() {
   let ctlUp = false;
   for (let i = 0; i < 40; i++) {
     try { await ctlCall('GET', {}); } catch { await sleep(250); continue; }
-    // /health
     await sleep(250);
     ctlUp = true;
     break;
@@ -101,9 +93,7 @@ async function main() {
   check('lan-daemon 启动且 ctl 可达', ctlUp);
   if (!ctlUp) { child.kill('SIGTERM'); ta.close(); tb.close(); console.log('\n结果: ' + passed + ' passed, ' + failed + ' failed'); process.exit(failed ? 1 : 0); }
 
-  // -- relay 拉起（注册表槽位绑定 + 真实代理）--
-  //  wanPort 权威在 daemon 侧端口注册表 -> 期望值只能从 ctl list 回读，再验证「回读端口确实在监听且代理到本目标」。
-  //   Windows 上 relay 绑定可达 10-14s，故窗口放宽到 30s。
+  // Windows 上 relay 绑定可达 10-14s，故等待窗口放宽到 30s。
   const listOnce = async () => {
     try {
       const l = await ctlCall('POST', { method: 'list', args: [] });
@@ -111,7 +101,6 @@ async function main() {
     } catch { return []; }
   };
   const rowOf = (its, id) => its.find((x) => x.id === id) || null;
-  // 经 relay 口探一次真实代理：只有转发到正确 mock（响应体前缀核对）才算 200——防两口互串误判。
   const proxyTo = (wan, tag) => new Promise((resolve) => {
     const r = http.get({ host: '127.0.0.1', port: wan, path: '/probe' }, (res) => {
       let b = '';
@@ -151,13 +140,11 @@ async function main() {
     r.setTimeout(5000, () => { r.destroy(); resolve({ code: 0, body: 'timeout' }); });
   });
 
-  // -- ctl list --
   const items = await listOnce();
   check('ctl list 含 it-a/it-b 且端口与实测一致',
     rowOf(items, 'it-a') && rowOf(items, 'it-a').wanPort === PORT_A
       && rowOf(items, 'it-b') && rowOf(items, 'it-b').wanPort === PORT_B, JSON.stringify(items));
 
-  // -- 状态 diff：关闭 it-b 远程 -> reconcile 移除；令牌注入不崩 --
   writeState({ updatedAt: Date.now(), instances: [makeInst('it-a', TARGET_A), Object.assign(makeInst('it-b', TARGET_B), { remoteMode: 'off' })], tokens: { 'it-a': 'tok-XYZ' } });
   let gone = false;
   for (let i = 0; i < 20; i++) {
@@ -165,8 +152,6 @@ async function main() {
     if (!(await portListening(PORT_B))) { gone = true; break; }
   }
   check('remoteMode=off → relay 移除（该槽位端口释放）', gone, { PORT_B });
-  // 令牌注入后 A relay 仍代理：daemon 每 2s tick reconcile，it-b 移除可能触发 it-a relay 短暂重建，
-  //   轮询等待代理恢复（<=6s），容忍重建窗口。
   let tokProxyOk = false;
   for (let i = 0; i < 20; i++) {
     if ((await proxy()).code === 200) { tokProxyOk = true; break; }
@@ -174,7 +159,6 @@ async function main() {
   }
   check('令牌注入后 A relay 仍代理', tokProxyOk);
 
-  // -- 优雅退出 --
   child.kill('SIGTERM');
   await sleep(800);
   const aDown = !(await portListening(PORT_A));

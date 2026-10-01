@@ -1,20 +1,14 @@
 'use strict';
 
-// plugin 域契约声明（纯数据，零 require）。
-// exports/PUBLIC_API/exports.keys 对应 index.js 导出面与全仓消费面；
-// deps.hooks 与 exempt.hooks 为 onNativeRestart 的豁免出处；pure 为零 IO require 的纯文件清单。
-
 module.exports = {
   domain: 'plugin',
 
   exports: ['PluginManager', 'PluginMarket', 'PROTECTED'],
 
   PUBLIC_API: [
-    // PluginManager（api/domains/plugins.js 消费）
     'resolveTargets', 'installedOn', 'inventory', 'readManifest', 'overlayEntries',
     'listInstalled', 'setBundleEnabled', 'saveOverlayEntries',
     'install', 'uninstall', 'installStatus', 'checkUpdates', 'update',
-    // PluginMarket（api/domains/plugins.js 消费 getIndex）
     'getIndex', 'loadFromDisk', 'saveToDisk', 'buildIndex',
     'indexNpm', 'indexGithub', 'indexCommunity', 'safeFetchLatest', 'safeRepoPkg',
   ],
@@ -49,7 +43,6 @@ module.exports = {
 
   hooks: { onNativeRestart: true },
 
-  // 纯文件（src 相对全路径）：model/policies 的决定与构造均无 IO
   pure: [
     'domains/plugin/model.js',
     'domains/plugin/policies.js',

@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// app 级「真 ctor 注入」直测：协作方模块可只 require + 假 deps 直接断言行为，无需构造 Supervisor。
-//   本文件装 state 切面（createStateStore：phase/desired/字段/IO + main-record fallback）与
-//   control 切面（createProjection 直调 + createControlPlane 受管申报），共用同一个 fakeRegistry 夹具。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -23,7 +20,6 @@ const { createControlPlane } = require(path.join(ROOT, 'src', 'app', 'control', 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ctor-inj-'));
 const warnLog = [];
 
-/** 假受管目录（含真实 setPhase/update/register/unregister 语义）。 */
 function fakeRegistry() {
   const entries = new Map();
   return {
@@ -32,8 +28,7 @@ function fakeRegistry() {
     get: (id) => entries.get(id),
     list: () => [...entries.values()],
     setPhase(id, ph) { const e = entries.get(id); if (e) { e.phase = ph; e.lastTransitionAt = 't'; } },
-    // 与真实 registry.update 同源的关键语义：**值为 undefined 的键不改写**（裸 Object.assign 会抹掉，
-    //   假件反而比实现更严）—— 沙箱申报不带 desired/guardian 就靠这条。
+    // 假 registry 复刻真实 update 语义：值为 undefined 的键不改写（裸 Object.assign 会抹掉）——沙箱申报不带 desired/guardian 就靠这条。
     update(id, patch) {
       const e = entries.get(id);
       if (!e) return { ok: false, error: '未注册: ' + id };
@@ -46,7 +41,6 @@ function fakeRegistry() {
   };
 }
 
-// F8 state：createStateStore(deps) —— 自己持有 phase/desired/字段/IO 实现。
 {
   const reg = fakeRegistry();
   const stateFile = path.join(tmp, 'state.json');
@@ -90,9 +84,6 @@ function fakeRegistry() {
   check('S12 persistConfigPatch 原子落盘', cfg.apiAccessKey === 'k', JSON.stringify(cfg));
 }
 
-// M3：main-record fallback 是「目录未就绪期的暂存稿」，不是孤儿稿 —— 随目录持久化的字段
-//   （崩溃窗/退避/重启计数）在 fallback 期写入，必须于真 entry 首见时一次性回填；目录侧带真实数据时
-//   草稿让位，绝不反向覆盖。
 {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), 'm3-fallback-'));
   const mk = (reg) => createStateStore({
@@ -119,7 +110,6 @@ function fakeRegistry() {
   st.field('crashWindowStart', 1234); st.field('crashWindowRestarts', 4);
   check('M3a 未就绪期草稿写读一致',
     st.field('restartCount') === 5 && st.field('crashWindowStart') === 1234, 'fallback 直读');
-  // 真 entry 出现（计数=createEntry 缺省零值）-> 首见即回填。
   reg.register({ kind: 'dsh', id: 'main', desired: 'running',
     restartCount: 0, backoffLevel: 0, backoffUntil: null, crashWindowStart: null, crashWindowRestarts: 0 });
   const e = st.store();
@@ -127,18 +117,14 @@ function fakeRegistry() {
     e.restartCount === 5 && e.backoffLevel === 2 && e.backoffUntil === 999
     && e.crashWindowStart === 1234 && e.crashWindowRestarts === 4,
     'r=' + e.restartCount + ' bl=' + e.backoffLevel + ' bu=' + e.backoffUntil);
-  // 草稿让位盘上真实数据：entry 侧非缺省值（7）时回填绝不压制它。
   const reg3 = fakeRegistry();
   const st3 = mk(reg3);
-  st3.field('restartCount', 5);                                                // 草稿期写 5
+  st3.field('restartCount', 5);
   reg3.register({ kind: 'dsh', id: 'main', desired: 'running', restartCount: 7 }); // 目录真实计数 7
   check('M3c 目录侧真实计数优先（回填仅在缺省位，草稿不反向覆盖）',
     st3.store().restartCount === 7, 'r=' + st3.store().restartCount);
 }
 
-// F6/F7 control：createProjection 直调（P1-P3）+ createControlPlane 申报面。
-//   不变量：sandboxSpec 不含 desired/guardian；目录申报项一律零持 guardian 键；
-//   观测/启动对齐路径对沙箱目录的 desired 零写权。
 {
   const reg = fakeRegistry();
   reg.register({ kind: 'dsh', id: 'main', desired: 'running', phase: 'running' });
@@ -166,7 +152,6 @@ function fakeRegistry() {
     getLogger: () => ({ info() {}, warn() {} }),
   });
 
-  // P1-P3 落点 = createProjection 的**直接调用面**（只经 createControlPlane 转发会让它全仓零引用）。
   const projection = createProjection({ getLifecycleManager: () => mgr, getState: () => ctlState, getManagedObjects: () => reg });
   projection.syncInstancesView();
   projection.syncRouterView({ ok: true });
@@ -178,8 +163,6 @@ function fakeRegistry() {
   check('P3 createProjection 直调：dsh 视图 running + guardian 同源 state.guardian()',
     lcMap.get('dsh').phase === 'running' && lcMap.get('dsh').guardian === true, lcMap.get('dsh').phase);
 
-  // desired 一旦进沙箱申报，实例崩进 BACKOFF 时实然观测会被反推成意图；
-  //   guardian 进申报 = 出现第二权威源（域记录才是权威源）。
   const spec = control.sandboxSpec({ id: 's1', name: '沙箱', port: 3900, state: { phase: 'RUNNING' }, guardian: true });
   check('P4 sandboxSpec 不含 desired 也不含 guardian，且 unit/rootPath 就位',
     spec && !('desired' in spec) && !('guardian' in spec)
@@ -196,21 +179,16 @@ function fakeRegistry() {
     ['main', 'router-daemon', 'lan-daemon'].every((k) => reg.get(k) && !('guardian' in reg.get(k))),
     ['main', 'router-daemon', 'lan-daemon'].map((k) => k + ':' + (reg.get(k) ? Object.keys(reg.get(k)).join('/') : '缺')).join(' | '));
 
-  // -- D-8：沙箱目录不申报 desired，也不申报 guardian --
-  //   由 inst.state.phase 反推或从 inst.state.desired 投影都会让观测改写意图 ⇒ spec 不含 desired。
   {
     const d8 = reg;                                           // 与 control 的 getManagedObjects 同一引用
     const ent = (id) => (d8.get(id) || { __absent: true });   // 未登记 -> 判红，不抛
     const sb = (over) => Object.assign({ id: 'd8', name: '沙箱', port: 3901, guardian: false }, over);
     control.upsert(control.sandboxSpec(sb({ state: { phase: 'RUNNING', desired: 'running' } })));
-    // 假件 register 直通 spec（真实 registry 的 createEntry 缺省归一由 managed-registry-test 单独钉）。
     control.upsert(control.sandboxSpec(sb({ name: '改名', state: { phase: 'BACKOFF', desired: 'stopped' } })));
     check('D-8 行为：残留意图翻成 stopped + BACKOFF 观测，裸 upsert 仍不写 desired，name 照常刷新',
       ent('d8').desired === undefined && ent('d8').name === '改名',
       'desired=' + ent('d8').desired + ' name=' + ent('d8').name);
 
-    // 启动对齐（syncManagedRegistry 逐实例 upsert）：load() 后的 state.phase 只是实然快照；
-    //   沙箱 spec 不带 desired，对齐刷新永远碰不到目录里的应然意图。
     const d8boot = fakeRegistry();
     const bootInst = { id: 'boot1', name: '沙箱', port: 3903, guardian: false, state: { phase: 'BACKOFF', desired: 'running' } };
     const ctlBoot = createControlPlane({

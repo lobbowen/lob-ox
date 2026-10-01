@@ -1,13 +1,4 @@
-//! Release artifact acceptance: what our release pipeline produces must be
-//! exactly what the Tauri updater accepts -- no install, no user-system changes.
-//!
-//! Uses Tauri's own dependencies on purpose:
-//!   * signature: `minisign-verify` -- the same crate tauri-plugin-updater uses
-//!     (internal verify_signature does base64-decode -> PublicKey::decode -> verify)
-//!   * manifest: `tauri_plugin_updater::RemoteRelease` -- Tauri's own Deserialize
-//!
-//! NOTE: all log messages are ASCII on purpose. Rust 2021 lexes a fullwidth
-//! character adjacent to a `{}` placeholder as a prefixed identifier and fails.
+//! NOTE: all log messages are ASCII on purpose. Rust 2021 lexes a fullwidth character adjacent to a `{}` placeholder as a prefixed identifier and fails.
 
 use std::path::{Path, PathBuf};
 
@@ -18,7 +9,6 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Mirror of Tauri internal `base64_to_string`: base64-decode, then UTF-8 text.
 fn base64_to_string(s: &str) -> String {
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(s.trim())
@@ -26,7 +16,6 @@ fn base64_to_string(s: &str) -> String {
     String::from_utf8(decoded).expect("base64 payload is not UTF-8")
 }
 
-/// Read the updater pubkey from tauri.conf.json (config is source of truth).
 fn configured_pubkey() -> String {
     let p = repo_root().join("tauri.conf.json");
     let raw = std::fs::read_to_string(&p).expect("read tauri.conf.json failed");
@@ -37,7 +26,6 @@ fn configured_pubkey() -> String {
         .to_string()
 }
 
-/// Same semantics as Tauri verify_signature.
 fn verify_like_tauri(data: &[u8], signature_b64: &str, pubkey_b64: &str) -> Result<(), String> {
     let pk_text = base64_to_string(pubkey_b64);
     let public_key = PublicKey::decode(&pk_text).map_err(|e| format!("pubkey decode: {e}"))?;
@@ -48,10 +36,8 @@ fn verify_like_tauri(data: &[u8], signature_b64: &str, pubkey_b64: &str) -> Resu
         .map_err(|e| format!("verify: {e}"))
 }
 
-/// Locate an updatable artifact plus its .sig in the build output.
 fn find_artifact() -> Option<(PathBuf, PathBuf)> {
-    // 跨平台覆盖：deb / macos(*.app.tar.gz) / nsis(*.exe) 三类目录 ——
-    // 只列 Linux 会让 macOS/Windows 的 V1-V5 静默 SKIP。
+        // 跨平台覆盖：deb / macos(*.app.tar.gz) / nsis(*.exe) 三类目录 —— 只列 Linux 会让 macOS/Windows 的 V1-V5 静默 SKIP。
     let dirs = [
         repo_root().join("target/release/bundle/deb"),
         repo_root().join("target/release/bundle/macos"),
@@ -188,7 +174,6 @@ fn v5_pubkey_comes_from_config_and_is_wellformed() {
     eprintln!("V5 PASS configured pubkey well-formed, {} chars", pk.len());
 }
 
-/// 递归收集文件名匹配 predicate 的路径。
 fn walk_find(dir: &Path, pred: &dyn Fn(&str) -> bool) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let Ok(rd) = std::fs::read_dir(dir) else { return out };
@@ -203,11 +188,6 @@ fn walk_find(dir: &Path, pred: &dyn Fn(&str) -> bool) -> Vec<PathBuf> {
     out
 }
 
-// V6: toolchain round-trip, platform-agnostic. Controlled by SHELL_REHEARSAL_DIR
-// (unset = SKIP); CI sets it after assembling a release. Two modes:
-//   * build job   -> per-platform artifact/manifest-entry.json (platform +
-//     manifestKey + entries[].sig), verified with the configured pubkey.
-//   * publish job -> aggregated shell-manifest.json, parsed by Tauri RemoteRelease.
 #[test]
 fn v6_real_toolchain_manifest_roundtrip() {
     let Ok(dir) = std::env::var("SHELL_REHEARSAL_DIR") else {
@@ -221,7 +201,6 @@ fn v6_real_toolchain_manifest_roundtrip() {
     let pubkey = configured_pubkey();
     let mut checked = 0usize;
 
-    // ---- 模式 A：每平台 manifest-entry.json（build job）----
     for entry_path in walk_find(&dir, &|n| n == "manifest-entry.json") {
         let raw = std::fs::read_to_string(&entry_path)
             .unwrap_or_else(|e| panic!("V6 FAIL read {} failed: {e}", entry_path.display()));
@@ -252,7 +231,6 @@ fn v6_real_toolchain_manifest_roundtrip() {
         }
     }
 
-    // ---- 模式 B：聚合清单（publish job）----
     let agg = dir.join("shell-manifest.json");
     if agg.exists() {
         let raw = std::fs::read_to_string(&agg)

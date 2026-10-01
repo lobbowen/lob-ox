@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 前置条件：原生 DSH 未安装时 _startProcess 必须走「未安装」分支（不启动、不重试、不计数崩溃），
-// 而非当作启动失败无限重试。判据只取外部可观测面：相位不变 + 无子进程 + 零重启计数
-// （私有簿记字段 spawnBlockedUntil/missingNotified 不锁定）。
 
 const path = require('node:path');
 const fs = require('node:fs');

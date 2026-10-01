@@ -1,15 +1,12 @@
 #!/usr/bin/env node
 'use strict';
 
-// 汇总各平台 job 的 manifest-entry.json 为 shell-manifest.json（Tauri 静态清单语义）。
-// 用静态清单而非动态变量端点：Tauri 的 {{target}}/{{arch}} 与 npm 包命名不同，把变量直接拼进
-// 包名会得到不存在的包；静态清单让 URL 构造只发生在一处，且三平台行为一致。
+// 用静态清单而非动态变量端点：Tauri 的 {{target}}/{{arch}} 与 npm 包命名不同，把变量直接拼进包名会得到不存在的包；静态清单让 URL 构造只发生在一处，且三平台行为一致。
 
 const fs = require('node:fs');
 const path = require('node:path');
 
-// 标志缺取值时不能静默收下 undefined：`--entries` 落在末尾会把它塞进 entries，一路传到
-//   fs.existsSync 才抛 ERR_INVALID_ARG_TYPE，崩在离错误很远的地方、看不出是命令行写错。
+// 标志缺取值时不能静默收下 undefined：`--entries` 落在末尾会把它塞进 entries，一路传到 fs.existsSync 才抛 ERR_INVALID_ARG_TYPE，崩在离错误很远的地方、看不出是命令行写错。
 function flagValue(argv, i, name) {
   const v = argv[i + 1];
   if (v === undefined || v.startsWith('--')) {
@@ -62,7 +59,6 @@ function main() {
     notes.push(e.platform);
   }
 
-  // URL 前缀：默认按「产物随 npm 包发布」约定构造；可通过 --base 覆盖。
   const baseTpl = a.base || 'https://unpkg.com/@dsh-sup/shell-__PLATFORM__@__VERSION__/artifact/';
   for (const key of Object.keys(platforms)) {
     const p = platforms[key];
@@ -86,7 +82,6 @@ function main() {
   for (const k of Object.keys(platforms)) console.log('   ' + k + ' -> ' + platforms[k].url);
 }
 
-// 由清单键反推 npm 包平台后缀（OS-ARCH -> npm 命名）
 function platToPkg(key) {
   const MAP = {
     'linux-x86_64': 'linux-x64', 'linux-aarch64': 'linux-arm64',

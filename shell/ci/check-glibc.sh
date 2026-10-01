@@ -1,20 +1,15 @@
 #!/usr/bin/env bash
-# glibc 基座门禁：断言 Linux 产物不要求高于允许上限的 glibc 符号。
-# 用法: ci/check-glibc.sh <binary> [max=2.35]
-# 不变量：产物引用的最高 GLIBC 符号不得超过 max（glibc 前向兼容；超限则旧发行版无法运行）。
+# glibc 基座门禁：断言 Linux 产物不要求高于允许上限的 glibc 符号。用法: ci/check-glibc.sh <binary> [max=2.35]。不变量：产物引用的最高 GLIBC 符号不得超过 max（glibc 前向兼容；超限则旧发行版无法运行）。
 set -euo pipefail
 BIN="${1:?用法: check-glibc.sh <binary> [max]}"; MAX="${2:-2.35}"
 [ -f "$BIN" ] || { echo "错误：找不到 $BIN"; exit 2; }
 
-# semver 比较（仅比较 x.y）
 vercmp() { [ "$1" = "$2" ] && { echo 0; return; }; printf "%s\n%s\n" "$1" "$2" | sort -V | tail -1 | grep -qx "$1" && echo 1 || echo -1; }
 # 判据自证：比较器是唯一的裁决路径，它坏掉时门禁会恒绿（`-gt 0` 永不成立）。
 [ "$(vercmp 2.40 2.35)" = 1 ] && [ "$(vercmp 2.35 2.35)" = 0 ] && [ "$(vercmp 2.31 2.35)" = -1 ] \
   || { echo "  ❌ 自校失败：版本比较器不能分辨 2.31/2.35/2.40，本门禁无裁决能力"; exit 2; }
 
-# 提取该二进制引用的所有 GLIBC_x.y 版本（取最高）。
-# 取不到符号有两种完全不同的含义：产物真是静态链接（豁免），或工具缺席/读不动（看不见）——
-# 两者必须分开判，缺工具不等于合规。
+# 取不到符号有两种完全不同的含义：产物真是静态链接（豁免），或工具缺席/读不动（看不见）—— 两者必须分开判，缺工具不等于合规。
 TOOL=''
 command -v objdump >/dev/null 2>&1 && TOOL=objdump
 [ -n "$TOOL" ] || { command -v readelf >/dev/null 2>&1 && TOOL=readelf; }
@@ -28,7 +23,6 @@ fi
 [ "$SYM_RC" = 0 ] || { echo "  ❌ $TOOL 读取 $BIN 失败（退出码 $SYM_RC）：判红而非按通过处理"; exit 2; }
 VERS="$(printf "%s\n" "$SYM_RAW" | grep -oE "GLIBC_[0-9]+\.[0-9]+" | sed "s/^GLIBC_//" | sort -uV || true)"
 if [ -z "$VERS" ]; then
-  # 只有 readelf 成功解析 ELF 且其中确无 PT_INTERP，「零 GLIBC 符号」才是合法豁免。
   PH_RC=0
   PH="$(readelf -lW "$BIN" 2>/dev/null)" || PH_RC=$?
   if [ "$PH_RC" = 0 ] && ! printf "%s\n" "$PH" | grep -q 'INTERP'; then

@@ -1,8 +1,6 @@
 'use strict';
 
-// 本机局域网可访问地址枚举：三端各用自己的命令（linux: ip route / ip -o addr；darwin: route -n get
-// default + ifconfig；win32: PowerShell Get-NetRoute / Get-NetIPAddress）。
-// 统一语义：默认路由出口网卡优先，过滤虚拟网卡（VIRTUAL_IFACE）与回环/链路本地，同网卡静态地址优先；外部命令经 platform/util/exec（15s 硬超时 + SIGKILL）。
+// 三端各自命令：linux ip route / ip -o addr，darwin route -n get default + ifconfig，win32 PowerShell Get-NetRoute / Get-NetIPAddress。
 
 const ex = require('../util/exec');
 
@@ -14,7 +12,6 @@ function usable(addr) {
   return !!addr && !addr.startsWith('127.') && !addr.startsWith('169.254.');
 }
 
-/** 从 (iface, addr, dyn) 记录里挑地址：默认路由网卡优先，同网卡静态优先。 */
 function pick(records, dev) {
   const byIface = {};
   for (const r of records) {
@@ -59,18 +56,15 @@ function darwin() {
     const iface = line.match(/^(\S+):\s+flags=/);
     if (iface) { cur = iface[1]; continue; }
     if (!cur) continue;
-    // macOS ifconfig 的 IPv4 行形如 `\tinet 192.168.1.5 netmask 0xffffff00 broadcast ...`
     const m = line.match(/^\s+inet\s+([0-9.]+)\s/);
     if (m) records.push({ iface: cur, addr: m[1], dyn: false });
   }
   return pick(records, dev);
 }
 
-/* Windows：PowerShell（JSON 输出，避免解析本地化文本） */
 function win32() {
   const ps = [
     '$ErrorActionPreference = "SilentlyContinue"',
-    // 默认路由的接口名（等价于 Linux 的 dev）
     '$def = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" | Sort-Object RouteMetric | Select-Object -First 1).InterfaceAlias',
     '$rows = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } | ForEach-Object { [PSCustomObject]@{ iface = $_.InterfaceAlias; addr = $_.IPAddress; isDef = ($_.InterfaceAlias -eq $def) } }',
     'ConvertTo-Json -InputObject @($rows) -Compress',
@@ -91,10 +85,9 @@ function win32() {
 
 const IMPL = { linux, darwin, win32 };
 
-/** 已去重的地址列表；任何平台都不抛异常，取不到就返回空数组（调用方展示「无可用地址」）。 */
 function lanAddresses() {
   const fn = IMPL[PLATFORM];
-  if (!fn) return []; // 未知平台
+  if (!fn) return [];
   try {
     return [...new Set(fn())];
   } catch {

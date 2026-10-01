@@ -1,7 +1,3 @@
-/**
- * 实例管理（supervisor）：数据经 supervisorStore.instances（统一 2s 快照），
- * 动作 supervisorApi.instance* -> refresh()。
- */
 import { useEffect, useState } from "react";
 import {
   Activity, Box, ExternalLink, Power, Rocket, RotateCw, ShieldCheck, Square, Trash2, TriangleAlert,
@@ -31,10 +27,8 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
   const [fPort, setFPort] = useState("");
   const [fCmd, setFCmd] = useState("");
 
-  // instances[] 即沙箱；原生主干在 native 字段（由 Overview 主干卡呈现）
+  // 此处 instances 仅沙箱；原生主干在 snap.status.native，由 OverviewPage 呈现
   const items = snap.instances?.instances ?? [];
-  // /env/status.capabilities 分字段暴露：sandboxLaunch=能否跑舱，sandboxEnforcement=限额由谁执行；
-  // 不支持时前置提示，不等用户点「添加」被后端 400 拒绝才知道
   const [caps, setCaps] = useState<{ sandboxLaunch?: boolean; sandboxEnforcement?: string; platform?: string } | null>(null);
   useEffect(() => {
     let alive = true;
@@ -42,25 +36,20 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
     return () => { alive = false; };
   }, []);
   const sandboxUnsupported = caps !== null && caps.sandboxLaunch === false;
-  // 三平台均可跑舱；supervise 软限（采样式治理、无内核强制）不拦功能，只如实标注语义。
-  // 能力未回读（caps=null）时档位句一律不说——宁可少讲，不谎报硬限。
   const softTier = caps?.sandboxEnforcement === "supervise";
   const tierLabel = caps == null ? null
     : caps.sandboxEnforcement === "cgroup" ? "cgroup 内核硬限"
       : softTier ? "采样式软限（超限由守卫按拍数收割重启，非内核级强制）"
         : "无内核级限额";
 
-  // 顶部 Toolbar 动作注册：点击打开本页 dialog
   useEffect(() => {
     onRegisterActions?.({ onAdd: () => setAddOpen(true) });
     return () => onRegisterActions?.(null);
   }, [onRegisterActions]);
 
-  /** 动作（busy 键 = 实例 id；操作静默成功，仅刷新快照） */
   const act = (key: string, fn: () => Promise<unknown>) => run(key, fn);
 
-  // DSH Web 的成败与地址由 notifyOpen 呈现（三档语义 + 可复制地址），run 只负责按钮忙碌态，
-  // 故把返回值置空：不让 run 的通用「{ok:false} 即失败」判据再叠一条丢失地址的错误条。
+  // 成败与地址由 runOpenExternal/notifyOpen 呈现；置空返回值，免 run 再叠一条错误条
   const openWeb = (id: string) => run(id, () => runOpenExternal(() => supervisorApi.instanceOpenWeb(id)).then(() => undefined));
 
   async function addInstance() {
@@ -79,7 +68,6 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
   }
 
   async function checkUpdate(it: SupervisorInstance) {
-    // 分支反馈（发现新版/已最新/失败）留在动作内；busy 与刷新由共享 run 管理
     await run(it.id, async () => {
       const r = await supervisorApi.instanceCheckUpdate(it.id);
       if (r.updateAvailable) { toast.success("发现新版 " + r.latest + "，可点「更新」升级"); setUpdOk((m) => new Map(m).set(it.id, true)); }
@@ -98,7 +86,6 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
     await run(it.id, () => supervisorApi.instanceUpgrade(it.id), { success: "升级已开始…" });
   }
 
-  /** 删除实例：不可恢复，走统一确认出口。 */
   async function removeInstance(it: SupervisorInstance) {
     if (!(await askConfirm({
       title: "删除实例「" + it.name + "」？",
@@ -106,8 +93,7 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
       confirmText: "删除实例",
       tone: "destructive",
     }))) return;
-    // 删除的安全结果必须对用户可见：后端在「单元仍在运行」时保留数据目录（防不可逆丢失）
-    //并返回 dataPreserved=true，须如实说明，否则等于谎报「数据已清」。
+    // 单元仍在运行时后端保留数据目录并回 dataPreserved=true，须如实告知
     await run(it.id, async () => {
       const r = await supervisorApi.instanceRemove(it.id);
       if (r && r.ok !== false && r.dataPreserved === true) {
@@ -127,17 +113,15 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
     const updating = upd?.state === "running";
     const mem = it.state?.allocation?.memoryMax || "—";
     const cpu = it.state?.allocation?.cpuQuota || "—";
-    // 实测占用（监督拍采样回填；停止/未采到为 null，与配额成对展示，绝不以零充数）
+    // 未采到为 null（与配额成对展示），不以 0 充数
     const usage = it.state?.usage;
     const uMem = usage && typeof usage.memMb === "number" ? usage.memMb : null;
     const uCpu = usage && typeof usage.cpuPct === "number" ? usage.cpuPct : null;
     const busy = busyId === it.id;
     return (
       <Card className="overflow-visible">
-        {/* 信息区：左（身份/状态） / 右（资源指标） */}
         <div className="grid grid-cols-1 @min-[720px]:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
           <div className="flex flex-col gap-4 border-b border-border px-6 py-5 md:border-b-0 md:border-r">
-            {/* 身份行 */}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <strong className="truncate text-lg font-semibold tracking-[-0.01em] text-foreground">{it.name}</strong>
@@ -145,7 +129,6 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
                   <span className="font-mono text-sm text-muted-foreground">v{it.version}</span>
                 ) : null}
               </div>
-              {/* 版本检测/更新（随状态演化） */}
               {updOk.get(it.id) ? (
                 <Button className="text-primary-foreground" onClick={() => void upgrade(it)} size="chip">
                   <RotateCw className="size-3" />更新
@@ -157,13 +140,11 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
               )}
             </div>
 
-            {/* 运行状态 */}
             <div className="flex flex-wrap items-center gap-2">
               <ToneDot tone={pm.tone} ping={pm.tone === "ok"} />
               <span className="text-base font-semibold leading-none text-foreground">{pm.label}</span>
             </div>
 
-            {/* 升级/安装进度 */}
             {updating ? (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Spinner className="size-3" />
@@ -183,7 +164,6 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
             ) : null}
           </div>
 
-          {/* 右：运行指标（与原生主卡一致：端口/PID/重启次数/最近故障） */}
           <div className="flex items-center bg-[image:var(--panel-accent-gradient)] px-6 py-5">
             <div className="grid w-full grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
               <Metric icon={<Activity className="size-4" />} label="端口" value={String(it.port)} mono />
@@ -194,9 +174,7 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
           </div>
         </div>
 
-        {/* 底栏操作行：左信息（环境检测位 -> 内存/CPU）/ 右操作 */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 px-6 py-3">
-          {/* 左信息(沙箱/远程/内存CPU)——窄屏(内容区<860px)隐藏, 位置让给右侧操作按钮 */}
           <span className="hidden min-w-0 items-center lg:inline-flex gap-2 text-xs text-muted-foreground">
             <DomainBadge domain="sandbox" />
             <Pill tone={it.remoteMode && it.remoteMode !== "off" ? "boot" : "off"}>{it.remoteMode === "wan" ? "远程·公网" : it.remoteMode === "lan" ? "远程·局域网" : "远程关闭"}</Pill>
@@ -216,13 +194,11 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
             <Button disabled={updating} onClick={() => void act(it.id, () => (running ? supervisorApi.instanceStop(it.id) : supervisorApi.instanceStart(it.id)))} size="sm" variant="outline">
               {running ? <><Power className="size-4 text-status-error" />停止实例</> : <><Rocket className="size-4 text-primary" />启动实例</>}
             </Button>
-            {/* 分割线(启停后) -> 进程守护按钮(与主 DSH 卡同布局) */}
             <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
             <Button disabled={busy} onClick={() => void act(it.id, () => supervisorApi.instanceUpdate(it.id, { guardian: !it.guardian }))} size="sm" variant="outline">
               <ShieldCheck className={cn("size-4", it.guardian ? "text-status-ok" : "text-muted-foreground")} />
               {it.guardian ? "停止守护" : "启动守护"}
             </Button>
-            {/* 与主 DSH 卡一致：守护后无分割线；窄屏隐藏（只留启停+守护） */}
             <Button className="hidden h-[30px] md:inline-flex" disabled={busy} onClick={() => void removeInstance(it)} size="sm" variant="destructive">
               <Trash2 className="size-4" />删除
             </Button>
@@ -234,7 +210,6 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
 
   return (
     <div className="grid content-start gap-4">
-      {/* 平台能力前置提示——不支持的平台直接说明原因（无需等后端报错） */}
       {sandboxUnsupported ? (
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-xs text-muted-foreground">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
@@ -258,7 +233,6 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
         <div className="grid gap-3">{items.map((it) => <InstanceRow key={it.id} it={it} />)}</div>
       )}
 
-      {/* 添加实例 */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-[440px]">
           <DialogHeader><DialogTitle>添加 DSH 实例</DialogTitle></DialogHeader>

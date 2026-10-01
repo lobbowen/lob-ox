@@ -1,7 +1,5 @@
 'use strict';
 
-// 官方配额与单价同步（网络 IO）。deps 注入：{getProviders, findProvider, save, events, setPriceIndex}。
-
 function createQuotaSyncOps(deps) {
   const d = deps || {};
   const getProviders = d.getProviders || (() => []);
@@ -12,7 +10,7 @@ function createQuotaSyncOps(deps) {
 
   async function refreshOfficialUsageAll() {
     for (const p of getProviders()) {
-      if (p.supports('instanceLifecycle')) continue; // 额度探测按账号=无实例池的形态（process-pool 走实例面）
+      if (p.supports('instanceLifecycle')) continue;
       for (const acc of p.accounts || []) {
         if (!acc.key) continue;
         try { const det = await p.detectAccount(acc); p.applyDetection(acc, det); } catch {}
@@ -35,8 +33,6 @@ function createQuotaSyncOps(deps) {
     return { ok: true };
   }
 
-  /* 官方单价同步（models.dev）：直连供应商按 adapter.pricing 源抓权威单价 + 全局模型定价索引
-   * （反代/直连转发的任意官方模型按模型名查价，供费用估算）。 */
   async function refreshOfficialPricingAll() {
     const sources = new Map();
     for (const pr of getProviders()) {

@@ -1,4 +1,3 @@
-/** 与业务无关的通用格式化函数。 */
 
 export function formatSize(size: number) {
   if (size >= 1024 * 1024 * 1024) {

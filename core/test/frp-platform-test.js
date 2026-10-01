@@ -1,12 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// frp 平台映射测试：验证 frpPlatformTag 纯函数对三平台 x 双架构的官方产物命名正确性。
-// 纯映射断言，不碰宿主，故在 test/manifest.js 标 L1（由 runner 随全链执行）。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
-//  结构改造：平台标签/镜像 URL 迁至 frp-install.js（frpmgr.js 已按副作用二分）。
 const { frpPlatformTag, downloadUrls } = require(path.join(ROOT, 'src', 'domains', 'relay', 'frp-install'));
 
 const results = [];
@@ -27,8 +24,7 @@ for (const [p, a, wantTag, wantExe] of cases) {
 check('freebsd 拒绝（无官方产物）', frpPlatformTag('freebsd', 'x64') === null, '');
 check('ia32 拒绝（产品不支持 32 位）', frpPlatformTag('linux', 'ia32') === null, '');
 
-// downloadUrls：三源镜像（ghfast/gh-proxy/官方直连）URL 主体必须**原样**携带平台资产名
-//   （把版本号写死会随产品升版误红）；另需断 urls.length，否则空数组会让 every() 恒真。
+// 三源镜像 URL 必须原样携带平台资产名（写死版本号会随升版误红）；另需断 urls.length，否则空数组让 every() 恒真。
 const asset = 'frp_9.9.9_' + frpPlatformTag('linux', 'x64').tag + '.tar.gz';
 const urls = downloadUrls(asset);
 check('URL 原样携带平台资产名（三源）', urls.length === 3 && urls.every((u) => u.indexOf(asset) >= 0), urls.join(' | '));

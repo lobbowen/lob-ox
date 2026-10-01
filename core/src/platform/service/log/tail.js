@@ -1,11 +1,8 @@
 'use strict';
 
-// ctl 拉取与运行日志尾读（纯 IO）。
-
 const fs = require('node:fs');
 const http = require('node:http');
 
-// 调目标的 ctl 通道（POST /ctl {method,args}），返回 value；失败抛错。唯一实现，勿重复实现。
 function ctlCall(port, method, args, timeoutMs, opts) {
   const o = opts || {};
   return new Promise((resolve, reject) => {
@@ -33,7 +30,6 @@ function ctlCall(port, method, args, timeoutMs, opts) {
   });
 }
 
-// 读运行日志文件尾部（排障用 /logs/tail）。
 function tailFile(file, n) {
   if (!file) return [];
   try {

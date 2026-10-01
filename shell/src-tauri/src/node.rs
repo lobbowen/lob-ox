@@ -5,18 +5,12 @@ use std::path::{Path, PathBuf};
 
 // 镜像候选来自 mirror.rs 的 NODE_PRESETS（壳自持配置，支持用户自定义）。
 
-/// 整个请求的时间上限（ureq 的 timeout 覆盖整次调用，含响应体读取）。
-/// Node 安装包 30-90MB，必须给足；否则慢网下会误报为网络故障。
 const HTTP_TOTAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
-/// 取回整个响应体（不关心进度的小文件：SHASUMS256.txt、index.json）。
 fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
     http_get_bytes_progress(url, None, None)
 }
 
-/// 取回整个响应体，边下边报字节进度。`on_bytes(已取回, 总量)`：总量优先取响应头的 Content-Length，
-/// 没有就用 `total_hint`（调用方已知的真实大小，如 registry 的 `dist.size`），两者都没有才是 None。
-/// 必须按块回调：归档 30~90MB，整块读取期间进度对 UI 完全不可见。全仓只有这一个带进度的 GET。
 pub(crate) fn http_get_bytes_progress(
     url: &str,
     total_hint: Option<u64>,
@@ -33,14 +27,11 @@ pub(crate) fn http_get_bytes_progress(
         .and_then(|v| v.trim().parse::<u64>().ok())
         .or(total_hint)
         .filter(|t| *t > 0);
-  // 预分配只是省扩容，因此对声称的大小设上限（Content-Length 由服务端给，不可全信）。
     let mut buf = Vec::with_capacity(total.unwrap_or(0).min(64 * 1024 * 1024) as usize);
-  // 字节上限：声称的总量 + 1MB 抖动，无总量时给 512MB 硬顶（本平台最大归档约 90MB）。
   // 没有它，一个谎报或持续产字的源就能把壳进程喂到 OOM —— 读满为止，超时前无人拦。
     let cap = total.map(|t| t.saturating_add(1024 * 1024)).unwrap_or(512 * 1024 * 1024);
     let mut reader = resp.into_reader();
     let mut chunk = [0u8; 64 * 1024];
-  // 每 64KB 一次回调会打出上百条事件；按「总量的 1%」或「512KB（无总量时）」节流。
     let report_every = total.map(|t| (t / 100).max(1)).unwrap_or(512 * 1024);
     let mut next_report = 0u64;
     loop {
@@ -63,22 +54,17 @@ pub(crate) fn http_get_bytes_progress(
             }
         }
     }
-  // 收尾必报一次真实总量：否则最后一段字节（可能占总量近 1%）永远不在进度里，
-  //  「已取回 45.1 / 45.6 MB」会被读成下载停住。
     if let Some(cb) = on_bytes {
         cb(buf.len() as u64, total);
     }
     Ok(buf)
 }
 
-/// 本平台在官方 index.json 中的平台标签（必须与 `platform_artifact()` 的产物语义一致）。
-/// 不变量：判定依据与下载对象必须是同一种制品 —— macOS `osx-{arch}-tar`、Linux `linux-{arch}`、
-/// Windows `win-{arch}-zip`，各自解包成对应归档，三平台均零权限解包到 <状态根>/node。
+/// 不变量：判定依据与下载对象必须是同一种制品 —— macOS `osx-{arch}-tar`、Linux `linux-{arch}`、Windows `win-{arch}-zip`，各自解包成对应归档，三平台均零权限解包到 <状态根>/node。
 fn platform_artifact(version: &str) -> Option<crate::platform::NodeArtifact> {
     crate::platform::current().node_artifact(version)
 }
 
-/// 从一个 index.json 文本中解析「本平台可用的最高 LTS」。
 fn best_from_index(raw: &str) -> Option<(String, String)> {
     let idx: Value = serde_json::from_str(raw).ok()?;
     let arr = idx.as_array()?;
@@ -89,7 +75,6 @@ fn best_from_index(raw: &str) -> Option<(String, String)> {
         if !is_lts { continue; }
         let ver = item.get("version").and_then(|v| v.as_str()).unwrap_or("");
         if ver.is_empty() || !ver.starts_with('v') { continue; }
-  // 标签与文件名**同源**（平台层一次给出），避免判定与下载对象不一致。
         let art = match platform_artifact(&ver[1..]) { Some(a) => a, None => continue };
         let file = art.file;
         let tag = art.tag;
@@ -103,7 +88,6 @@ fn best_from_index(raw: &str) -> Option<(String, String)> {
     best
 }
 
-/// 镜像发现结果：最高 LTS + 提供该版本的**最快**源。
 pub struct LtsChoice {
     pub version: String,
     pub file: String,
@@ -112,9 +96,6 @@ pub struct LtsChoice {
     pub probes: Vec<(String, bool, u128)>,
 }
 
-/// **并行**探测全部 Node 镜像，取「最高 LTS」并选最快且提供该版本的源。
-/// 取全部可达源的最高版本（镜像同步滞后，「首个成功即采用」会装到旧版）；
-/// 在提供该版本的源中选延迟最低者，避免用慢源拉大包。
 pub fn latest_lts() -> Result<LtsChoice, String> {
     let mirrors = crate::mirror::load();
     let probes = crate::mirror::probe_all(&mirrors.node, "index.json");
@@ -138,21 +119,18 @@ pub fn latest_lts() -> Result<LtsChoice, String> {
     }
     match best {
         Some((version, file, latency_ms, source)) => {
-  // 落盘缓存：记录选中的 Node 源（镜像选择**可观测** —— 用户与排障都能看到当前用的是哪个源）。
             let mut m = crate::mirror::load();
             m.selected_node = Some(source.clone());
             if let Err(e) = crate::mirror::save(&m) {
                 crate::update::log(&format!("镜像配置写入失败（不影响本次安装）: {}", e));
             }
   // 同步导出契约给内核（内核消费同一份目录；本机没装内核时写下也无害，装完就会读到）。
-  // 这里选中的是 Node 发行源，与契约的 npm 逐源实测无关，所以不碰 measurements。
             if let Err(e) = crate::mirror::export_to_kernel(&m) {
                 crate::update::log(&format!("导出内核镜像偏好失败（不影响本次安装）: {}", e));
             }
             Ok(LtsChoice { version, file, source, latency_ms, probes: diag })
         }
         None => {
-  // 失败原因必须逐源带出（HTTP / DNS / TLS / 代理 / 读体），而不是一句「不可达」。
             let detail = probes
                 .iter()
                 .map(|p| {
@@ -180,9 +158,6 @@ fn version_gt(a: &str, b: &str) -> bool {
     false
 }
 
-/// 下载 + SHASUMS256 强校验，返回本地文件路径。源顺序：优先用发现阶段选出的最快源（`preferred`），
-/// 其余候选作为回退；校验失败（哈希不符）视为该源不可信，换下一个源重试 —— 既保证正确性，也避免被单个镜像的损坏文件卡死。
-/// `on_bytes` 只回调归档下载的字节进度（已取回 / 总量，总量可为 None）；SHASUMS256.txt 是几十 KB 附属文件，不占进度语义。
 pub fn download_verified(
     version: &str,
     file: &str,
@@ -212,8 +187,7 @@ pub fn download_verified(
             Err(e) => { last_err = Some(e); continue; }
         };
         let digest = hex::encode(Sha256::digest(&data));
-  // SHASUMS 获取失败必须 `continue`（网络失败、非 UTF-8、条目未找到同理）：
-  // 用 `?` 会让一次限流或超时中断整条镜像回退链。
+    // SHASUMS 获取失败（网络失败 / 非 UTF-8 / 条目未找到同理）必须 continue：用 ? 会让一次限流或超时中断整条镜像回退链。
         let sums = match http_get_bytes(&format!("{}/{}/SHASUMS256.txt", base, version)) {
             Ok(bytes) => match String::from_utf8(bytes) {
                 Ok(s) => s,
@@ -242,9 +216,6 @@ pub fn download_verified(
     Err(last_err.unwrap_or_else(|| "下载失败".into()))
 }
 
-/// 平台安装：官方产物 + 一次性系统授权弹窗。实现下沉到 platform 层（三平台统一为用户级归档解包，零权限，
-/// 见 ENV-TOOLCHAIN-INSTALL-STANDARD）。
-/// 这是壳独有的能力：装内核之前必须先把运行环境装好，而提权需要人在场 —— 无头的内核永远做不到。
 pub fn install(file: &Path) -> Result<PathBuf, String> {
     crate::platform::current().install_node(file)
 }
@@ -256,11 +227,9 @@ pub fn outdated(installed: Option<&str>, latest: &str) -> bool {
     }
 }
 
-/// DSH 运行最低 Node 门槛（commander 要求 Node >= 22.12.0）。
-/// 引导策略：达到最低标准即放行（不要求最新 LTS）——旧于最新但 >= 门槛直接进后续。
+/// DSH 运行最低 Node 门槛（commander 要求 Node >= 22.12.0）；达到门槛即放行，不要求最新 LTS。
 pub const MIN_NODE: &str = "v22.12.0";
 
-/// 是否达到 DSH 最低 Node 要求：None（未装）-> false；已装 -> 版本 >= MIN_NODE。
 pub fn meets_minimum(installed: Option<&str>) -> bool {
     match installed {
         None => false,
@@ -297,8 +266,6 @@ mod tests {
     }
 }
 
-/// npm 仍缺失时的**可操作**文案（ENV-TOOLCHAIN-INSTALL-STANDARD，必须给手动安装指引）。
-/// 经平台层取 npm 可执行名（平台差异只在 platform 层）。
 pub fn npm_manual_hint(version: &str) -> String {
     format!(
         "Node.js {} 已安装，但配套的 npm（{}）仍不可用。请手动安装 Node 官方分发包（自带 npm）后重试：\
@@ -309,12 +276,9 @@ pub fn npm_manual_hint(version: &str) -> String {
     )
 }
 
-/// 重新执行官方安装以补齐 npm（幂等）。复用已下载且 SHA256 校验通过的同一产物，不重新下载：
-/// 再下一遍会把「补 npm」拖成一次完整重装。失败一律归 npm 步骤。`version` 由 `finalize_install`
-/// 传入已校验值；不兜空版本 —— 空版本一旦写进契约，下游每条「已就绪」播报都会念出一个看不见的号。
+/// `version` 由 `finalize_install` 传入已校验值；不兜空版本 —— 空版本一旦写进契约，下游每条「已就绪」播报都会念出一个看不见的号。
 pub fn reinstall_for_npm(local: &Path, version: &str) -> Result<crate::runtime_contract::NodeRuntime, String> {
-  // 重装可能把「另一个旧 Node」留在 PATH/记录里，故用安装器返回的路径直接复探，
-    //   而不是再问一次 PATH（否则可能拿到旧版本，与目标版本不一致 -> 永不收敛）。
+    // 重装可能把「另一个旧 Node」留在 PATH/记录里，故用安装器返回的路径直接复探（再问一次 PATH 可能拿到旧版本，与目标版本不一致 -> 永不收敛）。
     let node = install(local)?;
     let rt = crate::runtime_contract::derive_usable(&node, version)
         .ok_or_else(|| npm_manual_hint(version))?;
@@ -322,9 +286,6 @@ pub fn reinstall_for_npm(local: &Path, version: &str) -> Result<crate::runtime_c
     Ok(rt)
 }
 
-/// 安装收尾（ENV-TOOLCHAIN-INSTALL-STANDARD）：校验 node（版本 + 最低门槛）-> 校验 npm ->
-/// 不可用则重装补 npm（幂等）。成功返回运行期契约本身，而不是再拼一份字段子集：外层每一条播报必须出自
-/// 同一份事实。失败以 bool 区分归属（true=npm / false=node）。
 pub fn finalize_install(
     node_bin: &Path,
     target: &str,
@@ -338,19 +299,14 @@ pub fn finalize_install(
     if !meets_minimum(Some(&v)) {
         return Err((false, format!("安装到的 Node.js {} 低于最低要求 {}", v, MIN_NODE)));
   }
-  // derive_usable 内部就是一次真实执行 npm（T-1b）：None 即「npm 不可用」，
-    //   不需要先单独判可用再 derive_usable —— 那会把同一个 npm 探测执行两遍。
     if let Some(rt) = crate::runtime_contract::derive_usable(node_bin, &v) {
         crate::runtime_contract::write(&rt);
         return Ok(rt);
     }
   crate::update::log("官方分发包未提供可用 npm，正在重新执行官方安装（幂等）…");
-  // 直接返回重装后的契约：路径/版本以安装器**这次**给出的为准（重装可能换落点，
-  // 沿用重装前的 node_bin 会得到不再存在的路径）。
     reinstall_for_npm(local, &v).map_err(|e| (true, e))
 }
 
-/// 安装后复探（PATH 优先，其次已知落点）。
 pub fn probe_after() -> Option<(PathBuf, String)> {
     if let Some((p, v)) = crate::env::probe_system_node() { return Some((p, v)); }
     crate::env::known_install_node_path().and_then(|p| crate::env::node_version(&p).map(|v| (p, v)))
@@ -358,9 +314,6 @@ pub fn probe_after() -> Option<(PathBuf, String)> {
 
 // 运行期契约只有 runtime_contract::write 单一写入点（两个写者会互相覆盖 npm 事实）。
 
-/// 当前 UTC 时间，ISO 8601（`YYYY-MM-DDTHH:MM:SSZ`）。
-/// 纯 std 计算（Howard Hinnant civil-from-days），三平台一致、无副作用；
-/// 格式与内核侧 `new Date().toISOString()` 同族，可被下游直接解析。
 pub fn now_iso() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -373,17 +326,16 @@ pub fn now_iso() -> String {
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, m, d, h, mi, s)
 }
 
-/// 把「自 1970-01-01 起的天数」转为 (年, 月, 日)。
 /// 算法来源：Howard Hinnant 的 `civil_from_days`（公有领域，已被广泛验证）。
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
   let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-  let doe = z - era * 146_097;  // [0, 146096]
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+  let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
   let y = yoe + era * 400;
-  let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);  // [0, 365]
-  let mp = (5 * doy + 2) / 153;  // [0, 11]
-  let d = (doy - (153 * mp + 2) / 5 + 1) as u32;  // [1, 31]
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;       // [1, 12]
+  let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  let mp = (5 * doy + 2) / 153;
+  let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
     (if m <= 2 { y + 1 } else { y }, m, d)
 }

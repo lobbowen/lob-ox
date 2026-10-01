@@ -1,7 +1,5 @@
 'use strict';
 
-// state.json 原子读写 + main 记录迁移工厂（真 ctor 注入）。
-
 const fs = require('node:fs');
 const path = require('node:path');
 const { writeAtomic } = require('../../platform/util/fs');
@@ -39,7 +37,6 @@ function createStore(deps) {
   }
 
   function loadState() {
-        // 读段只对 ENOENT（首启，正常）保持安静；恢复段失败一律留痕，否则 shellHalted/upgradeHold/desired 种子丢失无痕可查。
     let raw = null;
     try {
       raw = JSON.parse(fs.readFileSync(config().stateFile, 'utf8'));
@@ -50,7 +47,6 @@ function createStore(deps) {
       }
     }
     if (raw && typeof raw === 'object') try {
-      // 状态单源：desired 权威是受管目录；仅目录文件不存在时用 state.json 作迁移种子。
       if (raw.desired === 'stopped' || raw.desired === 'running') {
         const m = reg();
         const registryHasSource = !!(m && m._loadedFromDisk);
@@ -62,15 +58,12 @@ function createStore(deps) {
       if (typeof raw.crashWindowRestarts === 'number') record.fieldOf('crashWindowRestarts', raw.crashWindowRestarts, true);
       if (typeof raw.lastFailure === 'string' || raw.lastFailure === null) record.procFieldOf('lastFailure', raw.lastFailure, true);
       if (typeof raw.lastRestartAt === 'string' || raw.lastRestartAt === null) record.procFieldOf('lastRestartAt', raw.lastRestartAt, true);
-      // 升级 hold 跨守卫重启保持。
       if (raw.upgradeHold === true) upgradeHold.enter();
-      // 用户「退出管家」标记跨守卫重启继承（只读 true；清除由看护观测到壳在线时执行）。
       if (raw.shellHalted === true && typeof g.setShellHalted === 'function') g.setShellHalted(true);
     } catch (e) {
       const l = logger();
       if (l && l.warn) l.warn('state restore partial（字段级跳过，boot 仍继续）: ' + ((e && e.message) || e));
     }
-    // boot 相位不继承：复位 STOPPED，让首拍按真实探测收敛。
     try { fields.setPhase('STOPPED'); } catch {}
   }
 

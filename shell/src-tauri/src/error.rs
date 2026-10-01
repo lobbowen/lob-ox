@@ -1,37 +1,25 @@
-//! 结构化错误模型。IPC 边界命令统一返回 `ShellResult`（`#[serde(tag = "kind")]`），
-//! 前端按 `kind` 分支并显示 `hint`。不变量：`Probe` 带 stage/elapsed_ms；`Unsupported` 类型可见；
-//! 内部仍用 `Result<_, String>` 并经 `From<String>` 在边界升级；`guard_start` 的 JSON `error` 例外地保持字符串。
+//! 结构化错误模型。IPC 边界命令统一返回 `ShellResult`（`#[serde(tag = "kind")]`），前端按 `kind` 分支并显示 `hint`。不变量：`Probe` 带 stage/elapsed_ms；`Unsupported` 类型可见；内部仍用 `Result<_, String>` 并经 `From<String>` 在边界升级；`guard_start` 的 JSON `error` 例外地保持字符串。
 
 use serde::Serialize;
 
-/// 壳的结构化错误。`hint` 必须真的进入 JSON（手工 `Serialize` 并入输出），
-/// 前端 `errText()` 依赖它显示可操作建议。
+/// 壳的结构化错误。`hint` 必须真的进入 JSON（手工 `Serialize` 并入输出），前端 `errText()` 依赖它显示可操作建议。
 #[derive(Debug, Clone)]
 pub enum ShellError {
-  /// 探测失败：**必须带阶段与耗时**（「卡住时看得见」）。
+    /// 探测失败：**必须带阶段与耗时**（「卡住时看得见」）；失败发生在哪一步（如 `enumerate` / `version` / `path-scan`）。
     Probe {
-  /// 失败发生在哪一步（如 `enumerate` / `version` / `path-scan`）。
         stage: String,
         cause: String,
         elapsed_ms: u128,
     },
-  /// 网络请求失败。
     Network { url: String, cause: String },
-  /// 安装失败（Node 或内核）。
     Install { platform: String, cause: String },
-  /// 服务（systemd / launchd / schtasks）操作失败。
     Service { action: String, cause: String },
-  /// 与内核的契约文件读写失败。
     Contract { file: String, cause: String },
-  /// IPC 边界自身的问题（参数非法等）。
     Ipc { cause: String },
-  /// **显式不支持**（替代静默成功 / 裸字符串）。
     Unsupported { capability: String, platform: String },
 }
 
-/// 手工 `Serialize`：派生字段 + `hint`（`hint()` 是方法，派生不会带上它）。
-/// 字段格式固定为 `kind` kebab-case、字段名 snake_case，否则前端读取
-/// `e.stage`/`e.cause`/`e.elapsed_ms` 会失效。
+/// 手工 `Serialize`：派生字段 + `hint`（`hint()` 是方法，派生不会带上它）。字段格式固定为 `kind` kebab-case、字段名 snake_case，否则前端读取 `e.stage`/`e.cause`/`e.elapsed_ms` 会失效。
 impl Serialize for ShellError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -81,7 +69,6 @@ impl Serialize for ShellError {
                 "platform": platform,
             }),
         };
-  // 把可操作建议并入输出（hint 必须是序列化字段）。
         if let Some(o) = v.as_object_mut() {
             o.insert(
                 "hint".to_string(),
@@ -93,7 +80,6 @@ impl Serialize for ShellError {
 }
 
 impl ShellError {
-  /// 探测失败（带阶段与耗时）。
     pub fn probe(stage: &str, cause: impl Into<String>, elapsed_ms: u128) -> Self {
         ShellError::Probe {
             stage: stage.to_string(),
@@ -102,7 +88,6 @@ impl ShellError {
         }
     }
 
-  /// 网络失败。
     pub fn network(url: &str, cause: impl Into<String>) -> Self {
         ShellError::Network {
             url: url.to_string(),
@@ -110,15 +95,12 @@ impl ShellError {
         }
     }
 
-  /// IPC 参数非法。
     pub fn ipc(cause: impl Into<String>) -> Self {
         ShellError::Ipc {
             cause: cause.into(),
         }
     }
 
-  /// 后端给前端的**可操作建议**。单独暴露（而非让前端拼字符串）：
-  /// 建议文案属于知识，应随 kind 一起演进，且多语言时只需改一处。
     pub fn hint(&self) -> &'static str {
         match self {
             ShellError::Probe { .. } => "探测超时。可检查网络与代理设置后重试；诊断信息含失败阶段与耗时。",
@@ -132,7 +114,6 @@ impl ShellError {
     }
 }
 
-/// 便于 `Result<_, String>` 代码用 `?` 直接升级。
 impl From<String> for ShellError {
     fn from(s: String) -> Self {
         ShellError::Ipc { cause: s }
@@ -147,7 +128,6 @@ impl From<&str> for ShellError {
     }
 }
 
-/// 兼容 `Result<T, String>` 签名：把结构化错误压平为**人类可读**字符串（含 kind 与建议）。
 impl From<ShellError> for String {
     fn from(e: ShellError) -> Self {
         format!("{}（{}）：{}", e.kind_label(), e.hint(), e)
@@ -184,7 +164,6 @@ impl std::fmt::Display for ShellError {
 impl std::error::Error for ShellError {}
 
 impl ShellError {
-  /// `kind` 的稳定字符串（与 serde 的 tag 一致）。
     pub fn kind_label(&self) -> &'static str {
         match self {
             ShellError::Probe { .. } => "probe",
@@ -198,14 +177,12 @@ impl ShellError {
     }
 }
 
-/// 壳的统一 Result 别名。
 pub type ShellResult<T> = Result<T, ShellError>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-  /// 探测错误**必须**带阶段与耗时 —— 这是「卡住时看得见」的机器保证。
     #[test]
     fn probe_error_carries_stage_and_elapsed() {
         let e = ShellError::probe("enumerate", "read_dir 超时", 25000);
@@ -215,7 +192,6 @@ mod tests {
         assert_eq!(j["elapsed_ms"], 25000);
     }
 
-  /// 每个变体都必须能序列化出稳定 `kind`（前端据此分支）。
     #[test]
     fn all_kinds_are_stable() {
         let cases: Vec<(ShellError, &str)> = vec![
@@ -258,7 +234,6 @@ mod tests {
         }
     }
 
-  /// 每个变体都有**非空建议**（前端不能拿到空提示）。
     #[test]
     fn every_kind_has_a_hint() {
         let all = [
@@ -287,7 +262,6 @@ mod tests {
         }
     }
 
-  /// `hint` 必须真的进入 JSON：断言序列化输出，并校验 JSON 里的值与方法返回一致（防两处漂移）。
     #[test]
     fn every_kind_serializes_a_hint() {
         let all = [
@@ -323,7 +297,6 @@ mod tests {
         }
     }
 
-  /// 手工 `Serialize` 不得改动字段名/值（前端已按它们读取）。
     #[test]
     fn serialization_keeps_original_field_names() {
         let p = serde_json::to_value(ShellError::probe("path-scan", "卡住", 999)).unwrap();

@@ -1,6 +1,3 @@
-# 安装冒烟（Windows）：只执行**装进系统里的那份 exe**，不碰构建树。
-# 用法: install-smoke-win.ps1 -InstallerA <exe> -VerA <v> -InstallerB <exe> -VerB <v> -Work <dir>
-# A = 上一已发布版本，B = 本次构建产物；先静默装 A 再覆盖装 B，即用户的升级路径。
 param(
     [Parameter(Mandatory = $true)][string]$InstallerA,
     [Parameter(Mandatory = $true)][string]$VerA,
@@ -21,10 +18,8 @@ function NormalizedPath([string]$p) {
     ($p -replace '/', '\').TrimEnd('\')
 }
 
-# PS 7.3 起，native 命令的 stderr 在 ErrorActionPreference=Stop 下会变成终止性异常，
-# 于是「探针正常产出的警告行」能把这一步判红。
-# 为什么必须自己起进程而不用调用运算符：壳是 GUI 子系统的可执行文件，`& exe` 不等待它、
-# 也不接它的 stdout —— 探针行直接落进虚空，$LASTEXITCODE 还是空，判据读不到任何东西。
+# PS 7.3 起，native 命令的 stderr 在 ErrorActionPreference=Stop 下会变成终止性异常，于是「探针正常产出的警告行」能把这一步判红。
+# 为什么必须自己起进程而不用调用运算符：壳是 GUI 子系统的可执行文件，`& exe` 不等待它、也不接它的 stdout —— 探针行直接落进虚空，$LASTEXITCODE 还是空，判据读不到任何东西。
 # 两个管道各起一个异步读，否则子进程写满 stderr 缓冲会与父进程的 stdout 读互相锁死。
 function RunExe([string]$exe, [string[]]$argv) {
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
@@ -51,7 +46,6 @@ function RunExit([string]$text) {
     return -1
 }
 
-# 安装包里的二进制路径不靠猜：先读卸载键的 InstallLocation，拿不到再按产品名搜。
 function Find-InstalledExe {
     $dirs = @()
     $keys = @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
@@ -63,7 +57,6 @@ function Find-InstalledExe {
             $hay = ('{0} {1} {2} {3}' -f $it.DisplayName, $it.DisplayIcon, $it.UninstallString, $it.InstallLocation)
             if ($hay -notmatch 'dsh-supervisor') { continue }
             if ($it.InstallLocation) { $dirs += $it.InstallLocation }
-            # 卸载器所在目录就是安装目录（NSIS 把 uninstall.exe 放在同处）。
             if ($it.UninstallString -match '"([^"]+)"') { $dirs += (Split-Path $Matches[1]) }
         }
     }
@@ -79,7 +72,6 @@ function Find-InstalledExe {
     $null
 }
 
-# NSIS 装完可能已把自己复制到临时目录继续跑，退出码 0 不等于文件落盘；按秒轮询。
 function Resolve-InstalledExe([string]$tag) {
     for ($i = 0; $i -lt 30; $i++) {
         $exe = Find-InstalledExe
@@ -95,7 +87,6 @@ function Resolve-InstalledExe([string]$tag) {
 
 function SilentInstall([string]$pkg, [string]$tag) {
     if (-not (Test-Path $pkg)) { Fail input "$tag 安装包不存在: $pkg" }
-    # GUI 子系统的安装程序用调用运算符不会等待；WaitForExit(ms) 保证 UAC 卡住时是有界失败。
     $p = Start-Process -FilePath $pkg -ArgumentList '/S' -PassThru
     if (-not $p.WaitForExit(600000)) {
         try { $p.Kill(); $p.WaitForExit() } catch { }
@@ -104,7 +95,6 @@ function SilentInstall([string]$pkg, [string]$tag) {
     if ($p.ExitCode -ne 0) { Fail install "$tag 的 NSIS 静默安装退出码 $($p.ExitCode)" }
 }
 
-# 三项独立事实：二进制自报版本、状态根被尊重、落盘链路里 exe 记的就是装进去的那份。
 function ProbeInstalled([string]$exe, [string]$ver, [string]$tag) {
     $out = RunExe $exe @('--shell-update-plan')
     Write-Host $out
@@ -152,7 +142,6 @@ SilentInstall $InstallerB 'B'
 $exeB = Resolve-InstalledExe 'B'
 ProbeInstalled $exeB $VerB 'B'
 $hashB = HashOf $exeB
-# 版本串一致而字节未变 = 覆盖安装没换掉文件。同版本构建可逐字节相同，故只在版本不同时判。
 if (($VerA -ne $VerB) -and ($hashA -eq $hashB)) { Fail upgrade "覆盖安装后二进制字节没变（sha256=${hashB}）" }
 
 $plan = RunExe $exeB @('--node-plan')
@@ -166,8 +155,6 @@ Write-Host $matrix
 if ((RunExit $matrix) -ne 0) { Fail matrix "装好的壳 --platform-matrix 退出码非零" }
 if ($matrix -notmatch 'definition_path=') { Fail matrix '--platform-matrix 无 definition_path' }
 
-# 装到系统盘的路径才是真机路径（可能含空格），服务定义的引号与 verbatim 前缀只在装机形态下有意义。
-# 计划任务是机器级状态，隔离不到工作目录，故建完即删（失败不翻判定：判定已在上）。
 $env:DSH_GUARD_BIN = $exeB
 try {
     $sp = RunExe $exeB @('--service-plan', '--service-apply')

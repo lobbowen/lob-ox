@@ -1,9 +1,6 @@
 'use strict';
 
-// macOS 自启策略：launchctl enable/disable + bootstrap/bootout。
-// 守卫 plist 的归属见 autostart/index.js：本文件绝不写/删它 —— enable/disable 会持久化进 launchd
-// 覆盖库，这才是「关闭自启」真正生效的机制；删文件会被壳下次启动重建并 bootstrap。
-// GUI（桌面壳）的 LaunchAgent 归内核所有，其 plist 由本文件创建/删除。
+// launchctl enable/disable 会持久化进 launchd 覆盖库（这才是关自启真正生效的机制；删 plist 会被壳重建）；守卫 plist 归属见 autostart/index.js。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -22,7 +19,6 @@ function laFile(name) {
 
 function macUid() { return (typeof process.getuid === 'function') ? process.getuid() : 0; }
 
-/** 服务是否已被 launchd 载入（RunAtLoad 服务载入即运行）。 */
 function macLoaded(label) {
   try {
     return ex.runDetail('launchctl', ['print', 'gui/' + macUid() + '/' + label], { stdio: 'ignore', timeoutMs: MAC_T }).ok;
@@ -41,14 +37,10 @@ function macBootout(label) {
   catch { return false; }
 }
 
-/** XML 文本节点转义（plist 是 XML）。双引号在文本节点中合法；真正会破坏 XML 的是 &、<、>。
- *  注意 & 必须最先替换，否则会把后续插入的实体二次转义。 */
 function xmlEscape(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** 桌面壳（GUI）的 LaunchAgent plist：只表达「登录时启动」，不加保活 —— 壳的崩溃恢复归守卫看护，
- *  两套机制同时拉起会互相争抢。LimitLoadToSessionType=Aqua 限定只在实际图形会话中加载。 */
 function macGuiPlist(guiExe) {
   const log = path.join(shellDir(), 'gui-stdio.log');
   return '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -65,7 +57,6 @@ function macGuiPlist(guiExe) {
     + '</dict></plist>\n';
 }
 
-/** 守卫与 GUI 的自启状态：守卫定义由桌面壳建立，内核只读其存在性并查询载入状态。 */
 function status() {
   const guardDefined = fs.existsSync(laFile(GUARD_LABEL));
   const guardLoaded = guardDefined && macLoaded(GUARD_LABEL);
@@ -75,7 +66,7 @@ function status() {
     kind: 'launchagent',
     on: guardLoaded,
     gui: guiDefined && macLoaded(GUI_LABEL),
-    guardDefined,                // 供面板解释「定义缺失 -> 请先启动一次桌面壳」
+    guardDefined,
     guardLabel: GUARD_LABEL,
     guiLabel: GUI_LABEL,
   };
@@ -95,7 +86,6 @@ function setAutostart(on, deps) {
     } else {
       if (macLoaded(GUARD_LABEL)) macBootout(GUARD_LABEL);
       if (!macSetEnabled(GUARD_LABEL, false)) errors.push('launchctl disable 失败');
-      // 不删 plist：定义属壳，删了会被壳下次启动重建，关闭反而不生效。
     }
   } catch (e) { errors.push('launchagent: ' + e.message); }
   const g = setGuiAutostart(on, deps);
@@ -103,14 +93,12 @@ function setAutostart(on, deps) {
   return { ok: errors.length === 0, errors, ...status() };
 }
 
-/** GUI（桌面壳）登录自启 —— 独立 LaunchAgent com.dsh.supervisor.gui（RunAtLoad，无保活）。 */
 function setGuiAutostart(on, deps) {
   try {
     const file = laFile(GUI_LABEL);
     if (on) {
       const gui = deps.guiCommand();
       if (!gui || !fs.existsSync(gui)) {
-        // 不盲写一个指向不存在文件的 plist（否则登录时 launchd 静默失败）。
         return { ok: false, platform: 'darwin', enabled: false,
                  error: '未定位到桌面壳可执行文件，无法配置自启：' + gui };
       }
@@ -123,7 +111,7 @@ function setGuiAutostart(on, deps) {
     }
     if (macLoaded(GUI_LABEL)) macBootout(GUI_LABEL);
     macSetEnabled(GUI_LABEL, false);
-    try { fs.unlinkSync(file); } catch {}   // GUI 产物属内核 -> 关闭即删除是干净的
+    try { fs.unlinkSync(file); } catch {}
     return { ok: true, platform: 'darwin', enabled: false, via: 'launchagent', label: GUI_LABEL };
   } catch (e) {
     return { ok: false, platform: 'darwin', enabled: false, error: e.message };

@@ -1,36 +1,10 @@
 #!/usr/bin/env bash
-# 删导出前的消费者检查工具（R2）：
-#   给出候选符号的全仓命中清单与 R2 判定所需计数，输出 file:line:text。
-#   不是门禁：**刻意不进 test/manifest.js 登记表**，恒退出 0，只交事实。
-#
-# 判据：符号的**定义行所在文件**视为定义文件，其余文件里的命中即「定义文件之外的消费者」；
-#   只要定义文件之外还有消费者 => 不可删。未定位到定义行则所有命中都算外部消费者（保守：不可删）。
-#   定义行判据刻意高精度（宁可漏判定义，不可把消费者误判成定义）：注释行永不是定义；
-#   方法形态需行首锚定 + 定义形状双条件；同一行既能读成声明又能读成调用时一律按消费者处理
-#   （假「可删」会删活代码，假「不可删」只多一次人工确认 —— 工具必须向安全侧失败）。
-#
-# 扫描面 = 仓根全部文本文件，**含 test/ 与 bin/**（这两处最易漏）；
-#   排除 node_modules/.git/dist/ui-react 等依赖、产物与运行时目录。
-#   grep -F（固定串）配合 -w（词边界）：符号名含 $ . / 等正则特殊字符也不会出错。
-#
-# 已知假阳性：`{methods}` 门面（如 `src/app/settings/versions.js`、各域 `methods = {...}` 面）。
-#   门面方法由宿主统一安装，**同一文件内的兄弟方法常以 `this.<名>()` 间接调用**，
-#   该命中落在定义文件内被计为内部使用 => 外部消费者为 0 => 得出错误的「可删」。
-#   内置守卫：对定义文件补搜 `this.<名>`（grep -Fw），命中即把结论降级为**「需人工确认」**，
-#   只会收紧、不会放宽任何判定 —— 不会制造新的假「可删」。
-#   仍存的边界：非 `this.` 形态的间接调用（解构后再调、别名变量）看不见，
-#   故「可删」**始终需人工确认一次**，并用原始 `grep -rn` 复核动态拼接的符号引用。
-#
-# 退出码
-#   0 = 正常出结论（含「不可删」）；2 = 用法错误（缺符号名、未知参数、多个符号名）。
-#
-# 用法
-#   release/scripts/export-consumers.sh <符号名> [--defs]
-# 亦可用 bash 前缀调用：bash release/scripts/export-consumers.sh <符号名>
+# 刻意不进 test/manifest.js 登记表（非门禁）。
+# 判定向安全侧失败：宁可漏判定义，不可把消费者误判成定义（假「可删」= 删活代码）；
+#   {methods} 门面同文件内的 this.<名>() 调用会被计为 0 外部消费者，故补搜并降级为「需人工确认」。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# 输出行文本截断长度（字符）。
 TRUNC=160
 
 usage() {
@@ -69,7 +43,6 @@ if [ -z "${SYM}" ]; then
   exit 2
 fi
 
-# - 扫描面：仓根全部文本文件，剪除依赖 / 产物 / 运行时目录 --
 FILES=()
 while IFS= read -r f; do
   if [ -n "${f}" ]; then FILES+=("${f}"); fi
@@ -80,8 +53,6 @@ if [ "${#FILES[@]}" -eq 0 ]; then
   exit 2
 fi
 
-# -- 定义行判据（高精度：宁可漏判定义，不可把消费者误判成定义）--
-# 注释行永不是定义：把注释里的示例当定义会掩盖真实消费者。
 is_definition_line() {
   local text="$1" sym="$2" kw tail lead pre body
   lead="${text}"
@@ -89,7 +60,6 @@ is_definition_line() {
   case "${lead}" in
     "//"*|"*"*|"#"*) return 1 ;;
   esac
-  # 仅当行注释符之前只有空白时才算注释行（行尾注释不豁免：const X = 1; // note 仍是定义行）
   case "${text}" in
     *"//"*)
       pre="${text%%//*}"
@@ -99,7 +69,6 @@ is_definition_line() {
       esac
       ;;
   esac
-  # 1) 声明关键字后紧跟符号：function / const / let / var / class
   for kw in function const let var class; do
     tail="${text#*"${kw} "}"
     if [ "${tail}" != "${text}" ]; then
@@ -108,16 +77,10 @@ is_definition_line() {
       esac
     fi
   done
-  # 2) 导出形态
   case "${text}" in
     *"exports.${sym}"*) return 0 ;;
     *"module.exports ="*"${sym}"*) return 0 ;;
   esac
-  # 3) 方法 / 箭头形式的对象成员（methods 面）。**行首锚定 + 定义形状**，双条件缺一不可：
-  #    去掉前导空白与可选 `async ` 后，必须以 `sym` **紧跟 `(`** 开头（方法简写形态），
-  #    或 `sym:` 开头（对象成员形态）。行内其它位置的调用一律按**消费者**处理 ——
-  #    子串无左边界会把门面转发器所在文件误列为定义文件，无参调用形态无锚定会把纯调用行
-  #    判成「定义行」，两者都会藏起该文件内的真实消费点（误报「可删」= 删活代码）。
   body="${lead}"
   case "${body}" in "async "*) body="${body#async }" ;; esac
   case "${body}" in
@@ -128,7 +91,7 @@ is_definition_line() {
   return 1
 }
 
-# 定义文件集合（bash 3.2 无关联数组，用分隔串做成员判定）。
+# bash 3.2 无关联数组，用分隔串做成员判定。
 DEF_FILES="|"
 add_def_file() {
   case "${DEF_FILES}" in
@@ -142,7 +105,6 @@ in_def_files() {
     *) return 1 ;;
   esac
 }
-# 过程 / 历史文档不计入 R2 判定（它们是过程记录，不是契约声明）。
 bucket_of() {
   case "$1" in
     design-notes/*) echo "design-notes" ;;
@@ -165,8 +127,7 @@ CONS_LINES=(); DEF_LINES=()
 
 while IFS= read -r hit; do
   if [ -z "${hit}" ]; then continue; fi
-  # 归一化 find 的 ./ 前缀：bucket_of 与路径展示都按仓根相对路径判定。
-  # （已知边界：仓库内不存在含冒号的文件名；若将来出现，需改用 -z 分隔。）
+  # 前提：仓库内文件名不含冒号（否则须改用 -z 分隔）。
   file="${hit%%:*}"
   file="${file#./}"
   rest="${hit#*:}"
@@ -201,10 +162,7 @@ done <<< "${RAW}"
 
 DEF_DISPLAY="$(printf "%s" "${DEF_FILES}" | tr "|" " " | sed "s/  */ /g; s/^ //; s/ $//")"
 
-# -- {methods} 门面假阳性守卫（见头注）--
-# 对每个定义文件补搜 "this.<SYM>"（-F 固定串 + -w 词边界：SYM=Foo 不会误命中 this.FooBar）。
-# 命中即说明该符号被同文件兄弟方法经 this 调用 => 结论降级为「需人工确认」。
-# 仅用 bash 3.2 可用特性（不用 mapfile；空数组访问前先判计数，避免 set -u 报错）。
+# bash 3.2：不用 mapfile，空数组展开前先判计数（set -u）。
 THIS_REF=0; THIS_LINES=()
 while IFS= read -r _df; do
   [ -z "${_df}" ] && continue

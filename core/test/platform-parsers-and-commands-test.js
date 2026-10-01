@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// 平台「输出解析 + 命令构造 + 会话判定」可移植性（纯函数直调，非平行实现）：pidlookup.js 的 parse* 系列 ·
-//   notify.js（notifyCommand/appleScriptString/powerShellString）· desktop.js 会话探针。
-//   PowerShell 用**双写**转义、反斜杠是字面字符（套 JSON 规则会让 PS 在反斜杠处终止字符串 -> notify 静默失败）；wmic 的 "No Instance(s) Available." 必须返回 null 走 CIM 回退；端口匹配必须**整段**。
+// PowerShell 用双写转义、反斜杠是字面字符（套 JSON 规则会让 PS 在反斜杠处终止字符串 ⇒ notify 静默失败）；wmic 的 "No Instance(s) Available." 必须返回 null 走 CIM 回退；端口匹配必须整段。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -21,11 +19,8 @@ const check = (n, c, x) => {
 
 const LF = String.fromCharCode(10);
 const CRLF = String.fromCharCode(13) + String.fromCharCode(10);
-// 异步判据登记表：汇总前统一 await。
 const pendingChecks = [];
-// -- Y-1：三平台监听者解析 --
 {
-  // Windows netstat -ano（真实形态：CRLF；IPv6 行；非 LISTENING 行）
   const netstat = [
     '活动连接',
     '',
@@ -38,8 +33,6 @@ const pendingChecks = [];
   ].join(CRLF);
   const onlyLonger = '  TCP    127.0.0.1:28100        0.0.0.0:0              LISTENING       12345'
     + CRLF + '  TCP    127.0.0.1:12800        0.0.0.0:0              LISTENING       22222';
-  //  严格判据：整段匹配（:28100 不被 :2800/:12800 误命中，抓贪婪子串与前后缀干扰）+ 真实夹具上的
-  //   非 LISTENING / TCPv6 / 空输入，一并判。
   check('Y-1 netstat：**:28100 取 12345 而 :2800 → null**、:12800 → 22222（抓贪婪/前后缀干扰）；非 LISTENING 忽略、TCPv6 解析、无匹配/空/undefined 一律 null',
     pid.parseNetstatPid(onlyLonger, 2800) === null
     && pid.parseNetstatPid(onlyLonger, 28100) === 12345 && pid.parseNetstatPid(onlyLonger, 12800) === 22222
@@ -47,7 +40,6 @@ const pendingChecks = [];
     && pid.parseNetstatPid(netstat, 28102) === 555 && pid.parseNetstatPid(netstat, 28999) === null
     && pid.parseNetstatPid('', 80) === null && pid.parseNetstatPid(undefined, 80) === null, 'ok');
 
-  // macOS lsof / Linux ss / Linux /proc/net/tcp：三种形态各自的取 pid 规则（表头、无 pid 段 -> null）
   const lsof = [
     'COMMAND   PID USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME',
     'node    12345 bowen   20u  IPv4 0x1a2b3c4d5e6f7a8b      0t0  TCP 127.0.0.1:28107 (LISTEN)',
@@ -66,9 +58,7 @@ const pendingChecks = [];
     JSON.stringify([...inodes]));
 }
 
-// -- Y-2：回归锚点 —— wmic 空输出必须回退 --
 {
-  //  核心：进程已退出/权限不足时 wmic 输出下面这句 -> 必须 null（=> 调用方走 CIM 回退）
   const noInstance = 'No Instance(s) Available.';
   check('Y-2 wmic 输出 No Instance(s) Available. → null（触发 CIM 回退）',
     pid.parseWmicCommandLine(noInstance) === null, JSON.stringify(pid.parseWmicCommandLine(noInstance)));
@@ -80,7 +70,6 @@ const pendingChecks = [];
     && pid.parsePowerShellCommandLine('   ') === null, 'ok');
 }
 
-// -- Y-3：notify 平台->命令映射 + 转义规则区分 --
 {
   const L = notify.notifyCommand('linux', 'T', 'B');
   const D = notify.notifyCommand('darwin', 'T', 'B');
@@ -92,8 +81,7 @@ const pendingChecks = [];
     && notify.notifyCommand('freebsd', 'T', 'B') === null,
     (W && W.cmd) || '');
 
-  //  转义：两平台规则**不同**，必须分开实现。PowerShell 侧用**单引号字面量**——旧双引号串漏 $，
-  //   body（含 err.message 通路）里的 $(...) 会被子表达式插值执行 = 注入面。
+  // 两平台转义规则不同：PowerShell 侧必须用单引号字面量 —— 双引号串里的 $(...) 会被子表达式插值执行 = 注入面。
   const Q = String.fromCharCode(34);
   const SQ = String.fromCharCode(39);
   const raw = 'a' + Q + 'b';
@@ -103,14 +91,12 @@ const pendingChecks = [];
     && notify.powerShellString("it's") === SQ + 'it' + SQ + SQ + 's' + SQ
     && notify.notifyCommand('win32', raw, raw).args[3]
       .indexOf('ShowBalloonTip(4000, ' + SQ + 'a' + Q + 'b' + SQ + ', ' + SQ) >= 0, 'ok');
-  // 注入行为：$(...) 与反引号必须原样处于单引号内（不成为插值点）
   const inj = 'x$(calc.exe)y`z';
   const wrapped = notify.powerShellString(inj);
   check('$()/反引号 原样留在单引号串内（PowerShell 单引号语义=字面量）',
     wrapped === SQ + inj + SQ, wrapped);
 }
 
-/** 子进程伪造 platform + env 后执行（模块级：Y-4 与 Y-5 都要用）。 */
 function underFakeEnv(platform, env, body) {
   const code = [
     "Object.defineProperty(process, 'platform', { value: " + JSON.stringify(platform) + " });",
@@ -124,7 +110,6 @@ function underFakeEnv(platform, env, body) {
   } catch (e) { return 'EXECFAIL:' + ((e && e.message) || e); }
 }
 
-// -- Y-4：desktop 会话判定 --
 {
   const BODY = [
     "const d = require('./src/platform/os/desktop.js');",
@@ -132,10 +117,8 @@ function underFakeEnv(platform, env, body) {
     "process.stdout.write(JSON.stringify(s));",
   ].join(LF);
 
-  // 子进程输出 -> {out, j}（JSON 解析失败时 j 为 null），下面各平台采样共用。
   const jOf = (out) => { try { return { out: out, j: JSON.parse(out) }; } catch { return { out: out, j: null }; } };
 
-  // darwin/win32 是同一代码路径的两个平台采样（会话由启动器限定）。
   const outs = ['darwin', 'win32'].map((p) => Object.assign({ p: p }, jOf(underFakeEnv(p, { DISPLAY: null, WAYLAND_DISPLAY: null }, BODY))));
   check('Y-4 darwin/win32 恒为可用（会话由启动器限定）且 reason=session-scoped-by-launcher',
     outs.every((o) => !!o.j && o.j.available === true && o.j.reason === 'session-scoped-by-launcher'),
@@ -145,7 +128,6 @@ function underFakeEnv(platform, env, body) {
   check('Y-4 linux + DISPLAY → 可用且 reason=env(...)',
     !!rEnv.j && rEnv.j.available === true && rEnv.j.reason === 'env(DISPLAY/WAYLAND_DISPLAY)', rEnv.out.slice(0, 90));
 
-  // 空 XDG_RUNTIME_DIR -> wayland 探针必须为假（尊重该变量）；x11 探针取决于宿主。
   const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'sess-'));
   const rXdg = jOf(underFakeEnv('linux', { DISPLAY: null, WAYLAND_DISPLAY: null, XDG_RUNTIME_DIR: empty }, BODY));
   const hasX = (() => { try { return fs.readdirSync('/tmp/.X11-unix').some((f) => /^X\d+$/.test(f)); } catch { return false; } })();
@@ -155,7 +137,6 @@ function underFakeEnv(platform, env, body) {
 }
 
 
-// -- Y-6：resstats 进程树采样解析（/proc、ps、Get-CimInstance 三种真实形态文本离线验）--
 {
   const resstats = require(path.join(ROOT, 'src', 'platform', 'os', 'resstats'));
   const { aggregate } = resstats;
@@ -192,7 +173,6 @@ function underFakeEnv(platform, env, body) {
     agg && agg.rssBytes === 350 && agg.cpuMs === 35 && aggregate(12345, tree) === null
     && (() => { const c = aggregate(1, [{ pid: 1, ppid: 2, rssBytes: 10, cpuMs: 1 }, { pid: 2, ppid: 1, rssBytes: 20, cpuMs: 2 }]); return c && c.rssBytes === 30; })(),
     JSON.stringify(agg));
-  // 异步段（sampleAsync 契约）：必须等它落账再收尾，防汇总先跑造成假绿跳过。
   pendingChecks.push((async () => {
     check('Y-6 sampleAsync：pid 非法（0/负/小数/字符串）-> null 不抛',
       (await resstats.sampleAsync(0)) === null && (await resstats.sampleAsync(-2)) === null &&
@@ -204,7 +184,6 @@ function underFakeEnv(platform, env, body) {
         !!self && self.rssBytes > 0 && self.cpuMs >= 0
         && (await resstats.sampleAsync(2147483646)) === null, JSON.stringify(self));
     }
-    // 非 Linux：子进程数据源由对应平台的 runner 裁决。
   })());
 }
 

@@ -1,18 +1,11 @@
 'use strict';
 
-// 进程树资源采样（观测面）：sampleAsync(pid) -> { rssBytes, cpuMs } | null，按父子关系聚合整棵树。
-// 平台差异只落在「数据源怎么取」；解析与树聚合是纯函数。
-// 失败一律 null（= 无观测证据）：绝不把采样失败当零占用。
-
 const fs = require('node:fs');
 const platform = require('./index');
 const ex = require('../util/exec');
 
-// 采样子进程有界超时：监督拍 5s 一拍，2s 拿不到就本轮放弃（下拍重试），绝不拖垮事件循环。
 const SAMPLE_TIMEOUT_MS = 2000;
 
-/** Linux /proc/<pid>/stat 单行解析：comm 可含空格/括号，从末个 ')' 之后取字段。
- *  字段序（以 state 为 0）：state=0 ppid=1 utime=11 stime=12；USER_HZ 固定 100（内核 UAPI 承诺）。 */
 function parseProcStat(text) {
   const open = text.indexOf('(');
   const close = text.lastIndexOf(')');
@@ -26,13 +19,11 @@ function parseProcStat(text) {
   return { pid, ppid, cpuMs };
 }
 
-/** Linux /proc/<pid>/status 的 VmRSS（kB）；缺失（内核线程/竞态退出）返回 null。 */
 function parseProcStatusRss(text) {
   const m = /VmRSS:\s+(\d+)\s+kB/.exec(text);
   return m ? parseInt(m[1], 10) * 1024 : null;
 }
 
-/** ps CPU 时间格式：[['dd-']hh:]mm:ss[.cc]；返回毫秒。 */
 function parseCpuTimeMs(text) {
   let s = String(text).trim();
   let days = 0;
@@ -42,11 +33,9 @@ function parseCpuTimeMs(text) {
   if (parts.some((p) => !Number.isFinite(p))) return null;
   let sec = 0;
   for (const p of parts) sec = sec * 60 + p;
-  // 秒的小数部分（cs 百分秒）不可精确二进制表示，故取整。
   return Math.round((days * 86400 + sec) * 1000);
 }
 
-/** `ps -axo pid=,ppid=,rss=,cputime=` 全表解析（darwin 数据源；rss 单位 kB block）。 */
 function parsePsTable(text) {
   const procs = [];
   for (const line of String(text).split('\n')) {
@@ -62,7 +51,7 @@ function parsePsTable(text) {
   return procs;
 }
 
-/** Get-CimInstance Win32_Process 的 JSON（win32 数据源）：时间单位 100ns，WorkingSetSize 字节。 */
+// Get-CimInstance Win32_Process 的 JSON：时间单位 100ns，WorkingSetSize 字节。
 function parseCimJson(text) {
   let data;
   try { data = JSON.parse(text); } catch { return []; }
@@ -80,7 +69,6 @@ function parseCimJson(text) {
   return procs;
 }
 
-/** 树聚合（纯）：从 rootPid 沿父子关系收集全部后代并求和；root 不在表内 -> null（进程已退出）。 */
 function aggregate(rootPid, procs) {
   const byId = new Map();
   const children = new Map();
@@ -99,7 +87,7 @@ function aggregate(rootPid, procs) {
     rssBytes += p.rssBytes;
     cpuMs += p.cpuMs;
     for (const c of children.get(p.pid) || []) {
-      if (seen.has(c.pid)) continue; // 数据竞态下的环/重挂：每个 pid 只计一次
+      if (seen.has(c.pid)) continue;
       seen.add(c.pid);
       stack.push(c);
     }
@@ -107,7 +95,6 @@ function aggregate(rootPid, procs) {
   return { rssBytes, cpuMs };
 }
 
-/** Linux：/proc 直读（无子进程；采样成本微秒级，可同步执行在监督拍内）。 */
 function sampleLinux(pid) {
   let pids;
   try { pids = fs.readdirSync('/proc').filter((s) => /^\d+$/.test(s)); } catch { return null; }
@@ -127,8 +114,6 @@ function sampleLinux(pid) {
 const CIM_QUERY = 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,' +
   'WorkingSetSize,UserModeTime,KernelModeTime | ConvertTo-Json -Compress';
 
-/** 按平台取进程表并聚合。返回 Promise 以统一调用面：win/mac 数据源是子进程，必须异步
- *  （同步 exec 会把 2s 超时摊进守卫心跳 tick）。null = 本平台无数据源或采样失败。 */
 function sampleAsync(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return Promise.resolve(null);
   if (platform.isLinux) return Promise.resolve(sampleLinux(pid));

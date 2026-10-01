@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// 实例启动预校验：配置端口**被他进程登记**时必须显式拒绝（PORT_TAKEN:<by>），不得拖到 systemd bind。
-//   静默端口（登记了但无监听者）TCP 探测不可见，注册表是跨进程共享事实源，判据只在册不在听。
-//   P-b 反向：自有登记（syncPorts 的 inst:<id>）不误判 · P-c 拒绝原因写入 state.lastError。
+// 静默端口（登记了但无监听者）TCP 探测不可见，注册表是跨进程共享事实源 ⇒ 判据只在册不在听。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -45,7 +43,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'inst-port-'));
     && /PORT_TAKEN/.test(mgr.instances[0].state.lastError || ''),
     JSON.stringify(r4a) + ' started=' + started + ' lastError=' + String(mgr.instances[0].state.lastError));
 
-  // 反向（判据不误伤）：自有登记（syncPorts 的 inst:<id> 形态）照常放行
   ports.release(P4);
   ports.registerUser(P4, 'inst:b25');
   const r4b = await mgr.startInstance('b25');

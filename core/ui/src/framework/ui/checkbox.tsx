@@ -4,8 +4,7 @@ import { cn } from "../utils";
 export interface CheckboxProps
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> {}
 
-/** 令牌化勾选框：勾号用内联 SVG background 绘制并居中于框内，不依赖浏览器原生 appearance 渲染。
- *  约束：SVG 属性一律用双引号——encodeURIComponent 不编码单引号，单引号会提前闭合 CSS url('…')。 */
+/** SVG 属性一律用双引号：encodeURIComponent 不编码单引号，会提前闭合 CSS url('…')。 */
 export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
   function Checkbox({ className, checked, ...props }, ref) {
     const checkSvg =

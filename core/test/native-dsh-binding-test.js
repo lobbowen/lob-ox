@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// 原生 DSH「检测 -> 绑定 -> 接管」契约回归：原生 DSH 只被静态 config.command[1]（出厂默认裸名 'dsh'）定义，
-//   fs.existsSync('dsh') 恒 false ⇒ 「已安装」判不出来，面板会去装第二个 DSH 顶替原生的那个。
+// 原生 DSH 只被静态 config.command[1]（出厂默认裸名 'dsh'）定义，fs.existsSync('dsh') 恒 false ⇒ 面板会去装第二个 DSH 顶替原生的那个。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -32,7 +31,6 @@ const JS = fakePkg(PREFIX, '9.9.9');
 const ENV_KEYS = ['HOME', 'USERPROFILE', 'PATH', 'Path', 'APPDATA', 'LOCALAPPDATA', 'DSH_BIN'];
 const saved = {};
 for (const k of ENV_KEYS) saved[k] = process.env[k];
-/** 隔离所有「可能命中真实 dsh」的环境来源，使负例确定。 */
 function isolate() {
   process.env.HOME = EMPTY_HOME; process.env.USERPROFILE = EMPTY_HOME;
   process.env.PATH = ''; process.env.Path = '';
@@ -57,33 +55,26 @@ const mkNM = (command, npmRoot) => new NativeManager({
 
 isolate();
 
-// 1) resolveDsh：DSH_BIN 显式覆盖（最高优先级）
 process.env.DSH_BIN = JS;
 const d1 = ep.resolveDsh({});
 check('resolveDsh(DSH_BIN) 返回真实 JS 入口', d1 && d1.isJs === true && canon(d1.bin) === canon(JS), d1 && d1.bin);
 
-// 2) resolveDsh：npmRoot 分支（PATH 无 dsh、home 为空）
 delete process.env.DSH_BIN;
 const d2 = ep.resolveDsh({ npmRoot: PREFIX });
 check('resolveDsh(npmRoot) 命中包内 lib/bin.js', d2 && canon(d2.bin) === canon(JS), d2 && d2.bin);
 
-// 3) NativeManager：已绑定绝对入口 -> 已安装 + 版本可读
 const bound = mkNM(['node', JS, 'web'], PREFIX);
 check('已绑定入口 → installed=true', bound.status().installed === true, bound.binPath());
 check('已绑定入口 → 读到真实版本', bound.installedVersion() === '9.9.9', String(bound.installedVersion()));
 
-// 4) NativeManager：裸名 + 无任何可解析安装 -> 如实未安装（不再伪造）
 const bare = mkNM(['node', 'dsh', 'web'], EMPTY_PREFIX);
 check('裸名且无可解析安装 → installed=false（如实）', bare.status().installed === false, String(bare.binPath()));
 
-// 5) 反向可判别：同一 config，注入真实安装后即判为已安装（检测驱动，非静态写死）
 process.env.DSH_BIN = JS;
 const adopted = mkNM(['node', 'dsh', 'web'], EMPTY_PREFIX);
 check('检测到真实安装 → installed=true（检测驱动）', adopted.status().installed === true, adopted.binPath());
 
 
-// 9) D-9：升级/重装不得用空数组抹掉 dataPaths 认领（Array.isArray([]) 为真 =>
-//    传 [] 会把上一代认领写成 []，卸载清理恒 no-op，目录永久残留）。
 {
   const mf = require(path.join(ROOT, 'src', 'app', 'native', 'manifest.js'));
   const mdir = path.join(TMP, 'd9-manifest');
@@ -95,7 +86,6 @@ check('检测到真实安装 → installed=true（检测驱动）', adopted.stat
     config: { command: ['node', path.join(mdir, 'no-such-bin')], packageName: '@deepseek-ai/dsh' },
   };
   const readM = () => { try { return JSON.parse(fs.readFileSync(mfFile, 'utf8')); } catch { return null; } };
-  // 认领路径取自夹具目录（宿主中性）：测试里不得钉死操作者的绝对路径。
   const CLAIM = [path.join(mdir, 'dsh-home', 'sessions')];
 
   mf.record(host, '1.0.0', CLAIM, '/npmroot');
@@ -114,9 +104,7 @@ check('检测到真实安装 → installed=true（检测驱动）', adopted.stat
   try { fs.rmSync(mdir, { recursive: true, force: true }); } catch {}
 }
 
-// D-10：主实例（原生 DSH）的启动命令必须自带 --no-open。
-// `dsh web` 自己会拉起系统浏览器，这条路绕在 platform/os/browser#openBrowser 唯一出口之外：没有能力档、
-// 没有预检、没有三档证据，守卫每重启一次就多弹一个窗。该闸要覆盖每一条组装口，不能只装在沙箱那条上。
+// 主实例启动命令必须自带 --no-open：dsh web 自己拉浏览器会绕过 platform/os/browser#openBrowser 唯一出口，该闸要覆盖每一条组装口。
 {
   const { nativeCommand } = require(path.join(ROOT, 'src', 'app', 'native', 'command.js'));
   const dshCli = require(path.join(ROOT, 'src', 'platform', 'contract', 'dsh-cli.js'));
@@ -144,8 +132,6 @@ function finish() {
   process.exit(failed.length ? 1 : 0);
 }
 
-// D-9（**调用点**行为）：升级/重装路径不得把 [] 交给 manifest.record —— 驱动真实安装入口
-//   （依赖全部打桩），非首装时第二个实参必须是 undefined，且不得重新认领数据路径。
 (async () => {
   const nm = mkNM(['node', JS, 'web'], PREFIX);
   let upgradeArg = 'NOT-CALLED';

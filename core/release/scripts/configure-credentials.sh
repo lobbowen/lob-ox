@@ -1,18 +1,8 @@
 #!/usr/bin/env bash
-# 本机凭据安全配置脚本：把令牌值从「环境变量」写入「系统级安全存储」，值绝不落入仓库/历史/日志。
-# 用法（仓库根执行）：
-#   bash release/scripts/configure-credentials.sh --npm     # NPM_TOKEN 环境变量 -> ~/.npmrc（0600）
-#   bash release/scripts/configure-credentials.sh --check   # 只读自检（不含任何值）
-# 范围：只管 npm，Git 凭据不在本脚本内 ——
-#   现行推送通道 = HTTPS + 两仓 repo-local `credential.helper store --file <规范库>/git-credentials`，
-#   该文件由 cred.sh 管理（0700/0600、清单化、doctor 审计），凭据只应存在这一份副本。
 # 原则：本脚本不接收命令行明文参数、不打印 token、不写仓库内任何文件。
-#
-# 与发布链路的关系：本脚本与 publish-core.sh **共用** release/scripts/_npm-auth.sh
-#   的同一份解析实现（单源）。本脚本负责**把 token 落到规范位置**，publish-core 负责**读**：
-#     规范位置 = **真实用户 home** 下的 .npmrc（不是沙箱 $HOME）——见 _npm-auth.sh 的解析顺序。
-#   之所以强调「真实 home」：DSH 沙箱会把 $HOME 指向实例数据目录，若写到 $HOME/.npmrc，
-#   该 token 就只对「那一个沙箱」可见，换沙箱即 ENEEDAUTH。
+# Git 凭据由 cred.sh 管理，只应存在规范库这一份：repo-local `credential.helper store --file <规范库>/git-credentials`。
+# 规范位置 = 真实用户 home 下的 .npmrc（不是沙箱 $HOME）；与 publish-core.sh 共用 _npm-auth.sh 的同一份解析。
+#   DSH 沙箱把 $HOME 指向实例数据目录：写到 $HOME/.npmrc 只对该沙箱可见，换沙箱即 ENEEDAUTH。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
@@ -20,16 +10,14 @@ cd "$ROOT"
 . "$ROOT/release/scripts/_npm-auth.sh"
 
 REAL_HOME="$(dsh_real_home)"
-NPMRC="$(dsh_canonical_npmrc)"          # 规范位置：真实 home/.npmrc
+NPMRC="$(dsh_canonical_npmrc)"
 # 权限位读取用 node 而非 `stat -c %a`（GNU 专有：macOS 的 BSD stat 不认，Windows 没有 stat），
 #   与 cred.sh 同源，三平台一致。
 perm_of() { node -e "try{process.stdout.write((require('fs').statSync(process.argv[1]).mode & 0o777).toString(8).padStart(3,'0'))}catch(e){process.stdout.write('?')}" "$1"; }
 
 write_npmrc() {
   [ -n "${NPM_TOKEN:-}" ] || { echo "❌ NPM_TOKEN 环境变量为空（请先 export NPM_TOKEN=...）"; exit 1; }
-  # 原子写：先写临时文件再落位，权限 0600；不 echo 值
   TMP="$(mktemp)"
-  # 保留用户已有非 token 行，仅替换/追加 token 行
   if [ -f "$NPMRC" ]; then
     grep -v '^//registry\.npmjs\.org/:_authToken=' "$NPMRC" > "$TMP" || true
   fi
@@ -55,8 +43,7 @@ check() {
     echo "NPM: ✅ 命中认证来源 → $(dsh_npm_auth_describe)"
     dsh_npm_auth_cleanup
   else
-    # 本机没有 npm 认证**不是缺陷**：四平台发布全部在 CI 上经仓库 secret `NPM_TOKEN` 完成；
-    #   只有要手工 `npm publish`（不属标准流程）时才需要配。
+    # 本机无 npm 认证非缺陷：发布在 CI 经仓库 secret NPM_TOKEN；仅手工 publish 才需 --npm。
     echo "NPM: 本机无认证来源（正常：发布走 CI 的 NPM_TOKEN；仅本机手工 publish 才需 --npm）"
   fi
   if [ -f "$NPMRC" ]; then
@@ -64,8 +51,6 @@ check() {
   else
     echo "NPM: 规范文件 $NPMRC 不存在"
   fi
-  # git 凭据以**规范库**为准：本仓不用全局 helper，两仓各自配 repo-local
-  #   `credential.helper = store --file <规范库>/git-credentials`，所以只看全局会误报「未配置」。
   local cred_file gh_helper_local
   cred_file="$(bash "$ROOT/release/scripts/cred.sh" path git-credentials 2>/dev/null || true)"
   gh_helper_local="$(git config --get credential.helper 2>/dev/null || true)"

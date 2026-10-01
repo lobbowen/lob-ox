@@ -1,9 +1,5 @@
 'use strict';
 
-// 插件域变更生效（IO）：对已变更且运行中的目标触发重启，沙箱走 instances 停起重试，
-// 原生走 onNativeRestart。能力经 ctx 显式传入，不读 this。
-
-/** 目标是否运行中（native -> main 探针；其它 -> 自身 id）。 */
 function targetRunning(ctx, target) {
   if (!ctx.instances || !target) return false;
   try {
@@ -14,13 +10,9 @@ function targetRunning(ctx, target) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** 插件变更后使运行中的目标生效（沙箱停起 / 原生回调）。 */
 async function applyPluginChange(ctx, target, kind, onLog) {
   const log = (m) => { try { if (typeof onLog === 'function') onLog(m); } catch {} };
   if (!target) return false;
-  // 本域注入的是裸 InstanceManager，退出门只在外层适配器（control/instance-adapter.js），
-  //   故退出中 in-flight 的卸载/更新作业仍可直接停起实例。这里自查注入谓词：
-  //   退出中即跳过重启并视为未生效（下次启动自然生效）。
   try {
     if (typeof ctx.exitIntended === 'function' && ctx.exitIntended()) {
       log('会话退出中：跳过插件变更生效重启（将在下次启动时生效）');
@@ -34,7 +26,6 @@ async function applyPluginChange(ctx, target, kind, onLog) {
       log('重启实例「' + (target.name || target.id) + '」使插件变更生效…');
       if (ctx.events) ctx.events.append('plugin_restart_started', { name: target.name || target.id, target: target.id, kind });
       try { ctx.instances.stopInstance(target.id); } catch (e) { log('停止实例失败: ' + e.message); }
-      // start 带重试：systemd stop 后端口释放通常瞬发，偶发占用则重试
       let res = null;
       for (let i = 0; i < 6; i++) {
         try { res = await ctx.instances.startInstance(target.id); } catch (e) { res = { ok: false, error: e.message }; }

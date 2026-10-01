@@ -1,5 +1,3 @@
-// 面板侧「把地址交给浏览器」的行为测试：按行为钉住分档判据（取字段而非文案）与选路判据。
-// 与 client.test.ts 同一手法：注入 fetch 替身，测到真实请求的路径与请求体，不碰 supervisorApi 本身。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handOffFromPanel, openViaWindow, servedByKernelHost, classifyOpenResult, evidenceDetail, loginIsolationText, loginUrlOf } from "./externalOpen";
 import type { ProxyLoginStart } from "./types";
@@ -8,7 +6,6 @@ function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } } as ResponseInit);
 }
 
-/** 内核 /env/open-url 的替身：记下面板发出的路径与请求体（选路判据的行为证据），按给定档位回。 */
 function stubKernel(status: number, body: unknown) {
   const sent: Array<{ path: string; payload: unknown }> = [];
   vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
@@ -18,8 +15,6 @@ function stubKernel(status: number, body: unknown) {
   return sent;
 }
 
-/** 装一个最小 window：hostname 决定面板由谁托管；open 记录访客浏览器的原生新标签。
- *  blocked=弹窗被拦截（浏览器回 null），throws=导航被策略拒绝。 */
 function installWindow(hostname: string, behavior: "accept" | "blocked" | "throws" = "accept") {
   const calls: string[][] = [];
   const win: Record<string, unknown> = {
@@ -66,19 +61,15 @@ describe("classifyOpenResult：三档只看字段，不看文案", () => {
     expect(r.detail).toContain("隔离窗口会是空白页");
   });
   it("摊不摊证据行的取舍：非确认档恒摊，confirmed 只给隔离登录意图摊", () => {
-    // 普通打开（点自己地址行那种高频动作）成功时不摊，免得屏幕长期挂一行技术字。
     expect(classifyOpenResult({ ok: true, confirmed: true, url: "http://a.b/",
       evidence: { bin: "firefox", via: "browser", ownsWindow: false, exitCode: 0 } }).reveal).toBe(false);
-    // 隔离登录成功档正是白窗口的落点：没有这一行，真机取证只剩「弹了但空白」。
     expect(classifyOpenResult({ ok: true, confirmed: true, url: "http://a.b/",
       evidence: { bin: "chrome", via: "isolated", engine: "chromium", ownsWindow: true, exitCode: 0, watch: true } }).reveal).toBe(true);
-    // 降档那条 via 已不是 isolated，但 egress 非空即「这一拍真的判过冷档案出网」，同样要摊。
     expect(classifyOpenResult({ ok: true, confirmed: true, url: "http://a.b/",
       evidence: { bin: "chrome", via: "browser", exitCode: 0, egress: { host: "login.example.test", viable: false, basis: "cold-profile-blocked", proxy: "off" } } }).reveal).toBe(true);
     expect(classifyOpenResult({ ok: true, confirmed: true, url: "http://a.b/",
       evidence: { bin: "chrome", via: "browser", exitCode: 0, egress: { host: "login.example.test", viable: false, basis: "cold-profile-blocked", proxy: "off" } } }).detail)
       .toContain("出网判定 cold-profile-blocked");
-    // 反向：失败/交给系统两档即使没有证据也必须摊（摊的是「有没有拿到东西」，不是「拿到什么」）
     expect(classifyOpenResult({ ok: false, error: "未找到" }).reveal).toBe(true);
     expect(classifyOpenResult({ ok: true, confirmed: false, handedOff: true }).reveal).toBe(true);
   });
@@ -91,8 +82,6 @@ describe("loginIsolationText：「没用隔离窗口」的两种原因分不开�
     expect(loginIsolationText({ ok: true })).toBe(null);
   });
   it("冷档案注定空白 -> 说清依据并给出可修的那一半（配好系统代理即回到隔离档）", () => {
-    // 类型标注不是装饰：它把「面板读的这三个字段确实在内核契约里」钉成编译期判据，
-    //   内核改名或漏字段时这里先红，而不是到真机上才发现提示永远是兜底那句。
     const s: ProxyLoginStart = {
       ok: true, isolated: false, isolatedBasis: "cold-profile-blocked",
       isolatedDetail: "login.example.test 直连不通且系统没有在用代理",
@@ -131,8 +120,7 @@ describe("loginUrlOf：等待授权期间常驻的地址行（toast 十几秒就
 
 describe("evidenceDetail：把启动形态摊给用户（真机报错只有文案时无人能定位）", () => {
   it("不可信形态标注「退出码不作证据」，并可执行文件名而非全路径", () => {
-    // Windows 只剩「直启探测解析出的本体」这一种形态，而它可被既有实例吸收，
-    //   故退出码两个方向都不是证据。
+    // Windows 只剩直启探测解析出的本体这一种形态，可被既有实例吸收，故退出码两向都不作证据。
     expect(evidenceDetail({ bin: "C:\\Windows\\System32\\notepad.exe", via: "browser", ownsWindow: false, exitCode: 1 }))
       .toBe("notepad.exe | browser | 退出码不作证据 | exit 1");
   });
@@ -160,20 +148,17 @@ describe("evidenceDetail：把启动形态摊给用户（真机报错只有文�
   it("引擎随行摊出：白窗口要能分「换浏览器」还是「配代理」，内核交出而界面不读等于没交", () => {
     const d = evidenceDetail({ bin: "/usr/bin/safari", via: "browser", engine: "webkit", ownsWindow: true, exitCode: 0 });
     expect(d).toContain("引擎 webkit");
-    // 反向：内核不交 engine 时不得凭空造出引擎字样（造出来就是把猜测投上屏幕）
     expect(evidenceDetail({ bin: "/usr/bin/safari", via: "browser", ownsWindow: true, exitCode: 0 })).not.toContain("引擎");
   });
   it("关窗即取消要说明：隔离登录的窗口关掉等于放弃，用户不知道就会继续等回调", () => {
     const d = evidenceDetail({ bin: "/usr/bin/chrome", via: "isolated", ownsWindow: true, watch: true, isolated: true, exitCode: 0 });
     expect(d).toContain("关掉该窗口即取消本次登录");
-    // 反向：并入既有窗口（watch 不为真）时不得宣称关窗能取消——那会把用户的既有会话当成可弃的
     expect(evidenceDetail({ bin: "/usr/bin/chrome", via: "isolated", ownsWindow: true, isolated: false, exitCode: 0 }))
       .not.toContain("关掉该窗口");
   });
   it("冷档案目录摊出来：白窗口的解释多半在这个目录里，支持排障要能直接拿到路径", () => {
     const d = evidenceDetail({ bin: "/usr/bin/chrome", via: "isolated", isolated: true, profile: "/tmp/dsh-login-a1b2", exitCode: 0 });
     expect(d).toContain("隔离档案 /tmp/dsh-login-a1b2");
-    // 反向：普通打开没有目录（profile 为 null），不许凭空造出一行档案路径
     expect(evidenceDetail({ bin: "/usr/bin/chrome", via: "browser", profile: null, exitCode: 0 })).not.toContain("隔离档案");
   });
   it("选不出启动对象时把「哪条来源答了什么」摊出来（否则与探测层失灵无从区分）", () => {
@@ -195,9 +180,7 @@ describe("evidenceDetail：把启动形态摊给用户（真机报错只有文�
     expect(say("candidate-rank")).toContain("系统未报默认项，已按候选次序取首个（可在环境检测里改）");
     expect(say("only-installed")).toContain("本机唯一候选");
     expect(say("none-found")).toContain("本机未探到可用浏览器");
-    // 反向：系统报出的默认项来源名不是这四档之一，不得被说成「按你选的」——否则用户会以为是自己定的
     expect(say("userchoice")).not.toContain("按你在环境检测里选的浏览器");
-    // 偏好所指已被卸载/路径失效：必须点名「不在候选清单」，只报回落等于让用户继续等一个不会来的窗口
     expect(say("userchoice", { id: "c:\\gone\\firefox.exe", matched: false }))
       .toContain("你选的浏览器已不在候选清单，请重选");
     expect(say("userchoice", { id: "/usr/bin/firefox", matched: true })).not.toContain("请重选");
@@ -240,8 +223,7 @@ describe("servedByKernelHost：浏览器与内核是否同一台机器", () => {
       expect(servedByKernelHost()).toBe(true);
     });
   }
-  // 127.example.com 是「以 127. 开头」这种前缀判据的漏网之鱼：它不是 IP，内核在那台机器上，
-  //   误判会让远程访客的面板把动作推给内核，而内核按真实 socket 判非回环 —— 用户只看到一次 403。
+  // 127.example.com 以 127. 开头但不是 IP：前缀判据的漏网之鱼，误判会让远程访客的面板把动作推给内核。
   for (const h of ["192.168.1.20", "dsh.example.com", "127.example.com", "127.0.0.1.evil.com", "[::2]", ""]) {
     it("反向：" + h + " 不是回环，此时请内核开浏览器是在别人的机器上弹窗", () => {
       installWindow(h);
@@ -276,7 +258,6 @@ describe("handOffFromPanel：本机请内核开、他人浏览器自己开", () 
     expect(sent.length).toBe(0);
     expect(w.calls.length).toBe(1);
     expect(r.ok).toBe(true);
-    // 新标签就在访客眼前，故算 confirmed；证据只到「浏览器接收了导航」，不冒领内核的进程取证。
     expect(r.confirmed).toBe(true);
     expect(r.evidence?.via).toBe("window");
   });

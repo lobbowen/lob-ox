@@ -1,7 +1,3 @@
-/**
- * 设置 — 启动区块：自治组件，只依赖 autostart / lan-panel / access-key / close-action 四端点，
- * 与版本环境、镜像源彻底解耦——各自加载、各自失败，互不拖累。
- */
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch } from "../../../framework/ui";
@@ -12,7 +8,6 @@ import {
 import { useSupervisorAction } from "../useSupervisorAction";
 import { Card, CardTitle } from "../widgets";
 
-/** 各端点独立取数与 catch：任一失败只影响本区块。 */
 export function StartupCard() {
   const [autoOn, setAutoOn] = useState<boolean | null>(null);
   const [lan, setLan] = useState<LanPanelStatus | null>(null);

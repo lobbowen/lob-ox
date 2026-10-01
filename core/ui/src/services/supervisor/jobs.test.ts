@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pollJob } from "./jobs";
 
-// pollJob 单测：终态识别 / job-not-found 短路 / 超时 / 重试 / 中止。
 describe("pollJob 任务轮询", () => {
   it("running → done：命中终态即返回", async () => {
     const seq = [{ state: "running" }, { state: "running" }, { state: "done", restarted: 2 }];

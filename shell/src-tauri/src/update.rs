@@ -1,11 +1,9 @@
-//! 桌面壳身份与日志：只负责壳自身的身份落盘与日志。identity.json 由壳写，内核只读其中的运行时字段
-//! （version / phase / exe / lastSeenAt 等）；内核 domains/shell/watchdog 用 exe 在壳崩溃后把它拉起，故必须保留。
+//! 桌面壳身份与日志：只负责壳自身的身份落盘与日志。identity.json 由壳写，内核只读其中的运行时字段（version / phase / exe / lastSeenAt 等）；内核 domains/shell/watchdog 用 exe 在壳崩溃后把它拉起，故必须保留。
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// 壳状态目录（独立于 DSH，与内核状态同根不同子目录）：<状态根>/shell。
 pub fn state_dir() -> PathBuf {
     if let Some(p) = test_state_dir_override() {
         return p;
@@ -13,7 +11,6 @@ pub fn state_dir() -> PathBuf {
     crate::env::shell_dir()
 }
 
-/// 状态目录的测试注入点。
 #[cfg(test)]
 static TEST_STATE_DIR: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 
@@ -29,19 +26,15 @@ fn test_state_dir_override() -> Option<PathBuf> {
 
 fn identity_path() -> PathBuf { state_dir().join("identity.json") }
 fn log_path() -> PathBuf { state_dir().join("shell.log") }
-/// 守卫子进程的输出落点：`<状态根>/shell/guard.log`；与壳自身的 shell.log 分开以保留「谁说的话」的归属。
-/// 公开是为了让报错能指名证据在哪。
+/// 守卫子进程的输出落点：`<状态根>/shell/guard.log`；与壳自身的 shell.log 分开以保留「谁说的话」的归属。公开是为了让报错能指名证据在哪。
 pub fn guard_log_path() -> PathBuf { state_dir().join("guard.log") }
 
-/// 打开守卫输出日志（追加 + 建目录）。**打不开时返回 None**，由调用方退回 null。
-///
-/// 这条通道只做「有则记」：它绝不能成为拉起失败的原因。
+/// 打开守卫输出日志（追加 + 建目录）。**打不开时返回 None**，由调用方退回 null。这条通道只做「有则记」：它绝不能成为拉起失败的原因。
 pub fn guard_log_file() -> Option<std::fs::File> {
     let dir = state_dir();
     let _ = fs::create_dir_all(&dir);
     let p = guard_log_path();
-  // 写这个文件的是**子进程**，它不会自己滚动；守卫若陷入崩溃循环，一晚上就能把磁盘写满。
-  // 超限（512KB）时先截断保留后半部分。
+    // 写这个文件的是**子进程**，它不会自己滚动；守卫若陷入崩溃循环，一晚上就能把磁盘写满。超限（512KB）时先截断保留后半部分。
     if let Ok(md) = fs::metadata(&p) {
         if md.len() > 512 * 1024 {
             if let Ok(s) = fs::read_to_string(&p) {
@@ -54,7 +47,6 @@ pub fn guard_log_file() -> Option<std::fs::File> {
     fs::OpenOptions::new().create(true).append(true).open(&p).ok()
 }
 
-/// 落盘日志（滚动：超过 1MB 时保留后半部分）。绝不 panic、绝不阻塞启动。
 pub fn log(line: &str) {
     let dir = state_dir();
     let _ = fs::create_dir_all(&dir);
@@ -73,8 +65,6 @@ pub fn log(line: &str) {
     }
 }
 
-/// 运行时安装形态（判断「能否自更新」与诊断用）。
-/// Linux 只有 `deb` 一条支持面；其余形态落到 `_` 即「未知形态 -> 不自称能自更新」。
 pub fn install_kind() -> String {
     match tauri::utils::platform::bundle_type() {
         Some(tauri::utils::config::BundleType::Deb) => "deb",
@@ -86,12 +76,10 @@ pub fn install_kind() -> String {
     .to_string()
 }
 
-/// 是否存在可用的提权通道（Linux deb 更新要落系统目录）。只探测，不执行。
 fn has_privilege_channel() -> bool {
     crate::platform::current().has_privilege_channel()
 }
 
-/// 能否自更新：形态受支持 且（Linux）有提权通道。
 pub fn self_update_capable() -> bool {
     match install_kind().as_str() {
         "deb" => has_privilege_channel(),
@@ -117,7 +105,6 @@ fn write_json(p: &Path, v: &serde_json::Value) {
     }
 }
 
-/// 当前 Unix 时间（秒）。
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -125,9 +112,7 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// 写 identity.json —— 身份文件的唯一写入点。
-///
-/// runtime_fields 描述本次调用的运行时上下文；其余字段从现有文件保留。
+/// 写 identity.json —— 身份文件的唯一写入点。runtime_fields 描述本次调用的运行时上下文；其余字段从现有文件保留。
 fn write_identity_for(runtime_fields: &serde_json::Value) -> serde_json::Value {
     let mut v = read_json(&identity_path());
     if !v.is_object() {
@@ -144,7 +129,6 @@ fn write_identity_for(runtime_fields: &serde_json::Value) -> serde_json::Value {
     out
 }
 
-/// 启动时调用：写壳身份文件（仅运行时字段）。壳的更新强制且不可回退。
 pub fn init_identity(version: &str) -> serde_json::Value {
     let kind = install_kind();
     let capable = self_update_capable();
@@ -215,7 +199,6 @@ mod tests {
         assert_eq!(id["version"], serde_json::json!("1.2.3"));
         assert_eq!(id["phase"], serde_json::json!("boot"));
         assert!(id.get("exe").is_some(), "exe 必须存在（内核看护依赖）");
-  // 护栏字段不得写入（用 concat 避免本断言自匹配）
         assert!(id.get(concat!("at", "tempt")).is_none(), "不得存在尝试计数");
         assert!(id.get(concat!("pending", "Version")).is_none(), "不得存在待确认版本");
         assert!(env.dir.join("identity.json").exists());

@@ -1,12 +1,8 @@
-//! 统一更新决策模型（桌面壳与内核同一形状）：artifact / current / latest / available / channel /
-//! source / error，各侧特有键以 extra 附加。
-//! 执行器按产物类型分派（壳 = Tauri updater，内核 = npm），但决策模型是一套。
+//! 统一更新决策模型（桌面壳与内核同一形状）：artifact / current / latest / available / channel / source / error，各侧特有键以 extra 附加。执行器按产物类型分派（壳 = Tauri updater，内核 = npm），但决策模型是一套。
 
 use serde_json::{json, Map, Value};
 
-/// 版本字面量 -> 发布通道词表（`-CANARY.` / `-BETA.` / `-RC.`）。这是「版本号自己叫什么」，不是「被哪个 tag 选中」：
-/// 后者由 `release_channel::Selected::via` 回答。`latest` / `rollback` 是通道身份、不出现在版本号里，
-/// 混为一谈会让面板把「回退中」显示成「测试版」。
+/// 版本字面量 -> 发布通道词表（`-CANARY.` / `-BETA.` / `-RC.`）。这是「版本号自己叫什么」，不是「被哪个 tag 选中」：后者由 `release_channel::Selected::via` 回答。`latest` / `rollback` 是通道身份、不出现在版本号里，混为一谈会让面板把「回退中」显示成「测试版」。
 pub fn channel_of(version: Option<&str>) -> &'static str {
     match version {
         Some(v) if v.contains("-CANARY.") => "canary",
@@ -16,20 +12,17 @@ pub fn channel_of(version: Option<&str>) -> &'static str {
     }
 }
 
-/// 选版依据 -> 通道词。回答「这一版是怎么被选出来的」，故 `rollback` 只在显式回退 tag 生效时为真 ——
-/// 这是「当前是否有回退在生效」唯一可靠的观测来源。
+/// 选版依据 -> 通道词。回答「这一版是怎么被选出来的」，故 `rollback` 只在显式回退 tag 生效时为真 —— 这是「当前是否有回退在生效」唯一可靠的观测来源。
 pub fn selected_channel_of(via: &str) -> &'static str {
     match via {
         "rollback" => "rollback",
         "canary" => "canary",
         "latest" => "latest",
-  // versions 兜底不是"通道"，但作为**降级信号**必须可见（正常路径不该出现）。
         "versions" => "fallback",
         _ => "latest",
     }
 }
 
-/// 统一更新计划形状：公共键 + 各侧特有键（extra）。
 pub fn unified(
     artifact: &str,
     current: Option<String>,
@@ -39,8 +32,6 @@ pub fn unified(
     error: Option<String>,
     extra: Map<String, Value>,
 ) -> Value {
-  // 通道判定：有选版依据（extra.latestVia，由 latest_pick 带出）就用它，否则退回看版本名字
-  // （桌面自更新等没有选版依据的场景）。版本号字面量答不了「当前是否回退中」。
     let via = extra.get("latestVia").and_then(|v| v.as_str());
     let channel = match via {
         Some(v) => selected_channel_of(v),
@@ -92,24 +83,20 @@ mod tests {
         assert_eq!(channel_of(Some("0.1.6-CANARY.1")), "canary");
         assert_eq!(channel_of(Some("1.1.0")), "latest");
         assert_eq!(channel_of(None), "latest");
-  // rollback 是通道身份而非版本命名：版本字面量里不会出现它。
         assert_eq!(channel_of(Some("0.1.5-BETA.6")), "beta");
     }
 
-  /// `selected_channel_of` 必须覆盖全部选版依据（五通道词表）。
     #[test]
     fn selected_channel_covers_all_five_tags() {
         assert_eq!(selected_channel_of("rollback"), "rollback");
         assert_eq!(selected_channel_of("canary"), "canary");
         assert_eq!(selected_channel_of("latest"), "latest");
-  // versions 兜底必须区别于 latest —— 否则面板会把"降级路径"显示成正常发布。
         assert_eq!(selected_channel_of("versions"), "fallback");
         assert_ne!(selected_channel_of("versions"), selected_channel_of("latest"));
-  // 未知依据不得恐慌，回退到一个确定值
         assert_eq!(selected_channel_of("???"), "latest");
     }
 
-  /// **回退中的版本**其 `channel_of` 仍是 beta，但 `selected_channel_of` 必须是 rollback —— 二者不可互相替代。
+    /// **回退中的版本**其 `channel_of` 仍是 beta，但 `selected_channel_of` 必须是 rollback —— 二者不可互相替代。
     #[test]
     fn rollback_is_observable_even_when_version_name_looks_like_beta() {
         let v = Some("0.1.5-BETA.6");

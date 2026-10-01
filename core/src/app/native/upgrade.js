@@ -1,8 +1,5 @@
 'use strict';
 
-// 域：原生 DSH —— 升级编排（先停后装、健康验证、失败回滚）。纯编排：只经 host-first 调用 NativeManager 的
-//   原子操作，不自持 IO。
-
 const policies = require('./policies');
 
 function log(host, msg) { host._appendUpgradeLog(msg); }
@@ -40,7 +37,6 @@ function beginTask(host, requestedVersion) {
   return task;
 }
 
-/** 目标版本与它的来源：查询成功时两者同源返回；钉死版本则没有来源（安装前另选一次）。 */
 async function resolveTarget(host, requestedVersion, task) {
   if (requestedVersion) return { version: requestedVersion, origin: null };
   taskLog(host, task, '查询最新版本…');
@@ -50,7 +46,6 @@ async function resolveTarget(host, requestedVersion, task) {
   return { version: info.version, origin: info.origin };
 }
 
-/** 先停 DSH（含接管实例），期间守卫暂停自动拉起。 */
 async function stopForUpgrade(host, task) {
   if (!(host.hooks.isDshActive && host.hooks.isDshActive())) return;
   host.upgradeState = 'restarting';
@@ -63,9 +58,7 @@ async function stopForUpgrade(host, task) {
   if (host.hooks.stopForUpgrade) await host.hooks.stopForUpgrade();
 }
 
-/** 安装 + 版本校验 + 写 manifest。安装后磁盘版本与目标不一致即视为失败（抛错走回滚）。 */
 async function installTarget(host, oldV, target, origin, task) {
-  // 下载源 = 给出目标版本的那个源（同源时不再另选）；另选一次会让版本与字节来自两个镜像。
   const registry = origin || await host._selectRegistry();
   markStep(host, task, '安装 ' + target);
   const res = await host._runNpm({ action: 'install', version: target, registry });
@@ -111,7 +104,6 @@ function finishVerified(host, oldV, target, task) {
   return { ok: true, result: 'upgraded', from: oldV, to: target };
 }
 
-/** 拉起新版本并内联健康验证（unit=null）。未通过则自动回滚，绝不未验证即报成功。 */
 async function verifyAndFinalize(host, oldV, target, task) {
   host.upgradeState = 'verifying';
   markStep(host, task, '拉起并验证');
@@ -138,7 +130,6 @@ async function rollbackAfterFailedVerify(host, oldV, task, healthy) {
   if (task) host.tasks.log(task.id, '健康验证失败（' + healthy.reason + '）');
   host.upgradeState = 'rolling_back';
   const rb = await rollbackNative(host, oldV, task);
-  // rolledBack 只描述事实：回滚成功才算已回滚（brief/CLI 文案直接消费此位）。
   host.rolledBack = rb.ok === true;
   host.upgradeError = rb.ok ? ('升级失败，已回滚到 ' + oldV) : ('升级失败且回滚失败：' + (rb.error || ''));
   host.upgradeState = 'failed';
@@ -149,7 +140,6 @@ async function rollbackAfterFailedVerify(host, oldV, task, healthy) {
   return { ok: false, error: host.upgradeError, state: host.upgradeState };
 }
 
-/** 自动回滚：装回升级前版本并重新拉起。返回 { ok, error }。 */
 async function rollbackNative(host, oldVersion, task) {
   const tlog = (msg) => { log(host, msg); taskLog(host, task, msg); };
   if (!oldVersion) { tlog('无旧版本可回滚'); return { ok: false, error: 'no old version to rollback' }; }
@@ -174,7 +164,6 @@ async function rollbackNative(host, oldVersion, task) {
   return { ok: true };
 }
 
-/** 异常路径回滚（handleUpgradeFailure 用）。返回 { ok }；失败路径已自行通知并恢复。 */
 async function rollbackAfterFailure(host) {
   host.upgradeState = 'rolling_back';
   if (host.events) host.events.append('upgrade_rollback_started', { to: host.oldVersion });
@@ -191,12 +180,10 @@ async function rollbackAfterFailure(host) {
     if (host.events) host.events.append('upgrade_rollback_failed', {});
     if (host.hooks.notify) host.hooks.notify('DSH 升级失败', '回滚也失败，请立即人工检查 npm 全局目录');
     if (taskId && host.tasks) host.tasks.fail(taskId, '回滚也失败：' + host.upgradeError, { meta: { rolledBack: false, rollbackFailed: true } });
-        // hold 释放统一收敛到 handleUpgradeFailure 尾部，本函数不 resume；否则「回滚失败 -> 调用方提前 return ->
-        //   释放点分裂、_activeTaskId 泄漏」。
     return { ok: false };
   }
   log(host, '回滚完成。');
-  host.rolledBack = true; // 装回+版本核验通过后才宣告已回滚
+  host.rolledBack = true;
   try { await host._recordManifest(host.oldVersion); } catch (e2) { log(host, 'manifest 更新失败: ' + e2.message); }
   host.upgradeState = 'failed';
   host.upgradeFinishedAt = new Date().toISOString();
@@ -231,7 +218,6 @@ async function handleUpgradeFailure(host, err) {
   host._activeTaskId = null;
 }
 
-/** 一键升级（统一任务模型）：先停 DSH、安装、验证，失败自动回滚。 */
 async function upgrade(host, requestedVersion) {
   if (!policies.isValidVersion(requestedVersion)) return { ok: false, error: '非法版本号: ' + requestedVersion };
   beginUpgradeState(host, requestedVersion);

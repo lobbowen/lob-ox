@@ -1,28 +1,22 @@
 'use strict';
 
-// 部署形态判定：自更新的安装目标必须等于运行目标。本模块是形态与运行目标的唯一判定点，
-// 调用方（apply/restart/面板显隐）不得自行猜测。
-
 const fs = require('node:fs');
 const path = require('node:path');
 
-/** SEA 单文件二进制识别：文件头为 ELF/PE/Mach-O magic（node 文本脚本不会以这些字节开头）。 */
 function isBinaryExecutable(file) {
   try {
     const fd = fs.openSync(file, 'r');
     try {
       const head = Buffer.alloc(4);
       fs.readSync(fd, head, 0, 4, 0);
-      const elf = head[0] === 0x7f && head[1] === 0x45 && head[2] === 0x4c && head[3] === 0x46; // ELF
-      const pe = head[0] === 0x4d && head[1] === 0x5a; // MZ（PE/DOS stub）
+      const elf = head[0] === 0x7f && head[1] === 0x45 && head[2] === 0x4c && head[3] === 0x46;
+      const pe = head[0] === 0x4d && head[1] === 0x5a;
       const macho = (head[0] === 0xcf && head[1] === 0xfa) || (head[0] === 0xca && head[1] === 0xfe);
       return elf || pe || macho;
     } finally { fs.closeSync(fd); }
   } catch { return false; }
 }
 
-/** launcher 形态识别：运行目标的同目录或上级目录存在 core.cjs 即为发布布局。
- *  两处都查：argv[1] 可能指向 bin/dsh-supervisor 或 core.cjs 本身。 */
 function isLauncherForm(target) {
   try {
     const dir = path.dirname(target);
@@ -32,7 +26,6 @@ function isLauncherForm(target) {
   } catch { return false; }
 }
 
-/** 当前运行目标：argv[1] 经 realpath 消解 symlink。 */
 function runningTarget() {
   try {
     const a1 = process.argv[1];
@@ -41,11 +34,7 @@ function runningTarget() {
   } catch { return null; }
 }
 
-/** 部署形态判定。
- *  form: 'launcher'（标准，可自更新）/ 'sea-binary'（历史兼容，可自更新）/
- *        'source-shell'（源码开发，不可自更新）/ 'unknown'（无法判定，保守禁用）。 */
 function detect() {
-  // DSH_DEPLOY_FORM 强制形态；生产不设置该变量。
   const forced = process.env.DSH_DEPLOY_FORM;
   const target = runningTarget();
   if (forced === 'sea-binary') {
@@ -57,7 +46,6 @@ function detect() {
   if (isBinaryExecutable(target)) {
     return { form: 'sea-binary', runningTarget: target, updatable: true, reason: null };
   }
-  // 有 core.cjs 即标准产品形态，否则是 node 脚本壳指向源码目录。
   if (isLauncherForm(target)) {
     return { form: 'launcher', runningTarget: target, updatable: true, reason: null };
   }

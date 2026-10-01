@@ -1,6 +1,3 @@
-/**
- * 智能路由页：路由启停 + 用量指标 + 供应商卡片（直连/反代统一行语义）。
- */
 import { useEffect, useState } from "react";
 import {
   Activity, Ban, CheckCircle2, Copy, Plus, Power, RefreshCw, Repeat, Rocket, Terminal, Trash2, XCircle,
@@ -49,13 +46,11 @@ export function RouterPage({ onRegisterActions }: { onRegisterActions?: (a: { on
   const r = snap.router;
   const pr = snap.providers;
 
-  // 页级 Toolbar 动作注册：添加/删除供应商
   useEffect(() => {
     onRegisterActions?.({ onAdd: () => setAddOpen(true), onDelete: () => setDelOpen(true) });
     return () => onRegisterActions?.(null);
   }, [onRegisterActions]);
 
-  /** 子组件动作回调：内部走共享 run */
   function act(key: string, fn: () => Promise<unknown>, success?: string) {
     return run(key, fn, { success });
   }
@@ -63,14 +58,12 @@ export function RouterPage({ onRegisterActions }: { onRegisterActions?: (a: { on
   const items = pr?.providers ?? [];
   return (
     <div className="grid content-start gap-4">
-      {/* 路由状态卡 */}
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-5 py-3.5">
           <div className="flex items-center gap-2">
             {/* 路由不可用由 running=false 呈现（后端 routerStatus 从不产出 conflict） */}
             <ToneDot tone={r?.running ? "ok" : "off"} ping={Boolean(r?.running)} />
             <strong className="text-xl font-semibold tracking-[-0.01em] text-foreground">{r?.running ? "路由运行中" : "路由已停止"}</strong>
-            {/* 路由服务默认自动启动；不额外外显「自动启动」标签 */}
           </div>
           <Button
             aria-label={r?.running ? "停止路由" : "启动路由"}
@@ -83,7 +76,6 @@ export function RouterPage({ onRegisterActions }: { onRegisterActions?: (a: { on
             {r?.running ? <Power className="size-6" /> : <Rocket className="size-6" />}
           </Button>
         </div>
-        {/* 运行指标：四格分隔（每格带边框与独立底） */}
         <div className="grid grid-cols-1 divide-y divide-border/60 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x lg:divide-border/60">
           {/* 后端降级响应（{running:false,error}）无 usage 字段：必须 usage?.，否则整页 TypeError */}
           <div className="px-5 py-3.5"><Metric icon={<Activity className="size-4" />} label="总请求 / 失败" value={formatCount(r?.usage?.requests) + " / " + formatCount(r?.usage?.errors)} mono /></div>
@@ -121,7 +113,6 @@ export function RouterPage({ onRegisterActions }: { onRegisterActions?: (a: { on
   );
 }
 
-/** 删除供应商：危险操作逐项确认。 */
 function DeleteProviderDialog({ open, onOpenChange, providers }: {
   open: boolean; onOpenChange: (o: boolean) => void; providers: RouterProvider[];
 }) {
@@ -180,7 +171,6 @@ function ProviderCard({ p, proxyApps, busy, onAction }: {
   const accs = sortAccounts(p.accounts ?? []);
   const sel = accs.find((a) => a.selected) || accs.find((a) => a.usable && !quotaFull(a.quota)) || accs[0];
   const [editOpen, setEditOpen] = useState(false);
-  // proxyAppId 匹配 proxyApps 取反代应用版本/更新状态；更新作用于该 app 全部实例
   const appInfo = p.kind === "proxy" ? (proxyApps ?? []).find((a) => a.id === p.proxyAppId) ?? null : null;
   // 停用态后端会清 apiBase（端口仍在）：缺失时按 apiPort 推导，保证地址不随启停漂移
   const apiBase = p.apiBase || (p.apiPort ? "http://127.0.0.1:" + p.apiPort + "/v1" : null);
@@ -195,7 +185,6 @@ function ProviderCard({ p, proxyApps, busy, onAction }: {
                 className="gap-1 rounded-full px-2.5 text-xs text-warning"
                 disabled={busy}
                 onClick={() => void onAction("proxy-upd-" + p.id, async () => {
-                  // 更新为 job 模型：轮询到终态，多实例依次更新期间显示进度并给出成败汇总
                   const appId = p.proxyAppId as string;
                   const r = await supervisorApi.proxyUpdateApply(appId);
                   if (r.ok === false) { toast.error((r as { error?: string }).error || "提交失败"); return; }
@@ -228,7 +217,7 @@ function ProviderCard({ p, proxyApps, busy, onAction }: {
                     const r = await supervisorApi.proxyUpdateCheck();
                     await supervisorStore.refresh();
                     if (!r.ok) { toast.error(r.error || "版本检测失败"); return; }
-                    // 响应 versions: { appId: latest }，用当前 app 的结果比对已装版本
+                    // 响应 versions: { appId: latest }
                     const latest = (r as { versions?: Record<string, string> }).versions?.[p.proxyAppId || ""] || null;
                     const installed = appInfo.installed;
                     toast.info(latest && latest !== installed
@@ -262,7 +251,6 @@ function ProviderCard({ p, proxyApps, busy, onAction }: {
         </div>
       </div>
 
-      {/* API 地址行：启用 -> 显示真实地址 + 复制；未启用 -> 占位提示（端口随启停可能变化，维持原联动逻辑） */}
       <div className="flex items-center gap-2 border-b border-border/60 px-5 py-2.5">
         <span className="text-xs text-muted-foreground">API 地址</span>
         <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2.5">
@@ -297,7 +285,6 @@ function ProviderCard({ p, proxyApps, busy, onAction }: {
             <span className="text-center">用量</span>
             <span className="text-center">操作</span>
           </div>
-          {/* 账号列表：容器内最多显示 6 行；超出部分容器内滚动（thin 半透明滚动条，滚动才随容器出现） */}
           <div className="max-h-[288px] min-h-0 overflow-y-auto overscroll-contain">
             {accs.map((a, i) => (
               <div key={a.keyId} className={cn(i > 0 && "border-t border-border/50")}>
@@ -314,7 +301,6 @@ function ProviderCard({ p, proxyApps, busy, onAction }: {
   );
 }
 
-/** 编辑供应商：查看/移除已录入 Key + 添加新 Key。直连走 keys/set，反代走 proxy/key。 */
 function EditKeysDialog({ open, onOpenChange, p }: {
   open: boolean; onOpenChange: (o: boolean) => void; p: RouterProvider;
 }) {
@@ -327,16 +313,12 @@ function EditKeysDialog({ open, onOpenChange, p }: {
   const isProxy = p.kind === "proxy";
   // 上一轮的地址随本轮作废（回调端口与 state 都已释放），弹窗再开时不留在屏幕上。
   useEffect(() => { if (open) setLoginUrl(""); }, [open]);
-  /** 一键登录（仅反代 Command Code 类）：内核已调起隔离浏览器，此处只如实呈现打开结果并轮询回调。
-   *  授权地址恒可见：内核报不出「窗口已出现」时（拿不到浏览器退出证据/旧壳未回执）用户仍可复制或手动打开。 */
   async function oneClickLogin() {
     setLoggingIn(true);
     try {
       const s = await runOpenExternal(() => supervisorApi.proxyLoginStart());
-      // 地址常驻到弹窗关闭：等待授权可长达三分钟，而 toast 十几秒就消失 —— 白窗口时用户只剩这一行可复制。
       setLoginUrl(loginUrlOf(s));
       if (!s || s.ok !== true) return;
-      // 未隔离的两种原因（引擎无隔离方言 / 冷档案注定空白）说法与处置都不同，文案由服务层的纯函数给。
       const iso = loginIsolationText(s);
       if (iso) toast.warning(iso, { duration: 12000 });
       const w = await supervisorApi.proxyLoginWait(s.waitMs ?? 180000);
@@ -413,7 +395,6 @@ function EditKeysDialog({ open, onOpenChange, p }: {
       <DialogContent className="max-w-[440px]">
         <DialogHeader><DialogTitle>添加 / 管理 Key — {p.name}</DialogTitle></DialogHeader>
         <div className="grid gap-3">
-          {/* 一键登录（反代专属：Command Code OAuth） */}
           {isProxy ? (
             <div className="grid gap-2 rounded-md border border-border/70 bg-muted/40 px-3 py-2.5">
               <div className="flex items-center justify-between gap-3">
@@ -435,7 +416,6 @@ function EditKeysDialog({ open, onOpenChange, p }: {
               ) : null}
             </div>
           ) : null}
-          {/* 已录入 Keys */}
           <div className="grid gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">{isProxy ? "已录入账号（反代）" : "已录入 API Key"}（{accs.length}）</span>
             {accs.length ? (
@@ -456,7 +436,6 @@ function EditKeysDialog({ open, onOpenChange, p }: {
               <p className="text-xs text-muted-foreground">尚未录入 {isProxy ? "账号" : "Key"}</p>
             )}
           </div>
-          {/* 添加新 Key */}
           <div className="grid gap-1.5">
             <Label className="text-xs text-muted-foreground">添加 {isProxy ? "账号 Key / Command Code" : "API Key"}（每行一个，支持逗号/分号分隔）</Label>
             <Textarea
@@ -476,14 +455,12 @@ function EditKeysDialog({ open, onOpenChange, p }: {
   );
 }
 
-/** 信息行：左=当前账号；右=三个用量框（5小时/每周/每月） */
 function QuotaSummary({ acc, busy, p, onAction }: { acc: ProviderAccount; busy: boolean; p: RouterProvider; onAction: (k: string, fn: () => Promise<unknown>, success?: string) => void }) {
   const q = acc.quota;
   const isActive = Boolean(acc.selected);
   const isLocked = Boolean(acc.locked);
   const qm = q && q.monthlyRemaining;
-  // 解析层据 credits.monthlyRemaining 推导 monthly.percent（$10/月订阅配额池，app.quota.monthlyCapUsd）：
-  // 有百分比则显示百分比，缺失才回退剩余金额/—
+  // monthly.percent（解析层据 credits.monthlyRemaining 推导，配额池 app.quota.monthlyCapUsd）缺失才回退剩余金额
   const mpct = q?.monthly?.percent;
   const monthlyValue = Number.isFinite(Number(mpct))
     ? mpct + "%"
@@ -515,7 +492,6 @@ function QuotaSummary({ acc, busy, p, onAction }: { acc: ProviderAccount; busy: 
 function AccountRow({ a, p, busy, onAction }: { a: ProviderAccount; p: RouterProvider; busy: boolean; onAction: (key: string, fn: () => Promise<unknown>, success?: string) => void }) {
   const isActive = Boolean(a.selected);
   const status = a.instanceStatus === "frozen" ? "frozen" : a.status || "";
-  // limited = 冻结 / 时间窗额度满 / 预付 credits 余额不足（limit.kind 驱动——避免把空余额 key 显示成可「切换」）
   const limitKind = a.limit?.kind;
   const limited = status === "frozen" || !!limitKind || (!isActive && quotaFull(a.quota));
   const limitHint = limitKind === "credits"
@@ -558,7 +534,6 @@ function AccountRow({ a, p, busy, onAction }: { a: ProviderAccount; p: RouterPro
   }
   return (
     <div className={cn("grid items-center gap-2 px-5 py-2.5 hover:bg-muted/40", accountGridCols, isActive && "bg-muted/60 shadow-[inset_3px_0_0_var(--primary)]")}>
-      {/* 账号格：当前使用中的账号整行高亮（环境变量式：浅底 + 左主色条） */}
       <div className="flex min-w-0 items-center gap-1.5">
         <MonoEllipsis>{a.maskedKey}</MonoEllipsis>
         {status === "registering" ? <Pill tone="off">检测中…</Pill> : null}
@@ -566,7 +541,6 @@ function AccountRow({ a, p, busy, onAction }: { a: ProviderAccount; p: RouterPro
         {limitKind === "credits" ? <span title={a.limit?.reason ?? "额度用尽"}><Pill tone="err">额度用尽</Pill></span> : null}
         {limitKind === "window" ? <span title={a.limit?.reason ?? "时间窗额度已用尽"}><Pill tone="warn">窗口用尽</Pill></span> : null}
       </div>
-      {/* 用量格（加宽右对齐展示完整；表头与其右对齐一致） */}
       <span className="truncate text-right text-xs tabular-nums text-muted-foreground" title={stats}>{stats}</span>
       <div className="flex justify-end">{actionBtn}</div>
       <QuotaLimitDialog open={quotaOpen} onOpenChange={setQuotaOpen} a={a} p={p} />
@@ -574,12 +548,10 @@ function AccountRow({ a, p, busy, onAction }: { a: ProviderAccount; p: RouterPro
   );
 }
 
-/** 限额详情弹窗：各窗口(5小时/每周/每月)额度占用与重置时间。 */
 function QuotaLimitDialog({ open, onOpenChange, a, p }: {
   open: boolean; onOpenChange: (o: boolean) => void; a: ProviderAccount; p: RouterProvider;
 }) {
   const q = a.quota;
-  // 三格布局恒定：monthly.percent 缺失时用 credits 剩余对 $10 配额池兜底算 used%，不因无推导值而隐藏每月格
   const monthlyUsed = (() => {
     const mp = q?.monthly?.percent;
     if (mp != null && Number.isFinite(Number(mp))) return Number(mp);
@@ -660,7 +632,6 @@ function QuotaLimitDialog({ open, onOpenChange, a, p }: {
   );
 }
 
-/** 添加供应商 Dialog */
 function AddProviderDialog({ open, onOpenChange, presets, proxyApps, onDone }: {
   open: boolean; onOpenChange: (o: boolean) => void;
   presets: ProvidersResponse["presets"] | [];

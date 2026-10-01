@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 冒烟测试：按设计文档第 12 节的核心用例验证 dsh-supervisor（全部针对 mock 目标，不触碰真实 DSH）。
-// 用法: node test/smoke.js
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -15,7 +13,6 @@ const CLI = path.join(ROOT, 'bin', 'dsh-supervisor');
 const MOCK = path.join(__dirname, 'mock-target.js');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-sup-test-'));
 
-// 测试卫生：任意退出路径统一清理 mock/守护进程——防残留进程污染下一轮运行
 process.on('exit', () => {
   try { const { execSync } = require('node:child_process');
     execSync("pkill -CONT -f 'mock-target.js' || true", { stdio: 'ignore' });
@@ -36,7 +33,6 @@ function check(name, cond, extra = '') {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// ---- 工具 ----
 function makeConfig(apiPort, targetPort, overrides = {}) {
   return {
     command: ['node', MOCK, String(targetPort)],
@@ -114,9 +110,7 @@ async function killDaemon(d) {
   await new Promise((r) => d.child.once('exit', r));
 }
 
-// ---- 场景 ----
 async function main() {
-  //: 守护跟着开关走(默认关,守护开才自动拉起)
   try {
     fs.writeFileSync(path.join(TMP, 'dsh-main.json'), JSON.stringify({ guardian: true }));
   } catch (e) {}
@@ -139,17 +133,14 @@ async function main() {
   try {
     process.kill(pid2, 'SIGSTOP');
   } catch {}
-  // 只做端口+pid 判定：进程被 SIGSTOP 挂起但端口仍监听、pid 仍存活 -> 视为健康，不重启。
   await sleep(1200);
   s = await api(3900, 'GET', '/status');
   ev = await getEvents(3900);
-  // 「挂起 ≠ 不健康」的三个观察面：pid/phase 不变、无 http_unhealthy 重启、无 SIGKILL。
   check('S3 挂起进程视为健康：同一 pid 仍 RUNNING、未触发重启、未使用 SIGKILL',
     s && s.phase === 'RUNNING' && s.dshPid === pid2
     && !ev.some((e) => e.type === 'restart_triggered' && /http_unhealthy/.test((e.data && e.data.reason) || ''))
     && !ev.some((e) => e.type === 'sigkill_sent'),
     JSON.stringify(s) + ' ev=' + ev.map((e) => e.type).join(','));
-  // 恢复进程，供后续场景使用
   try {
     process.kill(pid2, 'SIGCONT');
   } catch {}
@@ -184,8 +175,6 @@ async function main() {
   check('manual restart 执行', !!s, JSON.stringify(s));
   check('restartCount 未被手动重启计入', s.restartCount === rcBefore, `before=${rcBefore} after=${s.restartCount}`);
   await killDaemon(d1);
-  // 场景卫生：守卫退出不动目标（守护语义）-> 显式清掉本场景最后的目标进程，
-  //   防遗留 mock 在下一场景被 re-derive/adopt 误接管。
   if (s && s.dshPid) { try { process.kill(s.dshPid, 'SIGKILL'); } catch {} }
 
   console.log('== S7: 崩溃循环退避（启动即挂 ×N → BACKOFF）==');
@@ -194,7 +183,6 @@ async function main() {
     { MOCK_EXIT_ON_START: '1' }
   );
   s = await waitStatus(3910, (x) => x.phase === 'BACKOFF', 28200);
-  // BACKOFF 窗口短，phase 快照可能错过；以事件为准
   ev = await getEvents(3910);
   check('crash_loop_entered 事件存在', ev.some((e) => e.type === 'crash_loop_entered'));
   await sleep(2500); // 等退避到期重试并再次失败，验证退避升级
@@ -217,7 +205,6 @@ async function main() {
   const occupier = http.createServer((req, res) => { res.writeHead(500); res.end('no'); });
   await new Promise((r) => occupier.listen(3961, '127.0.0.1', r));
   const d9 = startDaemon(makeConfig(3960, 3961));
-  // 不用固定 sleep：判定耗时随 runner 负载波动，改为轮询等目标事件、超时再判定。
   ev = await getEvents(3960);
   {
     const deadline = Date.now() + 20000;
@@ -270,7 +257,7 @@ async function main() {
   const ext12 = spawn('node', [MOCK, '3991'], { stdio: 'ignore' });
   await sleep(600);
   const cfg12 = makeConfig(3990, 3991);
-  fs.writeFileSync(cfg12.stateFile, JSON.stringify({ desired: 'stopped' })); // 预置期望停止
+  fs.writeFileSync(cfg12.stateFile, JSON.stringify({ desired: 'stopped' }));
   const d12 = startDaemon(cfg12);
   s = await waitStatus(3990, (x) => x.phase === 'OBSERVED' && x.adopted === true && x.dshPid === ext12.pid, 10000);
   check('期望停止下进入 OBSERVED 并识别 pid', !!s, JSON.stringify(s));
@@ -287,8 +274,6 @@ async function main() {
   try { ext12.kill('SIGKILL'); } catch {}
 
   console.log('== S13: 启动链端到端（面板由这个端口发出 / 锁可归因 / 让位带原因 / 残留锁可回收）==');
-  // S1-S12 只问 /status；这里按壳的读法走一遍真机坏掉的三环：ports.json 里的**实际**端口、
-  //  守卫锁、面板文档本身（现场表现：进面板 = 127.0.0.1 拒绝连接）。
   const LOCK13 = path.join(TMP, 's13-guard.lock');
   const portsFile13 = path.join(TMP, 'ports.json'); // 与 stateFile 同目录（configureFile 规则）
   const apiRecs13 = () => {
@@ -305,10 +290,9 @@ async function main() {
     rq.on('error', () => resolve({ code: 0, headers: {}, body: '' }));
     rq.end();
   });
-  // 锁阈值不从 CLI 源码正则读（源码文本耦合⇒判据失效或误红）：用与产品常量无关的有界等待。
+  // 锁阈值不按 CLI 源码正则读（源码文本耦合 ⇒ 判据失效或误红）：用与产品常量无关的有界等待。
   const LOCK_SILENCE_GIVEUP_MS = 60000, LOCK_TAKE_CAP_MS = 45000;
-  /** 等到「新守卫按产品自己的判据能接管」为止，返回判定依据：POSIX 上强杀的守卫立刻 ESRCH，
-   *  Windows 上刚终止的 pid 可能仍报活，此时唯一证据只剩续约沉默。 */
+  // 等待新守卫可接管：POSIX 上强杀的守卫立刻 ESRCH，Windows 上刚终止的 pid 可能仍报活，此时唯一证据只剩续约沉默。
   async function waitReclaimable13(pid, cap = LOCK_SILENCE_GIVEUP_MS + 20000) {
     const end = Date.now() + cap;
     for (;;) {
@@ -323,8 +307,6 @@ async function main() {
       await sleep(300);
     }
   }
-  /** 按壳的读法取号：登记表里本次启动写下的 supervisor-api 记录唯一**且该端口真的在应答**
-   *  ——只看唯一性会拿到前任留下、没人监听的旧端口，那正是「拒绝连接」的形态。 */
   async function servingPort13(sinceMs, ms = 20000) {
     const end = Date.now() + ms;
     for (;;) {
@@ -366,7 +348,6 @@ async function main() {
     'exit=' + String(code13b) + ' out=' + d13b.out().trim().slice(-200));
   check('S13 让位者不得改写登记表（面板地址仍指向活着的守卫）',
     apiRecs13().length === 1 && Number(apiRecs13()[0].port) === p13, JSON.stringify(apiRecs13()));
-  // SIGKILL：exit 钩子不跑 -> 正是 Windows「按命令行强杀」留下的残留锁形态。
   try { process.kill(d13.child.pid, 'SIGKILL'); } catch {}
   await new Promise((r) => d13.child.once('exit', r));
   const why13d = await waitReclaimable13(d13.child.pid);
@@ -377,8 +358,7 @@ async function main() {
     '判据=' + why13d + ' out=' + d13d.out().trim().slice(-200));
   await killDaemon(d13d);
 
-  // 清理残留 mock：先 SIGCONT（S3 里 SIGSTOP 过的挂起进程不响应 SIGTERM 会漏杀 ->
-  //  残留 mock 占端口，下一轮 S1 会 adopt 而非 spawn 导致偶发 FAIL），再 SIGKILL。
+  // 清理残留 mock：先 SIGCONT（SIGSTOP 过的挂起进程不响应 SIGTERM 会漏杀 ⇒ 残留占端口，下一轮 S1 会 adopt 而非 spawn）再 SIGKILL。
   try {
     const { execSync } = require('node:child_process');
     execSync("pkill -CONT -f 'mock-target.js' || true", { stdio: 'ignore' });

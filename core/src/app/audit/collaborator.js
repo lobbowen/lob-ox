@@ -1,14 +1,9 @@
 'use strict';
 
-// Orphan scan 协作方工厂（真 ctor 注入）。
-// createOrphanScan(deps) 组合 orphan-scan.orphanAudit，自持抑制状态；deps 全为惰性取值函数（装配期 host 尚未
-//   就绪），由 assembly/collaborators.js 单点注入。返回对象只有 orphan 一个公开键（消费点 control/scheduler.js）。
-
 const { orphanAudit } = require('./orphan-scan');
 
 function createOrphanScan(deps) {
   const g = deps || {};
-    // 外部提供 get/setLastKey|At 时用外部状态（装配侧传 host 字段，与 compose 初始化点同源），否则用闭包状态。
   const last = { key: null, at: 0 };
   const getLastKey = typeof g.getLastKey === 'function' ? g.getLastKey : () => last.key;
   const setLastKey = typeof g.setLastKey === 'function' ? g.setLastKey : (v) => { last.key = v; };

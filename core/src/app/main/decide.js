@@ -1,12 +1,7 @@
 'use strict';
 
-// 主进程收敛的纯决策段（_mainStateSnapshot/_decideMainAction/_decideCrashRestart）。导出 { methods }，由
-//   app/assembly/facets.js 装到 host；方法名与 { methods } 形态不可改。_decideMainAction 必须零 this
-//   （decide(base()) 形式的裸调，this=undefined），故内部经模块内纯函数 decideCrashRestart() 协作、绝不触碰 deps。
 const pidlook = require('../../platform/os/pidlookup');
 
-// STARTING 超时唯一判据：deadline 缺失（守卫从盘恢复、本字段不持久化）视为「未到期」，由 controller 首拍
-//   重 derive 宽限 —— 真实 tick 与影子共用本函数，禁止第二份写法。
 function startDeadlinePassed(deadline, now) {
   return !!(deadline && now > deadline);
 }
@@ -21,7 +16,6 @@ function depsOf(host) {
       upgradeHold() { return host._upgradeHold; },
       manualRestart() { return host.manualRestart; },
       crashHalted() { return host._crashHalted; },
-      // 字段 helper 与状态读取经 host 既有安装转发。
       mLastProbeOk() { return host._mLastProbeOk(); },
       mLastProbeHttpOk() { return host._mLastProbeHttpOk(); },
       mChild() { return host._mChild(); },
@@ -41,10 +35,6 @@ function depsOf(host) {
   return d;
 }
 
-/**
- * 崩溃类 restart 决策（模块内纯函数）：语义与 _beginRestart(countCrash=true) 一致。刻意留作模块局部：
- * _decideMainAction 允许无 host 裸调用，不能经 deps。
- */
 function decideCrashRestart(reason) {
   return { action: 'restart', reason, countCrash: true };
 }
@@ -71,24 +61,17 @@ module.exports = {
       startDeadlinePassed: startDeadlinePassed(d.mStartDeadline(), now),
       restartDue: d.mRestartAt() === null || now >= d.mRestartAt(),
       backoffDue: d.mBackoffUntil() === null || now >= d.mBackoffUntil(),
-            // `_shouldRun()` 有两个否决位，快照必须建模（crashHalted/sessionHalting），否则影子每拍算出的应然与真实 tick
-            //   不一致，零 diff 门槛永久不可达。
-      crashHalted: d.crashHalted() === true, // guardian=false 崩溃后停靠：等显式启动
-      sessionHalting: d.session().halting() === true, // 退出流程中：抑制一切自动拉起
+      crashHalted: d.crashHalted() === true,
+      sessionHalting: d.session().halting() === true,
       crashWindowStart: d.mCrashWindowStart(),
       crashWindowRestarts: d.mCrashWindowRestarts(),
       backoffLevel: d.mBackoffLevel(),
     };
   },
 
-    /**
-   * 纯决策：按现有 tick 语义计算「应然下一步」。只读快照，零副作用（影子与收敛复用同一决策源）。
-   * action 词表：none/start/stop/adopt/adoptObserved/enterRunning/restart/backoff。
-   */
   _decideMainAction(s) {
     if (!s) return { action: 'none', reason: 'no-snapshot' };
     const targetAlive = s.childAlive || s.adoptedAlive;
-    // desired=stopped（正交于守护开关；显式用户意图永远生效）
     if (s.desired === 'stopped') {
       const managedAlive = s.childAlive || (s.adoptedAlive && !s.observedOnly);
       if (managedAlive) return { action: 'stop', reason: 'desired_stopped' };
@@ -96,30 +79,23 @@ module.exports = {
       if (s.probeOk) return { action: 'adoptObserved', reason: 'desired_stopped_observe' };
       return { action: 'none', reason: 'stopped_idle' };
     }
-    // 升级 hold：安装期间不拉起（超时自愈是业务钩子）
     if (s.upgradeHold) {
       if (targetAlive) return { action: 'stop', reason: 'upgrade_hold' };
       return { action: 'none', reason: 'upgrade_hold_wait' };
     }
-    // 手动重启请求（守卫业务标志，本拍消费）
     if (s.manualRestart) {
       if (s.phase === 'RUNNING' || s.phase === 'STARTING') return { action: 'restart', reason: 'manual', countCrash: false };
       if (s.phase === 'RESTARTING' || s.phase === 'BACKOFF') {
-        // tick 语义：先清 backoff/restartAt 再立即拉起（!targetAlive）
         if (!targetAlive) return { action: 'start', reason: 'manual_retry' };
-        // targetAlive 则落 switch（端口占用检查统一生效）
       }
-      // phase===STOPPED 则落 switch
     }
     switch (s.phase) {
       case 'STOPPED': {
-        // 顺序与 `_shouldRun()` 一致：两个否决位必须先于拉起判断，否则影子会算出 start
-        // 而真实 tick 拒绝，永久 diff。
         if (s.sessionHalting) return { action: 'none', reason: 'session_halting' };
         if (s.crashHalted) return { action: 'none', reason: 'crash_halted_await_explicit_start' };
         if (s.probeOk) return { action: 'adopt', reason: 'adopt' };
         if (s.spawnBlocked) return { action: 'none', reason: 'command_missing_cooloff' };
-        return { action: 'start', reason: 'spawn' }; // 端口占用复查在执行期（isPortListening）
+        return { action: 'start', reason: 'spawn' };
       }
       case 'STARTING': {
         if (s.probeOk && s.probeHttpOk) return { action: 'enterRunning', reason: 'healthy' };
@@ -127,7 +103,6 @@ module.exports = {
         return { action: 'none', reason: 'starting_wait' };
       }
       case 'RUNNING': {
-        // adopt 令牌重建/假死识别属守卫业务钩子（由 _dshConverge 承担），纯决策段不含。
         if (s.adoptedPidSet && !s.adoptedAlive) return decideCrashRestart('adopted_exit');
         if (s.childPresent && !s.childAlive) return decideCrashRestart('child_exit');
         return { action: 'none', reason: 'running_steady' };
@@ -147,12 +122,9 @@ module.exports = {
     return { action: 'none', reason: 'unknown_phase:' + s.phase };
   },
 
-  /** 崩溃类 restart 决策：与 _beginRestart(countCrash=true) 语义一致——动作统一 restart
-   *  （_beginRestart 内部 _bumpCrashWindow 的退避记账/crash_loop_entered 属守卫业务，不改变动作词）。 */
   _decideCrashRestart(reason) {
     return decideCrashRestart(reason);
   }
   },
-  // 非 host 方法：纯谓词导出，controller 与本文件快照判据共用（facets 只安装 methods）。
   startDeadlinePassed,
 };

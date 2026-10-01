@@ -2,13 +2,9 @@
 
 const https = require('node:https');
 
-// 供应商激活与端点启停 + 请求分派与 HTTP 装配。域内唯一 require('node:http') 并 createServer
-// 之处；转发经注入的 forward.proxyFor，实例保障经注入的 scheduler.ensureProviderInstances。
-
 const http = require('node:http');
 const { readBody } = require('./handlers/parse');
 
-/** 转发用 keep-alive 代理池（装配期注入 state，避免把 node:http 带进门面）。 */
 function createAgents() {
   return {
     http: new http.Agent({ keepAlive: true, keepAliveMsecs: 30000, maxSockets: 128 }),
@@ -16,7 +12,6 @@ function createAgents() {
   };
 }
 
-/** 建 server：超时/keepalive/noDelay 统一规格。 */
 function newServer(handler) {
   const server = http.createServer(handler);
   server.requestTimeout = 0;
@@ -37,7 +32,6 @@ function createEndpoint(deps) {
   const save = d.save || (() => {});
   const scheduler = d.scheduler;
 
-  /** 供应商独立端点请求处理：按 providerId 作用域转发（该供应商自己的账号池）。 */
   function handleForProvider(providerId, req, res) {
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -55,12 +49,9 @@ function createEndpoint(deps) {
     if (!p || p.activated !== true || !p.apiPort) return;
     if (state.providerServers[id]) return;
     const server = newServer((req, res) => handleForProvider(id, req, res));
-    // listen 前先占位：否则并发两次调用都通过上面的 guard，第二次 listen 同端口失败；
-    // 且旧 error 处理器按 id 删除会误删第一个的登记（登记与进程脱节，close 漏做）。
     state.providerServers[id] = server;
     server.on('error', (err) => {
       log('provider endpoint ' + p.name + ' error: ' + err.message);
-      // 仅当登记的仍是本 server 才删除（身份比较），防误删后来者的登记。
       if (state.providerServers[id] === server) delete state.providerServers[id];
     });
     server.listen(p.apiPort, '127.0.0.1', () => {
@@ -76,18 +67,15 @@ function createEndpoint(deps) {
     try { s.close(() => {}); if (typeof s.closeAllConnections === 'function') s.closeAllConnections(); } catch {}
   }
 
-  /** 激活供应商：启动其独立 API 端点（未激活不提供服务）。 */
   async function activateProvider(id) {
     const p = getProvider(id);
     if (!p) return { ok: false, error: '供应商不存在' };
     if (!p.activated) {
       p.activated = true;
-      // 独立 API 端口：激活时分配（绑定一次防漂移；停用保留，再激活复用）
       if (!p.apiPort) {
         try { p.apiPort = await ports.allocate('providerApi', 'providerApi:' + id); } catch (e) { p.apiPort = null; }
-        if (p.apiPort) { try { if (!ports.isRegistered(p.apiPort)) ports.registerUser(p.apiPort, 'providerApi:' + id); } catch {} } // allocate 已按 (port,'providerApi',owner) 登记同号 ⇒ 本行空转；自愈写口见 index.js:46-47
+        if (p.apiPort) { try { if (!ports.isRegistered(p.apiPort)) ports.registerUser(p.apiPort, 'providerApi:' + id); } catch {} }
       }
-      // 端口池满必须显式失败——绝不静默「激活了但无端点」。
       if (!p.apiPort) {
         p.activated = false;
         const cap = (ports.capacity && ports.capacity().providerApi) || null;
@@ -102,14 +90,12 @@ function createEndpoint(deps) {
     return { ok: true, id, activated: true, apiPort: p.apiPort };
   }
 
-  /** 停用供应商：关闭独立端点 + 停止其反代实例（资源回收）；apiPort 保留，再激活复用。 */
   function deactivateProvider(id) {
     const p = getProvider(id);
     if (!p) return { ok: false, error: '供应商不存在' };
     if (p.activated) {
       p.activated = false;
       stopProviderServer(id);
-      // force=true：停用是资源回收语义；不带 force 时在用实例只挂待停标记且此后补刀不可达。
       if (p.supports('instanceLifecycle')) { for (const i of (p.instances || [])) { try { p.stopInstance(i, true); } catch {} } }
       if (events) events.append('router_provider_deactivated', { id, name: p.name });
       save();
@@ -117,15 +103,13 @@ function createEndpoint(deps) {
     return { ok: true, id, activated: false };
   }
 
-  /** 守卫/路由器启动恢复：已激活供应商端点 + 反代实例常驻对账（幂等）。
-   *  数据可能无 apiPort：补分配后持久化，此后重启复用。 */
   async function startActivatedProviders() {
     for (const p of state.providers || []) {
       if (p.activated !== true) continue;
       if (!p.apiPort) {
         try {
           p.apiPort = await ports.allocate('providerApi', 'providerApi:' + p.id);
-          if (p.apiPort && !ports.isRegistered(p.apiPort)) ports.registerUser(p.apiPort, 'providerApi:' + p.id); // allocate 已登记 ⇒ 本行空转；池内号在此 registerUser 会抛，外层 catch 将 apiPort 置 null
+          if (p.apiPort && !ports.isRegistered(p.apiPort)) ports.registerUser(p.apiPort, 'providerApi:' + p.id);
         } catch (e) { p.apiPort = null; }
         if (p.apiPort) save();
       }

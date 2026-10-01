@@ -1,8 +1,5 @@
 'use strict';
 
-// State 协作方工厂（真 ctor 注入）：组合存储原语/字段口/IO 工厂，可独立直测。
-// deps 全部为惰性取值函数（装配期 host 尚未就绪），故传 getXxx 而非值。
-
 const { createMainRecord } = require('./main-record');
 const { createMainStore } = require('./main-store');
 const { createFields } = require('./fields');
@@ -38,9 +35,7 @@ function createStateStore(deps) {
     tick: g.tick, stopProcess: g.stopProcess,
   });
 
-    // 协作方公共接口（state.*）+ 宿主兼容所需的其余真实现
   return {
-    // 公共接口
     phase: fields.phase, setPhase: fields.setPhase, guardian: fields.guardian,
     desired: fields.desired, setDesired: fields.setDesired,
     field: fields.field, procField: fields.procField,
@@ -48,7 +43,6 @@ function createStateStore(deps) {
     mainMetaFile: mainStore.dshMainFile, readMainMeta: mainStore.readDshMain,
     writeMainMeta: mainStore.writeDshMain,
     write: store.writeState, persistConfigPatch: desired.persistConfigPatch,
-    // 宿主兼容（对应既有 host 方法名；见 assembly/collaborators.js）
     mainGuardian: fields.mainGuardian,
     legacyToEntryPhase: fields.legacyToEntryPhase, entryToLegacyPhase: fields.entryToLegacyPhase,
     accessors: fields.accessors,

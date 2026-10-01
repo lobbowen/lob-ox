@@ -1,23 +1,15 @@
 'use strict';
 
-// 系统浏览器探测层：只回答「这台机器装了哪些浏览器、默认是哪个、每条结论是从哪个系统事实读来的」，
-//   不 launch、不猜命令、不在查不到时替用户挑一个试试（选路与执行在 ./browser.js）。
-// 硬要求：多源并集 + 每条来源都留痕（probed 原样抵达面板）。
-
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const exec = require('../util/exec');
 const { isExecutableFile } = require('./exec-path');
-// 注册表解析原语的唯一实现住在 ./registry.js：浏览器探测与出网条件问的是同一张注册表，
-//   两处各写一遍必然分叉。
 const registry = require('./registry');
 const { expandEnvVars, safeRegKeyPart, regValue, regSubkeys, regValueTargets } = registry;
 
-/** 单条系统查询的上界：探测不得成为用户可见的失败原因，也不得吃掉面板 15s 动作预算。 */
 const PROBE_TIMEOUT_MS = 1500;
 
-/** 引擎族判定（唯一实现处）：裸 URL 直启只有这两族语义确定，other（Safari、snap 包装器）交回调度器。 */
 function engineOf(bin) {
   const base = String(bin || '').toLowerCase().split(/[\\/]/).pop();
   if (/(chrome|chromium|msedge|edge|brave|vivaldi|opera|thorium)/.test(base)) return 'chromium';
@@ -25,7 +17,6 @@ function engineOf(bin) {
   return 'other';
 }
 
-/** desktop 文件 Exec 行的 shell 式分词（单双引号与反斜杠转义；% 字段码剔除在 parseExecLine）。 */
 function tokenizeExec(line) {
   const toks = [];
   let cur = ''; let q = null; let esc = false; let has = false;
@@ -41,7 +32,6 @@ function tokenizeExec(line) {
   return toks;
 }
 
-/** Exec 行 -> {bin, baseArgs}：URL 字段码剔除、`env VAR=x bin` 包装去壳；解析不出首 token 返回 null。 */
 function parseExecLine(line) {
   let toks = tokenizeExec(line).filter((t) => t !== '%%' && !/^%[a-zA-Z]$/.test(t));
   if (toks[0] === 'env') {
@@ -53,8 +43,6 @@ function parseExecLine(line) {
   return { bin: toks[0], baseArgs: toks.slice(1) };
 }
 
-/** 注册表 open\command 命令行 -> 可执行文件路径（纯函数；带引号与裸 .exe 两种形态）。
- *  未加引号时路径本身也可以带空格（REG_EXPAND_SZ 常这么写），故取「第一个 .exe 截止处」而非首个空白 token。 */
 function exeFromCmdLine(cmdLine) {
   const s = String(cmdLine || '');
   let m = s.match(/^\s*"([^"]+\.exe)"/i);
@@ -63,11 +51,8 @@ function exeFromCmdLine(cmdLine) {
   return m ? m[1] : null;
 }
 
-// win32 的 App Paths 候选：只列厂商公开安装的 exe 名（该键是文档化的安装位置，逐个查询即枚举）。
 const WIN_APP_PATHS = ['msedge.exe', 'chrome.exe', 'firefox.exe', 'brave.exe', 'opera.exe', 'vivaldi.exe', 'chromium.exe', 'thorium.exe', 'librewolf.exe'];
 
-/** ProgID -> 可执行文件：HKCU 的 Classes 优先（per-user 安装就写在这里），再 HKLM。
- *  reg.exe 不展开 %VAR%，且值是命令行而非路径，两处都得先展开再取本体。 */
 function winExeOfProgId(runner, note, progId, env) {
   if (!safeRegKeyPart(progId)) return null;
   for (const root of ['HKCU\\Software\\Classes', 'HKLM\\Software\\Classes']) {
@@ -78,23 +63,14 @@ function winExeOfProgId(runner, note, progId, env) {
   return null;
 }
 
-/** win32 探测：五条文档化来源取并集，任一条失败不影响其余，全部留痕进 probed。
- *  - UserChoice：Win10/11 上「用户选的 https 浏览器」的实际归属；
- *  - scheme-association：HKCU/HKLM Classes\https 的 ProgID 与其 open\command；
- *  - StartMenuInternet 子键：浏览器目录（其默认值自 Win7 起被系统忽略，故只当目录用）；
- *  - RegisteredApplications：应用名 -> 能力路径 -> 该应用声明的 https ProgID；
- *  - App Paths：per-user 安装的浏览器也登记在这里（HKCU 先于 HKLM）。
- *  @param {{runOut:Function, env:object, canExec:Function}} d
- *  @returns {{browsers:object[], defaultId:string|null, defaultSource:string|null, probed:object[]}} */
 function probeWin(d) {
   const { runOut, env, canExec } = d;
   const notes = [];
   const note = (source, detail) => { notes.push({ source, detail }); };
-  const found = new Map(); // 归一后的 exe 路径 -> 条目（大小写与分隔符不同视为同一个）
+  const found = new Map();
   const keyOf = (exe) => String(exe || '').toLowerCase().replace(/[\\/]/g, '\\');
   const push = (exe, how) => {
     const full = expandEnvVars(exe, env).trim();
-    // 来源报了但不是本体路径（如 App Paths 的默认值写的是安装目录）：留痕而不入册。
     if (!/\.exe$/i.test(full)) { note(how, '来源给出的不是 exe 路径: ' + full); return null; }
     const k = keyOf(full);
     const hit = found.get(k);
@@ -105,7 +81,7 @@ function probeWin(d) {
     note(how, item.name);
     return item;
   };
-  const progIds = new Map(); // ProgID -> 来源说明（userchoice 一旦记下就不被后续来源改写）
+  const progIds = new Map();
   const addProgId = (pid, how) => {
     const s = String(pid || '').trim();
     if (!safeRegKeyPart(s)) return;
@@ -114,8 +90,6 @@ function probeWin(d) {
   };
   let defaultId = null;
   let defaultSource = null;
-  // 默认项来源有高低：用户自己选的（UserChoice）> 系统对 https 协议的关联 > 穷举唯一解；
-  // 低优先级来源晚到也不得翻案。
   const DEF_RANK = { userchoice: 1, 'scheme-association': 2, 'only-installed': 9 };
   let defRank = 99;
   const setDefault = (item, how) => {
@@ -123,21 +97,16 @@ function probeWin(d) {
     if (item && r < defRank) { defRank = r; defaultId = item.id; defaultSource = how; }
   };
 
-  // reg.exe 不展开 %VAR%，且值本身是命令行而非路径：任何来源取到的值都必须过这道手。
   const cmdToExe = (raw) => (raw ? exeFromCmdLine(expandEnvVars(raw, env)) : null);
 
   const uc = regValue(runOut, note, 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice', 'ProgId');
   if (uc) addProgId(uc, 'userchoice');
-  // https 协议关联（HKCU 的 per-user 覆盖先于 HKLM）：默认值是处理该协议的 ProgID，其
-  //   shell\open\command 即系统实际执行的命令行。UserChoice 读不到时它是唯一还能定出默认项的来源。
   for (const root of ['HKCU\\Software\\Classes', 'HKLM\\Software\\Classes']) {
     const pid = regValue(runOut, note, root + '\\https');
     if (pid) addProgId(pid, 'scheme-association');
     const exe = cmdToExe(regValue(runOut, note, root + '\\https\\shell\\open\\command'));
     if (exe) setDefault(push(exe, 'scheme-association'), 'scheme-association');
   }
-  // StartMenuInternet 的子键名就是 ProgID。它的 open\command 既写在目录键下（文档化位置），
-  //   也常只在 Classes\<ProgID> 下有一份（per-user 安装），两处都认才叫枚举。
   for (const name of regSubkeys(runOut, note, 'HKLM\\SOFTWARE\\Clients\\StartMenuInternet')) {
     addProgId(name, 'startmenu-catalog');
     const exe = cmdToExe(regValue(runOut, note, 'HKLM\\SOFTWARE\\Clients\\StartMenuInternet\\' + name + '\\shell\\open\\command'))
@@ -153,7 +122,6 @@ function probeWin(d) {
     }
   }
   for (const exe of WIN_APP_PATHS) {
-    // per-user 安装优先于机器级；同名 exe 两处都登记时取先到者，余下的由 push 去重。
     for (const root of ['HKCU', 'HKLM']) {
       const v = regValue(runOut, note, root + '\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\' + exe);
       if (v && push(v, 'app-paths')) break;
@@ -163,17 +131,12 @@ function probeWin(d) {
     const exe = winExeOfProgId(runOut, note, pid, env);
     if (!exe) continue;
     const item = push(exe, how);
-    // UserChoice 是唯一能说明「用户自己选了谁」的来源。
     if (how === 'userchoice') setDefault(item, 'userchoice');
   }
-  // 只装了一个浏览器时它必然就是 https 的归宿：穷举后的唯一解。
   if (found.size === 1) setDefault([...found.values()][0], 'only-installed');
   return { browsers: [...found.values()], defaultId, defaultSource, probed: notes };
 }
 
-/** macOS 探测脚本：`urlsForApplicationsToOpenURL`（macOS 12+，最佳匹配在前）给清单，
- *  `URLForApplicationToOpenURL` 给默认；前者不可用时只交得出默认那一条（清单为空与探不到在 probed 里区分）。
- *  输出每行 `bin<TAB>bundleId<TAB>default`。 */
 const MAC_JXA_LIST = [
   "ObjC.import('Foundation');",
   "var ws=$.NSWorkspace.sharedWorkspace;",
@@ -191,11 +154,9 @@ const MAC_JXA_LIST = [
   "if(!b.isNil()){exe=ObjC.unwrap(b.executablePath)||'';bid=ObjC.unwrap(b.bundleIdentifier)||'';}",
   "out.push((exe||p)+'\\t'+bid+'\\t'+(p&&def&&p===def?1:0));}",
   "}",
-  // 末句必须是裸表达式：osascript 取最后一条语句的值，if/else 不产结果，写在分支里会输出空字符串。
   "out.join('\\n');",
 ].join('');
 
-/** darwin 探测：见 MAC_JXA_LIST。bundle 的 executablePath 才是真正能直启的本体。 */
 function probeMac(d) {
   const { runOut, canExec } = d;
   const notes = [];
@@ -216,15 +177,12 @@ function probeMac(d) {
     if (parts[2] === '1') { found.get(k).isDefault = true; if (!defaultId) { defaultId = k; defaultSource = 'launchservices'; } }
   }
   note('launchservices', found.size ? found.size + ' 个可打开 https 的应用' : '系统未报任何可用应用');
-  // 与 win/linux 同一判据：只有一个可用归宿时不必再问「默认是谁」。
   if (!defaultId && found.size === 1) { defaultId = [...found.keys()][0]; defaultSource = 'only-installed'; }
   return { browsers: [...found.values()], defaultId, defaultSource, probed: notes };
 }
 
-/** linux 探测拼出的恒是 POSIX 路径：用宿主 path.join 会产出反斜杠形态，与宿主平台无关。 */
 const PJ = path.posix.join;
 
-/** linux 的 .desktop 目录：XDG 规范目录 + flatpak/snap 的导出目录（后两者是实现约定而非规范条款，来源字段会区分）。 */
 function desktopDirs(env, home) {
   const dataHome = env.XDG_DATA_HOME || PJ(home, '.local', 'share');
   const dataDirs = String(env.XDG_DATA_DIRS || '/usr/local/share:/usr/share').split(':').filter(Boolean);
@@ -241,8 +199,6 @@ function desktopDirs(env, home) {
   });
 }
 
-/** 一个 .desktop 文件 -> 浏览器条目（非浏览器/解析不出返回 null）。
- *  判据取规范字段：Categories 含 WebBrowser 是声明，解析出的可执行文件属两族引擎是事实，两者都要。 */
 function browserFromDesktop(text, kind, file) {
   let inMain = false;
   const got = {};
@@ -252,7 +208,7 @@ function browserFromDesktop(text, kind, file) {
     if (!inMain) continue;
     const m = line.match(/^(Exec|Name|TryExec|Categories)=(.*)$/);
     if (!m) continue;
-    if (m[1] === 'Name' && got.Name) continue; // 首个 Name 是不带语言后缀的主名
+    if (m[1] === 'Name' && got.Name) continue;
     got[m[1]] = m[2].trim();
   }
   if (!got.Exec) return null;
@@ -262,21 +218,19 @@ function browserFromDesktop(text, kind, file) {
   const engine = engineOf(parsed.bin);
   const claimsBrowser = /(^|;)WebBrowser(;|$)/.test(categories);
   if (!claimsBrowser && engine === 'other') return null;
-  if (engine === 'other') return null; // 声明是浏览器但可执行文件不是两族：包装器（snap/flatpak）拒绝直启，交回调度器
+  if (engine === 'other') return null;
   return {
-    // id 恒为归一后的可执行文件路径：defaultId 靠它在清单里定位条目，三平台同一契约
     id: parsed.bin.toLowerCase(),
     name: (got.Name || path.basename(file, '.desktop')),
     engine, bin: parsed.bin, baseArgs: parsed.baseArgs, source: kind, desktopFile: file,
   };
 }
 
-/** linux 的 bin -> 绝对可执行路径 | null。裸名按 PATH 逐个目录试（':' 拆：候选恒来自 .desktop，本就是 POSIX 语义）。 */
 function resolveLinuxBin(bin, canExec, env) {
   const b = String(bin || '').trim();
   if (!b) return null;
   if (b.startsWith('/')) return canExec(b) ? b : null;
-  if (b.includes('/')) return null; // 相对路径不是 PATH 查找的输入
+  if (b.includes('/')) return null;
   for (const dir of String(env.PATH || '').split(':')) {
     if (!dir) continue;
     const p = PJ(dir.replace(/\/+$/, ''), b);
@@ -285,8 +239,6 @@ function resolveLinuxBin(bin, canExec, env) {
   return null;
 }
 
-/** linux 探测：默认值按 mimeapps 规范顺序（用户级先于系统级）+ xdg-settings 两问，清单靠扫 .desktop。
- *  @param {{runOut:Function, readFile:Function, exists:Function, listDir:Function, canExec:Function, env:object, home:string}} d */
 function probeLinux(d) {
   const { runOut, readFile, exists, listDir, canExec, env, home } = d;
   const notes = [];
@@ -329,7 +281,6 @@ function probeLinux(d) {
       if (used) { defaultId = used.id; defaultSource = 'xdg-settings'; break; }
     }
   }
-  // xdg-settings 的留痕只说它自己报了什么：默认项若已被 mimeapps 定出，不要把功劳记到它头上。
   if (!desktopId) note('xdg-settings', '无输出');
   else if (defaultSource === 'xdg-settings') note('xdg-settings', '默认=' + defaultId);
   else note('xdg-settings', '报出 ' + desktopId + (defaultId ? '（默认已由 ' + defaultSource + ' 定出）' : ' 但不可用'));
@@ -337,8 +288,6 @@ function probeLinux(d) {
   return { browsers: [...found.values()], defaultId, defaultSource, probed: notes };
 }
 
-/** mimeapps 规范顺序的默认值：用户级 XDG_CONFIG_HOME 优先，其次各 XDG_CONFIG_DIRS，最后 XDG_DATA_DIRS。
- *  取 `[Default Applications]` 的 `x-scheme-handler/https` 首个仍安装的条目。 */
 function linuxDefaultFromMimeApps(readFile, exists, env, home, note) {
   const cfgHome = env.XDG_CONFIG_HOME || PJ(home, '.config');
   const cfgDirs = String(env.XDG_CONFIG_DIRS || '/etc/xdg').split(':').filter(Boolean);
@@ -366,7 +315,6 @@ function linuxDefaultFromMimeApps(readFile, exists, env, home, note) {
   return null;
 }
 
-/** mimeapps.list 的 `[Default Applications]` 段取 https 项的第一个 id（规范：安装即失效则顺延下一个）。 */
 function mimeAppsDefault(text) {
   let inDefault = false;
   for (const line of String(text || '').split(/\r?\n/)) {
@@ -380,8 +328,6 @@ function mimeAppsDefault(text) {
   return null;
 }
 
-/** 一平台的探测分派：平台事实只在这里出现一次，每条来源都进 probed。
- *  canExec（文件在且可执行）默认落到 exec-path 的实测实现。 */
 function probe(platform, d) {
   const pl = platform || process.platform;
   const dd = Object.assign({}, d, { canExec: d.canExec || ((p) => isExecutableFile(p, pl)) });
@@ -390,11 +336,8 @@ function probe(platform, d) {
   return probeLinux(dd);
 }
 
-// 结果按平台缓存：注册表/LaunchServices/XDG 目录扫描都不是廉价查询，面板轮询不得反复触发。
 const CACHE = Object.create(null);
 
-/** 完整清单 + 默认项 + 探测留痕。面板可 force 刷新（安装/卸载浏览器后立刻反映）。
- *  @param {{force?:boolean, now?:Function, runOut?, readFile?, exists?, listDir?, canExec?, env?, home?, ttlMs?}} [o] */
 function inventory(platform, o) {
   const ov = o || {};
   const pl = platform || process.platform;
@@ -410,7 +353,6 @@ function inventory(platform, o) {
   try {
     value = probe(pl, { runOut, readFile, exists, listDir, canExec: ov.canExec, env: ov.env || process.env, home: ov.home || os.homedir() });
   } catch (e) {
-    // 探测层任何意外都不得变成用户可见的打开失败：如实记下「本次没探到」，选路自会按空清单处理。
     value = { browsers: [], defaultId: null, defaultSource: null, probed: [{ source: 'probe-error', detail: String((e && e.message) || e) }] };
   }
   value.at = now();
@@ -420,7 +362,6 @@ function inventory(platform, o) {
   return Object.assign({ cached: false }, value);
 }
 
-/** 缓存只影响下一次探测：安装/卸载浏览器后面板要能立刻反映，故提供显式失效口。 */
 function invalidate(platform) {
   if (platform) delete CACHE[platform];
   else for (const k of Object.keys(CACHE)) delete CACHE[k];
@@ -429,7 +370,6 @@ function invalidate(platform) {
 module.exports = {
   inventory, invalidate, probe, probeWin, probeMac, probeLinux,
   engineOf, tokenizeExec, parseExecLine, exeFromCmdLine,
-  // 注册表原语住在 ./registry.js（单一实现），此处原样转出。
   regValueOf: registry.regValueOf, expandEnvVars, safeRegKeyPart, regKeyFull: registry.regKeyFull,
   regValue, regSubkeys, regValueTargets,
   browserFromDesktop, desktopDirs, resolveLinuxBin, mimeAppsDefault, linuxDefaultFromMimeApps,

@@ -1,16 +1,5 @@
 'use strict';
 
-// 环境表单（外部打开链路的最底层）：把「这台机器与本产品相关的实况」按维度收齐并常驻呈现 ——
-//   装了哪些浏览器、系统说不出哪个是默认、有没有图形会话、用户在本产品里选过谁、跑内核的运行时
-//   （node/npm/镜像源/全局前缀）到不到位、往外走不走得出去，每条结论从哪条系统事实读来。
-//   动作层只从这张表分发（选路见 pickLauncher，执行见 ./browser.js），不再自己摸系统事实。
-// 维度台账 schema 2：每个维度一条 {at, source, state, data, probed}。采集仍归各自的所有者，
-//   用 registerSection() 把既有探针挂进来；本文件只负责按拍装配、失效与落盘。
-//   壳的采集结果经 ../contract/shell-report 以 `shell` 维进同一张表，与内核的 runtime 维并排而不互相
-//   覆盖（两份实测不一致本身就是要看的证据）。
-// 平台事实只写在 ./browser-inventory.js 与 ./egress.js 一处：本文件不查注册表、不跑 LaunchServices、
-//   不扫 XDG、不自己摸网络，只做表单装配、选路次序与快照落盘。
-
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -23,33 +12,23 @@ const egress = require('./egress');
 const shellReport = require('../contract/shell-report');
 const { engineOf } = detector;
 
-/** 快照 schema：落盘格式变更时递增，读侧据此判旧快照是否作废（不得按字段猜版本）。 */
 const SCHEMA = 2;
 
-/** 快照文件名（落在本产品状态目录，与 config/state 同处）。 */
 const FILE_NAME = 'environment.json';
 
-/** 表单缓存窗口：与探测层的清单缓存同量级，面板轮询不得把系统查询变成常态开销。 */
 const FORM_TTL_MS = 60000;
 
-/** 维度默认复用窗口：出网条件与运行时探测都比「读一次文件」贵得多，按维度各自 ttlMs 覆盖。 */
 const SECTION_TTL_MS = 60000;
 
-/** 壳上报维度的复用窗口：读一次小文件近乎免费，短窗口便于「壳刚重探完，面板下一拍就能看到」；
- *  没有「等壳上报」的轮询，报告旧到什么程度由 data.ageMs 如实交出。 */
 const SHELL_REPORT_TTL_MS = 10000;
 
-/** 装配期注入的取数口。platform 不得 require app/api（分层门禁），而「用户的偏好」住在内核配置里、
- *  「能力矩阵的实测覆写」住在 ./index.js 里，只能由上层在组装时把 getter 绑进来；绑一次即全局生效。 */
 let _sources = {};
 
-/** @param {{preference?:Function, capabilities?:Function}} sources 同名覆盖，未给的保持原状。 */
 function bind(sources) {
   _sources = Object.assign({}, _sources, sources || {});
   return _sources;
 }
 
-/** 用户在本产品里选的浏览器（配置项 id）；未绑定或值为空即 null。 */
 function preferenceId() {
   const f = _sources.preference;
   if (typeof f !== 'function') return null;
@@ -57,14 +36,12 @@ function preferenceId() {
   return typeof v === 'string' && v.trim() ? v.trim() : null;
 }
 
-/** 能力矩阵（含实测覆写的最终档位）；未绑定即 null，表单如实标「未绑定」而不冒充一份档位。 */
 function capabilities() {
   const f = _sources.capabilities;
   if (typeof f !== 'function') return null;
   return f() || null;
 }
 
-/** 本机身份（只读，零 spawn、零网络）。userInfo 在部分服务语境会抛，故落到环境变量。 */
 function identity() {
   let user = null;
   try { user = os.userInfo().username; } catch { user = process.env.USER || process.env.USERNAME || null; }
@@ -74,13 +51,10 @@ function identity() {
   };
 }
 
-/** 本产品状态落点（快照写在这里；被管控对象的数据目录不属于本表单）。 */
 function paths() {
   return { root: stateRoot.root(), supervisor: stateRoot.supervisorDir(), shell: stateRoot.shellDir() };
 }
 
-/** 候选清单的规整形态：engine 恒有值（探测层漏填时按可执行文件名现推），isDefault 按系统默认项标定。
- *  表单与选路共用这一份，避免出现「面板显示两个、实际按第三个启动」。 */
 function normalizeInventory(inv, platform) {
   const list = inv && Array.isArray(inv.browsers) ? inv.browsers : [];
   const defaultId = inv && inv.defaultId ? inv.defaultId : null;
@@ -103,8 +77,6 @@ function normalizeInventory(inv, platform) {
   };
 }
 
-/** 浏览器候选清单（探测层的原样视图 + 表单补上的判定字段）。
- *  @param {{force?:boolean, platform?:string, inventory?:object, resolveInventory?:Function, resolveDeps?:object}} [o] */
 function browsers(o) {
   const ov = o || {};
   const pl = ov.platform || process.platform;
@@ -114,8 +86,6 @@ function browsers(o) {
   return normalizeInventory(resolve(pl, ov.resolveDeps || {}), pl);
 }
 
-/** 候选次序（纯函数）：引擎族是「裸 URL 直启的参数语义是否确定」的唯一分级依据（other 即不确定）。
- *  同族按 id 字典序，保证同一台机器每次给出同一个答案，不随清单产出顺序漂移。 */
 const ENGINE_RANK = { chromium: 0, firefox: 1, other: 2 };
 function rankCandidates(list) {
   const rankOf = (b) => {
@@ -130,16 +100,6 @@ function rankCandidates(list) {
   });
 }
 
-/** 分发依据（纯函数）：这次交给哪个浏览器。四层优先级，写在这里一次，动作层不再自己判：
- *  1) 用户在本产品里选过的偏好 —— 只在它仍是当前候选时作数；
- *  2) 系统自己说得出的默认项（认 defaultId 字段，来源名由探测层给）；
- *  3) 穷举后的唯一候选；
- *  4) 候选多个而系统说不出默认：按候选次序取首个（how='candidate-rank'）并留痕。
- *  偏好所指被卸载/不可执行时不静默换人：回落并在 stale 里如实标出。
- *  @param {string} [platform]
- *  @param {object} inv 规整后的候选清单（normalizeInventory / browsers 的返回）
- *  @param {string|null} [preference] 显式传 null 表示「无偏好」；不传则取装配期绑定的偏好
- *  @returns {{browser:object|null, how:string, wanted:string|null, stale:boolean}} */
 function pickLauncher(platform, inv, preference) {
   const list = inv && Array.isArray(inv.browsers) ? inv.browsers : [];
   const byId = new Map();
@@ -156,31 +116,19 @@ function pickLauncher(platform, inv, preference) {
   return out(null, 'none-found');
 }
 
-// ---- 维度台账 ----
-// _sections：注册表（谁提供这一维）；_reads：每维最后一次读数（{at, source, state, data, error}）。
-// 分两份：注册发生在装配期，读数发生在刷新期，而 form() 必须同步可读（选路当场要用）。
 const _sections = new Map();
 const _reads = new Map();
 
-/** 面板与快照的固定呈现次序；未列出的注册维度追加在后面（不藏维度）。
- *  shell 紧跟 runtime：两维量的是同一批事实（Node/npm/镜像源/前缀），只是采集者不同，并排放才能一眼
- *  看见不一致。startup 在最后：它是元信息，不参与分发判定。 */
 const SECTION_ORDER = ['runtime', 'shell', 'dsh', 'browsers', 'session', 'egress', 'capabilities', 'preference', 'pick', 'startup'];
 
-/** 表单自己装配的同步维度：这些名字由本文件每拍现装，不接受外部注册（注册即两个口径）。 */
 const SYNC_DIMS = ['browsers', 'session', 'capabilities', 'preference', 'pick'];
 
-/** 注册一个环境维度（app 层在装配期调用；platform 不得反向 require app）。
- *  probe 同步或异步都收：异步维度（子进程/网络）只由 refresh() 拍，同步维度不得在 HTTP 路径上跑。
- *  @param {string} id 维度名（进 sections/快照，故必须稳定）
- *  @param {{label?:string, probe:Function, ttlMs?:number, source?:string}} def
- *  @returns {object} 注册后的定义 */
 function registerSection(id, def) {
   if (!id || !def || typeof def.probe !== 'function') throw new Error('registerSection(' + id + ') 需要 probe 函数');
   if (SYNC_DIMS.includes(id)) throw new Error('维度 ' + id + ' 由表单每拍自装，不接注册');
   const d = { id, label: def.label || id, probe: def.probe, ttlMs: def.ttlMs === undefined ? SECTION_TTL_MS : def.ttlMs, source: def.source || 'registered' };
   _sections.set(id, d);
-  _reads.delete(id); // 换探针即作废旧读数
+  _reads.delete(id);
   return d;
 }
 
@@ -189,7 +137,6 @@ function unregisterSection(id) {
   _reads.delete(id);
 }
 
-/** 某维度当前读数（同步取；绝不在这里触发探测）。未注册也未读过即 null，读过但失败 = state='error'。 */
 function section(id) {
   return _reads.get(id) || null;
 }
@@ -199,8 +146,6 @@ function sectionData(id) {
   return r ? r.data || null : null;
 }
 
-/** 出网条件维度的数据装配：代理读数 + 已判过的目标主机，三态原样交出（不把 null 折成 false）；
- *  代理地址的脱敏走 ../util/redact，本维度只在装配时过一次。 */
 function proxyDataOf(p) {
   return p ? { state: p.state, server: maskProxyServer(p.server), pac: p.pac || null, source: p.source, cached: p.cached === true } : null;
 }
@@ -230,9 +175,6 @@ function egressData(proxyReading) {
   };
 }
 
-/** 内置维度：出网条件。采集口（./egress.js）在同层，故在加载时注册；运行时与 DSH 两维的探针住在
- *  app/service 层，由装配期挂进来（见 registerSection）。
- *  force 一路传到 L0：面板点「刷新」就是要重问系统一遍。 */
 registerSection('egress', {
   label: '出网条件',
   source: 'self',
@@ -247,10 +189,6 @@ registerSection('egress', {
   },
 });
 
-/** 内置维度：桌面壳所见。采集口（../contract/shell-report）也在 platform 层，故在加载时注册。
- *  与 runtime 并存而不互相覆盖：壳那份是「装内核时真正用的那一套」，内核这份是「本进程现在解析到的」，
- *    两者不一致正是要排障的东西，故这里只如实并排、不裁决。
- *  壳未上报（内核独立跑、CLI）时 available=false 并带原因，不是失败也不是空清单。 */
 registerSection('shell', {
   label: '桌面壳所见（Node/npm/镜像源/全局前缀）',
   source: 'shell',
@@ -258,7 +196,6 @@ registerSection('shell', {
   probe: () => shellReport.read(),
 });
 
-/** 拍一个维度：跑 probe、按结果定 state、失败只记账不抛（表单不得成为用户可见的失败原因）。 */
 async function probeSection(id, o) {
   const def = _sections.get(id);
   if (!def) return null;
@@ -273,7 +210,6 @@ async function probeSection(id, o) {
   return _reads.get(id);
 }
 
-/** 到期的维度才重探：`force` 与 ttl 是仅有的两条重探路，常态刷新只补到期的那几个。 */
 function staleOf(id, now, force) {
   if (force) return true;
   const def = _sections.get(id);
@@ -282,11 +218,6 @@ function staleOf(id, now, force) {
   return now - read.at >= def.ttlMs;
 }
 
-/** 异步刷新：把所有（或 only 指定的）维度按拍补齐，再交一份表单。
- *  启动装配、面板 ?force=1、改偏好后各拍一次；HTTP 路径只走这条与同步 form()。
- *  @param {{only?:string[], force?:boolean, persist?:boolean, platform?:string, inventory?:object,
- *           resolveInventory?:Function, resolveDeps?:object, now?:Function}} [o]
- *  @returns {Promise<object>} form() 的产物 */
 async function refresh(o) {
   const ov = o || {};
   const now = typeof ov.now === 'function' ? ov.now : Date.now;
@@ -296,13 +227,6 @@ async function refresh(o) {
   return form(Object.assign({}, ov, { force: true }));
 }
 
-/** 当场判一次「这次隔离登录的冷档案能不能出内容」（异步、有界，是 coldProfileViable 唯一取数入口）。
- *  判据由表单给出，动作层只要结论（与 pickLauncher 同一分工）。
- *  永不抛错：判不出即 viable:null（保持隔离档），出网探测不能变成用户可见的失败原因。
- *  @param {string} url 本次要打开的地址（取其主机名做判定对象）
- *  @param {{egress?:object, lookup?:Function, connect?:Function, force?:boolean, ttlMs?:number,
- *           timeoutMs?:number, now?:Function}} [o] `egress` 为注入缝：给定读数即不摸网
- *  @returns {Promise<{host:string|null, viable:boolean|null, basis:string, detail:string, proxy:string, at:number|null}>} */
 async function checkEgress(url, o) {
   const ov = o || {};
   const host = egress.hostOf(url);
@@ -323,15 +247,6 @@ async function checkEgress(url, o) {
   });
 }
 
-/** 冷档案隔离窗口的可行性判据（纯函数，与 pickLauncher 同族：判据只由表单决定，动作层不自判）。
- *  一键登录开的是独立 user-data-dir 的冷档案（无扩展、无 per-profile 配置、无既有登录态），目标域
- *  直连不通时它能否出内容只取决于机器上有没有一条系统级/环境级代理：
- *    直连可达 / 直连不通+代理在用 -> 隔离档照开（冷档案继承系统/环境代理）；直连不通+代理明确没有
- *      -> 冷档案必然空白，降为并入既有窗口（plain）并交出理由；任何一环判不出 -> 保持隔离（null）。
- *  返回三态 viable + basis：basis 是给人看的结论码，进 evidence 与面板。
- *  @param {object|null} eg egress 维度数据（egressData 的产物）；null=尚未探测
- *  @param {string|null} [host] 本次动作的目标主机
- *  @returns {{viable:boolean|null, basis:string, detail:string}} */
 function coldProfileViable(eg, host) {
   if (!eg) return { viable: null, basis: 'egress-unprobed', detail: '出网条件尚未探测，隔离窗口按原档打开' };
   const t = host && eg.targets ? eg.targets[host] : null;
@@ -355,12 +270,10 @@ function coldProfileViable(eg, host) {
   };
 }
 
-/** 表单快照的落盘位置。 */
 function snapshotPath() {
   return path.join(stateRoot.supervisorDir(), FILE_NAME);
 }
 
-/** 读回上一次落盘的快照（无/坏/版本不符一律 null：快照是给人看的留痕，不是启动依赖）。 */
 function readSnapshot() {
   try {
     const doc = JSON.parse(fs.readFileSync(snapshotPath(), 'utf8'));
@@ -368,10 +281,6 @@ function readSnapshot() {
   } catch { return null; }
 }
 
-/** 上一拍快照的读回口（只读留痕，绝不参与任何分发判定：分发只认当场同步装配的 form()）。
- *  available=false 必须分得清没写过还是读不出 —— 把「读不出」说成「没写过」会引着人去刷新。
- *  @param {{now?:Function}} [o]
- *  @returns {{available:boolean,path:string,at:number|null,ageMs:number|null,reason:string,data:object|null}} */
 function lastSnapshot(o) {
   const now = (o && typeof o.now === 'function') ? o.now : Date.now;
   const p = snapshotPath();
@@ -386,13 +295,6 @@ function lastSnapshot(o) {
 
 let _formCache = null;
 
-/** 环境表单：一次装配出本机全部相关事实。同步是硬要求 —— 选路与执行当场要读它。
- *  异步维度（出网条件/运行时/DSH）只读台账里最近的一拍，从未刷新即 state='pending'，不拿空数据冒充实况；
- *  要补数据走 refresh()（启动一次 + 面板 ?force=1 + 改偏好后）。
- *  @param {{force?:boolean, persist?:boolean, now?:Function, ttlMs?:number, platform?:string,
- *           inventory?:object, resolveInventory?:Function, resolveDeps?:object}} [o]
- *    persist=true 才落盘（读路径不写盘）。
- *  @returns {object} schema/at/identity/paths/session/capabilities/preference/browsers/default/pick/probed/sections/snapshot */
 function form(o) {
   const ov = o || {};
   const now = typeof ov.now === 'function' ? ov.now : (() => Date.now());
@@ -424,7 +326,6 @@ function form(o) {
   probed.push({ section: 'pick', source: 'form',
     detail: pick.how + (pick.browser ? '（' + pick.browser.name + '）' : '（无候选）') + (pick.stale ? '，偏好已失效需重选' : '') });
 
-  // 维度台账：同步维度每拍现装；异步维度取最近一拍，未拍过即 pending（并保留 pending 的说明）。
   const sections = {};
   const syncDims = {
     browsers: { at: stamp, state: inv.browsers.length ? 'ok' : 'empty', count: inv.browsers.length, defaultSource: inv.defaultSource },
@@ -456,7 +357,6 @@ function form(o) {
   }
   const egressRows = ((sections.egress || {}).data || {}).probed || [];
   for (const row of egressRows) probed.push({ section: 'egress', source: row.source, detail: row.detail });
-  // shell 维单独留一行结论：只有 sections 时，「壳没报过」与「壳报了但没读到」分不清。
   const sh = (sections.shell || {}).data;
   if (sh) {
     probed.push({
@@ -500,10 +400,6 @@ function form(o) {
   return Object.assign({ cached: false }, value);
 }
 
-/** 显式失效：改动偏好或装卸浏览器后调用。表单缓存与探测层清单一起作废，异步维度只过期不删数 ——
- *  下一拍 refresh 补新值，面板这一拍仍看得见上一次读数与其时间（删成 pending 会让人误判成机器变了）。
- *  @param {string} [platform] 探测层清单缓存的平台
- *  @param {string|string[]} [only] 只作废这些维度的读数（不传即全维度过期） */
 function invalidate(platform, only) {
   _formCache = null;
   const list = only === undefined ? null : (Array.isArray(only) ? only : [only]);
@@ -515,11 +411,6 @@ function invalidate(platform, only) {
   return detector.invalidate(platform);
 }
 
-/** 偏好校验（纯函数）：空值=清除；非空必须是当前候选清单里的 id，其余一律拒写。
- *  判据住在表单而不住在写入口 —— 写入口可以有多个（面板、CLI），各自定义合法偏好就会各自漂移。
- *  @param {*} value 用户提交的原始值（非字符串按空处理，不猜）
- *  @param {object} form 当前环境表单
- *  @returns {{ok:boolean, id:string|null, browser:object|null, error?:string, candidates:object[]}} */
 function checkPreference(value, form) {
   const candidates = ((form && form.browsers) || []).map((b) => ({
     id: b.id, name: b.name, engine: b.engine, isDefault: b.isDefault === true,

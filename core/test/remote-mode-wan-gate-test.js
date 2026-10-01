@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 远程控制（wan）安全闸：**唯一事实源 + 唯一写入口**，设置面无绕道 —— 公网闸曾只在 setFrp 一处执行，
-//   旧设置面 patchDshMain 能开 frpEnabled 却不过闸（可绕过令牌闸开公网暴露）；三态化后唯一写入口是
-//   setRemoteMode（lan 同闸口），wan 前置闸 = core.validateWanAccess，patchDshMain 白名单只剩 guardian，frpc 执行边界再复判一次。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -14,7 +11,6 @@ const check = (n, c, x) => {
   console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x !== undefined && x !== '' ? '  <- ' + x : ''));
 };
 
-// 行为：注入假 deps 构造 setRemoteMode/setRemoteToken 全链（main 路径），断言闸与落盘次序。
 // 每例一份新鲜夹具：写次数账本一旦跨例共享，判据就变成「执行顺序正确」而非「这条动作做对」。
 const { createLanActions } = require(path.join(ROOT, 'src', 'app', 'domain-actions', 'lan.js'));
 function mk(meta0) {
@@ -37,8 +33,6 @@ function mk(meta0) {
   return { meta, written, eventsSeen, evData, actions };
 }
 
-// 开启远程控制即分配令牌：「先去别处设凭据」留在流程里会产出开关已开、无二维码、
-// 用户也不知凭据为何的半截状态，所以分配必须与模式同一次落盘完成。
 {
   const f = mk();
   const r = f.actions.setRemoteMode('main', 'wan');
@@ -58,7 +52,6 @@ function mk(meta0) {
     r.ok === true && r.tokenAutoAllocated === true && f.meta.remoteMode === 'lan'
     && /^[A-Za-z0-9_-]{8,}$/.test(f.meta.remoteToken), JSON.stringify(f.written));
 }
-// 已有令牌（含过弱的历史值）一律不覆盖；被拒必须零写入。
 {
   const f = mk({ remoteToken: 'tok' });
   const r = f.actions.setRemoteMode('main', 'wan');
@@ -74,8 +67,6 @@ function mk(meta0) {
     JSON.stringify({ r, w: f.written }));
 }
 {
-  // 夹具从 off 起步且无令牌：同时咬住「off 不过闸也不凭空补凭据」（与现值同则不落盘）与
-  //   「off 改模式时只写模式字段」——起点若给成 lan|wan，落盘就是应有动作。
   const f = mk({ remoteMode: 'off', remoteToken: '' });
   const off = f.actions.setRemoteMode('main', 'off');
   const f2 = mk({ remoteMode: 'wan', remoteToken: 'remote-tok-0123' });

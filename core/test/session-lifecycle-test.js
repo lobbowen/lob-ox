@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 阶段 1「所有权归一」契约回归：守卫内核不得 systemctl stop/restart 自己所属单元 ·
-//   stopping/stopped 期间抑制一切自动拉起 · 退出唯一入口 shutdownAll ·
-//   会话态唯一读取口 sessionState()。自包含：最小 Supervisor（TMP stateFile，不 start 定时器）。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -14,7 +11,6 @@ const results = [];
 const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x !== undefined ? '  ← ' + x : '')); };
 
 (async () => {
-  // -- 2) 会话状态机基础 --
   console.log('== 会话状态机（契约 §3）==');
   const { Supervisor } = require(path.join(ROOT, 'src', 'supervisor'));
   const cfg = {
@@ -31,11 +27,9 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   const sup = new Supervisor(cfg);
   check('会话态初始 = starting', sup.sessionState() === 'starting', sup.sessionState());
 
-  // -- 3) stopping 期间抑制自动拉起 --
   console.log('== stopping 抑制拉起 ==');
   let spawned = 0;
   sup._startProcess = async () => { spawned++; sup._mSetPhase('STARTING'); };
-  // 放行门：desired=running + 显式 start 意图（守护关也能拉起）
   sup._mSetDesired('running');
   sup.intents.register('start');
   sup._mSetPhase('STOPPED');
@@ -43,7 +37,6 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   const spawnedWhenRunning = spawned;
   check('running 会话态：显式意图可触发拉起', spawnedWhenRunning >= 1, 'spawned=' + spawnedWhenRunning);
 
-  // 进入 stopping -> 同一条件下必须抑制
   spawned = 0;
   sup._setSessionState('stopping');
   sup.intents.register('start');
@@ -51,7 +44,6 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   await sup.tick();
   check('stopping 期间抑制拉起（spawned=0）', spawned === 0, 'spawned=' + spawned);
 
-  // -- 4) 退出：shutdownAll 置 stopped 且幂等 --
   console.log('== 退出（契约 §4.1）==');
   sup._setSessionState('running'); // 复位（上一步测试停在 stopping）
   const r1 = await sup.shutdownAll();
@@ -62,19 +54,16 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   const r2 = await sup.shutdownAll();
   check('shutdownAll 幂等（already 回执）', r2 && r2.ok === true && r2.already === true && r2.sessionState === 'stopped', JSON.stringify(r2));
 
-  // stopped 期间仍抑制
   spawned = 0;
   sup.intents.register('start');
   sup._mSetPhase('STOPPED');
   await sup.tick();
   check('stopped 期间同样抑制拉起', spawned === 0, 'spawned=' + spawned);
 
-  // -- 4b) 阶段 2 意图单源：desired 是恢复权威--
   console.log('== 阶段 2 意图单源（恢复语义）==');
   {
     const s2 = new Supervisor(cfg);
     s2._startProcess = async () => { spawned++; s2._mSetPhase('STARTING'); };
-    // 场景 A：守卫重启后 desired=running + guardian=false（默认关，无 hook 可设）+ 无内存意图 -> 必须拉起
     spawned = 0;
     s2._mSetDesired('running');
     s2._setSessionState('running');
@@ -83,7 +72,6 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     await s2.tick();
     check('P2-A desired=running+guardian=false+无意图 → 拉起（恢复语义）', spawned >= 1, 'spawned=' + spawned);
 
-    // 场景 B：desired=stopped -> 绝不拉起
     spawned = 0;
     s2._mSetDesired('stopped');
     s2._setSessionState('running');
@@ -92,7 +80,6 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     await s2.tick();
     check('P2-B desired=stopped → 不拉起', spawned === 0, 'spawned=' + spawned);
 
-    // 场景 C：未守护崩溃 -> 停靠；下一拍（desired 仍 running）不得自动拉起
     spawned = 0;
     s2._mSetDesired('running');
     s2._setSessionState('running');
@@ -102,7 +89,6 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     await s2.tick();
     check('P2-C 未守护崩溃停靠后不自动拉起（guardian 语义保留）', spawned === 0, 'spawned=' + spawned);
 
-    // 场景 D：显式启动清除停靠 -> 拉起（setDesired 内部自带 tick；等其结算）
     spawned = 0;
     s2._mSetDesired('stopped');
     s2._crashHalted = true;
@@ -113,13 +99,11 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
       'halted=' + s2._crashHalted + ' spawned=' + spawned);
   }
 
-  // -- 5) 6) /session API 契约 --
   console.log('== /session API ==');
   const lifecycleApi = require(path.join(ROOT, 'src', 'api', 'domains', 'lifecycle'));
   check('lifecycle.owns 覆盖 /session/status 与 /session/stop',
     lifecycleApi.owns('/session/status') === true && lifecycleApi.owns('/session/stop') === true);
 
-  // -- 7) 阶段 3：会话态贯通（statusSummary / 全域抑制）--
   console.log('== 阶段 3 会话态贯通 ==');
   {
     const s3 = new Supervisor(cfg);
@@ -129,7 +113,6 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     s3._setSessionState('stopping');
     check('P3-B sessionState 随迁移更新', s3.statusSummary().sessionState === 'stopping', s3.statusSummary().sessionState);
 
-    // 全域：沙箱 / daemon supervise 在 halting 时短路
     let sandboxTouched = false, daemonTouched = false;
     s3.instances = { supervise: async () => { sandboxTouched = true; }, probeInstance: () => ({ running: true }) };
     s3._syncSandboxRegistryEntry = () => {};
@@ -140,13 +123,11 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   }
 
 
-  // -- 9) P2：能力元数据 + ST-1 启停写口 --
   console.log('== P2 B1 能力执法 ==');
   {
     const { LifecycleManager } = require(path.join(ROOT, 'src', 'app', 'control', 'manager'));
     const { registerAll } = require(path.join(ROOT, 'src', 'app', 'control', 'adapters'));
     let emb = 0, writes = 0; // 本文件自备的「内嵌 router 被直调」与「写口被调」计数
-    // 三个夹具唯一差异是 supervisor 写口，故抽一个装配工厂。
     const mkMgr = (supOver) => {
       const m = new LifecycleManager({});
       registerAll(m, {
@@ -173,15 +154,13 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
       r1.ok === false && r2.ok === false && r3.ok === false && /不可启停/.test(r1.error || ''), JSON.stringify(r1));
     check('可启停模块仍放行', (await mgr.start('router')).ok === true, 'ok');
 
-    // ST-1 写侧：router 启停唯一写口是 setRouterRunning（同时落 config.routerAutostart）；缺写口必须
-    //   显式拒绝，且不得把 running 意图留在视图上 —— 否则读侧出现第二真相，被停掉的 daemon 被无限重拉。
+    // router 启停唯一写口是 setRouterRunning（同时落 config.routerAutostart）；缺写口必须显式拒绝，否则读侧出现第二真相。
     emb = 0;
     const mgr2 = mkMgr({});
     const rNoWriter = await mgr2.start('router');
     check('缺 setRouterRunning 写口时 start 被拒（非假成功）', rNoWriter.ok === false && /setRouterRunning/.test(rNoWriter.error || ''), JSON.stringify(rNoWriter).slice(0, 90));
     check('被拒的 start 不留 running 意图且不绕过持久化直调内嵌 router',
       mgr2.get('router').desired !== 'running' && emb === 0, 'desired=' + mgr2.get('router').desired + ' embedded=' + emb);
-    // 反向对照：同一 adapter 换上带写口的 supervisor，启停只经写口、内嵌 router 零直调。
     emb = 0;
     const mgr3 = mkMgr({ setRouterRunning: async (on) => { writes += on ? 1 : 2; return { ok: true }; } });
     const rWithWriter = await mgr3.start('router');

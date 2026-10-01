@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 上游 credits 余额不足 -> 切换回归：classifyUpstreamLimited 把 400/402/429/403 中的 insufficient
-//   credits/billing/balance 识别为 'credits'（窗口词为 'window'，其余 'none'）· ProviderBase.markCreditsExhausted
-//   冻结 + 周期重探（充值后自动恢复）· credits-low 账号被 isAccountUsable 排除。自包含，不触碰真实 daemon/账号/上游。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -18,8 +15,7 @@ function check(name, cond, extra) {
 
 async function main() {
   console.log('== 上游限制分类 classifyUpstreamLimited ==');
-  // 实据：Command /alpha/generate 原始错误体 400 + "You have insufficient credits…"，
-  //   commandcode-api-proxy 包成 OpenAI 信封 type:"proxy_error"，且代理层只对 5xx/429 重试 ⇒ 400 余额不足必须由路由层换号。
+  // 实据：Command /alpha/generate 原始错误体 400 + "You have insufficient credits"；代理层只对 5xx/429 重试 ⇒ 400 余额不足必须由路由层换号。
   check('真实样本：CC 400 success=false error.code=BAD_REQUEST → credits',
     classifyUpstreamLimited(400, '{"success":false,"error":{"code":"BAD_REQUEST","status":400,"message":"You have insufficient credits to make this request. Please purchase more credits to continue using the service.","docs":"https://commandcode.ai/docs/reference/errors/bad_request"}}') === 'credits');
   check('真实样本：commandcode-api-proxy 信封(CC API 400 内嵌原体) → credits',
@@ -99,7 +95,6 @@ async function main() {
     p.applyDetection(acc, { ok: true, quota: { rolling: { status: 'ok', percent: 1 }, weekly: { status: 'ok', percent: 1 }, monthlyRemaining: 0, monthlyResetAt: stale } });
     check('过期 monthlyResetAt → 回退 credits/poll（不赌不可靠恢复点）', acc.limit && acc.limit.kind === 'credits' && acc.limit.recovery && acc.limit.recovery.type === 'poll', acc.limit);
   }
-  // 本块验的是**分类与动作**（reactToFailure 的真实职责），不依赖任何取证旁路。
   console.log('== reactToFailure：上游 ≥400 的分类与动作 ==');
   {
     const { SwitchEngine } = require(path.join(ROOT, 'src', 'domains', 'router', 'switch'));
@@ -126,7 +121,6 @@ async function main() {
   console.log('== bodyResetMs/headerRetryMs：ISO 绝对重置时间解析 ==');
   {
     const { bodyResetMs, headerRetryMs } = require(path.join(ROOT, 'src', 'domains', 'router', 'providers', 'base'));
-    // CC 429 真实样本：body 用绝对 ISO 时间而非 "resets in N min"（动态未来 2h，防时间流逝致测试失效）
     const isoStr = new Date(Date.now() + 2 * 3600 * 1000).toISOString();
     const cc429 = '{"error":{"message":"CC API 429: {\\"success\\":false,\\"error\\":{\\"code\\":\\"RATE_LIMITED\\",\\"status\\":429,\\"message\\":\\"You' + String.fromCharCode(39) + 've reached your 5-hour usage limit for your plan. Your limit resets at ' + isoStr + '. Please wait for the window to reset or upgrade your plan to continue.\\"}}}}';
     const isoMs = bodyResetMs(cc429);
@@ -166,7 +160,6 @@ async function main() {
       JSON.stringify({ status: r.account && r.account.status, limited: r.limited, limit: r.account.limit }));
   }
   {
-    // 运行中账号窗口满（applyDetection 路径）与添加时窗口满完全同机（防两套待遇回归）
     const p = new ProviderBase({ id: 'tc2', name: 'TC2', kind: 'direct' });
     const weeklyResetAt = Date.now() + 7200000;
     const acc = { key: 'kw2', keyId: 'kw2', status: 'ready', maskedKey: '...kw2', quota: { rolling: { status: 'ok', percent: 10 }, weekly: { status: 'ok', percent: 90 }, monthly: null } };
@@ -197,8 +190,6 @@ async function main() {
 
   console.log('== applyDetection 收敛修复（2026-09 二次）：过期 nextResetAt 采纳新精确值 / credits at 不降级）==');
   {
-    // Bug1: window 分支——既有 nextResetAt 已过期(01:58)但真实 resetsAt 在 6 天后 -> 必须采纳新精确值，
-    // 否则永久卡过期值 -> 每 5min 临近探测死循环
     const p = new ProviderBase({ id: 'tb1', name: 'TB1', kind: 'direct' });
     const realReset = Date.now() + 6 * 24 * 3600 * 1000;
     const acc = { key: 'kw-stale', keyId: 'kw-stale', status: 'frozen', maskedKey: '...kw-stale', quota: { rolling: { status: 'ok', percent: 10 }, weekly: { status: 'rate-limited', percent: 100, resetsAt: realReset }, monthly: null }, nextResetAt: Date.now() - 2 * 3600 * 1000, limit: { kind: 'window', since: Date.now() - 86400000, recovery: { type: 'at', at: Date.now() - 2 * 3600 * 1000 } } };
@@ -206,8 +197,6 @@ async function main() {
     check('过期 nextResetAt → 采纳真实 resetsAt（不再卡死）', acc.nextResetAt === realReset && acc.limit.recovery.at === realReset, JSON.stringify({ next: acc.nextResetAt, limitAt: acc.limit.recovery.at }));
   }
   {
-    // Bug2: credits 分支——单次探测未取到 monthlyResetAt（quota.monthlyResetAt=null）但既有 recovery.at 在未来 ->
-    // 保留 at，不降级 poll（否则每 5min 临近探测死循环）
     const p = new ProviderBase({ id: 'tb2', name: 'TB2', kind: 'direct' });
     const at = Date.now() + 20 * 24 * 3600 * 1000;
     const acc = { key: 'kc-at', keyId: 'kc-at', status: 'frozen', maskedKey: '...kc-at', quota: { monthlyCredits: 0, monthlyRemaining: 0 }, detectError: 'credits 余额不足', nextResetAt: at, limit: { kind: 'credits', since: Date.now() - 1000, recovery: { type: 'at', at } } };

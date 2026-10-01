@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 动态端口池容量与弹性：大量对象可持续分配（远超旧固定小段上限）· 选址避开 OS 动态端口范围 ·
-//   共享池不同锚点互不挤占 · 池满 -> 显式 ErrFull（不静默 null）且 capacity()/available()/isFull() 可观测 ·
-//   portPools 可覆盖 · 保留池拒绝用户实例端口。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -15,11 +12,10 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
 
 (async () => {
   const { PortRegistry, DEFAULT_POOLS, SEGMENT_POOL } = require(path.join(ROOT, 'src', 'platform', 'service', 'ports'));
-  // 反转法：段名/独立池是**域知识**，测试显式申报（等价于生产由 router/relay 域装配期注入；未申报段回退 managed）。
+  // 段名/独立池是域知识，由测试显式申报（生产由 router/relay 域装配期注入；未申报段回退 managed）。
   require(path.join(ROOT, 'src', 'domains', 'router', 'port-segments'));
   require(path.join(ROOT, 'src', 'domains', 'relay', 'port-segments'));
 
-  // 1) 选址：默认池必须完全避开 OS 动态端口范围，且在合法端口区间
   console.log('== 1) 池选址（RFC 6335 / 避开 OS ephemeral）==');
   const ephemeral = (() => {
     try {
@@ -34,7 +30,6 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     && Object.values(DEFAULT_POOLS).every((p) => p.base >= 1024 && p.base + p.count - 1 <= 65535),
     ephemeral ? ('ephemeral=' + ephemeral.lo + '-' + ephemeral.hi + ' pools=' + JSON.stringify(DEFAULT_POOLS)) : 'no /proc (skip range)');
 
-  // 2) 规模：providerApi 轻松容纳 200+ 供应商。
   console.log('== 2) 供应商规模弹性（旧固定 32 上限）==');
   const reg = new PortRegistry({ file: path.join(TMP, 'ports.json') });
   const N = 200;
@@ -48,18 +43,15 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     cap.providerApi.used === N && cap.providerApi.free === cap.providerApi.size - N
       && reg.available('providerApi') === cap.providerApi.free && reg.isFull('providerApi') === false, JSON.stringify(cap.providerApi));
 
-  // 3) 共享池：同池不同锚点，确定性且互不挤占
   console.log('== 3) 共享池（K8s 单一范围思想）==');
   const rp = await reg.allocate('relay', 'relay:a');
   const pp = await reg.allocate('proxyInstance', 'proxy:b');
   const op = await reg.allocate('oauthCallback', 'oauth:c');
   check('三段锚点不同（确定性起点）', rp !== pp && pp !== op && rp !== op, JSON.stringify({ rp, pp, op }));
-  // 同池模型两面合一：段->池映射声明一致 + 分配确实落在同一池范围（互不挤占 = 共享余量）
   check('relay/proxyInstance/oauthCallback 同池（声明一致 + 分配不互相覆盖）',
     SEGMENT_POOL.relay === SEGMENT_POOL.proxyInstance && SEGMENT_POOL.proxyInstance === SEGMENT_POOL.oauthCallback
       && [rp, pp, op].every((p) => p >= DEFAULT_POOLS.managed.base && p < DEFAULT_POOLS.managed.base + DEFAULT_POOLS.managed.count));
 
-  // 4) 池满 -> 显式错误（绝不静默 null）
   console.log('== 4) 池满显式错误 ==');
   const small = new PortRegistry({ file: path.join(TMP, 'small.json'), pools: Object.assign({}, DEFAULT_POOLS, { providerApi: { base: 27000, count: 4 } }) });
   for (let i = 0; i < 4; i++) await small.allocate('providerApi', 's' + i);
@@ -70,7 +62,6 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
       && small.isFull('providerApi') === true, JSON.stringify(full));
   check('allocate 池满返回 null（调用方转显式错误）', (await small.allocate('providerApi', 'overflow2')) === null);
 
-  // 5) 可配置池（工业标准：范围是配置项）
   console.log('== 5) portPools 可配置 ==');
   const custom = new PortRegistry({ file: path.join(TMP, 'custom.json'), pools: Object.assign({}, DEFAULT_POOLS, { providerApi: { base: 28000, count: 8 } }) });
   const cp = await custom.allocate('providerApi', 'x');
@@ -78,12 +69,10 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     custom.rangeOf('providerApi').base === 28000 && custom.rangeOf('providerApi').count === 8
     && cp >= 28000 && cp < 28008, JSON.stringify(custom.rangeOf('providerApi')));
 
-  // 6) 保留池拒绝用户实例端口
   console.log('== 6) 保留池拒用户端口 ==');
   let rejected = false;
   try { reg.registerUser(DEFAULT_POOLS.providerApi.base + 10, 'inst:bad'); } catch { rejected = true; }
   check('providerApi 池内端口被拒为实例端口', rejected);
-  // 池外端口（30000：大于 managed 与 providerApi 池，且避开 OS dynamic）
   const outsidePort = 30000;
   let allowed = true, errMsg = null;
   try { reg.registerUser(outsidePort, 'inst:ok'); } catch (e) { allowed = false; errMsg = e.message; }

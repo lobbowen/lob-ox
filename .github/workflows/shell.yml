@@ -2,48 +2,29 @@ name: dsh-shell-build
 
 # 公开壳产线（monorepo 版）：本仓 lobox = core/（内核）+ shell/（桌面壳）。
 #
-# 本工作流只管 **shell/**：矩阵 → 逐平台 Tauri bundle → 安装包挂 GitHub Release + 发布 npm 包（自更新产物）。
-#
 # ── 路径基准三分类（改本文件前先读）──────────────────────────────────────────
-#   ① run 步骤里的相对路径（cargo / node / ci 脚本 / shell-release 脚本）
-#        → 相对 `defaults.run.working-directory`（本文件设为 shell），**照原样写、不加前缀**；
+#   ① `run:` 里的相对路径 → 相对 `defaults.run.working-directory`（本文件 = shell），照原样写；
 #   ② action 的 `path:` / `files:`（checkout / upload-artifact / download-artifact / action-gh-release）
-#        → 相对 **workspace 根**，不受 defaults 影响 → **必须显式写 shell/ 前缀**；
-#   ③ action 输入与表达式里的仓库路径（Swatinem/rust-cache 的 `workspaces`、`hashFiles()`），
-#      以及 `$GITHUB_WORKSPACE/...`、`${{ github.workspace }}/...`
-#        → 同 ②，**必须显式写 shell/ 前缀**。
-#   漏改 ② ③ 的后果不是编译报错，而是**静默找错目录**：upload-artifact 只 warn 然后上传 0 个文件、
-#   缓存键永远 miss、验收步骤报「找不到产物」—— 排障成本远高于当场写对。
-#
-# 触发不变量：push main / `shell-*` tag / PR 均跑**完整构建矩阵**（不设轻量替代、不设 tag 守卫）。
-# monorepo 新增：**路径过滤** —— 只在 shell/** 或本工作流自身变化时触发；内核（core/**）改动不再
-#   触发壳的四平台打包（一次矩阵 = 3 OS × 4 平台 + 签名 + 安装冒烟）。
+#        → 相对 **workspace 根**，不受 defaults 影响 → 必须显式写 shell/ 前缀；
+#   ③ action 输入与表达式里的仓库路径（rust-cache 的 `workspaces`、`hashFiles()`）、
+#      以及 `$GITHUB_WORKSPACE/...` → 同 ②，必须显式写 shell/ 前缀。
+#   漏改 ② ③ 不会报错，而是**静默找错目录**：upload-artifact 只 warn 后上传 0 个文件、缓存键永远 miss、
+#   验收步骤报「找不到产物」。
 on:
   push:
-    # ── tag 命名空间 ──
-    # 壳与内核**各自独立版本**（壳 = shell/src-tauri/tauri.conf.json，内核 = core/package.json），
-    #   而 **path 过滤对 tag 推送不生效**（GitHub 文档「Events that trigger workflows」→ push；
-    #   亦见下方 `paths:` 的说明）⇒ 两条产线若共用 `v*`，**任一 tag 都会同时触发壳的四平台打包
-    #   （3 OS × 4 平台 + 签名 + 安装冒烟）与内核的完整产线**。
-    #   故按**组件前缀**分命名空间：壳 = `shell-<壳版本>`（例 shell-1.2.10），内核 = `core-<内核版本>`。
-    # **不带 `v` 前缀**：`shell-` 之后就是 tauri.conf.json#version 的字面值，于是 tag 与组件版本
-    #   **可直接对账**（由下面 `version` job 的 tag 对账步执行该比对）。
+    # ⚠ path 过滤对 tag 推送不生效 ⇒ tag 命名空间必须按组件前缀分开（壳 shell-<壳版本> / 内核 core-*）。
+    # 命名空间不带 `v`：`shell-` 之后就是 tauri.conf.json#version 的字面值，可直接对账。
     tags: ['shell-*']
-    # 日常 push main 跑**完整构建**（含 mac/win bundle 与全部 cargo 测试）。
     branches: [main]
-    # monorepo：内核改动不触发壳的打包。
     paths:
       - 'shell/**'
       - '.github/workflows/shell.yml'
-  # PR 也必须跑 CI —— 否则无法把 build 设为 required status check
-  # （GitHub 会等一个永不出现的状态 → PR 永久合不进去）。
+  # PR 也必须跑 CI：否则无法把 build 设为 required status check。
   pull_request:
     branches: [main]
-    # 与 push 同一套过滤：只 PR 了 core/** 的改动不该跑壳的四平台矩阵。
     paths:
       - 'shell/**'
       - '.github/workflows/shell.yml'
-  # workflow_dispatch 只为「发布通道冒烟」留一个可复核历史版本的入口（ver = 已发布版本号）。
   workflow_dispatch:
     inputs:
       ver:
@@ -51,74 +32,46 @@ on:
         required: false
         default: ''
 
-# 顶层最小权限默认：monorepo 下壳与内核同处一仓，不写 permissions 时 GITHUB_TOKEN 会拿到仓级
-#   默认（常含写权），壳 CI 的爆炸半径就被放大到 core/**。需要写权的 job（build 挂 Release 资产）
-#   已在自己的 `permissions:` 里显式声明，故此处收紧无副作用。
+# 顶层最小权限：monorepo 下壳与内核同处一仓，不写 permissions 时 GITHUB_TOKEN 会拿到仓级默认（常含写权），
+#   壳 CI 的爆炸半径就被放大到 core/**；需要写权的 job 已各自显式声明。
 permissions:
   contents: read
 
-# ── 目录基准（monorepo 关键改动）────────────────────────────────────────────
-# 所有 run 步骤的基准整体下移一层到 shell/：
-#   · 命令字面量一概不动（仍写 `node shell-release/assemble-shell-pkg.js`、`cargo test`、
-#     `bash ci/check-glibc.sh`），只改基准；
-#   · 只对 `run:` 步骤生效 —— `uses:` 步骤既不受益也不受影响（这正是上面 ② 类必须手改的原因）。
-# ⚠️ 步骤级 `working-directory:` 是**覆盖值**（相对 workspace 根解析），**不与本默认值拼接**；
-#   故本文件 6 处 `working-directory:` 写为 `shell/src-tauri`，目标即 shell/src-tauri。
+# 所有 run 步骤的基准整体下移一层到 shell/（命令字面量一概不动）。
+# ⚠️ 步骤级 `working-directory:` 是**覆盖值**（相对 workspace 根解析），**不与本默认值拼接**
+#    ⇒ 本文件 6 处 `working-directory:` 写为 `shell/src-tauri`。
 defaults:
   run:
     working-directory: shell
 
-# 平台矩阵不变量：
-#  · Linux 基座固定 ubuntu-22.04（glibc 2.35），且**只出 deb**：支持面 = Ubuntu，
-#    其余发行版（Fedora / openSUSE / RHEL 系与 AppImage）不在支持面内，不产也不测；
-#  · macOS 双架构原生（macos-latest / macos-15-intel）；
-#  · Windows 主推 NSIS per-user，MSI 备选。
+# 平台矩阵：Linux 基座固定 ubuntu-22.04（glibc 2.35）且只出 deb（支持面 = Ubuntu）；
+#   macOS 双架构原生（macos-latest / macos-15-intel）；Windows 主推 NSIS per-user，MSI 备选。
 jobs:
-  # 版本单源：从 tauri.conf.json 读取，供下游组装/发布使用（避免各 job 各写一遍）
-  # monorepo：本步 cwd = shell/（由上面 defaults 给定），故下面 './src-tauri/tauri.conf.json'
-  #   这一字面量不动，实际读到 shell/src-tauri/tauri.conf.json —— 即壳的版本单源。
+  # 版本单源 = shell/src-tauri/tauri.conf.json（下游组装/发布共用）。
   version:
     runs-on: ubuntu-latest
     outputs:
       ver: ${{ steps.v.outputs.ver }}
     steps:
       - uses: actions/checkout@v4
-      # ── tag ↔ 组件版本对账 ──
-      # 版本源 = **shell/src-tauri/tauri.conf.json#version**（本步 cwd=shell/，由 workflow 级 defaults
-      #   给定 ⇒ 下面 './src-tauri/tauri.conf.json' 一字不改即指向该文件）：它是本工作流**被发布流程
-      #   实际消费**的那个版本源 —— 本 job 的 `v` 步由它产出 `steps.v.outputs.ver`，下游
-      #   assemble-shell-pkg.js --ver、make-manifest.js --ver、shell-release 清单包与各平台子包的
-      #   npm version、install-smoke 的 VerB 全部取自该 output。
-      # 覆盖范围（如实登记，不夸大）：**只**覆盖「tag 名 ↔ tauri.conf.json#version 逐字一致」，**不**覆盖：
-      #   · Cargo.toml ↔ tauri.conf.json 的漂移 —— **部分**被 ci/install-smoke.sh 的行为断言捕获：
-      #     它断言装出来的二进制自报 `shell_version=`（源码里是 env!("CARGO_PKG_VERSION") = Cargo.toml）
-      #     等于 needs.version.outputs.ver（= tauri.conf.json），并断言包管理器侧元数据同值；
-      #     ⚠ 但那条只在 **tag 运行且 has_a=true**（自第二个 release 起）才执行，首个版本与日常 push/PR 不覆盖。
-      #   · Cargo.lock 里 dsh-supervisor-gui 的 version **无人校验**（cargo 构建时会自行改写它）。
-      # 仅 tag 事件生效：非 tag 的 push main / PR / workflow_dispatch 下本步被记成 **skipped**（不是失败）。
-      # 位置：job 内 checkout 之后、`v` 步之前 ⇒ 本 job（= 全工作流，build/publish 都 needs 本 job）的
-      #   最早失败点。
+      # 版本源 = shell/src-tauri/tauri.conf.json#version：本步 cwd=shell/（由 workflow 级 defaults 给定），
+      #   故下面 './src-tauri/tauri.conf.json' 一字不改即指向该文件 —— 它是本工作流发布流程实际消费的单源。
       - name: tag ↔ 组件版本对账（仅 tag；不一致即失败）
         if: github.ref_type == 'tag'
         shell: bash
         env:
-          # 与 github.ref_name 同一事实源；显式经 env 传入，使「读的是哪个表达式」在文件里可见。
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          # ⚠ 本仓既有教训（见 install-smoke 的 pick_a 步）：本步带 -e（runner 的 bash 默认如此，
-          #   下面再显式声明），`VAR=$(cmd)` 非零会**直接终止脚本**、::error:: 永不打印
+          # ⚠ 本步带 -e：`VAR=$(cmd)` 非零会直接终止脚本、::error:: 永不打印
           #   ⇒ 取值类赋值一律带 `|| { ...exit 1; }` 兜底。
           set -euo pipefail
-          # `:-` 兜底：即便 TAG_NAME 未定义也不让 -u 以 unbound variable 中止（本步必须给出自己的文案）。
           TAG="${TAG_NAME:-}"
           [ -n "$TAG" ] || { echo "::error::tag 事件下 github.ref_name 为空，无法完成对账"; exit 1; }
           case "$TAG" in
             shell-*) ;;
             *) echo "::error::tag 名 ${TAG} 不带 shell- 前缀（本工作流只认 shell-<壳版本>，见文件头 tags: 段）"; exit 1 ;;
           esac
-          # 前缀剥离：命名空间不带 `v`，`shell-` 之后就是 tauri.conf.json#version 的**字面值**。
-          #   ⚠ 刻意不做 `${...#v}` 的历史兼容剥离：老形态 tag 应在这里如实判红，而不是被静默
-          #   归一后放行（pick_a 的 A_VER 处才需要那道剥离，理由见那里）。
+          # 刻意不做 `${...#v}` 历史兼容剥离：老形态 tag 应在这里如实判红，不得静默归一后放行。
           VER_TAG="${TAG#shell-}"
           VER_CONF="$(node -p "require('./src-tauri/tauri.conf.json').version")" || {
             echo "::error::读取 src-tauri/tauri.conf.json#version 失败（node -p 非零）；tag=${TAG}，对账无法完成"; exit 1; }
@@ -133,19 +86,15 @@ jobs:
 
       - id: v
         shell: bash
-        # 必须用块标量：行内写法中的 \" 会破坏 $( ) 的引号配对，
-        # 报 syntax error near unexpected token `(`。
+        # 必须用块标量：行内写法中的 \" 会破坏 $( ) 的引号配对。
         run: |
           ver=$(node -p "require('./src-tauri/tauri.conf.json').version")
           echo "ver=$ver" >> "$GITHUB_OUTPUT"
 
   build:
     needs: version
-    # **push 直接跑完整构建矩阵**：仅编译校验（cargo check）发现不了打包/签名/产物装配阶段的
-    #   问题（glibc 基座、bundle 装配、验签清单、UPDATE 资产都在这里踩过坑），轻量检查只会给出
-    #   「绿了」的假象 —— 故一律跑完整构建。
     permissions:
-      contents: write   # action-gh-release 挂 Release + 资产上传
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -154,8 +103,7 @@ jobs:
             artifact: linux-x64
             bundles: deb
             glibc_max: "2.35"
-          # Linux arm64（可选；如需开启，去掉下方注释 —— 矩阵参数进 job 名，
-          # 所以同批要改分支保护的 required context，并确认清单有独立槽位）
+          # Linux arm64（可选）：矩阵参数进 job 名，开启需同批改分支保护的 required context。
           # - os: ubuntu-22.04-arm
           #   artifact: linux-arm64
           #   bundles: deb
@@ -187,15 +135,11 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          # monorepo（② ③ 类路径）：本 key 是 action 输入里的仓库路径，相对 workspace 根、
-          # 不吃 defaults —— 必须写 shell/src-tauri；写 src-tauri 会指向不存在的 Cargo.toml
-          # （缓存静默失效，最坏情况是每次都全量重编，四平台 × 每平台一次）。
+          # ② ③ 类路径：本 key 相对 workspace 根、不吃 defaults ⇒ 必须写 shell/src-tauri
+          #   （写 src-tauri 缓存静默失效，四平台每次都全量重编）。
           workspaces: shell/src-tauri
-          # 关键：缓存键必须区分 runner 镜像。
-          # 默认键只含 OS（Linux 不细分发行版），于是 ubuntu-latest(=24.04) 的 target/ 与
-          # -sys 的 pkg-config 探测结果会被 ubuntu-22.04 复用到 —— 缓存里的构建脚本输出
-          # 指向 24.04 的库路径/特性集，导致 gtk 这类 -sys 生成绑定大量不匹配
-          # （表现形式与缺依赖的错误极难区分）。
+          # 缓存键必须区分 runner 镜像：默认键只含 OS，ubuntu-latest(=24.04) 的 target/ 与 -sys 的
+          #   pkg-config 探测结果会被 ubuntu-22.04 复用，导致 gtk 这类 -sys 绑定大量不匹配。
           # hashFiles() 同样相对 workspace 根 → 必须带 shell/ 前缀。
           key: ${{ matrix.os }}-${{ hashFiles('shell/src-tauri/Cargo.lock') }}
 
@@ -203,43 +147,25 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          # runner 镜像自带的第三方源（dl.google.com 等）常报 Hash Sum mismatch，与构建无关——
-          # 直接删除其源文件（含 deb822 .sources 格式），只留 Ubuntu 官方源，update 必须成功。
+          # runner 自带第三方源（dl.google.com 等）常报 Hash Sum mismatch：删其源文件，只留 Ubuntu 官方源。
           sudo rm -f /etc/apt/sources.list.d/google*.list /etc/apt/sources.list.d/google*.sources 2>/dev/null || true
           sudo apt-get update -y
-          # webkit2gtk-4.1：Tauri v2 的 Linux webview 依赖（Ubuntu 22.04 提供该 ABI）
-          # 显式列出 GUI 栈的 -dev 包（不依赖传递依赖）：gtk-rs 的 -sys crate 通过 pkg-config 探测，
-          # 缺任一个都会在编译期炸出大量错误（表现为「gtk 425 errors」）。
+          # webkit2gtk-4.1 = Tauri v2 的 Linux webview 依赖（Ubuntu 22.04 提供该 ABI）。
+          # 显式列 GUI 栈 -dev 包：gtk-rs 的 -sys crate 经 pkg-config 探测，缺任一个都会在编译期炸出大量错误。
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev \
             libglib2.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf-2.0-dev \
             libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config
 
-      # 测试：跑全部无外部依赖的 test target + src 内嵌单元测试。
-      # `updater_artifacts` 需要打包产物，故不并入本步、在下方「产物验收」步骤单独跑。
       - name: 测试（--bins 单元 + tests/*.rs 自动枚举）
         shell: bash
         run: |
-          # 不截断：失败时断言文案就是排障依据（与上一步同理）。
           set -o pipefail
-          # 不用 `--lib`：本包是 **bin crate**（无 library target），
-          #   `--lib` 会直接 `error: no library targets found` 并退出 101。
-          #   `--bins` 覆盖 src 内嵌的 #[cfg(test)] 单元测试。
-          # 改为**自动枚举全部 test target**（不再硬编码名字）：新增 tests/*.rs 会自动纳入 CI，
-          #   不会因漏写 --test 名而被静默排除在 CI 之外。
-          # 排除 updater_artifacts（需打包产物 SHELL_REHEARSAL_DIR，下方单独跑）。
-          #
-          # monorepo：本步 cwd = shell/src-tauri（defaults=shell + 步骤级覆盖），
-          #   故 `tests/*.rs` 仍正确枚举到 **壳的** 测试目录 —— 枚举逻辑无需改动即成立。
-          #   现状：枚举结果为空（tests/ 下只剩 updater_artifacts.rs），命令退化为 `--bins`。
-          #
-          # ⚠ 必须带 `|| true`：本步有 `set -o pipefail` 且 runner 的 bash 带 `-e`，tests/ 下若只剩
-          #   `updater_artifacts.rs`，`grep -v` 一行都不匹配 ⇒ 退出码 1 ⇒ `-e` 直接终止脚本
-          #   （`echo` 与 `cargo test` 都不会执行）。`|| true` 让「空枚举」成为合法结果。
+          # 不用 `--lib`：本包是 bin crate（无 library target），`--lib` 会 error: no library targets found。
+          # ⚠ 必须带 `|| true`：本步带 pipefail 且 runner 的 bash 带 -e，tests/ 下空枚举会让 `grep -v`
+          #   退出码 1 ⇒ -e 直接终止脚本（echo 与 cargo test 都不会执行）。
           TARGETS=$(ls tests/*.rs 2>/dev/null | sed 's#tests/##; s#\.rs$##' | grep -v '^updater_artifacts$' | sed 's/^/--test /' | tr '\n' ' ' || true)
           echo "CI 将执行的 test target: ${TARGETS}"
-          # `--no-fail-fast` 不是放宽门禁（一条都不会少跑），是把「一轮一问」变成「一轮全量」；
-          #   行数放宽到 400 是为了多个 target 同时红时不把前面的失败输出冲掉。
           cargo test --bins --no-fail-fast ${TARGETS} 2>&1 | tail -400
         working-directory: shell/src-tauri
 
@@ -247,11 +173,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          # 走**生产代码**（install_node + derive_usable）跑真机归档：zip 解包 → node_modules/npm →
-          #   `npm --version` 这条链在 Windows 上出问题就是面板将来显示给用户的那句。
-          #   单线程 + --ignored：它会改 DSH_SUPERVISOR_HOME 环境变量，不与其它测试并发。
-          #   --exact 必须配**全路径**：短名在 libtest 里零命中且退出码 0，这一步会绿得什么都没跑；
-          #   故再对「恰好一个测试通过」把一次关，空转即红。
+          # ⚠ `--exact` 必须配全路径：短名在 libtest 里零命中且退出码 0，这一步会绿得什么都没跑。
           set -o pipefail
           LOG="${RUNNER_TEMP:-/tmp}/official-npm-test.log"
           cargo test --bins -- --exact --ignored --test-threads=1 \
@@ -264,11 +186,9 @@ jobs:
       - name: 壳无头冒烟（--node-plan：环境探针 + 官方最新 LTS）
         shell: bash
         run: |
-          # 保留有界但足够的上下文（tail -60）：只截最后两行时真实编译错误会被汇总行冲掉。
           cargo build 2>&1 | tail -60
           BIN=./target/debug/dsh-supervisor-gui
           [[ "$RUNNER_OS" == "Windows" ]] && BIN="$BIN.exe"
-          # 判据是「产出了结论」而不是「进程没崩」：缺任一行同样算失败。
           if ! OUT=$("$BIN" --node-plan 2>&1); then
             printf '%s\n' "$OUT"; echo "--node-plan 退出非零：环境探针或 LTS 解析失败"; exit 1
           fi
@@ -278,13 +198,9 @@ jobs:
           done
         working-directory: shell/src-tauri
 
-      # ── Linux 启动链真机冒烟（伪内核 → --watchdog → /healthz 就绪）──
-      # 覆盖：定位守卫 → 组装启动规格 → 拉起 → 按 /healthz 判就绪。
-      # 用伪内核而非真内核：本步要验的是**壳的判据链**，故只要一个「按实际端口绑定 + 持久化
-      #   ports.json + 回 /healthz 200」的最小 node 进程（真内核的就绪与否不是本步要验的）。
-      # 状态根必须隔离到 RUNNER_TEMP：--watchdog 与它拉起的守卫共用 DSH_SUPERVISOR_HOME
-      #   （exec_guard/spawn_daemon 显式注入），整条链在同一次进程继承里，不需往机器环境塞变量 ——
-      #   这也是 Windows 那一腿做不到同样闭环的原因（见下一步注释）。
+      # 用伪内核而非真内核：本步要验的是壳的判据链，只需一个「按实际端口绑定 + 持久化 ports.json +
+      #   回 /healthz 200」的最小 node 进程。状态根隔离到 RUNNER_TEMP：--watchdog 与它拉起的守卫
+      #   共用 DSH_SUPERVISOR_HOME，整条链在同一次进程继承里。
       - name: Linux 启动链真机冒烟（--watchdog 端到端判就绪）
         if: runner.os == 'Linux'
         shell: bash
@@ -295,22 +211,17 @@ jobs:
           PKG="$RUNNER_TEMP/shell-chain-fake-core"
           rm -rf "$STATE" "$PKG"
           mkdir -p "$STATE/supervisor" "$PKG/bin"
-          # 高位端口：不与 runner 上任何服务抢；被占用时伪内核会顺延并如实持久化（与真实内核同语义）。
           printf '{"apiPort":39111}\n' > "$STATE/supervisor/config.json"
           printf '{"name":"dsh-supervisor-fake","version":"9.9.9"}\n' > "$PKG/package.json"
-          # 夹具随仓携带（ci/fake-core.js）：启动链冒烟与安装冒烟必须用同一份伪内核，
-          # 否则「H3 里成立的行为」与「H10 里成立的行为」可以各自漂移。
-          # monorepo（③ 类路径）：$GITHUB_WORKSPACE 是**仓库根**（monorepo 根，不是壳根），
-          # 夹具现在在 shell/ci/ 下 → 必须显式带 shell/。
+          # 夹具随仓携带（ci/fake-core.js）：启动链冒烟与安装冒烟必须用同一份伪内核。
+          # ③ 类路径：$GITHUB_WORKSPACE 是**仓库根**，夹具在 shell/ci/ 下 → 必须显式带 shell/。
           cp "$GITHUB_WORKSPACE/shell/ci/fake-core.js" "$PKG/bin/dsh-supervisor"
           chmod +x "$PKG/bin/dsh-supervisor"
-          # 位置契约（core.json）= 壳安装成功后写入的事实源；这里直接伪造它，避免真装内核。
           printf '{"schema":1,"bin":"%s","version":"9.9.9","source":"ci-fake"}\n' "$PKG/bin/dsh-supervisor" \
             > "$STATE/supervisor/core.json"
           export DSH_SUPERVISOR_HOME="$STATE"
-          # 兜底 spawn 出来的守卫是脱离本进程的 node，不能靠回合结束收口；
-          # unit 带 Restart=always，故连服务管理器一侧一起停并删定义（runner 是临时的，
-          # 但残留进程会在这一步之后继续被拉起，干扰后面的计数断言）。
+          # 兜底 spawn 的守卫是脱离本进程的 node：unit 带 Restart=always，故连服务管理器一侧一起停
+          #   并删定义（残留进程会在这一步之后继续被拉起，干扰后面的计数断言）。
           trap 'pkill -f "$PKG/bin/dsh-supervisor" 2>/dev/null || true;
                 systemctl --user disable --now dsh-supervisor.service 2>/dev/null || true;
                 rm -f "$HOME/.config/systemd/user/dsh-supervisor.service"' EXIT
@@ -320,22 +231,17 @@ jobs:
             cat "$STATE/shell/guard.log" 2>/dev/null || true
             exit 1
           fi
-          # ports.json 由伪守卫写入 = 「进程真的起来并绑定了端口」的独立证据（不是判据自己说自己好）。
           grep -q '"supervisor-api"' "$STATE/supervisor/ports.json" || { echo "ports.json 缺 supervisor-api 记录"; exit 1; }
-          # 第二次调用必须走「已就绪 → 直接返回 0」，且不得再拉起新守卫（判据与 GUI 启动同源）。
           "$BIN" --watchdog
           grep -c '\[fake-core\] healthz' "$STATE/shell/guard.log" | grep -q '^1$' \
             || { echo "第二次 --watchdog 重复拉起了守卫（就绪判据未短路）"; exit 1; }
           echo "Linux 启动链冒烟通过：解析守卫 → 组装规格 → 拉起 → /healthz 判就绪 → 复用"
         working-directory: shell/src-tauri
 
-      # ── Windows 服务定义真机冒烟（--service-plan → /Create → /Query 回读）──
-      # Windows 的「服务定义」是计划任务，定义内容（引号、verbatim 前缀、/RL HIGHEST 是否被拒）
-      #   在单元测试里**无法**验证 —— 真机的 schtasks 才是判据。
-      # 只到「建立 + 回读现存」而不继续 /Run → /healthz：稳定入口只写 `<壳> --run-guard`，
-      #   **定义里不携带状态根**（架构决定，见 LaunchSpec::service_command），而计划任务进程用的是
-      #   **任务计划程序里的用户环境**，拿不到本步在作业里设的 DSH_SUPERVISOR_HOME → 被拉起的一侧
-      #   会在默认状态根里找不到伪内核，故这一腿只证明「定义」这一环。
+      # Windows 的「服务定义」是计划任务：定义内容（引号、verbatim 前缀、/RL HIGHEST 是否被拒）在单元
+      #   测试里无法验证，真机 schtasks 才是判据。只到「建立 + 回读现存」：稳定入口只写 --run-guard，
+      #   定义里不携带状态根，而计划任务进程用任务计划程序里的用户环境，拿不到本步设的
+      #   DSH_SUPERVISOR_HOME ⇒ 被拉起的一侧在默认状态根里找不到伪内核。
       - name: Windows 服务定义真机冒烟（--service-plan --service-apply）
         if: runner.os == 'Windows'
         shell: bash
@@ -345,24 +251,19 @@ jobs:
           STATE="$RUNNER_TEMP/windows-service-state"
           rm -rf "$STATE"; mkdir -p "$STATE"
           export DSH_SUPERVISOR_HOME="$STATE"
-          # --service-plan 认这个覆盖（诊断入口的本意）；服务定义本身不引用它，
-          # 故给一个存在的占位文件即可 —— 真正上屏的判据是「会写进定义的那一行」。
+          # 服务定义本身不引用 DSH_GUARD_BIN，给一个存在的占位文件即可。
           GUARD="$STATE/fake-guard.js"; : > "$GUARD"; export DSH_GUARD_BIN="$GUARD"
           if ! OUT=$("$BIN" --service-plan --service-apply 2>&1); then
             printf '%s\n' "$OUT"; echo "建立服务定义失败（退出码非零）"; exit 1
           fi
           printf '%s\n' "$OUT"
           grep -q '^建立后现存    = 是' <<<"$OUT" || { echo "schtasks /Create 后 /Query 回读为「否」"; exit 1; }
-          # 定义行必须带引号（路径含空格不被截断）、以稳定入口结尾、且不含 verbatim 前缀。
           grep -E '^建立结果.*-> "[^"]*dsh-supervisor-gui\.exe" --run-guard' <<<"$OUT" >/dev/null \
             || { echo "建立结果里没有可核对的服务定义行"; exit 1; }
-          # verbatim 前缀只可能出现在「写进定义的那一行」上（current_exe() 的返回值形态），
-          # 故只扫这一行 —— 其余行（守卫占位文件路径）本来就带单反斜杠，扫全文必假阳。
+          # verbatim 前缀只可能出现在「写进定义的那一行」上，扫全文必假阳。
           if grep -E '^建立结果' <<<"$OUT" | grep -q '\\\\?'; then
             echo "服务定义含 verbatim 前缀（schtasks 不接受）"; exit 1
           fi
-          # 只读复跑：证明 is_defined() 走平台事实（计划任务不是文件，is_file() 恒 false），
-          # 且自检未写盘（只读契约）。
           if ! OUT2=$("$BIN" --service-plan 2>&1); then
             printf '%s\n' "$OUT2"; echo "只读自检失败"; exit 1
           fi
@@ -370,7 +271,7 @@ jobs:
           grep -q '^现存          = 是' <<<"$OUT2" || { echo "只读自检仍报「现存 = 否」"; exit 1; }
           grep -q '^将写入的定义  = "' <<<"$OUT2" || { echo "只读自检未产出定义行"; exit 1; }
           grep -q '未写盘' <<<"$OUT2" || { echo "只读自检走了写盘分支"; exit 1; }
-          # 计划任务是**机器级**状态，隔离不到 RUNNER_TEMP，故显式清理（失败不翻判定：判定已在上）。
+          # 计划任务是机器级状态，隔离不到 RUNNER_TEMP ⇒ 显式清理。
           export MSYS2_ARG_CONV_EXCL='*'
           for t in DSH-Supervisor DSH-Supervisor-Watchdog; do
             schtasks /Delete /TN "$t" /F 2>&1 | tail -2 || echo "警告：清理 $t 失败（不影响本步判定）"
@@ -381,12 +282,10 @@ jobs:
       - name: Build + bundle (Tauri)
         shell: bash
         env:
-          # 签名密钥（发布必须签名：Tauri updater 强制验签，不可关闭）
-          # 未配置 secret 时为空 → 仅构建不产 .sig（开发/验证场景不阻断）
+          # 签名密钥：tag 发布必须签名（Tauri updater 强制验签，不可关闭）；未配置时为空 ⇒ 仅构建不产 .sig。
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # CLI 版本钉死：不钉的话三条腿各取「当天的最新 2.x」，同一 commit 的三平台产物可能出自
-          #   不同 CLI 版本（Rust 侧有 Cargo.lock 钉死，JS 侧没有等价的锁）。升版本只改这一行。
+          # CLI 版本钉死：不钉的话三条腿各取当天的最新 2.x，同一 commit 的三平台产物可能出自不同 CLI。
           TAURI_CLI_VERSION: 2.11.5
         run: |
           UPDATER_OFF=""
@@ -396,59 +295,38 @@ jobs:
               exit 1
             fi
             echo "::warning::TAURI_SIGNING_PRIVATE_KEY 未配置 —— 不生成 .sig，产物不可用于自动更新（非 tag 构建不阻断）"
-            # 必须 unset：secret 未配置时这里展开成空字符串，而 Tauri v2 CLI 把「传了但为空」
-            # 判为一把非法私钥（incorrect updater private key password）直接失败，
-            # 只在 echo 层面承诺「不阻断」并不成立。
+            # ⚠ 必须 unset：secret 未配置时这里展开成空字符串，而 Tauri v2 CLI 把「传了但为空」判为
+            #   一把非法私钥直接失败 —— 只在 echo 层面承诺「不阻断」并不成立。
             unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-            # 还必须关掉 updater 产物：配置里已内置 pubkey，Tauri 见「有公钥无私钥」即失败
-            # （A public key has been found, but no private key）。验证构建只要安装程序。
+            # 还必须关掉 updater 产物：配置里已内置 pubkey，Tauri 见「有公钥无私钥」即失败。
             printf '%s' '{"bundle":{"createUpdaterArtifacts":false}}' > "${RUNNER_TEMP}/updater-off.json"
             UPDATER_OFF="--config ${RUNNER_TEMP}/updater-off.json"
           fi
-          # monorepo：本步 cwd = shell/，Tauri CLI 因而在 shell/src-tauri 找到壳工程
-          # （清单/公钥/前端产物都在那里）—— 命令字面量不动。
           npx --yes "@tauri-apps/cli@${TAURI_CLI_VERSION}" build --bundles "${{ matrix.bundles }}" ${UPDATER_OFF}
 
-      # ── glibc 基座门禁（Linux only）──
-      # 防止「在新基座构建 → 只能装新发行版」的缺陷回归。
       - name: glibc 基座门禁（Linux）
         if: runner.os == 'Linux' && matrix.glibc_max != ''
         shell: bash
         run: |
-          # 相对路径由 defaults 兜到 shell/ ⇒ 下面两句分别指向 shell/src-tauri/... 与 shell/ci/...
           BIN=src-tauri/target/release/dsh-supervisor-gui
           test -f "$BIN" || { echo "找不到产物 $BIN"; exit 1; }
-          # 门禁脚本随壳仓携带。
           bash ci/check-glibc.sh "$BIN" "${{ matrix.glibc_max }}"
 
-      # ── 组装可发布的 npm 包（产物 + .sig + 清单条目）──
-      # 说明：Tauri 的 {{target}}/{{arch}} 取值与 npm 命名不同，故用静态清单解耦；
-      #       组装器负责把「安装包 + .sig」成对收拢。
-      #       缺 .sig 的判罚按场景分：tag 发布必须成对（缺则早失败，绝不静默发布）；
-      #       非 tag 构建只是验证产线，本就没有密钥，不能因缺 .sig 而红。
-      # monorepo：本步 cwd = shell/ ⇒ 产物落在 shell/dist/npm-shell
-      #   （与该路径相关的两处必须同步带前缀：下面 upload-artifact 的 path、以及本 job
-      #    「产物验收」步骤的 SHELL_REHEARSAL_DIR）。
+      # 缺 .sig 的判罚按场景分：tag 发布必须成对（缺则早失败，绝不静默发布）；非 tag 构建只是验证产线。
+      # monorepo：本步 cwd = shell/ ⇒ 产物落在 shell/dist/npm-shell。
       - name: 组装 npm 包（更新产物 + 签名）
         shell: bash
         run: |
           REQ_SIG="--require-sig"; [[ "${GITHUB_REF}" == refs/tags/shell-* ]] || REQ_SIG=""
           node shell-release/assemble-shell-pkg.js             --platform "${{ matrix.artifact }}"             --ver "${{ needs.version.outputs.ver }}"             --bundle-dir src-tauri/target/release/bundle             --out dist/npm-shell ${REQ_SIG}
 
-      # ── 产物验收（本地端到端预演的 CI 化）──
-      # 用 **Tauri 自己的依赖** 验证我们产出的东西正是 Tauri 会接受的东西：
-      #   · minisign-verify —— tauri-plugin-updater 内部使用的同一个 crate
-      #   · tauri_plugin_updater::RemoteRelease —— Tauri 自己的清单解析器
-      # 覆盖：清单可解析 / 签名与配置公钥匹配 / 篡改必失败 / 换公钥必失败。
-      # 这一步失败 = 产物不可用于自动更新 → tag 发布必须早失败，绝不静默发布。
-      # monorepo：这也是 tests/ 下唯一保留的集成测试（updater_artifacts）。
+      # 用 Tauri 自己的依赖验证产物正是 Tauri 会接受的东西（minisign-verify + tauri_plugin_updater 的清单解析器）。
+      # 这一步失败 = 产物不可用于自动更新 ⇒ tag 发布必须早失败，绝不静默发布。
       - name: 产物验收（Tauri 同源验签 + 清单契约）
         if: startsWith(github.ref, 'refs/tags/shell-')
         shell: bash
         env:
-          # 必须绝对路径：本步骤 working-directory=shell/src-tauri，相对路径会解析到 shell/src-tauri/ 下。
-          # monorepo（③ 类路径）：${{ github.workspace }} 是**仓库根**，包目录实际在 shell/dist/npm-shell
-          # （组装步骤 cwd=shell）→ 必须带 shell/ 前缀，否则测试找不到 SHELL_REHEARSAL_DIR。
+          # ③ 类路径：${{ github.workspace }} 是仓库根，包目录在 shell/dist/npm-shell → 必须带 shell/ 前缀。
           SHELL_REHEARSAL_DIR: ${{ github.workspace }}/shell/dist/npm-shell
         run: |
           cargo test --test updater_artifacts -- --nocapture --test-threads=1
@@ -458,12 +336,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          # 只上传真正的安装程序 + 更新产物（.sig）。
-          # 不用 bundle/**/*（会把 .app 目录、AppDir、构建中间产物全部递归上传）。
-          # ⚠️ `path:` 相对 **workspace 根**，不吃 `defaults.run.working-directory`
-          #    （defaults 只作用于 run 步骤）→ 每一条都必须显式带 shell/ 前缀。
-          #    漏了不会报错：if-no-files-found: warn 会静默上传 0 个文件，直到 install-smoke
-          #    才以「本次产物里没有 …」红 —— 排障成本极高。
+          # ⚠️ `path:` 相对 **workspace 根**，不吃 `defaults.run.working-directory` → 每条都要带 shell/ 前缀。
+          #   漏了不报错：if-no-files-found: warn 会静默上传 0 个文件，直到 install-smoke 才红。
           path: |
             shell/src-tauri/target/release/bundle/deb/*.deb
             shell/src-tauri/target/release/bundle/dmg/*.dmg
@@ -478,8 +352,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/shell-')
         with:
-          # 同 upload-artifact（② 类路径）：action 的文件匹配相对 workspace 根、不受 defaults 影响
-          # → 必须逐条带 shell/ 前缀。
+          # ② 类路径：action 的文件匹配相对 workspace 根、不受 defaults 影响 → 必须逐条带 shell/ 前缀。
           files: |
             shell/src-tauri/target/release/bundle/deb/*.deb
             shell/src-tauri/target/release/bundle/dmg/*.dmg
@@ -489,18 +362,12 @@ jobs:
             shell/src-tauri/target/release/bundle/**/*.sig
           generate_release_notes: true
 
-  # ── 安装冒烟：装的是发布形态的安装包，跑的是**装进系统里**的那份字节 ──
-  # 必须独立成 job：上面所有冒烟跑的都是 ./target/debug 下的构建产物，证明不了
-  #   「用户 sudo apt install / 拖 .dmg / 静默装 .exe 之后能不能起来」。
-  # A/B 两个包：A = 上一个已发布版本（GitHub Release 上取，且内容必须与本次 HEAD 不同一份），
-  #   B = 本次构建产物；先装 A 再覆盖装 B 就是用户的升级路径。判据细节在 ci/install-smoke*.sh|ps1 里。
-  # monorepo：本 job 的 run 步骤 cwd = shell/ ⇒ `ci/install-smoke*.sh|ps1` 字面量不动即解析到 shell/ci/；
-  #   而 B 的落盘位置由 download-artifact 的 `path:` 决定（相对 workspace 根），故统一写成 shell/pkgs/b，
-  #   步内引用同步为 "$GITHUB_WORKSPACE/shell/pkgs/b"。
+  # 必须独立成 job：上面所有冒烟跑的都是 ./target/debug 产物，证明不了「用户装完之后能不能起来」。
+  # A = 上一个已发布版本（内容必须与本次 HEAD 不同），B = 本次构建产物；先装 A 再覆盖装 B 即升级路径。
   install-smoke:
     needs: [version, build]
     permissions:
-      contents: read   # 只下载公开 Release 资产
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -521,20 +388,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 取 A 的判据是「有没有**早于本次**的发布」，不是「有没有 release」。两类性质：
-      #   ① 结构性无 A（不是缺陷）⇒ ::notice:: + exit 0 + has_a=false，后面三步由各自的
-      #      `if: steps.pick_a.outputs.has_a == 'true'` 自动 skip：
-      #      ①a 全仓 release 数 = 0（新仓首次跑 CI）；
-      #      ①b 全仓有 release，但**本产线（shell-*）**没有可作 A 的更早发布：
-      #         (i) 本产线零 release —— Release 空间两条产线**共用**，故此时全仓通常非零；
-      #         (ii) 本产线候选全被跳过且原因**只有**「与本次同一 commit」—— build job 带
-      #              contents: write，tag 上「Attach installers to GitHub Release」先于本 job
-      #              （needs: [version, build]）执行 ⇒ 首个 tag 的 release 在本步之前就已存在、
-      #              且指向 GITHUB_SHA 本身 ⇒ 与 ①a 同等对待，否则首版永远发不出去。
-      #              A→B 升级冒烟自本产线**第二个** release 起生效。
-      #   ② 本产线候选里存在解析不到 commit / 资产不匹配的候选 ⇒ 真问题，维持 ::error:: exit 1。
-      # 候选**先按本产线命名空间过滤**（只认 shell-*）后才做上述判定；不属本产线的候选单独计数
-      #   （SKIPPED_FOREIGN），不算缺陷、不进硬错误分支。
+      # 结构性无 A（不是缺陷）⇒ notice + exit 0 + has_a=false，后三步各自 if 跳过；候选里存在解析不到
+      #   commit / 资产不匹配 ⇒ 真问题，维持 ::error:: exit 1。
+      # 候选先按本产线命名空间过滤（白名单只认 shell-*）：Release 空间两条产线共用，内核 core-* 的
+      #   候选资产里没有本产线的安装包，会撞「Release 里没有匹配资产」的硬错误分支。
       - id: pick_a
         name: 取 A（上一个已发布版本的安装包）
         shell: bash
@@ -543,47 +400,23 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pkgs/a"
-          # A 必须是**与本次 HEAD 不同的一份内容**：同一 commit 建出的 Release 当 A 等于自己覆盖
-          #   自己（「覆盖后字节必须变」在版本未提升时本就不判），且它刚建出的那一刻资产往往还没
-          #   传完，拿它当基线只会撞下载失败 ⇒ 按候选指向的 commit 比对，而不是按 ref 名。
-          # 三类候选计数（决定降级还是硬错误）：
-          #   SKIPPED_FOREIGN = 不属本产线命名空间（只有 shell-* 算本产线）⇒ **不是**缺陷，单独计数、
-          #     绝不混进 SKIPPED_BAD（否则会把内核刚发的版本误报成坏候选直接红）；
-          #   SKIPPED_SAME = 指向本次 GITHUB_SHA ⇒ 不算「更早的发布」，全为此类时可降级 notice；
-          #   SKIPPED_BAD  = 解析不到 commit 之类的真问题 ⇒ 只要存在一个就必须硬错误。
           SKIPPED_FOREIGN=""
           SKIPPED_SAME=""
           SKIPPED_BAD=""
           A_TAG=""
-          # ⚠ `|| LIST_RC=$?` 是必须的：本步带 `set -euo pipefail`，若 gh 非零导致赋值语句当场
-          #   终止脚本，下面的诊断**永远不会打印**。它同时把「查询失败（API/权限/网络）」与
-          #   「查询成功但确实没有 release」分开：前者是真错误，后者是结构性无 A。
+          # ⚠ `|| LIST_RC=$?` 是必须的：本步带 set -euo pipefail，gh 非零会让赋值语句当场终止脚本，
+          #   下面的诊断永远不会打印；它同时把「查询失败（真错误）」与「查询成功但无 release」分开。
           LIST_RC=0
           RELEASES=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 --json tagName -q '.[].tagName' 2>/dev/null) || LIST_RC=$?
           if [ "$LIST_RC" -ne 0 ]; then
             echo "::error::查询已发布版本失败（gh release list 退出码 $LIST_RC）；无法判定是否存在可作 A 的版本"
             exit 1
           fi
-          # N = 遍历到的 Release 条目总数（**两条产线合计**，即 gh release list 的全部输出）；
-          # N_LOCAL = 其中属本产线命名空间（shell-*）的候选数。两者分开才能如实区分
-          #   「全仓零 release」（①a）与「本产线零更早 release」（①b-i）—— 合成一个数就说不清。
-          # 三层分流：N=0 ⇒ ①a；本产线侧无 A 且 SKIPPED_BAD 为空 ⇒ ①b；SKIPPED_BAD 非空 ⇒ ②硬错误。
-          # ⚠ 遍历前**先按本产线命名空间过滤**（白名单只认 shell-*）：本仓的 Release 列表是**两条
-          #   产线共用**的（内核产线也往同一个仓挂 Release，tag 现为 `core-<内核版本>`），而
-          #   `gh release list` 按创建时间倒序返回 ⇒ 内核刚发过版时首个候选就是 core-*：它与本次
-          #   commit 不同（「同 commit」判据拦不住），但资产里没有匹配 matrix.pkg_glob 的安装包 ⇒
-          #   会撞下面「Release 里没有匹配资产」的硬错误分支。
-          # 用**白名单**而非「黑名单只排 core-*」：改名前的 `v*` tag 是两条产线**共用**的，那些内核
-          #   老 Release 同样没有本产线的安装包、会撞同一条硬错误 —— 只有白名单能一并挡掉。
-          # 代价：改名前的壳 `v*` 老 Release 也不再被选作 A ⇒ 本产线首个 shell-* tag 的 A→B 升级
-          #   冒烟走 ①b 跳过，自第二个 shell-* release 起恢复正常；下面 `${A_VER#v}` 那道剥离保留
-          #   作纵深防御（白名单若将来放宽，老 tag 仍能正确取版本号）。
           N=0
           N_LOCAL=0
           for t in $RELEASES; do
             N=$((N + 1))
-            # 本产线命名空间过滤：不属本产线的候选**不计入** N_LOCAL，也绝不进 SKIPPED_BAD。
-            #   `continue` 在 case 里合法，且这几行只有赋值（不会因非零退出码在 `set -e` 下终止脚本）。
+            # 不属本产线的候选不计入 N_LOCAL，也绝不进 SKIPPED_BAD（否则会把内核刚发的版本误报成红）。
             case "$t" in
               shell-*) ;;
               *) SKIPPED_FOREIGN="$SKIPPED_FOREIGN ${t}"; continue;;
@@ -596,20 +429,11 @@ jobs:
             break
           done
           if [ -z "$A_TAG" ]; then
-            # ── 分支 ①：**本产线**不存在早于本次的发布（结构性事实）⇒ notice + 成功收尾（不红）──
-            #   ①a = **全仓**零 release（唯一「Release 空间里真的什么都没有」的形态）；
-            #   只要仓里有任何 release（哪怕全属另一条产线），都归 ①b。
             if [ "$N" -eq 0 ]; then
               echo "::notice::本仓尚无任何已发布版本（release 数 = 0），本产线（shell-*）亦无更早发布；A→B 升级冒烟自首个 release 起生效；本次跳过「取 A→装 A→覆盖装 B」升级路径校验。"
               echo "has_a=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            #   ①b = **本产线**没有可作 A 的更早发布（$SKIPPED_BAD 为空）。两种成因的措辞必须点明
-            #   「本产线」而非笼统的「本仓」：
-            #     (i) 本产线零 release：Release 空间两条产线共用，故全仓通常非零，那些条目全属
-            #         另一条产线（已计入 SKIPPED_FOREIGN）；
-            #     (ii) 本产线候选全被跳过且原因**只有**「与本次同一 commit」= 「本产线唯一的已发布
-            #         版本就是本次 tag 自己」⇒ 与 ①a 同构，同等降级为 notice + exit 0。
             if [ -z "$SKIPPED_BAD" ]; then
               if [ "$N_LOCAL" -eq 0 ]; then
                 echo "::notice::本产线（shell-*）尚无任何已发布版本，不存在可作 A 的更早发布；A→B 升级冒烟自本产线首个 release 起生效。本次跳过「取 A→装 A→覆盖装 B」升级路径校验。（全仓 Release 条目数=${N}，全部不属本产线:${SKIPPED_FOREIGN})"
@@ -619,27 +443,22 @@ jobs:
               echo "has_a=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            # ── 分支 ②：存在解析不到 commit / 资产不匹配的候选 ⇒ 保持硬错误（这是真问题）──
             echo "::error::本产线找不到内容与本次（${GITHUB_SHA}）不同的已发布版本可作 A（本产线候选数=${N_LOCAL}，全仓 Release 条目数=${N}）；不可用候选（解析不到 commit 等真问题）:${SKIPPED_BAD}；与本次同一 commit 的候选:${SKIPPED_SAME:- 无}；不属本产线的候选（非缺陷，仅供参考）:${SKIPPED_FOREIGN:- 无}"
             exit 1
           fi
           echo "has_a=true" >> "$GITHUB_OUTPUT"
           gh release download "$A_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             --pattern "${{ matrix.pkg_glob }}" --dir "$RUNNER_TEMP/pkgs/a"
-          # ⚠ `|| true` 是必须的，不是放宽校验：本步带 `set -euo pipefail`，若 find 因目录不存在而
-          #   失败，赋值语句会**当场终止脚本**，紧跟着那段为「找不到资产」写的 ::error:: 提示
-          #   **永远不会打印**。容错后由下面的 if [ -z ] 守卫如实报错，语义不变、可排障。
+          # ⚠ `|| true` 是必须的，不是放宽校验：find 因目录不存在而失败会让赋值语句当场终止脚本，
+          #   紧跟着那段为「找不到资产」写的 ::error:: 永远不会打印。
           A_FILE=$(find "$RUNNER_TEMP/pkgs/a" -type f 2>/dev/null | head -1 || true)
           if [ -z "$A_FILE" ]; then
             echo "::error::$A_TAG 的 Release 里没有匹配 ${{ matrix.pkg_glob }} 的资产"
             gh release view "$A_TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name'
             exit 1
           fi
-          # A 的版本号 = 从 **A 自己的 tag 名**剥离组件前缀。主剥离是 `shell-`（壳 tag 现为
-          #   shell-1.2.10 形态）。⚠ 第二道 `${A_VER#v}` **保留**作纵深防御：上面白名单已把改名前
-          #   的 `v*` 老 tag 挡在候选之外，故它当前打不到；万一白名单将来放宽，老 A_TAG 仍需剥掉
-          #   `v`，否则 A_VER 会带上前缀（如 `v1.2.9`），下面 install-smoke 的「壳启动 v<ver>」
-          #   断言会把老 A 判成假红。
+          # ⚠ 第二道 `${A_VER#v}` 保留作纵深防御：白名单已把改名前的 v* 老 tag 挡在候选之外，若将来放宽
+          #   仍需剥掉 v，否则 install-smoke 的「壳启动 v<ver>」断言会把老 A 判成假红。
           A_VER="${A_TAG#shell-}"
           A_VER="${A_VER#v}"
           {
@@ -649,15 +468,13 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "A = $A_TAG -> $A_FILE"
 
-      # 下面三步只在 has_a=true 时跑：否则 A_FILE/A_VER 未定义，`set -u` 会以 unbound variable
-      # 红掉，或 ps1 拿到 $null 而失败。
+      # 下面三步只在 has_a=true 时跑：否则 A_FILE/A_VER 未定义，`set -u` 会以 unbound variable 红掉。
       - name: 取 B（本次构建产物）
         if: steps.pick_a.outputs.has_a == 'true'
         uses: actions/download-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          # monorepo（② 类路径）：download-artifact 的 path 相对 workspace 根、不受 defaults 影响
-          # → 显式 shell/ 前缀，与下面两条冒烟里的 "$GITHUB_WORKSPACE/shell/pkgs/b" 对齐。
+          # ② 类路径：相对 workspace 根、不受 defaults 影响 → 与下面冒烟里的 "$GITHUB_WORKSPACE/shell/pkgs/b" 对齐。
           path: shell/pkgs/b
 
       - name: 安装冒烟（Linux / macOS）
@@ -665,7 +482,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # 同上：`|| true` 保证「找不到文件」时能走到下面的 ::error:: 守卫（而不是被 pipefail 静默终止）。
           B=$(find "$GITHUB_WORKSPACE/shell/pkgs/b" -type f -name "${{ matrix.pkg_glob }}" 2>/dev/null | head -1 || true)
           if [ -z "$B" ]; then
             echo "::error::本次产物里没有 ${{ matrix.pkg_glob }}，实际文件如下"
@@ -693,10 +509,8 @@ jobs:
             -InstallerB $B.FullName -VerB '${{ needs.version.outputs.ver }}' `
             -Work "$env:RUNNER_TEMP/install-smoke"
 
-  # ── 发布 job：汇总各平台产物 → 生成 Tauri 静态清单 → 发布到 npm ──
-  # 仅在 tag 触发时执行（日常构建只做验证与产物上传）。
   publish:
-    # 装不上的安装包发出去就是「用户升级到坏版本」的唯一来源；发布前必须先过安装冒烟。
+    # 装不上的安装包发出去 = 用户升级到坏版本的唯一来源 ⇒ 发布前必须先过安装冒烟。
     needs: [version, build, install-smoke]
     if: startsWith(github.ref, 'refs/tags/shell-')
     runs-on: ubuntu-latest
@@ -714,19 +528,15 @@ jobs:
       - name: 下载全部平台产物
         uses: actions/download-artifact@v4
         with:
-          # ⚠️ monorepo（② 类路径，必改）：download-artifact 相对 workspace 根，
-          #   而下一步（cwd=shell）遍历的是 shell/dist/artifacts/* —— 不带前缀的话下载到
-          #   <根>/dist/artifacts 而遍历 <根>/shell/dist/artifacts，归拢结果静默为空。
+          # ⚠️ ② 类路径，必改：action 相对 workspace 根，而下一步（cwd=shell）遍历 shell/dist/artifacts/*
+          #   —— 不带前缀会下载到 <根>/dist/artifacts 而遍历 <根>/shell/dist/artifacts，归拢结果静默为空。
           path: shell/dist/artifacts
 
       - name: 归拢 npm 包目录
         shell: bash
         run: |
           mkdir -p dist/npm-shell
-          # upload-artifact 保留上传时的相对路径：上传 dist/npm-shell/**，
-          # 下载后落在 <artifact>/dist/npm-shell/**（不是 <artifact>/npm-shell）。
-          # 两种形态都兼容，避免路径假设变化导致静默归拢为空。
-          # monorepo：下载目录 = shell/dist/artifacts（见上一步 path），本步 cwd = shell/ ⇒ 正好对齐。
+          # upload-artifact 保留上传时的相对路径：上传 dist/npm-shell/** 后落在 <artifact>/dist/npm-shell/**。
           for d in dist/artifacts/*/; do
             for cand in "$d/dist/npm-shell" "$d/npm-shell"; do
               [ -d "$cand" ] && cp -r "$cand/." dist/npm-shell/
@@ -734,8 +544,6 @@ jobs:
           done
           echo "=== 归拢后的包目录 ==="
           find dist/npm-shell -maxdepth 2 -type d | sort
-          # 断言：至少 linux-x64 必须归拢成功。与其让后续产出空清单，
-          # 不如在此明确失败并打印实际布局。
           if [ ! -d dist/npm-shell/@dsh-sup/shell-linux-x64 ]; then
             echo "::error::未归拢到 shell-linux-x64，artifact 路径假设可能有误"
             echo "--- dist/artifacts 实际布局 ---"
@@ -771,29 +579,21 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -e
-          # dist-tag 规范（与内核 publish-core.sh 及发布通道契约一致）：
-          #   -BETA.n → beta（测试版，用户须显式 @beta）
-          #   -RC.n   → latest（正式版占 latest，RC 即正式）+ 发布后补 rc 别名
-          #   选档是**结构性判断（版本串是否含预发布后缀 `-`）**：含 `-` 即预发布 ⇒ 绝不挂 latest。
-          #     逐档枚举会在每个新后缀（test1/alpha/next/…）上漏一次，而漏一次的后果是「测试版占据
-          #     latest」这一**默认安装面**的污染；npm 的默认 tag 只留给纯 `x.y.z` 稳定版。
-          #   ⚠ npm publish 只接受一个 --tag，故 rc 别名在发布后经 dist-tag add 补。
-          #   ⚠ 本 job 内没有 latest 之外的通道回补（内核侧才有 reconcile_latest_tag），故 RC 档的
-          #     latest 仍由下面这一行给出。
+          # dist-tag 选档是结构性判断（版本串含 `-` 即预发布 ⇒ 绝不挂 latest）：逐档枚举会在每个新后缀上
+          #   漏一次，后果是「测试版占据 latest」这一默认安装面的污染。npm publish 只接受一个 --tag。
           VER="${{ needs.version.outputs.ver }}"
           TAG=""
           RC_ALIAS=0
           case "$VER" in
-            *-RC.*) TAG="--tag latest"; RC_ALIAS=1 ;;   # 正式（RC）占 latest；rc 别名发布后补
-            *-*)    TAG="--tag beta" ;;                 # 结构兜底：任何其它预发布后缀（含 -test1）
-            *)      TAG="--tag latest" ;;               # 纯 x.y.z 稳定版才 latest（不依赖 npm 默认值）
+            *-RC.*) TAG="--tag latest"; RC_ALIAS=1 ;;
+            *-*)    TAG="--tag beta" ;;
+            *)      TAG="--tag latest" ;;
           esac
           for d in dist/npm-shell/@dsh-sup/shell-*; do
             [ -d "$d" ] || continue
             PKG_NAME=$(node -p "require('./$d/package.json').name")
             echo "== 发布 $PKG_NAME =="
             (cd "$d" && npm publish --access public $TAG)
-            # RC（正式版）附加 rc 别名：npm publish 只接受单个 --tag。
             if [ "$RC_ALIAS" = "1" ]; then
               echo "== 补打 rc 别名：$PKG_NAME@$VER =="
               npm dist-tag add "$PKG_NAME@$VER" rc
@@ -812,14 +612,10 @@ jobs:
           "
           (cd "$REL" && npm publish --access public $TAG)
 
-  # ── 发布通道冒烟：从用户真正读到的端点取清单，逐平台读签名块钥匙并比对产物字节 ──
   # 签名有效性不在这里判（updater_artifacts 用与用户端同一个 minisign-verify crate 判）。
   # 与 install-smoke 的分工：那边验「装得上、起得来」，这边验「发出去的东西本身对」。
-  # 只在 tag 发布成功后跑；ver 入参让它能在发布当天之后复核历史版本
-  # （历史版本没有本次构建产物，只验清单与签名，脚本会在结论里如实说明未比对字节）。
   published-channel-smoke:
-    # publish 在非 tag 上是 skipped：always() 让手工触发仍能跑，
-    # 而 tag 上要求它真成功（发布没成的通道无从验起）。
+    # ⚠ always() 不可省：publish 在非 tag 上是 skipped，不加本 job 会被连带跳过（假绿）。
     needs: [version, publish]
     if: ${{ always() && (github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/shell-') && needs.publish.result == 'success')) }}
     runs-on: ubuntu-latest
@@ -838,7 +634,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/shell-')
         uses: actions/download-artifact@v4
         with:
-          # monorepo（② 类路径）：与下方 run 步骤（cwd=shell）的 dist/artifacts 对齐 → shell/dist/artifacts。
+          # ② 类路径：与下方 run 步骤（cwd=shell）的 dist/artifacts 对齐 → shell/dist/artifacts。
           path: shell/dist/artifacts
 
       - name: 校验已发布通道（清单可取 + 签名块钥匙一致 + 字节一致）
@@ -846,13 +642,10 @@ jobs:
         run: |
           set -euo pipefail
           VER="${{ inputs.ver || needs.version.outputs.ver }}"
-          # 入参可能写裸版本（1.2.6），也可能直接粘 tag（shell-1.2.6 / v1.2.6）：两道剥离都留着，
-          #   任一种写法都归一成裸版本交给 verify-channel.js。
-          #   仓库版本（`needs.version.outputs.ver` = tauri.conf.json#version）本就无前缀，两道都是 no-op。
+          # 入参可能写裸版本，也可能直接粘 tag（shell-1.2.6 / v1.2.6）：两道剥离都留着，归一成裸版本。
           VER="${VER#shell-}"
           VER="${VER#v}"
           ARGS=""
-          # 本步 cwd = shell/，故这里的相对路径正好落在 download-artifact 的 shell/dist/artifacts 上。
           if [ -d dist/artifacts ]; then ARGS="--artifact-dir dist/artifacts"; fi
           echo "复核版本 = ${VER}；artifact 比对 = ${ARGS:-关闭}"
           node shell-release/verify-channel.js --ver "$VER" $ARGS

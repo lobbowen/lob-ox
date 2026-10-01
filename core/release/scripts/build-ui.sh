@@ -1,19 +1,13 @@
 #!/usr/bin/env bash
-# 前端统一构建入口。
-#   源码唯一事实源 = ui/（React，入口 supervisor.html）
-#   出口1) = ui/dist（构建临时产物，gitignored）
-#   出口2) = ui-react（守卫托管发布镜像：浏览器/局域网 GET / 服务；release.sh/npm 子包携带）
-# 用法: release/scripts/build-ui.sh [--skip-install]
-#   - 默认先 npm ci（可复现构建）；--skip-install 跳过（本地已装依赖时加速）
-#   - 产物自检：supervisor.html 存在 + 含 root 挂载点
+#   源码唯一事实源 = ui/（入口 supervisor.html）
+#   ui-react/ = 守卫托管发布镜像（GET / 服务；release.sh/npm 子包携带）
 # 被调方：release.sh / ci-core.sh / build-launcher.sh / CI
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 UI="$ROOT/ui"
 SKIP_INSTALL=0
 [ "${1:-}" = "--skip-install" ] && SKIP_INSTALL=1
-# 环境变量等价形式：ci-core.sh 会先自行 npm ci 并跑前端门禁，再置该变量调本脚本，
-# 以免重复安装；其余调用方（本地、build-launcher）不设 -> 仍走可复现的 npm ci。
+# DSH_UI_SKIP_INSTALL=1 由 ci-core.sh 设置（它已先跑 npm ci），以免重复安装。
 [ "${DSH_UI_SKIP_INSTALL:-0}" = "1" ] && SKIP_INSTALL=1
 
 echo "[ui] unified frontend build (src=$UI)"

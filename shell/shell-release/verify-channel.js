@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-// 发布通道冒烟 H11：从**用户实际会读到的端点**取清单，验签名与字节。
-// 判的是「发布出去的东西可不可用」，不是「本仓代码对不对」（H2/H7 判后者）。
-// 端点与公钥都从 tauri.conf.json 读：这里再写一遍就会与真客户端漂移。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -44,7 +41,7 @@ async function fetchBuf(url, tries) {
   throw new Error(url + ' 取不到: ' + last);
 }
 
-// minisign 公钥 = base64( "untrusted comment: ... key: <ID>\n" + base64( alg(2) keyId(8) key(32) ) )
+// minisign 公钥 = base64( "untrusted comment: ... key: <ID>\n" + base64( alg(2) keyId(8) key(32) ) )；清单里的 signature 是双层 base64：外层解出 4 行 minisign 文本，第二行再解出 alg(2)+keyId(8)+ed25519(64)=74 字节。
 function loadPubKey(conf) {
   const b64 = conf.plugins.updater.pubkey;
   const outer = Buffer.from(b64, 'base64').toString('utf8').split('\n');
@@ -61,10 +58,7 @@ function loadPubKey(conf) {
 
 function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('hex'); }
 
-// 清单里的 signature 是双层 base64：外层解出 4 行 minisign 文本，第二行再解出 alg(2)+keyId(8)+ed25519(64)=74 字节。
-// 这里只判「钥匙是不是配置里那把」「字节是不是本次构建那份」；签名有效性归 updater_artifacts V2/V3/V4
-// （与用户端同一个 minisign-verify crate）。在 node 里重实现验签只有两种结局：口径不对年年假红，
-// 口径错了还判绿 —— minisign 的 "ED" 是 prehash 变体，Node stdlib 的纯 Ed25519 对已知正确三元组也验不过。
+// 这里只判「钥匙是不是配置里那把」「字节是不是本次构建那份」；签名有效性归 updater_artifacts V2/V3/V4（与用户端同一个 minisign-verify crate）。在 node 里重实现验签只有两种结局：口径不对年年假红，口径错了还判绿 —— minisign 的 "ED" 是 prehash 变体，Node stdlib 的纯 Ed25519 对已知正确三元组也验不过。
 function unwrapSig(key, b64, wantKeyId, wantId) {
   const text = Buffer.from(b64, 'base64').toString('utf8');
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
@@ -80,8 +74,6 @@ function unwrapSig(key, b64, wantKeyId, wantId) {
   return { blob, lines: lines.length };
 }
 
-// 清单键 -> 本次构建产物目录名（与 make-manifest.js 的 platToPkg 同一映射，产物按它分目录）。
-// 必须按键选目录：两个 mac 平台都把更新产物叫 dsh-supervisor.app.tar.gz，只按文件名比对会串台。
 const ARTIFACT_DIR = {
   'linux-x86_64': 'linux-x64', 'linux-aarch64': 'linux-arm64',
   'darwin-x86_64': 'darwin-x64', 'darwin-aarch64': 'darwin-arm64',
@@ -124,8 +116,6 @@ async function main() {
   console.log('配置公钥 key id = ' + pub.id);
   console.log('端点 = ' + endpoints.join(' | '));
 
-  // 端点按顺序就是客户端的尝试顺序：主端点取不到 = 用户取不到，判失败；
-  // 备用端点只在它也返回清单时要求内容一致（CDN 同步延迟不该让发布判定变红，但要留痕）。
   let manifest = null;
   let primaryErr = '';
   for (let i = 0; i < tries; i += 1) {

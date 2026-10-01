@@ -1,9 +1,5 @@
 'use strict';
 
-// Command Code OAuth 一键登录（IO + 状态）。状态收敛于本工厂闭包；端口登记沿用
-// platform/service/ports（分配即登记 / 配对释放）。
-// 浏览器启动只声明意图（隔离窗口登录 + 关窗即取消），机制全在 platform/os/browser.js 唯一出口。
-
 const crypto = require('node:crypto');
 const { createServer } = require('node:http');
 const { removeTreeDeferred } = require('../../../platform/util/fs');
@@ -17,8 +13,6 @@ function createOAuthOps(deps) {
   async function commandcodeLoginStart() {
     const STUDIO_BASE = 'https://commandcode.ai';
     const state = crypto.randomBytes(32).toString('base64url');
-    // 轮次号：server 与浏览器监视闭包各带本轮 roundId，决议前比对——
-    //   旧轮的 keep-alive 迟到回调能通过旧 state 自查，close() 只挡新连接、挡不了在途请求。
     const roundId = ++st._ccLoginRound;
     if (st._ccLogin && st._ccLogin.server) {
       const oldState = st._ccLogin.state;
@@ -50,7 +44,6 @@ function createOAuthOps(deps) {
           let b = '';
           req.on('data', (c) => { b += c; if (b.length > 10000) req.destroy(); });
           req.on('end', () => {
-            // 非本轮的迟到回调一律 410 Gone，绝不触碰 st 上的决议器。
             if (st._ccLoginRound !== roundId) { res.writeHead(410); res.end(callbackJson({ success: false, error: 'Stale login round' })); return; }
             try {
               const j = JSON.parse(b || '{}');
@@ -88,13 +81,10 @@ function createOAuthOps(deps) {
     const callbackUrl = 'http://localhost:' + port + '/callback';
     const authUrl = STUDIO_BASE + '/studio/auth/cli?callback=' + encodeURIComponent(callbackUrl) + '&state=' + encodeURIComponent(state);
     const promise = new Promise((resolve, reject) => { st._ccLoginResolve = resolve; st._ccLoginReject = reject; });
-    // UI 只 start 不 wait：_ccLoginReject 打到无人 await 的 promise 上会 unhandledRejection。
-    // 空 catch 只把该 rejection 标记为「已处理」，不改变 promise 本体的 settle 值——wait 用的仍是
-    // 同一 promise 本体，其 await/Promise.race 依旧收到同一 reject。
+    // UI 只 start 不 wait：无人 await 的 promise 会 unhandledRejection，空 catch 只标记「已处理」、不改 settle 值。
     promise.catch(() => {});
     st._ccLoginPromise = promise;
     const opened = await openInBrowser(authUrl, () => {
-      // 旧轮浏览器的退出监视迟到时不得误杀新一轮登录。
       if (st._ccLoginRound !== roundId) return;
       if (st._ccLoginReject) {
         const r = st._ccLoginReject;
@@ -103,8 +93,6 @@ function createOAuthOps(deps) {
         try { r(new Error('浏览器已关闭，登录已取消')); } catch {}
       }
     });
-    // 唯一出口交回的三档结果（ok/confirmed/handedOff/reason/error/message/evidence）：
-    // 本层只补登录专有字段，绝不自行宣称 confirmed。
     const r = opened || { ok: false, reason: 'spawn-failed' };
     const ev = r.evidence || {};
     if (!r.ok) {
@@ -114,8 +102,6 @@ function createOAuthOps(deps) {
       try { server.close(); } catch {}
       try { ports.unregister('oauth:' + state); } catch {}
       st._ccLogin = null;
-      // authUrl 与 error 分字段回：面板须能把地址原样交给用户（复制/手动打开）。
-      // evidence 一并交出：环境表单的分发依据与探测留痕。
       return {
         ok: false, authUrl, url: authUrl, opened: false, confirmed: false, handedOff: false,
         reason: r.reason || 'no-launcher',
@@ -126,10 +112,7 @@ function createOAuthOps(deps) {
     st._ccLogin = { state, port, server, tmpProfile: ev.profile || null };
     return Object.assign({}, r, {
       ok: true, authUrl, url: authUrl, state, port, waitMs: 180000, opened: true,
-      // 非隔离引擎（Safari/打包器包装）由平台层降级：账号隔离不成立，换账号只能靠超时重发或手动窗口。
       isolated: ev.isolated === true,
-      // 隔离成立/不成立的原因必须一起交出：basis 来自环境表单的出网条件维度
-      //   （cold-profile-blocked 即冷档案注定空白），与「引擎不支持隔离」是两种原因。
       isolatedBasis: ev.egress ? ev.egress.basis : (ev.isolated === true ? 'isolated' : 'engine-not-isolatable'),
       isolatedDetail: ev.egress ? ev.egress.detail || null : null,
     });
@@ -149,11 +132,9 @@ function createOAuthOps(deps) {
     } catch (e) {
       if (st._ccLogin && st._ccLogin.server) { const s = st._ccLogin.state; try { st._ccLogin.server.close(); } catch {} if (s) { try { ports.unregister('oauth:' + s); } catch {} } st._ccLogin = null; }
       st._ccLoginPromise = null;
-      // 失败分支也必须清 resolve/reject（防上一轮残留 reject 误杀下一次登录）。
       st._ccLoginResolve = st._ccLoginReject = null;
       return { ok: false, error: e.message };
     } finally {
-      // 登录结束后延迟回收隔离 profile（60s 给浏览器进程落盘的时间）；回收机制在 util/fs 一处。
       if (tmpProfile) removeTreeDeferred(tmpProfile, 60 * 1000);
     }
   }
