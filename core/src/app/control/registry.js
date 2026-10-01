@@ -8,7 +8,7 @@ const { DESIRED, MANAGED_KINDS, kindMeta, registerKind: registerManagedKind, cre
 // 目录相位集合：'backoff' 已随 U-5 统一重启策略删除（全域只有一条：窗口内 N 次失败 ⇒ failed，无阶梯、无等待）。
 const PHASES = ['stopped', 'installing', 'starting', 'running', 'draining', 'failed'];
 // 老状态文件里可能残留已删除的登记相位 ⇒ 读取时归一到新集合（同 app/state/phase.js 的做法），不许读崩。
-const LEGACY_PHASES = { backoff: 'failed' };
+const LEGACY_PHASES = { backoff: 'failed', restarting: 'starting' };
 
 const { runHeartbeat } = require('./heartbeat');
 

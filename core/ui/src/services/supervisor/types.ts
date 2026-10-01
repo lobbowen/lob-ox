@@ -1,6 +1,6 @@
 
 export type DshPhase =
-  | "RUNNING" | "STOPPED" | "STARTING" | "RESTARTING"
+  | "RUNNING" | "STOPPED" | "STARTING"
   | "OBSERVED" | string;
 
 export type NativeInstallState =

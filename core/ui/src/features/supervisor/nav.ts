@@ -25,7 +25,6 @@ export const SUP_PHASE_META: Record<string, { label: string; tone: Tone }> = {
   RUNNING: { label: "运行中", tone: "ok" },
   STOPPED: { label: "已停止", tone: "off" },
   STARTING: { label: "启动中", tone: "boot" },
-  RESTARTING: { label: "重启中", tone: "warn" },
   OBSERVED: { label: "运行中（未守护）", tone: "ok" },
 };
 
