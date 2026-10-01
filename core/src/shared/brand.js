@@ -181,22 +181,38 @@ function corePackageName(tag) {
   return NPM_SCOPE + '/' + CORE_PKG_PREFIX + tag;
 }
 
+// 环境变量基座的统一归一化（与 brand.rs 的 `env_base` **逐字同规则**）：
+//   取值 → String 化 → `trim()`；trim 后为空即视为**未设置**（返回 null ⇒ 调用方回落），否则取 trim 后的值。
+//   为什么"纯空白 = 未设置"：空白基座在文件系统上不可用，拼出来是形如 `"   \dsh-supervisor"` 的畸形路径。
+//   为什么取 trim 后的值：与本仓三处既有取值点同惯例 ——
+//     state-root.js 的覆盖位 `String(override).trim()`、env.rs 的覆盖位 `PathBuf::from(v.trim())`、
+//     install-id.js 的 `env.trim()`：都是「trim 后为空 = 未设置，非空取 trim 后的值」。
+//   ⚠ 两平台分支必须都经本函数（Windows 基座曾用 `||`、Linux 曾内联 trim，两侧规则不一致过）。
+function envBase(env, name) {
+  const raw = env[name];
+  if (raw === undefined || raw === null) return null;
+  const s = String(raw).trim();
+  return s === '' ? null : s;
+}
+
 // 状态根推导规则（不含 override 分支）：
 //   win32  → <LOCALAPPDATA 或 <家>/AppData/Local>/dsh-supervisor
 //   darwin → <家>/Library/Application Support/dsh-supervisor
 //   其余   → <XDG_STATE_HOME 或 <家>/.local/state>/dsh-supervisor
+// 两个基座都先过 envBase（纯空白 = 未设置 = 回落）；darwin 无基座，家目录由调用方给出。
 // override（三平台最先命中、绝对化）留在消费点 state-root.js，本函数只表达平台分支。
 function stateRoot(platform, env, home) {
   if (platform === 'win32') {
-    const base = env[STATE_ROOT_WIN_BASE_ENV] || path.join(home, ...STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS);
+    const base = envBase(env, STATE_ROOT_WIN_BASE_ENV)
+      || path.join(home, ...STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS);
     return path.join(base, STATE_DIR_NAME);
   }
   if (platform === 'darwin') {
     return path.join(home, ...STATE_ROOT_MACOS_SEGMENTS, STATE_DIR_NAME);
   }
-  const xdg = env[STATE_ROOT_LINUX_XDG_ENV];
-  return xdg && String(xdg).trim()
-    ? path.join(String(xdg).trim(), STATE_DIR_NAME)
+  const xdg = envBase(env, STATE_ROOT_LINUX_XDG_ENV);
+  return xdg
+    ? path.join(xdg, STATE_DIR_NAME)
     : path.join(home, ...STATE_ROOT_LINUX_FALLBACK_SEGMENTS, STATE_DIR_NAME);
 }
 

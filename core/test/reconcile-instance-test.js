@@ -338,7 +338,7 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
       await new Promise((res) => setTimeout(res, 150));
     }
     check('R13b 超时重启：新 pid 且旧进程已死', !!pid2 && !pidlook.isAlive(pid1), 'pid1=' + pid1 + ' pid2=' + pid2 + ' alive1=' + pidlook.isAlive(pid1));
-    check('R13c 同端口监听（不漂移）', pidlook.findListeningPid(port) === pid2, 'listener=' + pidlook.findListeningPid(port));
+    check('R13c 同端口监听（不漂移）', pidlook.findListeningPid(port) === pid2, 'listener=' + pidlook.findListeningPid(port)); // oracle-literal-ok: 期望值不是被测实现算出来的 —— pid2 是产品自报的实例 pid，左侧是对宿主的独立观测（谁在监听该端口），本条拿两个独立来源互证
     await new Promise((res) => setTimeout(res, 400));
     check('R13d 重启后实例健康', await fetch('http://127.0.0.1:' + port + '/health').then((x) => x.ok).catch(() => false), '');
     if (inst.pid) p.stopInstance(inst);

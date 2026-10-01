@@ -179,10 +179,36 @@ fn home_join(home: &Path, segments: &[&str]) -> PathBuf {
     segments.iter().fold(home.to_path_buf(), |p, s| p.join(*s))
 }
 
-/// 状态根推导规则（Windows）：基座取 `LOCALAPPDATA`（空白或缺失则退回 <家>/AppData/Local），拼状态根目录名。
+/// 环境变量基座的统一归一化（与 brand.js 的 `envBase` **逐字同规则**）：
+///   `trim()` 后为空即视为**未设置**（`None` ⇒ 调用方回落），否则取 trim 后的值。
+///   为什么"纯空白 = 未设置"：空白基座在文件系统上不可用，拼出来是形如 `"   \dsh-supervisor"` 的畸形路径。
+///   为什么取 trim 后的值：与本仓既有取值点同惯例 —— env.rs 的覆盖位 `PathBuf::from(v.trim())`。
+///   ⚠ 两个分支都必须经本函数（Windows 分支曾用 `.filter(|s| !s.trim().is_empty())` 但不 trim 值、
+///     Linux 分支曾只查 `is_empty()`，与 brand.js 的规则不一致过）。
+fn env_base(value: Option<String>) -> Option<String> {
+    value.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+/// `env_base` 的 `OsString` 版：同一条「trim 后为空 = 未设置」规则，但保留本模块既有性质 ——
+///   合法 UTF-8 基座连值一起 trim（与 brand.js 逐字一致）；非 UTF-8 基座（JS 侧无对应表示）只对
+///   `to_string_lossy()` 做一次空白判定，判定通过则用**原 OsString**，不做二次解码。
+fn env_base_os(value: Option<std::ffi::OsString>) -> Option<std::ffi::OsString> {
+    let raw = value?;
+    match raw.to_str() {
+        Some(s) => env_base(Some(s.to_string())).map(std::ffi::OsString::from),
+        None => {
+            if env_base(Some(raw.to_string_lossy().to_string())).is_some() {
+                Some(raw)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// 状态根推导规则（Windows）：基座取 `LOCALAPPDATA`（**trim 后为空或缺失**则退回 <家>/AppData/Local），拼状态根目录名。
 pub fn state_root_windows(local_appdata: Option<String>, home: &Path) -> PathBuf {
-    let base = local_appdata
-        .filter(|s| !s.trim().is_empty())
+    let base = env_base(local_appdata)
         .map(PathBuf::from)
         .unwrap_or_else(|| home_join(home, STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS));
     base.join(STATE_DIR_NAME)
@@ -193,13 +219,11 @@ pub fn state_root_macos(home: &Path) -> PathBuf {
     home_join(home, STATE_ROOT_MACOS_SEGMENTS).join(STATE_DIR_NAME)
 }
 
-/// 状态根推导规则（Linux 及未支持平台）：基座取 `XDG_STATE_HOME`（空则退回 <家>/.local/state），拼状态根目录名。
-/// 基座按 `OsString` 原样取用，非 UTF-8 的 XDG 基座不做二次解码。
+/// 状态根推导规则（Linux 及未支持平台）：基座取 `XDG_STATE_HOME`（**trim 后为空或缺失**则退回 <家>/.local/state），拼状态根目录名。
+/// 基座经 `env_base_os`：合法 UTF-8 时取 trim 后的值；非 UTF-8 的 XDG 基座不做二次解码。
 pub fn state_root_linux(xdg_state_home: Option<std::ffi::OsString>, home: &Path) -> PathBuf {
-    if let Some(x) = xdg_state_home {
-        if !x.is_empty() {
-            return Path::new(&x).join(STATE_DIR_NAME);
-        }
-    }
-    home_join(home, STATE_ROOT_LINUX_FALLBACK_SEGMENTS).join(STATE_DIR_NAME)
+    let base = env_base_os(xdg_state_home)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_join(home, STATE_ROOT_LINUX_FALLBACK_SEGMENTS));
+    base.join(STATE_DIR_NAME)
 }

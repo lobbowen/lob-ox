@@ -291,6 +291,158 @@ const HOME = path.join('H', 'ome');
     'ok');
 }
 
+// ── G. 归一化边界：两侧行为逐条一致（纯空白 = 未设置 ⇒ 回落）─────────────────
+// 本段要防的正是 B-1 漏掉的那一类缺陷：B-1 只比**常量值**，不比规则在边界输入上的**行为** ——
+//   波 0 的单源里 brand.js(win32) 用 `||`（纯空白不回落）、brand.js(linux) 内联 trim（回落）、
+//   brand.rs(win32) 用 `.filter(|s| !s.trim().is_empty())`（回落）、brand.rs(linux) 只查 `is_empty()`
+//   （不回落）：同一个「LOCALAPPDATA/XDG_STATE_HOME 为纯空白」的输入，两侧两条相反路径，B-1 却全绿。
+// 做法（不编译 Rust，也不拿单源自证）：
+//   ① 冻结字面量表 GCASES：每条期望路径由冻结段字面量独立拼出，与两侧实现无关；
+//   ② G-1：JS 侧实跑 BRAND.stateRoot(...) ↔ 冻结期望；
+//   ③ G-2：Rust 侧按 brand.rs **源码逐字提取**的语义位求值 ↔ 同一批冻结期望 ——
+//      「是否 trim 值 / 空白判定是否 trim / 两分支是否接上归一化入口」四个位全部从源码读出，不写死；
+//   ④ G-3：两侧逐条互比；G-4/G-5/G-6：覆盖矩阵与「实现逐字等于冻结字面量」的结构对账。
+//   ⇒ 任一侧单独改错 ⇒ 至少 G-1 或 G-2 变红。
+{
+  const GH = path.join('G', 'home'); // G 段自己的冻结家目录字面量
+  const WIN_FB = path.join(GH, 'AppData', 'Local', 'dsh-supervisor');
+  const MAC = path.join(GH, 'Library', 'Application Support', 'dsh-supervisor');
+  const LNX_FB = path.join(GH, '.local', 'state', 'dsh-supervisor');
+  const WIN_KEY = 'LOCALAPPDATA';
+  const XDG_KEY = 'XDG_STATE_HOME';
+  const WS = [['空串', ''], ['纯空格', '   '], ['制表符', '\t'], ['换行', '\n'], ['回车换行', '\r\n']];
+  const HOME_WS = ['   ', '\t', '\n'];
+
+  const GCASES = [];
+  const push = (label, platform, env, home, want) => GCASES.push({ label, platform, env, home, want });
+
+  // (1) LOCALAPPDATA 纯空白（win32）⇒ 必须回落 <家>/AppData/Local/dsh-supervisor
+  for (const [n, v] of WS) push('win32 ' + WIN_KEY + '=' + n + ' ⇒ 回落家目录', 'win32', { [WIN_KEY]: v }, GH, WIN_FB);
+  // (2) 未设置基线（键不存在 / 显式 undefined）
+  push('win32 ' + WIN_KEY + ' 键不存在 ⇒ 回落家目录', 'win32', {}, GH, WIN_FB);
+  push('win32 ' + WIN_KEY + '=undefined ⇒ 回落家目录', 'win32', { [WIN_KEY]: undefined }, GH, WIN_FB);
+  // (3) 正常值 / 两侧空白包裹（空白包裹必须取 trim 后的值）
+  push('win32 ' + WIN_KEY + '=WinBase（正常值）', 'win32', { [WIN_KEY]: 'WinBase' }, GH, path.join('WinBase', 'dsh-supervisor'));
+  push('win32 ' + WIN_KEY + ' 两侧空白包裹 ⇒ 取 trim 后值', 'win32', { [WIN_KEY]: '  WinBase  ' }, GH, path.join('WinBase', 'dsh-supervisor'));
+  // (4) 诱饵：win32 不看 XDG
+  push('win32 ' + XDG_KEY + ' 正常值（诱饵）不得串台', 'win32', { [XDG_KEY]: 'XdgBase' }, GH, WIN_FB);
+  push('win32 ' + XDG_KEY + ' 纯空白（诱饵）不得串台', 'win32', { [XDG_KEY]: '   ' }, GH, WIN_FB);
+  // (5) darwin：无基座，两个基座变量都不得参与
+  push('darwin 无基座 ⇒ Application Support', 'darwin', {}, GH, MAC);
+  push('darwin 两平台基座纯空白（诱饵）⇒ Application Support', 'darwin', { [WIN_KEY]: '   ', [XDG_KEY]: '\t' }, GH, MAC);
+  push('darwin 两平台基座正常值（诱饵）⇒ Application Support', 'darwin', { [WIN_KEY]: 'WinBase', [XDG_KEY]: 'XdgBase' }, GH, MAC);
+  // (6) XDG_STATE_HOME 纯空白（linux）⇒ 必须回落 <家>/.local/state/dsh-supervisor
+  for (const [n, v] of WS) push('linux ' + XDG_KEY + '=' + n + ' ⇒ 回落 ~/.local/state', 'linux', { [XDG_KEY]: v }, GH, LNX_FB);
+  // (7) 未设置基线 / 正常值 / 空白包裹 / 诱饵
+  push('linux ' + XDG_KEY + ' 键不存在 ⇒ 回落 ~/.local/state', 'linux', {}, GH, LNX_FB);
+  push('linux ' + XDG_KEY + '=undefined ⇒ 回落 ~/.local/state', 'linux', { [XDG_KEY]: undefined }, GH, LNX_FB);
+  push('linux ' + XDG_KEY + '=XdgBase（正常值）', 'linux', { [XDG_KEY]: 'XdgBase' }, GH, path.join('XdgBase', 'dsh-supervisor'));
+  push('linux ' + XDG_KEY + ' 两侧空白包裹 ⇒ 取 trim 后值', 'linux', { [XDG_KEY]: '  XdgBase  ' }, GH, path.join('XdgBase', 'dsh-supervisor'));
+  push('linux ' + WIN_KEY + ' 正常值（诱饵）不得串台', 'linux', { [WIN_KEY]: 'WinBase' }, GH, LNX_FB);
+  push('linux ' + WIN_KEY + ' 纯空白（诱饵）不得串台', 'linux', { [WIN_KEY]: '   ' }, GH, LNX_FB);
+  // (8) 家目录纯空白：`home` 是**调用方给出的参数**，不是被归一化的基座环境变量（本单源不归一化它）——
+  //     这里断言两侧**同样**不归一化 home（两侧一致），冻结期望就是「空白家目录 + 各平台回落段」的拼接。
+  for (const v of HOME_WS) {
+    const tag = '家目录=' + JSON.stringify(v) + '（两侧同样不归一化 home）';
+    push('win32 ' + tag, 'win32', {}, v, path.join(v, 'AppData', 'Local', 'dsh-supervisor'));
+    push('darwin ' + tag, 'darwin', {}, v, path.join(v, 'Library', 'Application Support', 'dsh-supervisor'));
+    push('linux ' + tag, 'linux', {}, v, path.join(v, '.local', 'state', 'dsh-supervisor'));
+  }
+
+  // ① Rust 侧：从 brand.rs 源码逐字提取语义位（不编译；CI 的 cargo test 兜底）
+  const rustFnBody = (src, name) => {
+    const at = src.indexOf('fn ' + name + '(');
+    if (at < 0) return '';
+    const rest = src.slice(at);
+    const end = rest.search(/\n\}\n/);
+    return end < 0 ? rest : rest.slice(0, end);
+  };
+  const RS_ENV_BASE_LINE = (rustFnBody(rust.src, 'env_base').split('\n').find((l) => l.indexOf('.map(') >= 0) || '').trim();
+  const RS_VALUE_TRIMMED = /\.map\(\|s\|\s*s\.trim\(\)\.to_string\(\)\)/.test(RS_ENV_BASE_LINE);
+  const RS_BLANK_TRIMMED = /\.filter\(\|s\|\s*!s\.trim\(\)\.is_empty\(\)\)/.test(RS_ENV_BASE_LINE);
+  const RS_BLANK_EMPTY_ONLY = /\.filter\(\|s\|\s*!s\.is_empty\(\)\)/.test(RS_ENV_BASE_LINE);
+  const RS_WIN_BODY = rustFnBody(rust.src, 'state_root_windows');
+  const RS_LINUX_BODY = rustFnBody(rust.src, 'state_root_linux');
+  const RS_WIN_WIRED = /env_base\(\s*local_appdata\s*\)/.test(RS_WIN_BODY);
+  const RS_LINUX_WIRED = /env_base_os\(\s*xdg_state_home\s*\)/.test(RS_LINUX_BODY);
+
+  // ② 按提取到的规则求值（语义与 brand.rs::env_base + env_base_os + 两个分支函数一一对应）
+  const rsEnvBase = (v, wired) => {
+    if (v === undefined || v === null) return null;
+    let s = String(v);
+    if (!wired) return s; // 分支没接上归一化入口 ⇒ 原样取值（空白不回落）
+    if (RS_VALUE_TRIMMED) s = s.trim();
+    const keep = RS_BLANK_TRIMMED ? s.trim() !== '' : (RS_BLANK_EMPTY_ONLY ? s !== '' : true);
+    return keep ? s : null;
+  };
+  const rsStateRoot = (platform, env, home) => {
+    const get = (k) => (Object.prototype.hasOwnProperty.call(env, k) ? env[k] : undefined);
+    if (platform === 'win32') {
+      return path.join(rsEnvBase(get(WIN_KEY), RS_WIN_WIRED) || path.join(home, 'AppData', 'Local'), 'dsh-supervisor');
+    }
+    if (platform === 'darwin') {
+      return path.join(home, 'Library', 'Application Support', 'dsh-supervisor');
+    }
+    return path.join(rsEnvBase(get(XDG_KEY), RS_LINUX_WIRED) || path.join(home, '.local', 'state'), 'dsh-supervisor');
+  };
+
+  // ③ 三向对账：JS ↔ 冻结期望，Rust 规则 ↔ 同一冻结期望，JS ↔ Rust
+  const badJs = [];
+  const badRs = [];
+  const badPair = [];
+  for (const c of GCASES) {
+    const js = BRAND.stateRoot(c.platform, c.env, c.home);
+    const rs = rsStateRoot(c.platform, c.env, c.home);
+    if (js !== c.want) badJs.push(c.label + ': js=' + JSON.stringify(js) + ' ≠ ' + JSON.stringify(c.want));
+    if (rs !== c.want) badRs.push(c.label + ': rs=' + JSON.stringify(rs) + ' ≠ ' + JSON.stringify(c.want));
+    if (js !== rs) badPair.push(c.label + ': js=' + JSON.stringify(js) + ' ≠ rs=' + JSON.stringify(rs));
+  }
+  const N = GCASES.length;
+  check('G-1 边界输入 JS 侧（BRAND.stateRoot）逐条等于冻结字面量（' + N + ' 条）', badJs.length === 0, badJs.join(' | '));
+  check('G-2 边界输入 Rust 侧（brand.rs 源码提取的归一化规则）逐条等于同一批冻结字面量', badRs.length === 0, badRs.join(' | '));
+  check('G-3 两侧逐条行为一致（JS ↔ Rust 同一条归一化规则）', badPair.length === 0, badPair.join(' | '));
+
+  // ④ 覆盖矩阵（案数冻结，防删条目后静默变绿）
+  const has = (f) => GCASES.some(f);
+  const WS3 = ['   ', '\t', '\n'];
+  const cover = {
+    '案数=34': N === 34,
+    'LOCALAPPDATA 三种纯空白': WS3.every((v) => has((c) => c.platform === 'win32' && Object.is(c.env[WIN_KEY], v))),
+    'XDG_STATE_HOME 三种纯空白': WS3.every((v) => has((c) => c.platform === 'linux' && Object.is(c.env[XDG_KEY], v))),
+    'HOME 三种纯空白 × 三平台': HOME_WS.every((v) => ['win32', 'darwin', 'linux'].every((p) => has((c) => c.platform === p && c.home === v))),
+    '未设置基线：键不存在': has((c) => c.platform === 'win32' && !(WIN_KEY in c.env)) && has((c) => c.platform === 'linux' && !(XDG_KEY in c.env)),
+    '未设置基线：undefined': has((c) => c.platform === 'win32' && c.env[WIN_KEY] === undefined && WIN_KEY in c.env)
+      && has((c) => c.platform === 'linux' && c.env[XDG_KEY] === undefined && XDG_KEY in c.env),
+    'win32 有基座': has((c) => c.platform === 'win32' && c.env[WIN_KEY] === 'WinBase'),
+    'win32 无基座': has((c) => c.platform === 'win32' && !(WIN_KEY in c.env)),
+    'darwin': has((c) => c.platform === 'darwin'),
+    'linux 有 XDG': has((c) => c.platform === 'linux' && c.env[XDG_KEY] === 'XdgBase'),
+    'linux 无 XDG': has((c) => c.platform === 'linux' && !(XDG_KEY in c.env)),
+  };
+  const coverBad = Object.keys(cover).filter((k) => !cover[k]);
+  check('G-4 覆盖矩阵齐全（四平台有/无基座 + 三变量三种纯空白 + 两种未设置基线）', coverBad.length === 0,
+    coverBad.length ? '缺: ' + coverBad.join(', ') : Object.keys(cover).length + ' 项齐全');
+
+  // ⑤ 结构对账：两侧实现逐字等于冻结字面量（Rust 未编译时的漂移检测）
+  const jsSrc = fs.readFileSync(JS_PATH, 'utf8');
+  const jsBody = (/function envBase\(env, name\) \{([\s\S]*?)\n\}/.exec(jsSrc) || [])[1] || '';
+  const JS_NORM = jsBody.split('\n').map((s) => s.trim()).filter(Boolean).join(' ');
+  const jsStateRoot = (/function stateRoot\(platform, env, home\) \{([\s\S]*?)\n\}/.exec(jsSrc) || [])[1] || '';
+  const RS_NORM = 'value.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())';
+  const JS_NORM_FROZEN = "const raw = env[name]; if (raw === undefined || raw === null) return null; "
+    + "const s = String(raw).trim(); return s === '' ? null : s;";
+  check('G-5 brand.rs 的 env_base 逐字等于冻结规则（trim 后为空 ⇒ 未设置，非空取 trim 后的值）',
+    RS_ENV_BASE_LINE === RS_NORM && RS_VALUE_TRIMMED && RS_BLANK_EMPTY_ONLY && !RS_BLANK_TRIMMED,
+    RS_ENV_BASE_LINE === RS_NORM ? 'ok' : 'rs=' + JSON.stringify(RS_ENV_BASE_LINE) + ' ≠ ' + JSON.stringify(RS_NORM));
+  check('G-6 brand.js 的 envBase 逐字等于冻结规则（与 brand.rs 同一规则）',
+    JS_NORM === JS_NORM_FROZEN, JS_NORM === JS_NORM_FROZEN ? 'ok' : 'js=' + JSON.stringify(JS_NORM));
+  check('G-7 两侧两个基座分支都接上同一个归一化入口（win32/Linux 无旁路）',
+    RS_WIN_WIRED && RS_LINUX_WIRED
+      && /envBase\(env, STATE_ROOT_WIN_BASE_ENV\)/.test(jsStateRoot)
+      && /envBase\(env, STATE_ROOT_LINUX_XDG_ENV\)/.test(jsStateRoot),
+    'rs win=' + RS_WIN_WIRED + ' linux=' + RS_LINUX_WIRED);
+}
+
 const failed = results.filter((r) => !r);
 console.log(String.fromCharCode(10) + '结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');
 process.exit(failed.length ? 1 : 0);

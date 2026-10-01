@@ -262,7 +262,7 @@ jobs:
           # registry 摄取与前置缓存有分钟级延迟（同 published-smoke 的重试理由）⇒ 有限轮重试；
           # 轮次用尽仍未确认即判红。⚠ 末尾不用 `[ ... ] && sleep`：那会让循环体以非零收尾、被 -e 炸掉。
           PROBE_ATTEMPTS=5
-          PROBE_SLEEP_SEC=75
+          PROBE_SLEEP_SEC=20
           i=0
           rc=1
           while [ "$i" -lt "$PROBE_ATTEMPTS" ]; do
