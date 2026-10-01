@@ -224,9 +224,9 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   }
   const base = (x) => path.basename(String(x));
   check('X-4 win32 daemonCommand 带 .exe（否则 Windows 上守卫永不起）',
-    /^dsh-supervisor[.]exe$/i.test(base(cmds.win32.d)) && path.isAbsolute(cmds.win32.d), cmds.win32.d);
+    /^lobox[.]exe$/i.test(base(cmds.win32.d)) && path.isAbsolute(cmds.win32.d), cmds.win32.d);
   check('X-4 posix daemonCommand 不带扩展名',
-    base(cmds.linux.d) === 'dsh-supervisor' && base(cmds.darwin.d) === 'dsh-supervisor'
+    base(cmds.linux.d) === 'lobox' && base(cmds.darwin.d) === 'lobox'
     && path.isAbsolute(cmds.linux.d) && path.isAbsolute(cmds.darwin.d),
     cmds.linux.d + ' | ' + cmds.darwin.d);
   check('X-4 guiCommand 平台差异：win32 带 .exe、posix 不带，且三端均为绝对路径',
@@ -355,9 +355,9 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   const wDirs = ep.standardDirs('win32', '/H', { APPDATA: '/A', LOCALAPPDATA: '/L' });
   // 分隔符归一化：Windows 单反斜杠路径必须被识别（只匹配两个反斜杠的写法在 win 上不生效）。
   const norm = (d) => String(d).replace(/[\\/]+/g, '/');
-  check('X-1 win32 标准目录含 APPDATA\\npm、LOCALAPPDATA\\Programs\\dsh-supervisor 与 .local/bin 兼容目录',
+  check('X-1 win32 标准目录含 APPDATA\\npm、LOCALAPPDATA\\Programs\\lobox 与 .local/bin 兼容目录',
     wDirs.some((d) => d === path.join('/A', 'npm'))
-    && wDirs.some((d) => d === path.join('/L', 'Programs', 'dsh-supervisor'))
+    && wDirs.some((d) => d === path.join('/L', 'Programs', 'lobox'))
     && wDirs.some((d) => norm(d).endsWith('/.local/bin')), JSON.stringify(wDirs));
   const lDirs = ep.standardDirs('linux', '/H');
   check('X-1 linux 标准目录含 .local/bin 与 .npm-global/bin',

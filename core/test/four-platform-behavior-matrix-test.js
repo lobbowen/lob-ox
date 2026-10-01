@@ -82,8 +82,8 @@ function underFake(platform, arch, body) {
   const svPath = path.join(ROOT, 'src', 'app', 'settings', 'versions.js');
   for (const [p, a, want] of [
     // 期望名保持为**独立预言字面量**（不取自单源，避免拿同一个源证明自己）；单源侧的拼接规则由 brand-single-source-test.js 逐字钉住。
-    ['linux', 'x64', '@lob-ox/dsh-core-linux-x64'],
-    ['win32', 'x64', '@lob-ox/dsh-core-win-x64'],
+    ['linux', 'x64', '@lob-ox/core-linux-x64'],
+    ['win32', 'x64', '@lob-ox/core-win-x64'],
   ]) {
     const out = underFake(p, a, [
       "const desc = require(" + JSON.stringify(svPath) + ");",

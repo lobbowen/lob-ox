@@ -68,8 +68,8 @@ function commandShapeError(command, dshBin) {
     if (/[\0\r\n]/.test(a)) return 'command 含非法字符（NUL/换行）';
   }
   const NODE_HEAD = new Set(['node', 'node.exe']);
-  const DSH_HEAD = new Set(['dsh', 'dsh.exe', 'dsh.js', 'dsh-supervisor', 'dsh-supervisor.js', 'dsh.cmd', 'dsh.ps1']);
-  const DSH_ENTRY = new Set(['dsh', 'dsh.js', 'dsh-supervisor', 'dsh-supervisor.js']);
+  const DSH_HEAD = new Set(['dsh', 'dsh.exe', 'dsh.js', 'lobox', 'lobox.js', 'dsh.cmd', 'dsh.ps1']);
+  const DSH_ENTRY = new Set(['dsh', 'dsh.js', 'lobox', 'lobox.js']);
   const baseOf = (p) => String(p).split(/[\\/]/).pop().toLowerCase();
   const normPath = (p) => String(p).replace(/\\/g, '/');
   const isAbsolute = (p) => /^(?:[A-Za-z]:[\\/]|[\\/])/.test(String(p));
@@ -95,7 +95,7 @@ function commandShapeError(command, dshBin) {
     if (!entry || !isAbsolute(entry)) {
       return 'command[0] 为 node 时，command[1] 必须是**绝对路径**的 DSH 入口（相对路径按沙箱 data 目录解析，已禁止）；' + FORMS;
     }
-    return 'command[0] 为 node 时 command[1] 必须是 DSH 入口（dsh / dsh.js / dsh-supervisor / dsh-supervisor.js，'
+    return 'command[0] 为 node 时 command[1] 必须是 DSH 入口（dsh / dsh.js / lobox / lobox.js，'
       + '或 <前缀>/node_modules/@deepseek-ai/dsh/lib/bin.js）；' + FORMS;
   }
   return sharedErr + '；' + FORMS + '；需要其它可执行请走插件安装通道';

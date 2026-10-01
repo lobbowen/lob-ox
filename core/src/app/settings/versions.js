@@ -62,7 +62,7 @@ module.exports = {
       if (!dep.updatable || !dep.runningTarget) return null;
       try {
         const out = await ex.runOutAsync(dep.runningTarget, ['--version'], { timeoutMs: 20000 });
-        const m = /dsh-supervisor v([^\s]+)/.exec(out);
+        const m = /lobox v([^\s]+)/.exec(out);
         return m ? m[1] : null;
       } catch { return null; }
     },

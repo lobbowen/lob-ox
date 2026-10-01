@@ -21,7 +21,7 @@ const mk = (opts) => {
       readJournal: () => (o.journal || { to: null, confirmed: false }),
       restartShell: async (a) => { calls.restarts.push(a); return { ok: true, pid: 4321, exe: a.exePath }; },
     },
-    pidlookup: { pgrepList: () => (o.alive ? [{ pid: 999, cmdline: '/usr/bin/dsh-supervisor-gui' }] : []) },
+    pidlookup: { pgrepList: () => (o.alive ? [{ pid: 999, cmdline: '/usr/bin/lobox-shell' }] : []) },
     desktop: { sessionAvailable: () => true, describe: () => ({ available: true, reason: 'test' }) },
     logger: { info() {}, warn() {} },
     events: { append() {} },
@@ -32,7 +32,7 @@ const mk = (opts) => {
   return { w, calls, adv: (ms) => { t += ms; }, setIdentity: (v) => { identity = v; } };
 };
 
-const GUI = '/usr/bin/dsh-supervisor-gui';
+const GUI = '/usr/bin/lobox-shell';
 
 (async () => {
   {

@@ -1,10 +1,10 @@
 # lob-ox
 
-DSH Supervisor —— 内核与桌面壳同仓的项目。
+lobox —— 内核与桌面壳同仓的项目。
 
 | 组件 | 目录 | 交付物 |
 |---|---|---|
-| **内核** | [`core/`](core/) | npm 子包 `@lob-ox/dsh-core-{linux-x64,darwin-arm64,darwin-x64,win-x64}` |
+| **内核** | [`core/`](core/) | npm 子包 `@lob-ox/core-{linux-x64,darwin-arm64,darwin-x64,win-x64}` |
 | **桌面壳** | [`shell/`](shell/) | Tauri 四平台安装包 + npm 壳包 |
 
 ⇒ **发布是一份壳、一份内核**：源码同仓，CI 按目录 path filter 分跑（内核改动不触发壳的四平台打包，反之亦然）。
@@ -20,7 +20,7 @@ lob-ox/
 ├─ core/                    内核（Node.js，CommonJS，零运行时依赖）
 │   ├─ src/                 产品代码（domains / app / platform / api / shared）
 │   ├─ test/                测试（entry = test/_runner.js，登记表 = test/manifest.js）
-│   ├─ bin/dsh-supervisor   CLI + 启动器
+│   ├─ bin/lobox   CLI + 启动器
 │   ├─ ui/                  内嵌面板（构建产物由 core 自己消费）
 │   ├─ release/             产线脚本（build / publish / credentials）
 │   └─ ci/                  CI 用夹具与脚本
@@ -47,11 +47,18 @@ lob-ox/
 
 | 平台 | 路径 |
 |---|---|
-| Windows | `%LOCALAPPDATA%\dsh-supervisor` |
-| macOS | `~/Library/Application Support/dsh-supervisor` |
-| Linux | `$XDG_STATE_HOME/dsh-supervisor`，否则 `~/.local/state/dsh-supervisor` |
+| Windows | `%LOCALAPPDATA%\lobox` |
+| macOS | `~/Library/Application Support/lobox` |
+| Linux | `$XDG_STATE_HOME/lobox`，否则 `~/.local/state/lobox` |
 
 其下 `supervisor/`（内核）与 `shell/`（壳）两份子目录，schema 常量 `1` 两侧一致。
+
+⚠️ **旧状态根不迁移（产品改名的一次性后果）**：改名前的状态根（旧目录名 `dsh-supervisor`，同上三平台基座）**不会**被搬进新根 ——
+新版本从空态开始，旧根里的 `state.json` / `ports.json` / `install-id` / 远程令牌 / 日志一律留在原处。
+这条是**明确行为而非静默忽略**：内核启动时会记一条日志与 `legacy_state_root_detected` 事件；
+若旧版守卫仍在运行（旧锁 + 存活 pid），新内核**拒绝启动**并提示先卸载旧版本（防双守卫）。
+旧根确认不再需要后手工删除即可。判据与断言见 `core/src/shared/brand.js#LEGACY_PRODUCT_NAME`、
+`core/src/platform/service/state-root.js#detectLegacyInstall`、`core/test/brand-single-source-test.js` H 段。
 
 ## 校验范围
 

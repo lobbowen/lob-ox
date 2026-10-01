@@ -99,19 +99,19 @@ if ! npm i -g "$PKG" --no-audit --no-fund $NPM_RESOLVE_OPT >"$INSTALL_LOG" 2>&1;
 fi
 rm -f "$INSTALL_LOG"
 # 不硬编码单一形态：git-bash 优先命中无后缀 shim，.cmd/.ps1 兜底。
-for c in dsh-supervisor dsh-supervisor.cmd dsh-supervisor.ps1; do
+for c in lobox lobox.cmd lobox.ps1; do
   if found="$(command -v "$c" 2>/dev/null)"; then DSH_BIN="$found"; break; fi
 done
-[ -n "$DSH_BIN" ] || { npm ls -g --depth=0 2>/dev/null || true; fail "装后未找到全局命令 dsh-supervisor（PATH 无 shim）"; }
+[ -n "$DSH_BIN" ] || { npm ls -g --depth=0 2>/dev/null || true; fail "装后未找到全局命令 lobox（PATH 无 shim）"; }
 echo "  命令解析: $DSH_BIN"
 
-VER_OUT="$(dsh_run --version 2>&1)" || { dump_daemon_log; fail "已安装的 dsh-supervisor --version 执行失败"; }
+VER_OUT="$(dsh_run --version 2>&1)" || { dump_daemon_log; fail "已安装的 lobox --version 执行失败"; }
 case "$VER_OUT" in
   *"$VER"*) echo "  --version 自报匹配 $VER" ;;
   *) echo "----- --version 输出 -----"; printf '%s\n' "$VER_OUT"; fail "--version 输出未含版本 $VER" ;;
 esac
 
-SELF_OUT="$(dsh_run self-check 2>&1)" || { echo "----- self-check 输出 -----"; printf '%s\n' "$SELF_OUT"; fail "已安装的 dsh-supervisor self-check 执行失败"; }
+SELF_OUT="$(dsh_run self-check 2>&1)" || { echo "----- self-check 输出 -----"; printf '%s\n' "$SELF_OUT"; fail "已安装的 lobox self-check 执行失败"; }
 case "$SELF_OUT" in
   *"self-check: OK"*) ;;
   *) echo "----- self-check 输出 -----"; printf '%s\n' "$SELF_OUT"; fail "self-check 未打印 'self-check: OK'" ;;

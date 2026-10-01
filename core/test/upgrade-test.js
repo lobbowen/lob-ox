@@ -9,7 +9,7 @@ const http = require('node:http');
 const { spawn } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
-const CLI = path.join(ROOT, 'bin', 'dsh-supervisor');
+const CLI = path.join(ROOT, 'bin', 'lobox');
 const MOCK = path.join(__dirname, 'mock-target.js');
 const FAKE = path.join(__dirname, 'fake-npm.js');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-upg-test-'));

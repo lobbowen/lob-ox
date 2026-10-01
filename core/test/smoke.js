@@ -9,7 +9,7 @@ const http = require('node:http');
 const { spawn } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
-const CLI = path.join(ROOT, 'bin', 'dsh-supervisor');
+const CLI = path.join(ROOT, 'bin', 'lobox');
 const MOCK = path.join(__dirname, 'mock-target.js');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-sup-test-'));
 
@@ -360,7 +360,7 @@ async function main() {
   let lock13 = null;
   try { lock13 = JSON.parse(fs.readFileSync(LOCK13, 'utf8')); } catch {}
   check('S13 守卫锁可归因（pid=本守卫、entry 指向本产品 CLI）',
-    !!lock13 && lock13.pid === d13.child.pid && /dsh-supervisor/.test(String(lock13.entry)), JSON.stringify(lock13));
+    !!lock13 && lock13.pid === d13.child.pid && /lobox/.test(String(lock13.entry)), JSON.stringify(lock13));
   const d13b = startDaemon(makeConfig(3932, 3933), { DSH_SUPERVISOR_LOCK_FILE: LOCK13 });
   const code13b = await Promise.race([
     new Promise((r) => d13b.child.once('exit', (c) => r(c))),

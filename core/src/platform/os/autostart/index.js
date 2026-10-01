@@ -14,19 +14,19 @@ const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
 
 function daemonCommand() {
-  const hit = resolveExecutable('dsh-supervisor', { envVar: 'DSH_SUPERVISOR_DAEMON' });
+  const hit = resolveExecutable('lobox', { envVar: 'DSH_SUPERVISOR_DAEMON' });
   if (hit) return hit;
-  const exe = isWindows ? 'dsh-supervisor.exe' : 'dsh-supervisor';
+  const exe = isWindows ? 'lobox.exe' : 'lobox';
   return path.join(os.homedir(), '.local', 'bin', exe);
 }
 
 function guiCommand() {
-  const hit = resolveExecutable('dsh-supervisor-gui', { envVar: 'DSH_SHELL_EXE' });
+  const hit = resolveExecutable('lobox-shell', { envVar: 'DSH_SHELL_EXE' });
   if (hit) return hit;
   const home = os.homedir();
-  const exe = isWindows ? 'dsh-supervisor-gui.exe' : 'dsh-supervisor-gui';
+  const exe = isWindows ? 'lobox-shell.exe' : 'lobox-shell';
   const cands = isWindows
-    ? [path.join(home, '.local', 'bin', exe), path.join(home, 'AppData', 'Local', 'Programs', 'dsh-supervisor', exe)]
+    ? [path.join(home, '.local', 'bin', exe), path.join(home, 'AppData', 'Local', 'Programs', 'lobox', exe)]
     : [path.join(home, '.local', 'bin', exe), '/usr/local/bin/' + exe, '/opt/homebrew/bin/' + exe];
   for (const c of cands) { try { if (fs.statSync(c).isFile()) return c; } catch {} }
   return cands[0];

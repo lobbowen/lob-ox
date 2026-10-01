@@ -21,7 +21,7 @@ fs.mkdirSync(shDir, { recursive: true });
 // 假壳必须可被 spawn：POSIX 脚本在 Windows 无法执行，child_process.spawn 也不能直接 spawn .cmd/.bat（EINVAL）⇒ POSIX 用脚本、Windows 用 node.exe 拷贝（真实 PE）+ NODE_OPTIONS=--require <hook>。
 const marker = path.join(HOME, 'launched.txt');
 const isWin = process.platform === 'win32';
-const fakeShell = path.join(HOME, isWin ? 'dsh-supervisor-gui.exe' : 'dsh-supervisor-gui');
+const fakeShell = path.join(HOME, isWin ? 'lobox-shell.exe' : 'lobox-shell');
 if (isWin) {
   fs.copyFileSync(process.execPath, fakeShell);
   const hook = path.join(HOME, 'fake-shell-hook.js');
@@ -58,7 +58,7 @@ const cfg = {
   upgradeLogFile: path.join(swDir, 'upgrade.log'),
   tickIntervalMs: 1000,
   updateCheckEnabled: false, notifyEnabled: false,
-  shellProcPattern: 'dsh-supervisor-gui-watchdog-e2e-only',
+  shellProcPattern: 'lobox-shell-watchdog-e2e-only',
   shellWatchdogIntervalMs: 1000,
   shellWatchdogGraceMs: 1500,
   shellWatchdogMaxRestarts: 2,

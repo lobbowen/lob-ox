@@ -209,7 +209,7 @@ impl Platform for Impl {
                     .join("node_modules")
                     .join(p)
                     .join("bin")
-                    .join("dsh-supervisor"),
+                    .join("lobox"),
             );
         }
         v
@@ -260,7 +260,7 @@ impl Platform for Impl {
     fn node_exe_name(&self) -> &'static str { "node.exe" }
     fn npm_exe_name(&self) -> &'static str { "npm.cmd" }
     fn core_exe_names(&self) -> &'static [&'static str] {
-        &["dsh-supervisor.exe", "dsh-supervisor.cmd", "dsh-supervisor"]
+        &["lobox.exe", "lobox.cmd", "lobox"]
     }
 
     fn is_directly_spawnable(&self, prog: &Path) -> bool {
@@ -392,7 +392,9 @@ fn is_access_denied(text: &str) -> bool {
 }
 
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-const RUN_VALUE: &str = "DSH Supervisor";
+// Run 键里的值名（登录自启的兜底通道，schtasks 不可用时用）：与计划任务名同属「我们的服务标识」，
+// 故取自跨语言单源（User 可见于任务管理器「启动」页）。
+const RUN_VALUE: &str = crate::brand::WINDOWS_RUN_VALUE;
 
 impl ServiceControl for Impl {
     fn kind(&self) -> &'static str {
@@ -474,7 +476,7 @@ impl ServiceControl for Impl {
             Command::new("schtasks").args(["/End", "/TN", GUARD_TASK]),
             SVC_NORMAL,
         );
-                // 守卫镜像名是 node.exe（不是 dsh-supervisor.exe），按镜像名 taskkill 杀不到它；按命令行含 dsh-supervisor 精确匹配再杀，绝不误杀 DSH 自身的 node。
+                // 守卫镜像名是 node.exe（不是 lobox.exe），按镜像名 taskkill 杀不到它；按命令行含 lobox 精确匹配再杀，绝不误杀 DSH 自身的 node。
         crate::bounded::run_lossy(
             Command::new("powershell").args([
                 "-NoProfile",
@@ -482,7 +484,7 @@ impl ServiceControl for Impl {
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like '*dsh-supervisor*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
+                "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like '*lobox*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
             ]),
             SVC_NORMAL,
         );

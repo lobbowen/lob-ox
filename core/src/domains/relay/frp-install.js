@@ -30,7 +30,7 @@ function download(url, report) {
   return new Promise((resolve, reject) => {
     const get = (u, redirectsLeft) => {
       const mod = u.startsWith('https:') ? https : http;
-      const req = mod.get(u, { headers: { 'User-Agent': 'dsh-supervisor' }, timeout: 60000 }, (res) => {
+      const req = mod.get(u, { headers: { 'User-Agent': 'lobox' }, timeout: 60000 }, (res) => {
         if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
           res.resume();
           const next = String(res.headers.location);

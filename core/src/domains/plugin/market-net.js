@@ -6,7 +6,7 @@ const https = require('node:https');
 function getJson(url, timeoutMs = 10000, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https') ? https : http;
-    const options = { headers: { 'User-Agent': 'dsh-supervisor-market', 'Accept': 'application/json' } };
+    const options = { headers: { 'User-Agent': 'lobox-market', 'Accept': 'application/json' } };
     const req = mod.get(url, options, (res) => {
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
         res.resume();
@@ -41,7 +41,7 @@ function getJson(url, timeoutMs = 10000, redirectsLeft = 5) {
 function getText(url, timeoutMs = 8000, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https') ? https : http;
-    const options = { headers: { 'User-Agent': 'dsh-supervisor-market' } };
+    const options = { headers: { 'User-Agent': 'lobox-market' } };
     const req = mod.get(url, options, (res) => {
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
         res.resume();

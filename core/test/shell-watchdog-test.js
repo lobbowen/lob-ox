@@ -36,15 +36,15 @@ console.log('== W1 decide() 决策穷举 ==');
 console.log('== W2 isShellProcess 过滤 ==');
 {
   check('W2-a 匹配壳主程序（POSIX 路径与 Windows .exe 同一判据）',
-    isShellProcess({ cmdline: '/usr/bin/dsh-supervisor-gui' }) === true
-    && isShellProcess({ cmdline: 'C:\\x\\dsh-supervisor-gui.exe' }) === true);
+    isShellProcess({ cmdline: '/usr/bin/lobox-shell' }) === true
+    && isShellProcess({ cmdline: 'C:\\x\\lobox-shell.exe' }) === true);
   check('W2-e 空 cmdline 不误判', isShellProcess({ cmdline: '' }) === false);
   // 无头模式清单必须与壳侧 main.rs「在 Tauri 初始化之前 exit」的分支一一对应：漏一项 = 那个瞬时进程被当成壳在运行。
   check('W2-i 清单成员逐个被 isShellProcess 排除（枚举驱动，非计数）',
     Array.isArray(HEADLESS_FLAGS) && HEADLESS_FLAGS.length > 0
-      && HEADLESS_FLAGS.every((f) => isShellProcess({ cmdline: 'dsh-supervisor-gui ' + f }) === false));
+      && HEADLESS_FLAGS.every((f) => isShellProcess({ cmdline: 'lobox-shell ' + f }) === false));
   check('W2-j 反向：未登记的同名进程仍判为壳',
-    isShellProcess({ cmdline: 'dsh-supervisor-gui --some-future-headless-flag' }) === true);
+    isShellProcess({ cmdline: 'lobox-shell --some-future-headless-flag' }) === true);
 }
 
 console.log('== W3 tick() 集成 ==');
@@ -54,11 +54,11 @@ const mk = (opts) => {
   const calls = { restarts: [] };
   const deps = {
     shell: {
-      identity: () => (o.identity === undefined ? { exe: '/usr/bin/dsh-supervisor-gui', phase: o.phase || 'ready' } : o.identity),
+      identity: () => (o.identity === undefined ? { exe: '/usr/bin/lobox-shell', phase: o.phase || 'ready' } : o.identity),
       readJournal: () => (o.journal || { to: null, confirmed: false }),
       restartShell: async (a) => { calls.restarts.push(a); return o.restartResult || { ok: true, pid: 4321, exe: a.exePath }; },
     },
-    pidlookup: { pgrepList: () => (o.alive ? [{ pid: 999, cmdline: '/usr/bin/dsh-supervisor-gui' }] : []) },
+    pidlookup: { pgrepList: () => (o.alive ? [{ pid: 999, cmdline: '/usr/bin/lobox-shell' }] : []) },
     desktop: { sessionAvailable: () => o.session !== false, describe: () => ({ available: o.session !== false, reason: 'test' }) },
     logger: { info() {}, warn() {} },
     events: { append() {} },
@@ -84,7 +84,7 @@ const mk = (opts) => {
     const r = await m.w.tick();
     check('W3-b 缺失超宽限 → 拉起且用的是 identity.json 的 exe（非猜测）',
       m.calls.restarts.length === 1 && r.restarted === true
-      && m.calls.restarts[0] && m.calls.restarts[0].exePath === '/usr/bin/dsh-supervisor-gui',
+      && m.calls.restarts[0] && m.calls.restarts[0].exePath === '/usr/bin/lobox-shell',
       JSON.stringify(m.calls.restarts[0]));
   }
   {

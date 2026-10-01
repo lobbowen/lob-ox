@@ -127,4 +127,5 @@ export const EVENT_LABELS: Record<string, string> = {
   dsh_remote_token_changed: "远程令牌变更", guardian_off_exit: "未守护退出",
   inst_guardian_changed: "实例守护变更", inst_remote_changed: "实例远程变更",
   inst_remote_token_changed: "实例令牌变更",
+  legacy_state_root_detected: "检测到旧版状态根（不迁移）",
 };

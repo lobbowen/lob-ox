@@ -216,7 +216,7 @@ jobs:
             *) echo "::error::不支持的平台 $PLAT"; exit 1 ;;
           esac
           VER="$(node -p 'require("./package.json").version')"
-          PKG="./dist/npm/@lob-ox/dsh-core-$OS_TAG-$ARCH"
+          PKG="./dist/npm/@lob-ox/core-$OS_TAG-$ARCH"
           [ -d "$PKG" ] || { echo "::error::缺少子包目录 $PKG（dry-run 步应已产出）"; exit 1; }
           bash release/scripts/install-smoke-core.sh --pkg "$PKG" --ver "$VER"
 
@@ -257,7 +257,7 @@ jobs:
             linux) OS_TAG=linux ;; darwin) OS_TAG=darwin ;; win32) OS_TAG=win ;;
             *) echo "::error::不支持的平台 $PLAT"; exit 1 ;;
           esac
-          SPEC="@lob-ox/dsh-core-$OS_TAG-$ARCH@$VER"
+          SPEC="@lob-ox/core-$OS_TAG-$ARCH@$VER"
           echo "  发布后自证目标: $SPEC（registry=$REGISTRY）"
           # registry 摄取与前置缓存有分钟级延迟（同 published-smoke 的重试理由）⇒ 有限轮重试；
           # 轮次用尽仍未确认即判红。⚠ 末尾不用 `[ ... ] && sleep`：那会让循环体以非零收尾、被 -e 炸掉。
@@ -322,7 +322,7 @@ jobs:
             plat="$(basename "$d")"
             if [ -d "$d/dist/launcher" ]; then SRC="$d/dist/launcher"; else SRC="$d"; fi
             echo "  打包 $plat ← $SRC"
-            tar -czf "out/dsh-supervisor-kernel-$VER-$plat.tar.gz" -C "$SRC" .
+            tar -czf "out/lobox-kernel-$VER-$plat.tar.gz" -C "$SRC" .
           done
           echo "  产物:"
           ls -lh out/ | sed "s/^/    /"
@@ -369,7 +369,7 @@ jobs:
         with:
           node-version: '24'
 
-      - name: 发布后安装包冒烟（npm i -g @lob-ox/dsh-core-<os>-<arch>@<ver>）
+      - name: 发布后安装包冒烟（npm i -g @lob-ox/core-<os>-<arch>@<ver>）
         shell: bash
         # 显式关 -e：重试循环要靠 rc 分支决策，不能让中间轮的失败炸掉整个 run block。
         run: |
@@ -381,7 +381,7 @@ jobs:
             *) echo "::error::不支持的平台 $PLAT"; exit 1 ;;
           esac
           VER="${VER_INPUT:-$(node -p 'require("./package.json").version')}"
-          SPEC="@lob-ox/dsh-core-$OS_TAG-$ARCH@$VER"
+          SPEC="@lob-ox/core-$OS_TAG-$ARCH@$VER"
           echo "  发布后冒烟目标: $SPEC"
           ATTEMPTS=5
           SLEEP_SEC=75

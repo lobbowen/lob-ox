@@ -70,7 +70,7 @@ function main() {
 
   const manifest = {
     version: ver,
-    notes: a.notes || ('dsh-supervisor desktop shell ' + ver + ' (' + notes.join(', ') + ')'),
+    notes: a.notes || ('lobox desktop shell ' + ver + ' (' + notes.join(', ') + ')'),
     pub_date: new Date().toISOString(),
     platforms,
   };

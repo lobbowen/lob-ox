@@ -80,7 +80,7 @@ fn records(out: &Outcome, deps: &Snapshot) -> Vec<serde_json::Value> {
 pub fn payload(out: &Outcome, deps: &Snapshot) -> serde_json::Value {
     serde_json::json!({
         "schema": SCHEMA,
-        "writtenBy": format!("dsh-supervisor-gui@{}", env!("CARGO_PKG_VERSION")),
+        "writtenBy": format!("lobox-shell@{}", env!("CARGO_PKG_VERSION")),
         "node": node_view(out),
         "npm": npm_view(deps),
         "prefix": prefix_view(deps),

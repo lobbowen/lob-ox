@@ -8,7 +8,7 @@ const DEFAULTS = {
   maxRestarts: 5,
   windowMs: 1800000,
   phaseMaxAgeMs: 600000,
-  procPattern: 'dsh-supervisor-gui',
+  procPattern: 'lobox-shell',
 };
 
 const HEADLESS_FLAGS = Object.freeze([
@@ -20,7 +20,7 @@ const HEADLESS_RE = new RegExp(HEADLESS_FLAGS.join('|'));
 function isShellProcess(proc) {
   const c = String((proc && proc.cmdline) || '');
   if (HEADLESS_RE.test(c)) return false;
-  return /dsh-supervisor-gui(\.exe)?/.test(c);
+  return /lobox-shell(\.exe)?/.test(c);
 }
 
 function decide(i) {

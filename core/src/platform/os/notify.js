@@ -15,7 +15,7 @@ function notifyCommand(platform, title, body) {
   const t = String(title == null ? '' : title);
   const b = String(body == null ? '' : body);
   if (pl === 'linux') {
-    return { cmd: 'notify-send', args: ['-a', 'dsh-supervisor', t, b] };
+    return { cmd: 'notify-send', args: ['-a', 'lobox', t, b] };
   }
   if (pl === 'darwin') {
     const script = 'display notification ' + appleScriptString(b) + ' with title ' + appleScriptString(t);

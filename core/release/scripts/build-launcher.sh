@@ -56,7 +56,7 @@ case "$VER" in
   *) echo "非法 version（只允许点分数字/x-prerelease）：$VER"; exit 1 ;;
 esac
 ESBUILD_VER="${DSH_ESBUILD_VERSION:-0.25.9}"
-npx --yes "esbuild@$ESBUILD_VER" bin/dsh-supervisor --bundle --platform=node --format=cjs --outfile="$OUT/core.cjs" --define:__DSH_VERSION__="\"$VER\"" >/dev/null
+npx --yes "esbuild@$ESBUILD_VER" bin/lobox --bundle --platform=node --format=cjs --outfile="$OUT/core.cjs" --define:__DSH_VERSION__="\"$VER\"" >/dev/null
 ACTUAL_ESBUILD="$(npx --yes "esbuild@$ESBUILD_VER" --version 2>/dev/null | tr -d '\r' | tail -n1)"
 if [ "$ACTUAL_ESBUILD" != "$ESBUILD_VER" ]; then
   echo "esbuild 版本对账失败：期望 ${ESBUILD_VER}，实际 ${ACTUAL_ESBUILD}（固版未生效？）"; exit 1
@@ -67,16 +67,16 @@ echo "[3/6] 派生平台目录…"
 DIRS=()
 while read -r P_OS P_PLAT P_ARCH; do
   [ -n "${P_PLAT:-}" ] || continue
-  DIR="$OUT/dsh-supervisor-$VER-$P_PLAT-$P_ARCH"
+  DIR="$OUT/lobox-$VER-$P_PLAT-$P_ARCH"
   rm -rf "$DIR"
   mkdir -p "$DIR/bin"
-  cat > "$DIR/bin/dsh-supervisor" <<'LAUNCHER'
+  cat > "$DIR/bin/lobox" <<'LAUNCHER'
 #!/usr/bin/env node
 'use strict';
 // 统一 launcher 启动器。require 同目录 core.cjs（esbuild bundle）。
 require('../core.cjs');
 LAUNCHER
-  chmod 755 "$DIR/bin/dsh-supervisor"
+  chmod 755 "$DIR/bin/lobox"
   cp "$OUT/core.cjs" "$DIR/core.cjs"
   # ui-react 定位依据 src/api/index.js 候选2：(bin/../ui-react)
   rm -rf "$DIR/ui-react"
@@ -108,8 +108,8 @@ for d in "${DIRS[@]}"; do
 done
 [ -n "$SMOKE_DIR" ] || SMOKE_DIR="${DIRS[0]}"
 echo "  使用 ${SMOKE_DIR##*/}"
-node "$SMOKE_DIR/bin/dsh-supervisor" self-check
-VOUT="$(node "$SMOKE_DIR/bin/dsh-supervisor" --version)"
+node "$SMOKE_DIR/bin/lobox" self-check
+VOUT="$(node "$SMOKE_DIR/bin/lobox" --version)"
 echo "  --version => $VOUT"
 case "$VOUT" in *v$VER) : ;; *) echo "冒烟失败：版本注入失效"; exit 1;; esac
 SMOKE_HOME="$(mktemp -d)"
@@ -127,7 +127,7 @@ cat > "$SMOKE_HOME/config.json" <<EOF
 EOF
 SMOKE_LOG="$SMOKE_HOME/boot.log"
 # 不用 GNU `timeout`：macOS BSD 无此命令，故直接后台 node（$! 为 node pid），冒烟后 kill 清理。
-HOME="$SMOKE_HOME" DSH_SUPERVISOR_CONFIG="$SMOKE_HOME/config.json" DSH_SUPERVISOR_LOCK_FILE="$SMOKE_HOME/guard.lock" node "$SMOKE_DIR/bin/dsh-supervisor" daemon >"$SMOKE_LOG" 2>&1 &
+HOME="$SMOKE_HOME" DSH_SUPERVISOR_CONFIG="$SMOKE_HOME/config.json" DSH_SUPERVISOR_LOCK_FILE="$SMOKE_HOME/guard.lock" node "$SMOKE_DIR/bin/lobox" daemon >"$SMOKE_LOG" 2>&1 &
 SMOKE_PID=$!
 sleep 2
 if ! grep -q "guard started v$VER" "$SMOKE_LOG" 2>/dev/null; then

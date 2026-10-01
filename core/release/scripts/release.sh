@@ -4,7 +4,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 VER="${1:-$(node -p "require('./package.json').version")}"
 DIST="dist/release"
-PAK="dsh-supervisor-$VER"
+PAK="lobox-$VER"
 DIR="$DIST/$PAK"
 
 rm -rf "$DIR"; mkdir -p "$DIR"
@@ -30,7 +30,7 @@ fails=0
 while IFS= read -r -d "" f; do
   case "$f" in *vendor*) continue;; esac
   node --check "$f" >/dev/null 2>&1 || { echo "SYNTAX FAIL: $f"; fails=1; }
-done < <(find "$DIR/bin" "$DIR/src" \( -type f -name "*.js" -o -type f -path "$DIR/bin/dsh-supervisor" \) -print0 | sort -z) || true
+done < <(find "$DIR/bin" "$DIR/src" \( -type f -name "*.js" -o -type f -path "$DIR/bin/lobox" \) -print0 | sort -z) || true
 [ "$fails" -eq 0 ] || { echo "发布中止：产物语法自检失败"; exit 1; }
 
 TAR="$DIST/$PAK.tar.gz"

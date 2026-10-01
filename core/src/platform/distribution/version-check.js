@@ -67,7 +67,7 @@ async function fetchGithubLatest(owner, repo) {
   try {
     const res = await fetch(
       'https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/releases/latest',
-      { signal: AbortSignal.timeout(10000), headers: { 'User-Agent': 'dsh-supervisor' } }
+      { signal: AbortSignal.timeout(10000), headers: { 'User-Agent': 'lobox' } }
     );
     if (!res.ok) return null;
     const j = await res.json();

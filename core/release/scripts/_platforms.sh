@@ -10,7 +10,7 @@ dsh_platform_matrix() {
   const ORDER = ["linux-x64", "darwin-arm64", "darwin-x64", "win-x64"];
   const parsed = [];
   for (const name of list) {
-    const m = /^dsh-core-(linux|darwin|win)-(x64|arm64)$/.exec(String(name));
+    const m = /^core-(linux|darwin|win)-(x64|arm64)$/.exec(String(name));
     if (!m) continue;
     const osTag = m[1];
     const plat = osTag === "win" ? "win32" : osTag;

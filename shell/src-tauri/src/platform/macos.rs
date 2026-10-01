@@ -133,7 +133,7 @@ impl Platform for Impl {
 
     fn node_exe_name(&self) -> &'static str { "node" }
     fn npm_exe_name(&self) -> &'static str { "npm" }
-    fn core_exe_names(&self) -> &'static [&'static str] { &["dsh-supervisor"] }
+    fn core_exe_names(&self) -> &'static [&'static str] { &["lobox"] }
     fn is_directly_spawnable(&self, _prog: &Path) -> bool { true }
 }
 

@@ -312,7 +312,7 @@ pub struct Probe {
 
 /// npm registry 的探测探针包名（必须是一个真实存在的包）：多数 registry 根路径返回 404，用根路径会把健康源判为不可达、无谓地少一个可用镜像。用我们自己的平台包：真实存在，且与最终用途一致。
 fn npm_probe_path() -> String {
-    crate::core::package_name().unwrap_or_else(|_| "@lob-ox/dsh-core-linux-x64".to_string())
+    crate::core::package_name().unwrap_or_else(|_| "@lob-ox/core-linux-x64".to_string())
 }
 
 /// 用 std::thread::scope 实现并发（std 自带，无需新依赖）：单源超时 PROBE_TIMEOUT，整体耗时约为最慢者而非累加；`path` 为空时视为 npm registry 探测（用真实包名而非根路径）。
@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn declared_source_stays_first_and_deduped() {
-        let d = url("https://unpkg.com/@lob-ox/shell-win-x64@1.2.0/artifact/dsh-supervisor_1.2.0_x64-setup.exe");
+        let d = url("https://unpkg.com/@lob-ox/shell-win-x64@1.2.0/artifact/lobox_1.2.0_x64-setup.exe");
         let got = artifact_candidates(&d, "1.2.0");
         assert_eq!(got[0], d, "第一个候选必须是清单声明的那个 URL");
         let all = strs(&got);
@@ -552,11 +552,11 @@ mod tests {
         /// Windows：npm 换主机 + 同名 Release 资产；且**绝不**出现实测不成立的源（实测取不到安装包字节的源，一律不许回到表里）。
     #[test]
     fn windows_candidates_cover_measured_sources_only() {
-        let d = url("https://unpkg.com/@lob-ox/shell-win-x64@1.2.0/artifact/dsh-supervisor_1.2.0_x64-setup.exe");
+        let d = url("https://unpkg.com/@lob-ox/shell-win-x64@1.2.0/artifact/lobox_1.2.0_x64-setup.exe");
         let all = strs(&artifact_candidates(&d, "1.2.0"));
         assert!(all.iter().any(|u| u.starts_with("https://cdn.jsdelivr.net/npm/@lob-ox/shell-win-x64@1.2.0/")),
             "jsdelivr 的 npm 路径要在（它对 .exe 会给 403，换下一个源是预期）: {:?}", all);
-        assert!(all.contains(&"https://github.com/lobbowen/lob-ox/releases/download/shell-1.2.0/dsh-supervisor_1.2.0_x64-setup.exe".to_string()),
+        assert!(all.contains(&"https://github.com/lobbowen/lob-ox/releases/download/shell-1.2.0/lobox_1.2.0_x64-setup.exe".to_string()),
             "文件名带架构 → 同名 Release 资产要在（owner/repo = 合仓后的发布仓 lobbowen/lob-ox）: {:?}", all);
         for banned in [
             "npmmirror", "jsdmirror", "fastly", "gcore", "testingcf",
@@ -569,7 +569,7 @@ mod tests {
 
     #[test]
     fn ambiguous_asset_name_loses_the_release_candidate() {
-        let d = url("https://unpkg.com/@lob-ox/shell-darwin-arm64@1.2.0/artifact/dsh-supervisor.app.tar.gz");
+        let d = url("https://unpkg.com/@lob-ox/shell-darwin-arm64@1.2.0/artifact/lobox.app.tar.gz");
         let all = strs(&artifact_candidates(&d, "1.2.0"));
         assert!(all.iter().all(|u| !u.contains("releases/download")),
             "文件名不含架构时不该挂 Release 候选: {:?}", all);
@@ -579,7 +579,7 @@ mod tests {
     fn foreign_or_missing_version_yields_only_the_declared_url() {
         let d = url("https://example.com/files/shell-setup.exe");
         assert_eq!(strs(&artifact_candidates(&d, "1.2.0")), vec![d.to_string()]);
-        let npm = url("https://unpkg.com/@lob-ox/shell-linux-x64@1.2.0/artifact/dsh-supervisor_1.2.0_amd64.deb");
+        let npm = url("https://unpkg.com/@lob-ox/shell-linux-x64@1.2.0/artifact/lobox_1.2.0_amd64.deb");
         let nover = strs(&artifact_candidates(&npm, ""));
         assert_eq!(nover.len(), 2, "无版本号时只保留 npm 同路径候选: {:?}", nover);
     }
@@ -644,7 +644,7 @@ mod tests {
             asset_url("https://cdn.example.com/a/b.tgz?sig=1&x=2").ok().as_deref(),
             Some("https://cdn.example.com/a/b.tgz?sig=1&x=2")
         );
-        assert!(asset_url("https://registry.npmjs.org/@lob-ox%2Fdsh-core-linux-x64/-/dsh-core-linux-x64-0.1.6.tgz").is_ok());
+        assert!(asset_url("https://registry.npmjs.org/@lob-ox%2Fcore-linux-x64/-/core-linux-x64-0.1.6.tgz").is_ok());
         let rejected: [&str; 9] = [
             "http://169.254.169.254/latest/meta-data/pkg.tgz",
             "http://127.0.0.1:4873/pkg.tgz",

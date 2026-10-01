@@ -50,22 +50,22 @@ function Find-InstalledExe {
     $dirs = @()
     $keys = @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
               'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
-              'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\dsh-supervisor*')
+              'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\lobox*')
     foreach ($k in $keys) {
         foreach ($it in @(Get-ItemProperty -Path $k -ErrorAction SilentlyContinue)) {
             if ($null -eq $it) { continue }
             $hay = ('{0} {1} {2} {3}' -f $it.DisplayName, $it.DisplayIcon, $it.UninstallString, $it.InstallLocation)
-            if ($hay -notmatch 'dsh-supervisor') { continue }
+            if ($hay -notmatch 'lobox') { continue }
             if ($it.InstallLocation) { $dirs += $it.InstallLocation }
             if ($it.UninstallString -match '"([^"]+)"') { $dirs += (Split-Path $Matches[1]) }
         }
     }
-    $dirs += @("$env:LOCALAPPDATA\dsh-supervisor", "$env:LOCALAPPDATA\Programs\dsh-supervisor",
-               "$env:ProgramFiles\dsh-supervisor", "${env:ProgramFiles(x86)}\dsh-supervisor")
+    $dirs += @("$env:LOCALAPPDATA\lobox", "$env:LOCALAPPDATA\Programs\lobox",
+               "$env:ProgramFiles\lobox", "${env:ProgramFiles(x86)}\lobox")
     foreach ($d in ($dirs | Select-Object -Unique)) {
         if (-not (Test-Path $d)) { continue }
         $exe = Get-ChildItem -Path $d -Filter '*.exe' -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like 'dsh-supervisor*' -and $_.Name -notmatch 'uninstall' } |
+            Where-Object { $_.Name -like 'lobox*' -and $_.Name -notmatch 'uninstall' } |
             Select-Object -First 1
         if ($exe) { return $exe.FullName }
     }
@@ -78,7 +78,7 @@ function Resolve-InstalledExe([string]$tag) {
         if ($exe) { Write-Host "[$tag] 已装二进制 = $exe"; return $exe }
         Start-Sleep -Seconds 2
     }
-    $cand = @(Get-ChildItem -Path $env:LOCALAPPDATA -Filter 'dsh-supervisor*.exe' -File -Recurse -ErrorAction SilentlyContinue |
+    $cand = @(Get-ChildItem -Path $env:LOCALAPPDATA -Filter 'lobox*.exe' -File -Recurse -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 5)
     Write-Host "[$tag] 卸载键与固定目录都没命中；LOCALAPPDATA 递归搜到 $($cand.Count) 个候选："
     $cand | ForEach-Object { Write-Host "  候选 $($_.FullName)" }

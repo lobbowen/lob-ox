@@ -1,4 +1,4 @@
-//! 内核（`dsh-supervisor`）的定位：候选枚举 + 版本仲裁。内核是 npm 全局包，落点随安装方式而异，故枚举全部候选再按版本取最高；只认一个路径会在「装了却找不到」或「装了新版却用旧版」时出错。is_file/canonicalize 在断开的映射盘或 UNC 上会触网，故先问 `platform::is_local_fixed_dir`（GetDriveTypeW 不触网）再访问文件系统。
+//! 内核（`lobox`）的定位：候选枚举 + 版本仲裁。内核是 npm 全局包，落点随安装方式而异，故枚举全部候选再按版本取最高；只认一个路径会在「装了却找不到」或「装了新版却用旧版」时出错。is_file/canonicalize 在断开的映射盘或 UNC 上会触网，故先问 `platform::is_local_fixed_dir`（GetDriveTypeW 不触网）再访问文件系统。
 use tauri::Manager;
 
 use std::path::PathBuf;
@@ -130,7 +130,7 @@ mod tests {
     }
 
     fn fake_pkg(dir: &Path, version: &str) {
-        let bin = dir.join("bin").join("dsh-supervisor");
+        let bin = dir.join("bin").join("lobox");
         std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
         std::fs::write(&bin, b"// fake guard\n").unwrap();
         std::fs::write(dir.join("package.json"), format!("{{\"version\":\"{}\"}}", version)).unwrap();
@@ -141,14 +141,14 @@ mod tests {
         let root = tmp("norm");
         let prefix = root.join("npm");
         std::fs::create_dir_all(&prefix).unwrap();
-        let shim = prefix.join("dsh-supervisor.cmd");
+        let shim = prefix.join("lobox.cmd");
         std::fs::write(&shim, b"@echo off\n").unwrap();
-        let internal = prefix.join("node_modules").join("@lob-ox").join("dsh-core-x").join("bin").join("dsh-supervisor");
+        let internal = prefix.join("node_modules").join("@lob-ox").join("core-x").join("bin").join("lobox");
         std::fs::create_dir_all(internal.parent().unwrap()).unwrap();
         std::fs::write(&internal, b"// js\n").unwrap();
-        let got = normalize_guard(shim.clone(), Some("@lob-ox/dsh-core-x"));
+        let got = normalize_guard(shim.clone(), Some("@lob-ox/core-x"));
         assert_eq!(got, internal, "1.1.5 真机缺陷：.cmd 垫片被直接交给 node（EISDIR）");
-        let js = prefix.join("bin").join("dsh-supervisor");
+        let js = prefix.join("bin").join("lobox");
         std::fs::create_dir_all(js.parent().unwrap()).unwrap();
         std::fs::write(&js, b"// js\n").unwrap();
         assert_eq!(normalize_guard(js.clone(), None), js);
@@ -162,8 +162,8 @@ mod tests {
         let b = root.join("pkgB");
         fake_pkg(&a, "0.1.0");
         fake_pkg(&b, "0.2.0");
-        let abin = a.join("bin").join("dsh-supervisor");
-        let bbin = b.join("bin").join("dsh-supervisor");
+        let abin = a.join("bin").join("lobox");
+        let bbin = b.join("bin").join("lobox");
         assert_eq!(pick_highest(vec![abin, bbin.clone()]), Some(bbin), "应按版本最高仲裁（内核只有最新版本）");
         let _ = std::fs::remove_dir_all(&root);
     }

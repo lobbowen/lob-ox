@@ -456,18 +456,18 @@ mod launch_spec_tests {
 
     #[test]
     fn service_command_is_shell_run_guard() {
-        let s = spec_with("/opt/x/dsh-supervisor");
+        let s = spec_with("/opt/x/lobox");
         let (shell, args) = s.service_command();
-        assert_eq!(shell, std::path::Path::new("/opt/x/dsh-supervisor"));
+        assert_eq!(shell, std::path::Path::new("/opt/x/lobox"));
         assert_eq!(args, &["--run-guard"]);
     }
 
     #[test]
     fn service_exec_line_quotes_shell_and_has_no_volatile_paths() {
-        let s = spec_with("/home/John Smith/dsh-supervisor");
+        let s = spec_with("/home/John Smith/lobox");
         let (shell, args) = s.service_command();
         let line = service_exec_line(shell, args);
-        assert_eq!(line, "\"/home/John Smith/dsh-supervisor\" --run-guard");
+        assert_eq!(line, "\"/home/John Smith/lobox\" --run-guard");
         assert!(!line.contains("NODE SENTINEL") && !line.contains("GUARD SENTINEL"),
             "服务定义不得含 node/guard 路径：{}", line);
     }
@@ -491,7 +491,7 @@ mod launch_spec_tests {
 
     #[test]
     fn external_path_leaves_clean_and_unix_paths_untouched() {
-        for p in [r"C:\Users\x", "/home/u/bin/dsh-supervisor", ""] {
+        for p in [r"C:\Users\x", "/home/u/bin/lobox", ""] {
             assert_eq!(ext(p), p, "不应改写: {}", p);
         }
     }

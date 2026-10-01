@@ -65,7 +65,7 @@ install_linux() {
 
 install_macos() {
   local mnt="$WORK/mnt-$2" app exe_dir
-  rm -rf "$mnt" "$WORK/apps/dsh-supervisor.app"; mkdir -p "$mnt" "$WORK/apps"
+  rm -rf "$mnt" "$WORK/apps/lobox.app"; mkdir -p "$mnt" "$WORK/apps"
   hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$1" -quiet || fail install "挂载 $1 失败"
   app=$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)
   if [ -z "$app" ]; then
@@ -85,14 +85,14 @@ chain_linux() {
   local port=39112
   rm -rf "$FK" "$STATE/supervisor"; mkdir -p "$FK/bin" "$STATE/supervisor"
   printf '{"apiPort":%s}\n' "$port" > "$STATE/supervisor/config.json"
-  printf '{"name":"dsh-supervisor-fake","version":"9.9.9"}\n' > "$FK/package.json"
-  cp "$SCRIPT_DIR/fake-core.js" "$FK/bin/dsh-supervisor" || fail chain "缺夹具 $SCRIPT_DIR/fake-core.js"
-  chmod +x "$FK/bin/dsh-supervisor"
-  printf '{"schema":1,"bin":"%s","version":"9.9.9","source":"ci-fake"}\n' "$FK/bin/dsh-supervisor" \
+  printf '{"name":"lobox-fake","version":"9.9.9"}\n' > "$FK/package.json"
+  cp "$SCRIPT_DIR/fake-core.js" "$FK/bin/lobox" || fail chain "缺夹具 $SCRIPT_DIR/fake-core.js"
+  chmod +x "$FK/bin/lobox"
+  printf '{"schema":1,"bin":"%s","version":"9.9.9","source":"ci-fake"}\n' "$FK/bin/lobox" \
     > "$STATE/supervisor/core.json"
   export DSH_SUPERVISOR_HOME="$STATE"
   # 守卫由 unit 的 Restart=always 反复拉起，只杀进程不删定义会一直复活；runner 上的残留会污染下一步对拉起次数的计数，所以服务定义与进程都要收口。
-  trap 'pkill -f "$FK/bin/dsh-supervisor" 2>/dev/null || true
+  trap 'pkill -f "$FK/bin/lobox" 2>/dev/null || true
         systemctl --user disable --now "$UNIT_FILE" 2>/dev/null || true
         rm -f "$HOME/.config/systemd/user/$UNIT_FILE"' EXIT
   "$BIN" --watchdog || fail chain "装好的壳未在预算内判为就绪，见 $STATE/shell/shell.log 与 $STATE/shell/guard.log"

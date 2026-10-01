@@ -3,7 +3,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "dsh-supervisor — DSH 生命周期监管",
+        "title": "lobox — DSH 生命周期监管",
         "width": 1280,
         "height": 800,
         "minWidth": 760,

@@ -10,17 +10,17 @@ const BRAND = require('../../../shared/brand');
 const GUI_AUTOSTART_TEMPLATE = [
   '[Desktop Entry]',
   'Type=Application',
-  'Name=dsh-supervisor GUI',
+  'Name=lobox GUI',
   'Comment=登录时打开 DSH 监管面板',
-  'Exec=@HOME@/.local/bin/dsh-supervisor-gui',
-  'Icon=@HOME@/.local/share/icons/dsh-supervisor.png',
+  'Exec=@HOME@/.local/bin/lobox-shell',
+  'Icon=@HOME@/.local/share/icons/lobox.png',
   'Terminal=false',
   'X-GNOME-Autostart-enabled=true',
   '',
 ].join('\n');
 
 function guiFile() {
-  return path.join(os.homedir(), '.config', 'autostart', 'dsh-supervisor-gui-autostart.desktop');
+  return path.join(os.homedir(), '.config', 'autostart', 'lobox-shell-autostart.desktop');
 }
 
 function status() {
@@ -50,7 +50,7 @@ function setGuiAutostart(on, deps) {
       let entry = GUI_AUTOSTART_TEMPLATE;
       entry = entry.split('@HOME@').join(os.homedir());
       const guiBin = deps.guiCommand();
-      const oldExec = os.homedir() + '/.local/bin/dsh-supervisor-gui';
+      const oldExec = os.homedir() + '/.local/bin/lobox-shell';
       if (entry.includes(oldExec)) entry = entry.split(oldExec).join(guiBin);
       const execQuote = (p) => '"' + String(p)
         .replace(/\\/g, '\\\\')
@@ -58,9 +58,9 @@ function setGuiAutostart(on, deps) {
         .replace(/%/g, '%%') + '"';
       entry = entry.replace(/^Exec=.*$/m, 'Exec=' + execQuote(guiBin));
       const iconCandidates = [
-        path.join(os.homedir(), '.local', 'share', 'icons', 'dsh-supervisor.png'),
-        '/usr/share/icons/hicolor/256x256/apps/dsh-supervisor.png',
-        '/usr/share/pixmaps/dsh-supervisor.png',
+        path.join(os.homedir(), '.local', 'share', 'icons', 'lobox.png'),
+        '/usr/share/icons/hicolor/256x256/apps/lobox.png',
+        '/usr/share/pixmaps/lobox.png',
       ];
       const icon = iconCandidates.find((c) => { try { return fs.statSync(c).isFile(); } catch { return false; } });
       if (icon) entry = entry.split(/^Icon=.*$/m).join('Icon=' + icon);

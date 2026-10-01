@@ -22,7 +22,7 @@ function execInherit(bin, args) {
   return r;
 }
 
-// 包根解析：本文件有两种运行形态，__dirname 语义不同 —— 源码态 `node <repo>/bin/dsh-supervisor`
+// 包根解析：本文件有两种运行形态，__dirname 语义不同 —— 源码态 `node <repo>/bin/lobox`
 //   → `<repo>/bin`；发行态（esbuild 打成 core.cjs 后 require）→ `<pkg>`（core.cjs 旁）。
 //   硬写 `path.join(__dirname, '..')` 只覆盖源码态（发行态指向包外），故从 __dirname 逐级向上找含 package.json 的目录作包根。
 function findPackageRoot(start) {
@@ -38,6 +38,8 @@ function findPackageRoot(start) {
 const ROOT = findPackageRoot(__dirname);
 // 产品状态根（独立于 DSH 的 ~/.dsh）——单一事实源 = src/platform/state-root.js。
 const stateRoot = require('../src/platform/service/state-root');
+// 品牌单源：CLI 入口名（与 shell/src-tauri/src/brand.rs 逐字一致，见 core/test/brand-single-source-test.js）。
+const BRAND = require('../src/shared/brand');
 const SUPERVISOR_DIR = stateRoot.supervisorDir();
 const USER_CONFIG = path.join(SUPERVISOR_DIR, 'config.json');
 
@@ -53,14 +55,14 @@ const DEFAULT_CONFIG = Object.assign(
 );
 const STATE_FILE = path.join(SUPERVISOR_DIR, 'state.json');
 const EVENTS_FILE = path.join(SUPERVISOR_DIR, 'events', 'guard.events.log');
-// 跨平台命令行入口：Unix 为 ~/.local/bin/dsh-supervisor（软链到包内脚本，无扩展名）；
+// 跨平台命令行入口：Unix 为 ~/.local/bin/lobox（软链到包内脚本，无扩展名）；
 //   Windows 为 %APPDATA%\npm 下的 .cmd 垫片 —— 可执行须有扩展名，且创建符号链接需管理员/开发者模式
 //   普通用户下创建符号链接会 EPERM，故用 .cmd 而非 symlink。
 const IS_WINDOWS = process.platform === 'win32';
 const BIN_DIR = IS_WINDOWS
   ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'npm')
   : path.join(os.homedir(), '.local', 'bin');
-const BIN_PATH = path.join(BIN_DIR, IS_WINDOWS ? 'dsh-supervisor.cmd' : 'dsh-supervisor');
+const BIN_PATH = path.join(BIN_DIR, IS_WINDOWS ? BRAND.CLI_NAME + '.cmd' : BRAND.CLI_NAME);
 
 // ---- 配置解析 ----
 // 解析顺序：优先 DSH_SUPERVISOR_CONFIG 环境变量，其次 -c 参数，再次用户默认配置。
@@ -134,7 +136,7 @@ function printSelfVersion() {
   // 任意 cwd 自报正确版本；源码形态回退读仓库 package.json。独立读 ROOT/package.json 会让
   // SEA 二进制 --version 恒报 vunknown。
   const { guardVersion } = require('../src/platform/service/version');
-  console.log('dsh-supervisor v' + guardVersion());
+  console.log(BRAND.CLI_NAME + ' v' + guardVersion());
 }
 
 // ---- HTTP API 调用 ----
@@ -203,7 +205,9 @@ function readLock() {
 // 进程句柄未释放、或 pid 已被复用，process.kill(pid, 0) 都会成功，于是守卫锁永远
 // 挡着一个根本不存在的守卫，而用户端只剩一句「端口不可达」。
 function isOwnGuardEntry(cmdline) {
-  return typeof cmdline === 'string' && cmdline.includes('dsh-supervisor');
+  // 判据：命令行含内核 CLI 入口名。**刻意保持宽松**（与改名前的 includes 同口径）：
+  //   漏认真守卫 = 放行双守卫（双写状态/竞态 spawn，最严重）；误认 = 保守拒绝启动（安全侧）。
+  return typeof cmdline === 'string' && cmdline.includes(BRAND.CLI_NAME);
 }
 
 // 锁续约：只改 mtime，不重写内容。重写有撕裂读风险，而一次撕裂的读会被 readLock 看成
@@ -337,7 +341,36 @@ function migrateStateRoot() {
   process.exit(1);
 }
 
+// ── 旧版检测：旧状态根存在 ⇒ 明确告警；旧守卫仍在跑 ⇒ 明确报错并退出（防双守卫）──────
+// 旧版（改名前的产品名，见 brand.LEGACY_PRODUCT_NAME）与新版本**状态根/锁/服务名互不相认**：
+//   两代同时运行会双写状态文件并竞态 spawn ⇒ 旧守卫活着时一律拒绝继续，绝不静默接管。
+// 不迁移旧状态是已拍板决定（D-2/P-2）：本文件只**读**旧根的目录名与锁，绝不搬、绝不写。
+function legacyNotice(legacy) {
+  return '旧版状态根 ' + legacy.root
+    + '（' + legacy.supervisorDir + ' / ' + legacy.shellDir + '）'
+    + (legacy.lockPid ? '；旧守卫锁 ' + legacy.lockFile + '（pid ' + legacy.lockPid + '）' : '');
+}
+
+/** 检测旧安装；旧守卫仍在运行即明确报错并非零退出。返回检测结果（供事件记录）。 */
+function checkLegacyInstall() {
+  const legacy = stateRoot.detectLegacyInstall();
+  if (legacy.guardRunning) {
+    console.error('[legacy] 拒绝继续（防双守卫）：检测到旧版守卫仍在运行 —— ' + legacyNotice(legacy));
+    console.error('[legacy] 新旧两版不共存：请先卸载旧版本（停掉旧守卫：旧服务管理器/计划任务，或从旧面板退出），'
+      + '确认旧进程已退出后重试。');
+    console.error('[legacy] 若旧版确已卸载、该锁只是残留，删除 ' + legacy.lockFile + ' 即可（本版不会替你删旧根里的任何文件）。');
+    process.exit(1);
+  }
+  if (legacy.exists) {
+    console.warn('[legacy] 检测到旧版状态根：' + legacyNotice(legacy));
+    console.warn('[legacy] 本版**不迁移**旧状态（新根从空态开始），也不会读写旧根；'
+      + '旧配置/远程令牌/日志/install-id 仍留在上面那个目录，确认不再需要后可手动删除。');
+  }
+  return legacy;
+}
+
 function cmdDaemon() {
+  const legacy = checkLegacyInstall(); // 必须先于 migrateStateRoot/取锁：旧守卫活着时立刻停，绝不双守卫
   migrateStateRoot();
   const lock = acquireLock();
   if (lock !== true) {
@@ -359,6 +392,18 @@ function cmdDaemon() {
   // 否则打包产物只含 CLI 壳、daemon 运行期仍依赖发行目录旁置的 src/。
   const { Supervisor } = require('../src/supervisor');
   const sup = new Supervisor(cfg, cfgPath);
+  // 旧根存在这件事必须留下**事件**（不只是 stderr）：新根是空态时，事后能查到「为什么配置/远程令牌不见了」。
+  if (legacy && legacy.exists) {
+    try {
+      sup.events.append('legacy_state_root_detected', {
+        root: legacy.root,
+        entries: legacy.entries,
+        lockFile: legacy.lockFile,
+        lockPid: legacy.lockPid,
+        guardRunning: legacy.guardRunning,
+      });
+    } catch (e) { console.error('[legacy] 事件写入失败: ' + ((e && e.message) || e)); }
+  }
   // **必须等 shutdown 真正完成再退出**：`shutdown()` 内部的 `await lifecycleManager.stopAll()`
   // 停内嵌 router/lan（反代实例、relay、frpc、端口释放）是异步的，`process.exit` 会让 stop 只跑同步前缀，
   //   子进程与端口残留成孤儿。故等 Promise settle 后再 exit 并加 8s 兜底超时；重复信号第二次直接强退。
@@ -434,7 +479,7 @@ function printStatus(s) {
     console.log('upgradeHold:      true（升级安装中，暂停自动拉起）');
   }
   if (s.phase === 'FAILED') {
-    console.log('FAILED:           启动反复失败，已停止自动重启；人工重试 dsh-supervisor restart');
+    console.log('FAILED:           启动反复失败，已停止自动重启；人工重试 lobox restart');
   }
   if (s.startupFailCount > 0) {
     console.log('startupFail:      ' + s.startupFailCount + ' 次（窗口起点 ' + (s.startupFailWindowStart || '—') + '）');
@@ -464,6 +509,7 @@ function finishControl(r) {
 }
 
 function cmdInstall() {
+  checkLegacyInstall(); // 旧守卫在跑时同样拒绝（防双守卫），旧根存在时明确告警
   migrateStateRoot();
   fs.mkdirSync(SUPERVISOR_DIR, { recursive: true });
   // 配置文件（内嵌默认模板；源码态与打包态一致，不再依赖仓库 config.json 外置文件）
@@ -479,24 +525,24 @@ function cmdInstall() {
   try { fs.unlinkSync(BIN_PATH); } catch {}
   if (IS_WINDOWS) {
     // .cmd 垫片：用当前 Node 直接执行包内脚本（无需 symlink 特权，跨 Windows 版本可用）
-    const target = path.join(ROOT, 'bin', 'dsh-supervisor');
+    const target = path.join(ROOT, 'bin', BRAND.CLI_NAME);
     const shim = '@echo off\r\n"' + process.execPath + '" "' + target + '" %*\r\n';
     fs.writeFileSync(BIN_PATH, shim);
     console.log('[install] 命令行垫片: ' + BIN_PATH + ' → ' + target);
   } else {
-    fs.symlinkSync(path.join(ROOT, 'bin', 'dsh-supervisor'), BIN_PATH);
-    console.log('[install] 命令行链接: ' + BIN_PATH + ' → ' + __dirname + '/dsh-supervisor');
+    fs.symlinkSync(path.join(ROOT, 'bin', BRAND.CLI_NAME), BIN_PATH);
+    console.log('[install] 命令行链接: ' + BIN_PATH + ' → ' + __dirname + '/' + BRAND.CLI_NAME);
   }
   // 服务定义（systemd/launchd/schtasks）、开机自启、桌面入口的**所有者是桌面壳**：
   //   内核 install 不写任何服务定义或 autostart —— 否则与壳争夺「谁定义、谁拉起」，Windows 上更会形成双启动器。
   //   此处只准备内核本体需要的 config 与命令入口。
   console.log('[install] 服务定义/开机自启/桌面入口由桌面壳负责（本命令不部署）。');
-  console.log('[install] 内核本体已就绪。启动由桌面壳或服务管理器发起：dsh-supervisor daemon');
+  console.log('[install] 内核本体已就绪。启动由桌面壳或服务管理器发起：lobox daemon');
 }
 
 function cmdGuiAutostart(onoff) {
   if (onoff !== 'on' && onoff !== 'off') {
-    console.log('用法: dsh-supervisor gui-autostart on|off');
+    console.log('用法: lobox gui-autostart on|off');
     process.exitCode = 1;
     return;
   }
@@ -550,7 +596,7 @@ function cmdVersion() {
     console.log('已安装版本: ' + (v.installed || '—'));
     console.log('最新版本:   ' + (v.latest || '—'));
     console.log('上次检查:   ' + (v.lastCheckAt || '—'));
-    if (v.updateAvailable) console.log('→ 有可用更新！执行: dsh-supervisor upgrade');
+    if (v.updateAvailable) console.log('→ 有可用更新！执行: lobox upgrade');
     else if (!v.checking) console.log('已是最新。');
   });
 }
@@ -574,7 +620,7 @@ function cmdSelfUpdate(action) {
       console.error('本命令不安装内核。');
       process.exit(2);
     }
-    console.log('用法: dsh-supervisor self-update [check]');
+    console.log('用法: lobox self-update [check]');
   })();
 }
 
@@ -608,7 +654,7 @@ function cmdUpgrade(requested) {
         }
         if (Date.now() - started > 20 * 60000) {
           clearInterval(timer);
-          console.log('超时未结束，稍后用 dsh-supervisor status 查看。');
+          console.log('超时未结束，稍后用 lobox status 查看。');
           process.exit(1);
         }
       });
@@ -617,7 +663,7 @@ function cmdUpgrade(requested) {
 }
 
 function usage() {
-  console.log('用法: dsh-supervisor <command> [options]');
+  console.log('用法: lobox <command> [options]');
   console.log('');
   console.log('命令:');
   console.log('  daemon [-c <config>]      启动守护进程（由桌面壳/服务管理器调用）');
@@ -674,7 +720,7 @@ switch (cmd) {
     // 发布物内核冒烟：纯逻辑自检（不依赖资产目录/网络），供每平台构建后验证产物可自举。
     {
       const { guardVersion } = require('../src/platform/service/version');
-      console.log('dsh-supervisor core self-check');
+      console.log('lobox core self-check');
       console.log('guardVersion=' + (typeof guardVersion === 'function' ? guardVersion() : 'unknown'));
       console.log('node=' + process.version);
       console.log('platform=' + process.platform + ' arch=' + process.arch);

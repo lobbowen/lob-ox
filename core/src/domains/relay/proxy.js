@@ -162,7 +162,7 @@ function createRelay(targetHost, targetPort, opts) {
       );
       upstream.on('error', () => {
         if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('dsh-supervisor relay: 上游不可达');
+        res.end('lobox relay: 上游不可达');
       });
       req.pipe(upstream);
     }).catch(() => {
@@ -172,7 +172,7 @@ function createRelay(targetHost, targetPort, opts) {
       );
       upstream.on('error', () => {
         if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('dsh-supervisor relay: 上游不可达');
+        res.end('lobox relay: 上游不可达');
       });
       req.pipe(upstream);
     });

@@ -79,7 +79,7 @@ const envCalls = [];
 const ENVIRONMENT_FORM = {
   schema: 2, at: 1700000000000, cached: false, platform: 'win32',
   identity: { platform: 'win32', arch: 'x64', hostname: 'h', user: 'u', home: 'C:\\Users\\u', node: 'v24' },
-  paths: { root: 'C:\\Users\\u\\AppData\\Local\\dsh-supervisor', supervisor: 'C:\\s', shell: 'C:\\k' },
+  paths: { root: 'C:\\Users\\u\\AppData\\Local\\lobox', supervisor: 'C:\\s', shell: 'C:\\k' },
   session: { platform: 'win32', available: true, reason: 'session-scoped-by-launcher' },
   capabilities: { openBrowser: true },
   preference: { id: 'c:\\ff\\firefox.exe', configured: true, matched: true, browser: { id: 'c:\\ff\\firefox.exe', name: 'firefox', engine: 'firefox' }, reason: 'matched' },

@@ -180,7 +180,7 @@ pub fn start_node_install(state: tauri::State<Mutex<RunState>>, app: tauri::AppH
 
 #[tauri::command]
 pub async fn core_status(app: tauri::AppHandle) -> serde_json::Value {
-    let pkg = crate::core::package_name().unwrap_or_else(|_| "@lob-ox/dsh-core-<platform>".into());
+    let pkg = crate::core::package_name().unwrap_or_else(|_| "@lob-ox/core-<platform>".into());
     let located = tauri::async_runtime::spawn_blocking(move || {
         let a = app.clone();
         crate::domain::coreloc::locate_core_with_version(&a)
@@ -406,7 +406,7 @@ pub async fn guard_start(app: tauri::AppHandle) -> ShellResult<serde_json::Value
         Err(_) => Err(crate::domain::guardctl::LaunchError::new(
             "READY_TIMEOUT",
             format!(
-                "守卫启动超时（{} 秒未完成）。可能原因：服务管理器无响应，或守卫进程无法启动。请用 dsh-supervisor-gui --service-plan 查看服务定义状态。",
+                "守卫启动超时（{} 秒未完成）。可能原因：服务管理器无响应，或守卫进程无法启动。请用 lobox-shell --service-plan 查看服务定义状态。",
                 GUARD_TOTAL_BUDGET.as_secs()
             ),
         )),

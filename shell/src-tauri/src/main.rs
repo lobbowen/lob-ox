@@ -136,7 +136,7 @@ fn main() {
     if std::env::args().any(|a| a == "--run-guard") {
         std::process::exit(domain::cli::cli_run_guard());
     }
-        // 无头看护入口：Windows 计划任务（DSH-Supervisor-Watchdog）每 5 分钟调用。判据与启动/面板同一实现（`guardctl::ready`），故必须在 Tauri 初始化之前返回。
+        // 无头看护入口：Windows 计划任务（Lobox-Watchdog）每 5 分钟调用。判据与启动/面板同一实现（`guardctl::ready`），故必须在 Tauri 初始化之前返回。
     if std::env::args().any(|a| a == "--watchdog") {
         std::process::exit(domain::cli::cli_watchdog());
     }
@@ -201,9 +201,9 @@ fn main() {
             let quit = tauri::menu::MenuItem::with_id(app, "quit", "退出管家", true, None::<&str>)?;
             let menu = tauri::menu::Menu::with_items(app, &[&show_m, &start, &stop, &restart, &quit])?;
 
-            tauri::tray::TrayIconBuilder::with_id("dsh-supervisor-tray")
+            tauri::tray::TrayIconBuilder::with_id("lobox-tray")
                 .icon(app.default_window_icon().ok_or("no default icon")?.clone())
-                .tooltip("dsh-supervisor")
+                .tooltip("lobox")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| {
@@ -258,6 +258,6 @@ fn main() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("error while running dsh-supervisor-gui");
+        .expect("error while running lobox-shell");
     bt!("main exit (run returned)");
 }

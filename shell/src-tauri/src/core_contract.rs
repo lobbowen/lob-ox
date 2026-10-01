@@ -21,7 +21,7 @@ pub fn write(c: &InstalledCore) {
     let _ = std::fs::create_dir_all(&dir);
     let meta = serde_json::json!({
         "schema": SCHEMA,
-        "writtenBy": format!("dsh-supervisor-gui@{}", env!("CARGO_PKG_VERSION")),
+        "writtenBy": format!("lobox-shell@{}", env!("CARGO_PKG_VERSION")),
         "bin": c.bin.display().to_string(),
         "prefix": c.prefix.as_ref().map(|p| p.display().to_string()),
         "version": c.version,

@@ -53,7 +53,7 @@ module.exports = {
       d.events().append('dsh_not_installed', { bin: nst.binPath });
       if (!d.mMissingNotified()) {
         d.mSetMissingNotified(true);
-        d.ui().notify('未检测到 DeepSeek Harness', '可在 dsh-supervisor 面板一键安装');
+        d.ui().notify('未检测到 DeepSeek Harness', '可在 lobox 面板一键安装');
       }
       d.mSetSpawnBlockedUntil(Date.now() + 60000);
       d.state().setPhase('STOPPED');
@@ -102,7 +102,7 @@ module.exports = {
           d.logger().warn('command missing: ' + d.config().command.join(' ') + ' — 60s 冷静期内不再尝试');
           if (!d.mMissingNotified()) {
             d.mSetMissingNotified(true);
-            d.ui().notify('未检测到 DeepSeek Harness', '可在 dsh-supervisor 面板一键安装');
+            d.ui().notify('未检测到 DeepSeek Harness', '可在 lobox 面板一键安装');
           }
           d.mSetSpawnBlockedUntil(Date.now() + 60000);
           d.state().setPhase('STOPPED');

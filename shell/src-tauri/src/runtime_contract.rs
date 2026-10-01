@@ -166,7 +166,7 @@ fn meta(rt: &NodeRuntime) -> serde_json::Value {
     let npm_s = rt.npm.display().to_string();
     serde_json::json!({
         "schema": SCHEMA,
-        "writtenBy": format!("dsh-supervisor-gui@{}", env!("CARGO_PKG_VERSION")),
+        "writtenBy": format!("lobox-shell@{}", env!("CARGO_PKG_VERSION")),
         "nodeBinDir": bin_s,
         "npmPath": npm_s,
         "npmArgs": rt.npm_prefix,

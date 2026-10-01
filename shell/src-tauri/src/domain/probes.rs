@@ -304,7 +304,7 @@ fn write_probe(dir: &Path) -> Result<(), String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let probe = dir.join(format!(".dsh-supervisor-writability-{}-{}", std::process::id(), nanos));
+    let probe = dir.join(format!(".lobox-writability-{}-{}", std::process::id(), nanos));
     match std::fs::write(&probe, b"") {
         Ok(()) => {
             let _ = std::fs::remove_file(&probe);

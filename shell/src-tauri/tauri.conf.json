@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "dsh-supervisor",
+  "productName": "lobox",
   "version": "1.2.12",
-  "identifier": "dev.bowen.dsh-supervisor",
+  "identifier": "dev.bowen.lobox",
   "build": {
     "frontendDist": "bootstrap"
   },
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "dsh-supervisor — DSH 生命周期监管",
+        "title": "lobox — DSH 生命周期监管",
         "width": 1280,
         "height": 800,
         "minWidth": 760,

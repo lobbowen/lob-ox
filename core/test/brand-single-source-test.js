@@ -118,33 +118,35 @@ const jsSorted = jsNames.slice().sort();
 
 // ── C. 冻结字面量：对外可见名字必须等于现状值 ───────────────────────────────
 const EXPECT = {
-  PRODUCT_NAME: 'dsh-supervisor',
-  CLI_NAME: 'dsh-supervisor',
-  GUI_BIN_NAME: 'dsh-supervisor-gui',
-  GUI_CRATE_NAME: 'dsh-supervisor-gui',
+  PRODUCT_NAME: 'lobox',
+  CLI_NAME: 'lobox',
+  GUI_BIN_NAME: 'lobox-shell',
+  GUI_CRATE_NAME: 'lobox-shell',
   NPM_SCOPE: '@lob-ox',
-  CORE_PKG_PREFIX: 'dsh-core-',
+  CORE_PKG_PREFIX: 'core-',
   SHELL_RELEASE_PKG: '@lob-ox/shell-release',
-  TAURI_IDENTIFIER: 'dev.bowen.dsh-supervisor',
-  TAURI_PRODUCT_NAME: 'dsh-supervisor',
-  STATE_DIR_NAME: 'dsh-supervisor',
+  TAURI_IDENTIFIER: 'dev.bowen.lobox',
+  TAURI_PRODUCT_NAME: 'lobox',
+  STATE_DIR_NAME: 'lobox',
   STATE_SUPERVISOR_SUBDIR: 'supervisor',
   STATE_SHELL_SUBDIR: 'shell',
+  LEGACY_PRODUCT_NAME: 'dsh-supervisor',
   STATE_ROOT_WIN_BASE_ENV: 'LOCALAPPDATA',
   STATE_ROOT_LINUX_XDG_ENV: 'XDG_STATE_HOME',
   LEGACY_HARNESS_DIR: '.dsh',
   ENV_STATE_ROOT: 'DSH_SUPERVISOR_HOME',
-  WINDOWS_GUARD_TASK: 'DSH-Supervisor',
-  WINDOWS_WATCHDOG_TASK: 'DSH-Supervisor-Watchdog',
-  WINDOWS_GUI_TASK: 'DSH-Supervisor-GUI',
-  SYSTEMD_UNIT_NAME: 'dsh-supervisor',
-  SYSTEMD_UNIT_FILE: 'dsh-supervisor.service',
-  MACOS_GUARD_LABEL: 'com.dsh.supervisor',
-  MACOS_GUI_LABEL: 'com.dsh.supervisor.gui',
+  WINDOWS_GUARD_TASK: 'Lobox',
+  WINDOWS_WATCHDOG_TASK: 'Lobox-Watchdog',
+  WINDOWS_GUI_TASK: 'Lobox-Shell',
+  WINDOWS_RUN_VALUE: 'Lobox',
+  SYSTEMD_UNIT_NAME: 'lobox',
+  SYSTEMD_UNIT_FILE: 'lobox.service',
+  MACOS_GUARD_LABEL: 'com.lobox.core',
+  MACOS_GUI_LABEL: 'com.lobox.shell',
   SEA_BUNDLE_NAME: 'core.cjs',
   SEA_VERSION_DEFINE: '__DSH_VERSION__',
-  PROC_MATCH_GUARD: '*dsh-supervisor*',
-  PROC_MATCH_GUI: 'dsh-supervisor-gui',
+  PROC_MATCH_GUARD: '*lobox*',
+  PROC_MATCH_GUI: 'lobox-shell',
 };
 {
   const bad = [];
@@ -154,7 +156,7 @@ const EXPECT = {
   check('C-1 对外可见名字等于冻结的现状值（' + Object.keys(EXPECT).length + ' 项）', bad.length === 0, bad.join(' | '));
   check('C-2 四平台子包标签与 core/package.json 的清单一致',
     JSON.stringify(BRAND.CORE_PKG_TAGS) === JSON.stringify(['linux-x64', 'darwin-arm64', 'darwin-x64', 'win-x64'])
-      && BRAND.CORE_PKG_TAGS.every((t) => BRAND.corePackageName(t) === '@lob-ox/dsh-core-' + t),
+      && BRAND.CORE_PKG_TAGS.every((t) => BRAND.corePackageName(t) === '@lob-ox/core-' + t),
     JSON.stringify(BRAND.CORE_PKG_TAGS));
   check('C-3 三平台状态根分支原料与冻结值一致',
     JSON.stringify(BRAND.STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS) === JSON.stringify(['AppData', 'Local'])
@@ -167,11 +169,11 @@ const EXPECT = {
 const HOME = path.join('H', 'ome');
 {
   const cases = [
-    ['win32 有 LOCALAPPDATA', BRAND.stateRoot('win32', { LOCALAPPDATA: 'L' }, HOME), path.join('L', 'dsh-supervisor')],
-    ['win32 无 LOCALAPPDATA 回落家目录', BRAND.stateRoot('win32', {}, HOME), path.join(HOME, 'AppData', 'Local', 'dsh-supervisor')],
-    ['darwin 恒为 Application Support', BRAND.stateRoot('darwin', {}, HOME), path.join(HOME, 'Library', 'Application Support', 'dsh-supervisor')],
-    ['linux 有 XDG_STATE_HOME', BRAND.stateRoot('linux', { XDG_STATE_HOME: 'X' }, HOME), path.join('X', 'dsh-supervisor')],
-    ['linux 无 XDG 回落 ~/.local/state', BRAND.stateRoot('linux', {}, HOME), path.join(HOME, '.local', 'state', 'dsh-supervisor')],
+    ['win32 有 LOCALAPPDATA', BRAND.stateRoot('win32', { LOCALAPPDATA: 'L' }, HOME), path.join('L', 'lobox')],
+    ['win32 无 LOCALAPPDATA 回落家目录', BRAND.stateRoot('win32', {}, HOME), path.join(HOME, 'AppData', 'Local', 'lobox')],
+    ['darwin 恒为 Application Support', BRAND.stateRoot('darwin', {}, HOME), path.join(HOME, 'Library', 'Application Support', 'lobox')],
+    ['linux 有 XDG_STATE_HOME', BRAND.stateRoot('linux', { XDG_STATE_HOME: 'X' }, HOME), path.join('X', 'lobox')],
+    ['linux 无 XDG 回落 ~/.local/state', BRAND.stateRoot('linux', {}, HOME), path.join(HOME, '.local', 'state', 'lobox')],
   ];
   const bad = cases.filter((c) => c[1] !== c[2]).map((c) => c[0] + ': ' + c[1] + ' ≠ ' + c[2]);
   check('D-1 状态根平台分支逐字正确', bad.length === 0, bad.join(' | '));
@@ -213,17 +215,17 @@ const HOME = path.join('H', 'ome');
     const DECOY_XDG = path.join('D', 'ecoyXdg');
     const HOST_CASES = process.platform === 'win32'
       ? [
-        ['win32 基座缺失回落家目录', {}, path.join(FROZEN_HOME, 'AppData', 'Local', 'dsh-supervisor')],
-        ['win32 有 LOCALAPPDATA（XDG 为诱饵，不得串台）', { LOCALAPPDATA: path.join('W', 'in'), XDG_STATE_HOME: DECOY_XDG }, path.join('W', 'in', 'dsh-supervisor')],
+        ['win32 基座缺失回落家目录', {}, path.join(FROZEN_HOME, 'AppData', 'Local', 'lobox')],
+        ['win32 有 LOCALAPPDATA（XDG 为诱饵，不得串台）', { LOCALAPPDATA: path.join('W', 'in'), XDG_STATE_HOME: DECOY_XDG }, path.join('W', 'in', 'lobox')],
       ]
       : process.platform === 'darwin'
         ? [
-          ['darwin 恒为 Application Support', {}, path.join(FROZEN_HOME, 'Library', 'Application Support', 'dsh-supervisor')],
-          ['darwin 下 LOCALAPPDATA/XDG 皆为诱饵（不得串台）', { LOCALAPPDATA: DECOY_WIN, XDG_STATE_HOME: DECOY_XDG }, path.join(FROZEN_HOME, 'Library', 'Application Support', 'dsh-supervisor')],
+          ['darwin 恒为 Application Support', {}, path.join(FROZEN_HOME, 'Library', 'Application Support', 'lobox')],
+          ['darwin 下 LOCALAPPDATA/XDG 皆为诱饵（不得串台）', { LOCALAPPDATA: DECOY_WIN, XDG_STATE_HOME: DECOY_XDG }, path.join(FROZEN_HOME, 'Library', 'Application Support', 'lobox')],
         ]
         : [
-          ['linux 基座缺失回落 ~/.local/state', {}, path.join(FROZEN_HOME, '.local', 'state', 'dsh-supervisor')],
-          ['linux 有 XDG_STATE_HOME（LOCALAPPDATA 为诱饵，不得串台）', { XDG_STATE_HOME: path.join('X', 'dg'), LOCALAPPDATA: DECOY_WIN }, path.join('X', 'dg', 'dsh-supervisor')],
+          ['linux 基座缺失回落 ~/.local/state', {}, path.join(FROZEN_HOME, '.local', 'state', 'lobox')],
+          ['linux 有 XDG_STATE_HOME（LOCALAPPDATA 为诱饵，不得串台）', { XDG_STATE_HOME: path.join('X', 'dg'), LOCALAPPDATA: DECOY_WIN }, path.join('X', 'dg', 'lobox')],
         ];
     const hostBad = [];
     const hostSeen = [];
@@ -242,12 +244,12 @@ const HOME = path.join('H', 'ome');
     //   子进程注入 process.platform，覆盖位在子进程 env 里同样**显式删除**；期望值逐条独立写出，
     //   并给「不属于该平台」的基座变量注入诱饵，钉住三平台分支互不串台。
     const CASES = [
-      ['win32 有 LOCALAPPDATA', 'win32', { LOCALAPPDATA: path.join('L', 'ocal'), XDG_STATE_HOME: DECOY_XDG }, path.join('L', 'ocal', 'dsh-supervisor')],
-      ['win32 基座缺失回落家目录', 'win32', {}, path.join(FROZEN_HOME, 'AppData', 'Local', 'dsh-supervisor')],
-      ['darwin 恒为 Application Support', 'darwin', {}, path.join(FROZEN_HOME, 'Library', 'Application Support', 'dsh-supervisor')],
-      ['darwin 下两平台基座皆为诱饵', 'darwin', { LOCALAPPDATA: DECOY_WIN, XDG_STATE_HOME: DECOY_XDG }, path.join(FROZEN_HOME, 'Library', 'Application Support', 'dsh-supervisor')],
-      ['linux 有 XDG_STATE_HOME', 'linux', { XDG_STATE_HOME: path.join('X', 'dg'), LOCALAPPDATA: DECOY_WIN }, path.join('X', 'dg', 'dsh-supervisor')],
-      ['linux 基座缺失回落 ~/.local/state', 'linux', {}, path.join(FROZEN_HOME, '.local', 'state', 'dsh-supervisor')],
+      ['win32 有 LOCALAPPDATA', 'win32', { LOCALAPPDATA: path.join('L', 'ocal'), XDG_STATE_HOME: DECOY_XDG }, path.join('L', 'ocal', 'lobox')],
+      ['win32 基座缺失回落家目录', 'win32', {}, path.join(FROZEN_HOME, 'AppData', 'Local', 'lobox')],
+      ['darwin 恒为 Application Support', 'darwin', {}, path.join(FROZEN_HOME, 'Library', 'Application Support', 'lobox')],
+      ['darwin 下两平台基座皆为诱饵', 'darwin', { LOCALAPPDATA: DECOY_WIN, XDG_STATE_HOME: DECOY_XDG }, path.join(FROZEN_HOME, 'Library', 'Application Support', 'lobox')],
+      ['linux 有 XDG_STATE_HOME', 'linux', { XDG_STATE_HOME: path.join('X', 'dg'), LOCALAPPDATA: DECOY_WIN }, path.join('X', 'dg', 'lobox')],
+      ['linux 基座缺失回落 ~/.local/state', 'linux', {}, path.join(FROZEN_HOME, '.local', 'state', 'lobox')],
     ];
     const SR_PATH = path.join(ROOT, 'src', 'platform', 'service', 'state-root.js');
     const bad = [];
@@ -305,9 +307,9 @@ const HOME = path.join('H', 'ome');
 //   ⇒ 任一侧单独改错 ⇒ 至少 G-1 或 G-2 变红。
 {
   const GH = path.join('G', 'home'); // G 段自己的冻结家目录字面量
-  const WIN_FB = path.join(GH, 'AppData', 'Local', 'dsh-supervisor');
-  const MAC = path.join(GH, 'Library', 'Application Support', 'dsh-supervisor');
-  const LNX_FB = path.join(GH, '.local', 'state', 'dsh-supervisor');
+  const WIN_FB = path.join(GH, 'AppData', 'Local', 'lobox');
+  const MAC = path.join(GH, 'Library', 'Application Support', 'lobox');
+  const LNX_FB = path.join(GH, '.local', 'state', 'lobox');
   const WIN_KEY = 'LOCALAPPDATA';
   const XDG_KEY = 'XDG_STATE_HOME';
   const WS = [['空串', ''], ['纯空格', '   '], ['制表符', '\t'], ['换行', '\n'], ['回车换行', '\r\n']];
@@ -316,14 +318,14 @@ const HOME = path.join('H', 'ome');
   const GCASES = [];
   const push = (label, platform, env, home, want) => GCASES.push({ label, platform, env, home, want });
 
-  // (1) LOCALAPPDATA 纯空白（win32）⇒ 必须回落 <家>/AppData/Local/dsh-supervisor
+  // (1) LOCALAPPDATA 纯空白（win32）⇒ 必须回落 <家>/AppData/Local/lobox
   for (const [n, v] of WS) push('win32 ' + WIN_KEY + '=' + n + ' ⇒ 回落家目录', 'win32', { [WIN_KEY]: v }, GH, WIN_FB);
   // (2) 未设置基线（键不存在 / 显式 undefined）
   push('win32 ' + WIN_KEY + ' 键不存在 ⇒ 回落家目录', 'win32', {}, GH, WIN_FB);
   push('win32 ' + WIN_KEY + '=undefined ⇒ 回落家目录', 'win32', { [WIN_KEY]: undefined }, GH, WIN_FB);
   // (3) 正常值 / 两侧空白包裹（空白包裹必须取 trim 后的值）
-  push('win32 ' + WIN_KEY + '=WinBase（正常值）', 'win32', { [WIN_KEY]: 'WinBase' }, GH, path.join('WinBase', 'dsh-supervisor'));
-  push('win32 ' + WIN_KEY + ' 两侧空白包裹 ⇒ 取 trim 后值', 'win32', { [WIN_KEY]: '  WinBase  ' }, GH, path.join('WinBase', 'dsh-supervisor'));
+  push('win32 ' + WIN_KEY + '=WinBase（正常值）', 'win32', { [WIN_KEY]: 'WinBase' }, GH, path.join('WinBase', 'lobox'));
+  push('win32 ' + WIN_KEY + ' 两侧空白包裹 ⇒ 取 trim 后值', 'win32', { [WIN_KEY]: '  WinBase  ' }, GH, path.join('WinBase', 'lobox'));
   // (4) 诱饵：win32 不看 XDG
   push('win32 ' + XDG_KEY + ' 正常值（诱饵）不得串台', 'win32', { [XDG_KEY]: 'XdgBase' }, GH, WIN_FB);
   push('win32 ' + XDG_KEY + ' 纯空白（诱饵）不得串台', 'win32', { [XDG_KEY]: '   ' }, GH, WIN_FB);
@@ -331,22 +333,22 @@ const HOME = path.join('H', 'ome');
   push('darwin 无基座 ⇒ Application Support', 'darwin', {}, GH, MAC);
   push('darwin 两平台基座纯空白（诱饵）⇒ Application Support', 'darwin', { [WIN_KEY]: '   ', [XDG_KEY]: '\t' }, GH, MAC);
   push('darwin 两平台基座正常值（诱饵）⇒ Application Support', 'darwin', { [WIN_KEY]: 'WinBase', [XDG_KEY]: 'XdgBase' }, GH, MAC);
-  // (6) XDG_STATE_HOME 纯空白（linux）⇒ 必须回落 <家>/.local/state/dsh-supervisor
+  // (6) XDG_STATE_HOME 纯空白（linux）⇒ 必须回落 <家>/.local/state/lobox
   for (const [n, v] of WS) push('linux ' + XDG_KEY + '=' + n + ' ⇒ 回落 ~/.local/state', 'linux', { [XDG_KEY]: v }, GH, LNX_FB);
   // (7) 未设置基线 / 正常值 / 空白包裹 / 诱饵
   push('linux ' + XDG_KEY + ' 键不存在 ⇒ 回落 ~/.local/state', 'linux', {}, GH, LNX_FB);
   push('linux ' + XDG_KEY + '=undefined ⇒ 回落 ~/.local/state', 'linux', { [XDG_KEY]: undefined }, GH, LNX_FB);
-  push('linux ' + XDG_KEY + '=XdgBase（正常值）', 'linux', { [XDG_KEY]: 'XdgBase' }, GH, path.join('XdgBase', 'dsh-supervisor'));
-  push('linux ' + XDG_KEY + ' 两侧空白包裹 ⇒ 取 trim 后值', 'linux', { [XDG_KEY]: '  XdgBase  ' }, GH, path.join('XdgBase', 'dsh-supervisor'));
+  push('linux ' + XDG_KEY + '=XdgBase（正常值）', 'linux', { [XDG_KEY]: 'XdgBase' }, GH, path.join('XdgBase', 'lobox'));
+  push('linux ' + XDG_KEY + ' 两侧空白包裹 ⇒ 取 trim 后值', 'linux', { [XDG_KEY]: '  XdgBase  ' }, GH, path.join('XdgBase', 'lobox'));
   push('linux ' + WIN_KEY + ' 正常值（诱饵）不得串台', 'linux', { [WIN_KEY]: 'WinBase' }, GH, LNX_FB);
   push('linux ' + WIN_KEY + ' 纯空白（诱饵）不得串台', 'linux', { [WIN_KEY]: '   ' }, GH, LNX_FB);
   // (8) 家目录纯空白：`home` 是**调用方给出的参数**，不是被归一化的基座环境变量（本单源不归一化它）——
   //     这里断言两侧**同样**不归一化 home（两侧一致），冻结期望就是「空白家目录 + 各平台回落段」的拼接。
   for (const v of HOME_WS) {
     const tag = '家目录=' + JSON.stringify(v) + '（两侧同样不归一化 home）';
-    push('win32 ' + tag, 'win32', {}, v, path.join(v, 'AppData', 'Local', 'dsh-supervisor'));
-    push('darwin ' + tag, 'darwin', {}, v, path.join(v, 'Library', 'Application Support', 'dsh-supervisor'));
-    push('linux ' + tag, 'linux', {}, v, path.join(v, '.local', 'state', 'dsh-supervisor'));
+    push('win32 ' + tag, 'win32', {}, v, path.join(v, 'AppData', 'Local', 'lobox'));
+    push('darwin ' + tag, 'darwin', {}, v, path.join(v, 'Library', 'Application Support', 'lobox'));
+    push('linux ' + tag, 'linux', {}, v, path.join(v, '.local', 'state', 'lobox'));
   }
 
   // ① Rust 侧：从 brand.rs 源码逐字提取语义位（不编译；CI 的 cargo test 兜底）
@@ -378,12 +380,12 @@ const HOME = path.join('H', 'ome');
   const rsStateRoot = (platform, env, home) => {
     const get = (k) => (Object.prototype.hasOwnProperty.call(env, k) ? env[k] : undefined);
     if (platform === 'win32') {
-      return path.join(rsEnvBase(get(WIN_KEY), RS_WIN_WIRED) || path.join(home, 'AppData', 'Local'), 'dsh-supervisor');
+      return path.join(rsEnvBase(get(WIN_KEY), RS_WIN_WIRED) || path.join(home, 'AppData', 'Local'), 'lobox');
     }
     if (platform === 'darwin') {
-      return path.join(home, 'Library', 'Application Support', 'dsh-supervisor');
+      return path.join(home, 'Library', 'Application Support', 'lobox');
     }
-    return path.join(rsEnvBase(get(XDG_KEY), RS_LINUX_WIRED) || path.join(home, '.local', 'state'), 'dsh-supervisor');
+    return path.join(rsEnvBase(get(XDG_KEY), RS_LINUX_WIRED) || path.join(home, '.local', 'state'), 'lobox');
   };
 
   // ③ 三向对账：JS ↔ 冻结期望，Rust 规则 ↔ 同一冻结期望，JS ↔ Rust
@@ -441,6 +443,101 @@ const HOME = path.join('H', 'ome');
       && /envBase\(env, STATE_ROOT_WIN_BASE_ENV\)/.test(jsStateRoot)
       && /envBase\(env, STATE_ROOT_LINUX_XDG_ENV\)/.test(jsStateRoot),
     'rs win=' + RS_WIN_WIRED + ' linux=' + RS_LINUX_WIRED);
+}
+
+// ── H. 旧状态根/旧守卫的**检测**（D-2/P-2：不迁移，但绝不静默，且防双守卫）──────────
+// 旧名（LEGACY_PRODUCT_NAME = 'dsh-supervisor'）是**唯一**允许保留的旧名：它只用于检测与告警。
+// 本节把两件事钉死：① 旧状态根三平台推导（与 stateRoot 同基座、只换末段，冻结字面量判）；
+//   ② 检测的四个输入分支 + 真跑 CLI 的拒绝路径（旧守卫在跑 ⇒ 明确报错并非零退出，且不写新根）。
+{
+  const LEGACY = 'dsh-supervisor'; // ← 冻结的旧名（与单源 LEGACY_PRODUCT_NAME 对偶）
+  check('H-1 LEGACY_PRODUCT_NAME 等于冻结的旧名（全仓唯一保留的旧名）',
+    BRAND.LEGACY_PRODUCT_NAME === 'dsh-supervisor', JSON.stringify(BRAND.LEGACY_PRODUCT_NAME));
+
+  const HH = path.join('H', 'home');
+  const HCASES = [
+    ['win32 有基座', BRAND.legacyStateRoot('win32', { LOCALAPPDATA: 'L' }, HH), path.join('L', LEGACY)],
+    ['win32 基座缺失回落家目录', BRAND.legacyStateRoot('win32', {}, HH), path.join(HH, 'AppData', 'Local', LEGACY)],
+    ['darwin 恒为 Application Support', BRAND.legacyStateRoot('darwin', {}, HH), path.join(HH, 'Library', 'Application Support', LEGACY)],
+    ['linux 有 XDG_STATE_HOME', BRAND.legacyStateRoot('linux', { XDG_STATE_HOME: 'X' }, HH), path.join('X', LEGACY)],
+    ['linux 基座缺失回落 ~/.local/state', BRAND.legacyStateRoot('linux', {}, HH), path.join(HH, '.local', 'state', LEGACY)],
+  ];
+  const hBad = HCASES.filter((c) => c[1] !== c[2]).map((c) => c[0] + ': ' + c[1] + ' ≠ ' + c[2]);
+  check('H-2 旧状态根三平台推导逐字正确（5 条，冻结字面量）', hBad.length === 0, hBad.join(' | '));
+  check('H-3 同平台上旧根 ≠ 新根（末段必须不同，否则等于把新根当旧根报）',
+    ['win32', 'darwin', 'linux'].every((p) => BRAND.legacyStateRoot(p, {}, HH) !== BRAND.stateRoot(p, {}, HH)),
+    BRAND.legacyStateRoot('linux', {}, HH) + ' vs ' + BRAND.stateRoot('linux', {}, HH));
+
+  const sr2 = require(path.join(ROOT, 'src', 'platform', 'service', 'state-root.js'));
+  const probe = fs.mkdtempSync(path.join(os.tmpdir(), 'lobox-legacy-probe-'));
+  try {
+    const absent = sr2.detectLegacyInstall({ rootOverride: path.join(probe, 'not-there'), isAlive: () => true });
+    check('H-4 旧根不存在：exists=false、不报旧守卫、也不碰文件系统',
+      absent.exists === false && absent.guardRunning === false, JSON.stringify(absent));
+
+    const dirOnly = path.join(probe, 'dir-only');
+    fs.mkdirSync(path.join(dirOnly, 'supervisor'), { recursive: true });
+    fs.writeFileSync(path.join(dirOnly, 'state.json'), '{}');
+    const d1 = sr2.detectLegacyInstall({ rootOverride: dirOnly, isAlive: () => true });
+    check('H-5 旧根存在但无锁：exists=true、entries 可读、guardRunning=false（只告警不拦）',
+      d1.exists === true && d1.guardRunning === false && d1.entries.indexOf('state.json') >= 0
+        && d1.lockFile === path.join(dirOnly, 'supervisor', 'guard.lock'),
+      JSON.stringify({ exists: d1.exists, entries: d1.entries, running: d1.guardRunning }));
+
+    const lockDir = path.join(probe, 'with-lock');
+    fs.mkdirSync(path.join(lockDir, 'supervisor'), { recursive: true });
+    fs.writeFileSync(path.join(lockDir, 'supervisor', 'guard.lock'), JSON.stringify({ pid: 424242, started: 1 }));
+    const alive = sr2.detectLegacyInstall({ rootOverride: lockDir, isAlive: () => true });
+    check('H-6 旧锁 pid 存活 ⇒ guardRunning=true（拒绝启动的唯一依据）',
+      alive.guardRunning === true && alive.lockPid === 424242, JSON.stringify(alive));
+    const dead = sr2.detectLegacyInstall({ rootOverride: lockDir, isAlive: () => false });
+    check('H-7 旧锁 pid 已死 ⇒ guardRunning=false（陈旧锁不阻挡新版本）',
+      dead.guardRunning === false && dead.lockPid === 424242, JSON.stringify(dead));
+    fs.writeFileSync(path.join(lockDir, 'supervisor', 'guard.lock'), '424242');
+    const bare = sr2.detectLegacyInstall({ rootOverride: lockDir, isAlive: () => true });
+    check('H-8 旧锁的裸 pid 历史格式同样被认（否则一次升级就把在用旧锁看成无效）',
+      bare.guardRunning === true && bare.lockPid === 424242, JSON.stringify(bare));
+    check('H-9 检测只读：旧根内容与锁文件一个字节都没被改动',
+      fs.readFileSync(path.join(lockDir, 'supervisor', 'guard.lock'), 'utf8') === '424242'
+        && fs.existsSync(path.join(dirOnly, 'state.json')),
+      fs.readdirSync(lockDir).join(','));
+
+    // H-10/H-11：真跑 CLI（bin/lobox daemon）—— 旧守卫在跑时必须明确报错、非零退出，且**不在新根留东西**。
+    //   旧根按平台默认基座推出（家目录/基座都指到探针目录，绝不碰真机旧状态）；新根用覆盖位隔离。
+    const CLI = path.join(ROOT, 'bin', 'lobox');
+    const fakeHome = path.join(probe, 'home');
+    const cliEnv = Object.assign({}, process.env, { HOME: fakeHome, USERPROFILE: fakeHome });
+    delete cliEnv[BRAND.ENV_STATE_ROOT];
+    delete cliEnv[BRAND.STATE_ROOT_WIN_BASE_ENV];
+    delete cliEnv[BRAND.STATE_ROOT_LINUX_XDG_ENV];
+    const legacyRoot = process.platform === 'win32'
+      ? path.join(fakeHome, 'AppData', 'Local', LEGACY)
+      : process.platform === 'darwin'
+        ? path.join(fakeHome, 'Library', 'Application Support', LEGACY)
+        : path.join(fakeHome, '.local', 'state', LEGACY);
+    fs.mkdirSync(path.join(legacyRoot, 'supervisor'), { recursive: true });
+    fs.writeFileSync(path.join(legacyRoot, 'supervisor', 'guard.lock'),
+      JSON.stringify({ pid: process.pid, started: Date.now(), entry: path.join(legacyRoot, 'bin', 'old-cli') }));
+    const newRoot = path.join(probe, 'new-root');
+    cliEnv[BRAND.ENV_STATE_ROOT] = newRoot;
+    let out = '';
+    let code = 0;
+    try {
+      out = execFileSync(process.execPath, [CLI, 'daemon'], { env: cliEnv, encoding: 'utf8', timeout: 30000 });
+    } catch (e) {
+      code = (e && typeof e.status === 'number') ? e.status : -1;
+      out = String((e && e.stdout) || '') + String((e && e.stderr) || '') + String((e && e.message) || '');
+    }
+    check('H-10 旧守卫在跑时 daemon 拒绝启动：非零退出 + 明确报错 + 指向「先卸载旧版本」',
+      code !== 0 && /旧版/.test(out) && /防双守卫/.test(out) && /卸载/.test(out),
+      'code=' + code + ' out=' + out.replace(/\s+/g, ' ').slice(0, 200));
+    check('H-11 拒绝发生在写新根之前（新根里没有 config.json / guard.lock）',
+      !fs.existsSync(path.join(newRoot, 'supervisor', 'config.json'))
+        && !fs.existsSync(path.join(newRoot, 'supervisor', 'guard.lock')),
+      fs.existsSync(newRoot) ? fs.readdirSync(newRoot).join(',') : '(新根未创建)');
+  } finally {
+    fs.rmSync(probe, { recursive: true, force: true });
+  }
 }
 
 const failed = results.filter((r) => !r);

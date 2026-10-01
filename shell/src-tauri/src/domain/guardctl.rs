@@ -94,7 +94,7 @@ pub(crate) fn shutdown_all(port: u16) {
     match crate::platform::service().stop() {
         Ok(()) => crate::update::log("[shell] 退出握手完成：守卫已停止，本次登录内不会自动拉起；重新打开程序即恢复"),
         Err(e) => {
-            eprintln!("[shell] 停止守卫失败: {}（可手动 systemctl --user stop dsh-supervisor）", e);
+            eprintln!("[shell] 停止守卫失败: {}（可手动 systemctl --user stop lobox）", e);
             crate::update::log(&format!("[shell] 停止守卫失败: {}", e));
         }
     }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 内核 npm 子包发布（构建物 = Node launcher）：只在 GitHub CI 内运行，本机不得执行、不得产出发布产物（本机自查上限是纯静态检查）。
-# 版本从仓库根 package.json 单源注入（禁手写，裸版本无 v 前缀）；发布前强制校验 launcher self-check 自报版本 = 单源，产物命名 dsh-supervisor-<ver>-<plat>-<arch>。
+# 版本从仓库根 package.json 单源注入（禁手写，裸版本无 v 前缀）；发布前强制校验 launcher self-check 自报版本 = 单源，产物命名 lobox-<ver>-<plat>-<arch>。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
@@ -40,18 +40,18 @@ ARCH="${DSH_ARCH_OVERRIDE:-$ARCH}"
 case "$PLAT" in linux) OS_TAG=linux;; darwin) OS_TAG=darwin;; win32) OS_TAG=win;;
   *) echo "不支持的平台: $PLAT"; exit 1;; esac
 case "$ARCH" in x64|arm64) ;; *) echo "不支持的架构: $ARCH （子包仅 x64/arm64）"; exit 1;; esac
-PKG_NAME="$SCOPE/dsh-core-$OS_TAG-$ARCH"
-SRC_DIR="dist/launcher/dsh-supervisor-$VER-$PLAT-$ARCH"
+PKG_NAME="$SCOPE/core-$OS_TAG-$ARCH"
+SRC_DIR="dist/launcher/lobox-$VER-$PLAT-$ARCH"
 [ -d "$SRC_DIR" ] || {
   echo "缺少构建产物: $SRC_DIR"
   echo "  同一 run 内的 launcher 构建入口：npm run build:launcher（仅 CI 内，按 DSH_*_OVERRIDE 定平台）"
   exit 1
 }
-[ -f "$SRC_DIR/bin/dsh-supervisor" ] || { echo "产物缺 bin/dsh-supervisor: $SRC_DIR"; exit 1; }
+[ -f "$SRC_DIR/bin/lobox" ] || { echo "产物缺 bin/lobox: $SRC_DIR"; exit 1; }
 [ -f "$SRC_DIR/core.cjs" ] || { echo "产物缺 core.cjs: $SRC_DIR"; exit 1; }
 # launcher 形态：node 启动脚本（win 亦无 .exe——由 npm bin shim 生成）
 
-GV="$(node "$SRC_DIR/bin/dsh-supervisor" self-check | sed -n 's/^guardVersion=//p' | tr -d '\r')"
+GV="$(node "$SRC_DIR/bin/lobox" self-check | sed -n 's/^guardVersion=//p' | tr -d '\r')"
 [ "$GV" = "$VER" ] || { echo "版本错配：launcher 自报 $GV ≠ 单源 $VER （禁止发布）"; exit 1; }
 echo "== 冒烟通过: guardVersion=$GV （= 单源） =="
 
@@ -67,7 +67,7 @@ else
 fi
 # 不得把 shell 变量拼进 node -e 源码：package.json 字段含 ' 即可越出字符串字面量改写整段（CI 内执行 = 供应链注入面）；统一经 env 导出、JS 只读 process.env。
 export GEN_PKG_NAME="$PKG_NAME" GEN_VER="$VER" GEN_LICENSE="$MAIN_LICENSE" GEN_REPO="$MAIN_REPO" GEN_STAGE="$STAGE" GEN_PLAT="$PLAT" GEN_ARCH="$ARCH" GEN_OSTAG="$OS_TAG"
-node -e 'const fs=require("fs"),e=process.env;const o={name:e.GEN_PKG_NAME,version:e.GEN_VER,description:"DSH lifecycle guard core (Node launcher) for "+e.GEN_OSTAG+"-"+e.GEN_ARCH+" — requires Node >=18.",license:e.GEN_LICENSE,repository:{type:"git",url:e.GEN_REPO},os:[e.GEN_PLAT],cpu:[e.GEN_ARCH],bin:{"dsh-supervisor":"bin/dsh-supervisor"},files:["bin","core.cjs","ui-react","README.md"],keywords:["dsh","guard","launcher","core"]};fs.writeFileSync(e.GEN_STAGE+"/package.json",JSON.stringify(o,null,2)+String.fromCharCode(10))'
+node -e 'const fs=require("fs"),e=process.env;const o={name:e.GEN_PKG_NAME,version:e.GEN_VER,description:"DSH lifecycle guard core (Node launcher) for "+e.GEN_OSTAG+"-"+e.GEN_ARCH+" — requires Node >=18.",license:e.GEN_LICENSE,repository:{type:"git",url:e.GEN_REPO},os:[e.GEN_PLAT],cpu:[e.GEN_ARCH],bin:{"lobox":"bin/lobox"},files:["bin","core.cjs","ui-react","README.md"],keywords:["lobox","guard","launcher","core"]};fs.writeFileSync(e.GEN_STAGE+"/package.json",JSON.stringify(o,null,2)+String.fromCharCode(10))'
 cat > "$STAGE/README.md" <<EOF
 # $PKG_NAME
 
@@ -82,10 +82,10 @@ npm i -g $PKG_NAME@beta
 # 显式指定版本（**仅排障/人工分发**；日常升级不要绕过标签）
 npm i -g $PKG_NAME@<version>
 
-dsh-supervisor self-check   # guardVersion / node / platform 三段自检
+lobox self-check   # guardVersion / node / platform 三段自检
 \`\`\`
 
-> 本包由桌面壳（Dsh Supervisor GUI）与内核自身按**发布通道契约**自动安装与升级：
+> 本包由桌面壳（lobox 桌面壳）与内核自身按**发布通道契约**自动安装与升级：
 > 选版一律走 \`rollback → canary → dist-tags.latest → versions 最高兜底 → 明确失败\`
 > （**latest 优先**，绝不「取 registry 全量最高」——那会绕过通道控制；latest 缺失时的兜底步
 > 还排除 \`-BETA.\` 测试版）。选定版本后按 \`$PKG_NAME@<version>\` 显式安装。

@@ -164,8 +164,11 @@ async function main() {
       check('D-12 对照组 (a) 子进程已起', await alive(manual.pid), 'pid=' + manual.pid);
       check('D-12 带 web 子命令的手动 DSH 仍判可接管（路径不含配置 bin）',
         sup3._isManagedProcess(manual.pid) === true, 'cmd=' + cmdOf(manual.pid));
+      // 反例夹具刻意**保留 `dsh` 字样**（被监管产品的名字）而**不是**我们的入口名（旧名 dsh-supervisor
+      //   已随波 1 改名）—— 这条断言要证的正是「仅含 dsh 字样、无 web 子命令 ⇒ 不可接管」，
+      //   换成产品名路径会把前提打空（下一行 /dsh/i 会直接判红）。
       const stranger = spawn(process.execPath,
-        ['-e', IDLE, '/opt/dsh-supervisor/tools/build-cache.js'], { stdio: 'ignore' });
+        ['-e', IDLE, '/opt/dsh-tools/build-cache.js'], { stdio: 'ignore' });
       kids.push(stranger);
       check('D-12 对照组 (b) 子进程已起', await alive(stranger.pid), 'pid=' + stranger.pid);
       const sCmd = cmdOf(stranger.pid);

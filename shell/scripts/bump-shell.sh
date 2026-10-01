@@ -14,7 +14,7 @@ ver_lt() {
 CUR="$(node -p "require('./src-tauri/tauri.conf.json').version")"
 ver_lt "$NEW" "$CUR" && { echo "拒绝回退：$NEW < 当前壳 $CUR"; exit 1; }
 _t="$(mktemp)"; sed -E "s/^version = .*/version = \"$NEW\"/" src-tauri/Cargo.toml > "$_t" && mv "$_t" src-tauri/Cargo.toml
-_t="$(mktemp)"; sed -E "/^name = \"dsh-supervisor-gui\"$/{n;s/^version = .*/version = \"$NEW\"/}" src-tauri/Cargo.lock > "$_t" && mv "$_t" src-tauri/Cargo.lock
+_t="$(mktemp)"; sed -E "/^name = \"lobox-shell\"$/{n;s/^version = .*/version = \"$NEW\"/}" src-tauri/Cargo.lock > "$_t" && mv "$_t" src-tauri/Cargo.lock
 NEW="$NEW" node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(p));j.version=process.env.NEW;fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
 echo "=== 壳版本已提升: $CUR → $NEW ==="
 echo "  1) 更新 CHANGELOG.md —— ⚠️ 本仓无该文件，变更记录随 Release 说明维护"

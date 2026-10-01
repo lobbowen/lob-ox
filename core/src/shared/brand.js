@@ -5,24 +5,27 @@
 //   `core/test/brand-single-source-test.js` 解析 brand.rs 并逐项对账本文件 —— 只改一边必判红。
 // 只放名字与规则，不放行为：每条都是一个对外可见的字面量（产品名/包名/状态根/服务名/环境变量/产物名/进程模式）。
 // 消费方式：内核 `require` 取常量；壳取 `crate::brand::<同名常量>`。
+// 本波（核心标识改名）已改：产品名/CLI/壳 crate+bin/npm 子包前缀/状态根目录名/服务与 unit 与 label/产物名。
+//   ⚠ `LEGACY_PRODUCT_NAME` 是**唯一**保留旧名的常量：它只用于「检测旧状态根 + 认旧守卫」，
+//   不参与任何新命名（D-2/P-2：旧状态不迁移，但绝不静默）。
 
 const path = require('node:path');
 
 // ── 产品与组件名 ─────────────────────────────────────────────────────────────
 // 产品名：状态根/落点路径/安装目录/通知与 UA 等处的产品标识。
-const PRODUCT_NAME = 'dsh-supervisor';
-// 内核 CLI 可执行名：core/package.json#bin 的键与值、core/bin/dsh-supervisor 安装期建立的入口名、壳定位内核的候选名。
-const CLI_NAME = 'dsh-supervisor';
+const PRODUCT_NAME = 'lobox';
+// 内核 CLI 可执行名：core/package.json#bin 的键与值、core/bin/lobox 安装期建立的入口名、壳定位内核的候选名。
+const CLI_NAME = 'lobox';
 // 桌面壳可执行名（= Cargo 产物名）：壳自定位、内核识别壳进程、CI 冒烟三处共用的入口名。
-const GUI_BIN_NAME = 'dsh-supervisor-gui';
+const GUI_BIN_NAME = 'lobox-shell';
 // 桌面壳 crate 名：shell/src-tauri/Cargo.toml#package.name，同时是 shell/scripts/bump-shell.sh 的 sed 锚点。
-const GUI_CRATE_NAME = 'dsh-supervisor-gui';
+const GUI_CRATE_NAME = 'lobox-shell';
 
 // ── npm 包 ──────────────────────────────────────────────────────────────────
 // npm scope：已发布包名的前缀（core/package.json#npmPublish.scope，已发布包不可改）。
 const NPM_SCOPE = '@lob-ox';
-// 内核平台子包名的前缀（不含 scope）：与平台标签拼接成裸包名 dsh-core-<tag>。
-const CORE_PKG_PREFIX = 'dsh-core-';
+// 内核平台子包名的前缀（不含 scope）：与平台标签拼接成裸包名 core-<tag>。
+const CORE_PKG_PREFIX = 'core-';
 // 内核平台子包覆盖的四组平台标签：决定 core/package.json#npmPublish.packages 的四条。
 const CORE_PKG_TAGS = ['linux-x64', 'darwin-arm64', 'darwin-x64', 'win-x64'];
 // 壳更新清单包名：内核查最新壳版本、updater endpoint、壳产物组装三处共用的完整包名。
@@ -30,17 +33,21 @@ const SHELL_RELEASE_PKG = '@lob-ox/shell-release';
 
 // ── Tauri 应用身份与安装包名 ─────────────────────────────────────────────────
 // Tauri identifier（应用身份）：Windows 卸载项与升级谱系、macOS bundle id、应用数据目录名。
-const TAURI_IDENTIFIER = 'dev.bowen.dsh-supervisor';
+const TAURI_IDENTIFIER = 'dev.bowen.lobox';
 // Tauri productName：全部安装包文件名由它派生（nsis/msi/dmg/deb 与 .app.tar.gz）。
-const TAURI_PRODUCT_NAME = 'dsh-supervisor';
+const TAURI_PRODUCT_NAME = 'lobox';
 
 // ── 状态根（内核 state-root.js 与壳 env.rs 必须推出同一个根）──────────────────
 // 状态根目录名：三平台状态根的**最后一段**，Windows/macOS/Linux 共用。
-const STATE_DIR_NAME = 'dsh-supervisor';
+const STATE_DIR_NAME = 'lobox';
 // 状态根下内核侧子目录名：config.json / ports.json / state.json / 日志的落点。
 const STATE_SUPERVISOR_SUBDIR = 'supervisor';
 // 状态根下壳侧子目录名：identity.json / shell.log / guard 日志的落点。
 const STATE_SHELL_SUBDIR = 'shell';
+// **旧产品名**（改名前的状态根末段 = 旧 CLI/壳名）：仅用于检测与告警 ——
+//   legacyStateRoot() 用它推导旧状态根（不迁移），bin/lobox 用它认「旧守卫是否还在跑」。
+//   全仓只有这一处允许出现旧名（连同它的 brand.rs 对偶与 brand-single-source-test 的冻结字面量）。
+const LEGACY_PRODUCT_NAME = 'dsh-supervisor';
 // Windows 状态根基座的环境变量名。
 const STATE_ROOT_WIN_BASE_ENV = 'LOCALAPPDATA';
 // 基座环境变量缺失时，Windows 状态根在家目录下的相对段（拼出 <家>/AppData/Local）。
@@ -126,19 +133,21 @@ const ENV_VERSION_LIB = 'DSH_VERSION_LIB';
 
 // ── 服务 / 计划任务 / systemd unit / macOS label ─────────────────────────────
 // Windows 守卫计划任务名：schtasks /Create /Query /Run /End /Delete 全用这个名字。
-const WINDOWS_GUARD_TASK = 'DSH-Supervisor';
+const WINDOWS_GUARD_TASK = 'Lobox';
 // Windows 看护计划任务名：每 5 分钟拉起守卫，漏改等于看护失效。
-const WINDOWS_WATCHDOG_TASK = 'DSH-Supervisor-Watchdog';
+const WINDOWS_WATCHDOG_TASK = 'Lobox-Watchdog';
 // Windows 壳登录自启计划任务名：由内核自启层建立/删除，壳侧不碰。
-const WINDOWS_GUI_TASK = 'DSH-Supervisor-GUI';
+const WINDOWS_GUI_TASK = 'Lobox-Shell';
+// Windows 登录自启的**兜底通道**值名（HKCU\...\Run 下的值名，schtasks 不可用时用）：与计划任务名同属我们的服务标识。
+const WINDOWS_RUN_VALUE = 'Lobox';
 // systemd 用户单元短名：systemctl --user start/stop/enable/disable 的操作对象。
-const SYSTEMD_UNIT_NAME = 'dsh-supervisor';
+const SYSTEMD_UNIT_NAME = 'lobox';
 // systemd 用户单元文件名：落点 ~/.config/systemd/user/<该名>。
-const SYSTEMD_UNIT_FILE = 'dsh-supervisor.service';
+const SYSTEMD_UNIT_FILE = 'lobox.service';
 // macOS 守卫 LaunchAgent label：plist 文件名与 launchctl bootstrap/bootout/kickstart 的操作对象。
-const MACOS_GUARD_LABEL = 'com.dsh.supervisor';
+const MACOS_GUARD_LABEL = 'com.lobox.core';
 // macOS 壳 LaunchAgent label：登录自启壳用，内核自启层建立/删除。
-const MACOS_GUI_LABEL = 'com.dsh.supervisor.gui';
+const MACOS_GUI_LABEL = 'com.lobox.shell';
 
 // ── 产物名模板 ──────────────────────────────────────────────────────────────
 // 内核 SEA 产物名：esbuild 打包 bin 的输出文件名。
@@ -146,11 +155,11 @@ const SEA_BUNDLE_NAME = 'core.cjs';
 // 版本注入宏名：esbuild --define 的键，也是内核读自报版本的常量名。
 const SEA_VERSION_DEFINE = '__DSH_VERSION__';
 // 内核源码归档名模板：release.sh 的 PAK + .tar.gz。
-const KERNEL_ARCHIVE_TEMPLATE = 'dsh-supervisor-{ver}.tar.gz';
+const KERNEL_ARCHIVE_TEMPLATE = 'lobox-{ver}.tar.gz';
 // 内核 GitHub Release 资产名模板：core.yml 逐平台打包的 tar.gz。
-const KERNEL_RELEASE_TARBALL_TEMPLATE = 'dsh-supervisor-kernel-{ver}-{plat}.tar.gz';
+const KERNEL_RELEASE_TARBALL_TEMPLATE = 'lobox-kernel-{ver}-{plat}.tar.gz';
 // 内核 launcher 产物目录名模板：build-launcher.sh 派生、publish-core.sh 回读。
-const LAUNCHER_DIR_TEMPLATE = 'dsh-supervisor-{ver}-{plat}-{arch}';
+const LAUNCHER_DIR_TEMPLATE = 'lobox-{ver}-{plat}-{arch}';
 // Windows NSIS 安装包名模板（Tauri 由 productName 派生）。
 const INSTALLER_NSIS_WIN_X64_TEMPLATE = '{product}_{ver}_x64-setup.exe';
 // macOS .app 归档名模板（updater 资产）。
@@ -162,19 +171,19 @@ const INSTALLER_DMG_ARM64_TEMPLATE = '{product}_{ver}_aarch64.dmg';
 // macOS x64 dmg 名模板。
 const INSTALLER_DMG_X64_TEMPLATE = '{product}_{ver}_x64.dmg';
 // Windows 上内核可执行名的三种形态：壳在 %APPDATA%\npm 与新前缀下按它探测。
-const CLI_BIN_NAMES = ['dsh-supervisor.exe', 'dsh-supervisor.cmd', 'dsh-supervisor'];
+const CLI_BIN_NAMES = ['lobox.exe', 'lobox.cmd', 'lobox'];
 // 安装冒烟在 PATH 上找内核入口的三种形态。
-const CLI_SHIM_NAMES = ['dsh-supervisor', 'dsh-supervisor.cmd', 'dsh-supervisor.ps1'];
+const CLI_SHIM_NAMES = ['lobox', 'lobox.cmd', 'lobox.ps1'];
 // 桌面壳可执行名的两种形态。
-const GUI_BIN_NAMES = ['dsh-supervisor-gui', 'dsh-supervisor-gui.exe'];
+const GUI_BIN_NAMES = ['lobox-shell', 'lobox-shell.exe'];
 
 // ── 进程匹配模式 ────────────────────────────────────────────────────────────
 // 守卫进程的命令行匹配模式：Windows 按命令行含此串精确杀守卫（镜像名是 node.exe，按镜像名杀不到）。
-const PROC_MATCH_GUARD = '*dsh-supervisor*';
+const PROC_MATCH_GUARD = '*lobox*';
 // 壳进程名匹配串：内核用 pgrep 找壳进程。
-const PROC_MATCH_GUI = 'dsh-supervisor-gui';
+const PROC_MATCH_GUI = 'lobox-shell';
 // 壳进程正则源：内核 isShellProcess 判命令行是否属于壳（.exe 可选）。
-const PROC_MATCH_GUI_RE = 'dsh-supervisor-gui(\\.exe)?';
+const PROC_MATCH_GUI_RE = 'lobox-shell(\\.exe)?';
 
 // 内核平台子包名的拼接规则：scope + '/' + 前缀 + 平台标签。
 function corePackageName(tag) {
@@ -183,7 +192,7 @@ function corePackageName(tag) {
 
 // 环境变量基座的统一归一化（与 brand.rs 的 `env_base` **逐字同规则**）：
 //   取值 → String 化 → `trim()`；trim 后为空即视为**未设置**（返回 null ⇒ 调用方回落），否则取 trim 后的值。
-//   为什么"纯空白 = 未设置"：空白基座在文件系统上不可用，拼出来是形如 `"   \dsh-supervisor"` 的畸形路径。
+//   为什么"纯空白 = 未设置"：空白基座在文件系统上不可用，拼出来是形如 `"   \lobox"` 的畸形路径。
 //   为什么取 trim 后的值：与本仓三处既有取值点同惯例 ——
 //     state-root.js 的覆盖位 `String(override).trim()`、env.rs 的覆盖位 `PathBuf::from(v.trim())`、
 //     install-id.js 的 `env.trim()`：都是「trim 后为空 = 未设置，非空取 trim 后的值」。
@@ -196,9 +205,9 @@ function envBase(env, name) {
 }
 
 // 状态根推导规则（不含 override 分支）：
-//   win32  → <LOCALAPPDATA 或 <家>/AppData/Local>/dsh-supervisor
-//   darwin → <家>/Library/Application Support/dsh-supervisor
-//   其余   → <XDG_STATE_HOME 或 <家>/.local/state>/dsh-supervisor
+//   win32  → <LOCALAPPDATA 或 <家>/AppData/Local>/lobox
+//   darwin → <家>/Library/Application Support/lobox
+//   其余   → <XDG_STATE_HOME 或 <家>/.local/state>/lobox
 // 两个基座都先过 envBase（纯空白 = 未设置 = 回落）；darwin 无基座，家目录由调用方给出。
 // override（三平台最先命中、绝对化）留在消费点 state-root.js，本函数只表达平台分支。
 function stateRoot(platform, env, home) {
@@ -216,6 +225,14 @@ function stateRoot(platform, env, home) {
     : path.join(home, ...STATE_ROOT_LINUX_FALLBACK_SEGMENTS, STATE_DIR_NAME);
 }
 
+// **旧产品状态根**（末段 = LEGACY_PRODUCT_NAME）推导规则：与 stateRoot **同一套基座规则**，
+//   只把末段换成旧产品名 —— 取当前根的父目录再拼旧名，规则只有一份，基座不可能只漂移一边。
+// 用途**仅限检测与告警**（bin/lobox 启动时报「旧状态根存在 / 旧守卫仍在运行」）：
+//   D-2/P-2 已裁定**不迁移**旧状态（新根新起、旧装手动清理），但绝不静默（见 state-root.js#detectLegacyInstall）。
+function legacyStateRoot(platform, env, home) {
+  return path.join(path.dirname(stateRoot(platform, env, home)), LEGACY_PRODUCT_NAME);
+}
+
 module.exports = {
   PRODUCT_NAME,
   CLI_NAME,
@@ -230,6 +247,7 @@ module.exports = {
   STATE_DIR_NAME,
   STATE_SUPERVISOR_SUBDIR,
   STATE_SHELL_SUBDIR,
+  LEGACY_PRODUCT_NAME,
   STATE_ROOT_WIN_BASE_ENV,
   STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS,
   STATE_ROOT_MACOS_SEGMENTS,
@@ -273,6 +291,7 @@ module.exports = {
   WINDOWS_GUARD_TASK,
   WINDOWS_WATCHDOG_TASK,
   WINDOWS_GUI_TASK,
+  WINDOWS_RUN_VALUE,
   SYSTEMD_UNIT_NAME,
   SYSTEMD_UNIT_FILE,
   MACOS_GUARD_LABEL,
@@ -295,4 +314,5 @@ module.exports = {
   PROC_MATCH_GUI_RE,
   corePackageName,
   stateRoot,
+  legacyStateRoot,
 };

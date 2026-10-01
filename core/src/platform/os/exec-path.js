@@ -43,7 +43,7 @@ function standardDirs(platform, home, env) {
   const dirs = [];
   if (pl === 'win32') {
     if (e.APPDATA) dirs.push(path.join(e.APPDATA, 'npm'));
-    if (e.LOCALAPPDATA) dirs.push(path.join(e.LOCALAPPDATA, 'Programs', 'dsh-supervisor'));
+    if (e.LOCALAPPDATA) dirs.push(path.join(e.LOCALAPPDATA, 'Programs', 'lobox'));
     dirs.push(path.join(h, '.local', 'bin'));
   } else {
     dirs.push(path.join(h, '.local', 'bin'));

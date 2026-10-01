@@ -100,7 +100,7 @@ function main() {
 
   fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify({
     name: pkgName, version: ver,
-    description: 'DSH supervisor desktop shell updater artifact for ' + plat + ' (Tauri updater).',
+    description: 'lobox desktop shell updater artifact for ' + plat + ' (Tauri updater).',
     license: 'MIT', os: [meta.os], cpu: [meta.cpu], files: ['artifact'],
   }, null, 2) + '\n');
 

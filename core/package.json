@@ -1,5 +1,5 @@
 {
-  "name": "dsh-supervisor",
+  "name": "lobox",
   "version": "0.1.6-BETA.23",
   "private": true,
   "description": "DSH 生命周期监管工具：独立于 Harness 的守卫进程，自动重启 dsh web",
@@ -9,7 +9,7 @@
     "url": "git+https://github.com/lobbowen/lob-ox.git"
   },
   "bin": {
-    "dsh-supervisor": "bin/dsh-supervisor"
+    "lobox": "bin/lobox"
   },
   "scripts": {
     "test": "node test/_runner.js",
@@ -30,10 +30,10 @@
   "npmPublish": {
     "scope": "@lob-ox",
     "packages": [
-      "dsh-core-linux-x64",
-      "dsh-core-darwin-arm64",
-      "dsh-core-darwin-x64",
-      "dsh-core-win-x64"
+      "core-linux-x64",
+      "core-darwin-arm64",
+      "core-darwin-x64",
+      "core-win-x64"
     ]
   }
 }
