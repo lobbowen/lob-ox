@@ -42,10 +42,10 @@ function ensurePorts({ swDir, logger }) {
       }
     }
     const cnt = JSON.parse(fs.readFileSync(newP, 'utf8')).records || [];
-    log.info('[router-daemon] 迁移S2+重建：ports-router.json 就绪 records=' + cnt.length);
+    log.info('[router-daemon] 迁移+重建：ports-router.json 就绪 records=' + cnt.length);
     return { records: cnt.length };
   } catch (err) {
-    log.error('[router-daemon] 迁移S2 异常(保留旧文件): ' + ((err && err.message) || err));
+    log.error('[router-daemon] 迁移异常(保留旧文件): ' + ((err && err.message) || err));
     return { records: 0, error: err };
   }
 }

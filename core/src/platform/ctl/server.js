@@ -32,7 +32,7 @@ function ctlSourceProblem(req) {
 function createCtlServer({ target, allowMethods, logger, events } = {}) {
   // 白名单是安全面的根：缺了就拒绝启动，不给"宽容缺省"。
   if (!Array.isArray(allowMethods) || allowMethods.length === 0) {
-    throw new Error('createCtlServer: allowMethods（域方法白名单）必填且不能为空——白名单不可缺省（安全面 PG-5）');
+    throw new Error('createCtlServer: allowMethods（域方法白名单）必填且不能为空——白名单不可缺省');
   }
   const server = http.createServer((req, res) => {
     const send = (code, obj) => {
@@ -82,7 +82,7 @@ function createCtlServer({ target, allowMethods, logger, events } = {}) {
         try { list = events.tailSince(afterSeq); } catch (e2) { return send(200, { ok: false, error: (e2 && e2.message) || String(e2) }); }
         return send(200, { ok: true, value: { seq: events.seq, events: list } });
       }
-      // 白名单闸（PG-5）：未登记的方法一律 404——不对调用方透露"存在与否"；
+      // 白名单闸：未登记的方法一律 404——不对调用方透露"存在与否"；
       // 内部方法（_ 前缀）不在各域表内，故永不可达。
       if (!isMethodAllowed(allowMethods, method) || !target || typeof target[method] !== 'function') {
         if (logger && logger.warn && method) logger.warn('[ctl] 拒绝未登记方法: ' + method);

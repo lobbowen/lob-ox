@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 发布通道选版（RELEASE-CHANNEL-CONTRACT）：RC-1 优先信 latest，latest 合法时绝不返回 versions 最高 ·
-//   RC-2 rollback 优先于一切（含灰度），但受 RC-7 下限约束（版本 >= ROLLBACK_FLOOR_VERSION 且未超
-//   ROLLBACK_MAX_AGE_DAYS）· RC-3 第三方包同样 latest 优先 · RC-4 灰度定向 · RC-5 任一环节失败返回 null。选版算法是 dist 导出的**唯一实现** pickReleaseVersion。
+// 发布通道选版（RELEASE-CHANNEL-CONTRACT）：优先信 latest，latest 合法时绝不返回 versions 最高 ·
+//   rollback 优先于一切（含灰度），但受下限约束（版本 >= ROLLBACK_FLOOR_VERSION 且未超
+//   ROLLBACK_MAX_AGE_DAYS）· 第三方包同样 latest 优先 · 灰度定向 · 任一环节失败返回 null。选版算法是 dist 导出的**唯一实现** pickReleaseVersion。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -27,23 +27,23 @@ const obj = (arr) => arr.reduce((m, v) => { m[v] = {}; return m; }, {});
   check('归属 第三方 DSH 本体/代理包 → 非我们的', channel.isOurReleasePackage('@deepseek-ai/dsh') === false && channel.isOurReleasePackage('commandcode-api-proxy') === false);
 }
 
-// -- 1)：rollback 最高优先级（受 RC-7 下限约束，见下方 A3-b 块）--
+// -- 1)：rollback 最高优先级（受下限约束，见下方 A3-b 块）--
 // fixture 以 ROLLBACK_FLOOR_VERSION 动态构造：日后上调下限（发布纪律）不需要同步改这里。
 {
   const FLOORV = dist.ROLLBACK_FLOOR_VERSION;
   const m = meta({ rollback: FLOORV, canary: '0.1.6-BETA.1', latest: '0.1.4' }, obj(['0.1.4', FLOORV, '0.1.6-BETA.1']));
   check('① rollback 存在 → 返回它（即使同时有 canary+latest）',
     channel.pickReleaseVersion(m, { ...OPTS_MINE, canary: true }) === FLOORV);
-  check('RC-2 rollback 与 max 无关（可低于 versions 最高，但须 ≥ RC-7 下限）',
+  check('rollback 与 max 无关（可低于 versions 最高，但须过防降级下限）',
     channel.pickReleaseVersion(meta({ rollback: FLOORV, latest: '9.9.9' }, obj([FLOORV, '9.9.9'])), OPTS_MINE) === FLOORV);
 }
 
-// -- RC-7 / A3-b：rollback 防降级下限（版本下限 + 发布时效）--
+// -- A3-b：rollback 防降级下限（版本下限 + 发布时效）--
 {
   const attack = meta({ rollback: '0.1.0', latest: '0.2.0' }, obj(['0.1.0', '0.2.0']));
-  check('A3b-1 低于下限的 rollback → 忽略，回落 latest（不降级）',
+  check('低于下限的 rollback → 忽略，回落 latest（不降级）',
     channel.pickReleaseVersion(attack, OPTS_MINE) === '0.2.0');
-  check('A3b-5 边界：rollback == 注入下限 → 采纳（且下限未被绕过）',
+  check('边界：rollback == 注入下限 → 采纳（且下限未被绕过）',
     channel.pickReleaseVersion(meta({ rollback: '0.3.0', latest: '0.4.0' }, obj(['0.3.0', '0.4.0'])),
       { ...OPTS_MINE, rollbackFloor: '0.3.0' }) === '0.3.0'
     && channel.pickReleaseVersion(meta({ rollback: '0.2.0', latest: '0.2.1' }, obj(['0.2.0', '0.2.1'])),
@@ -53,12 +53,12 @@ const obj = (arr) => arr.reduce((m, v) => { m[v] = {}; return m; }, {});
     ...meta({ rollback: '0.2.0', latest: '0.3.0' }, obj(['0.2.0', '0.3.0'])),
     time: { '0.2.0': new Date(NOW - daysAgo * 86400000).toISOString() },
   });
-  check('A3b-6/7 时效窗口：180 天前 → 忽略 rollback；7 天前 → 采纳；镜像剥掉 time → 仅下限守',
+  check('时效窗口：180 天前 → 忽略 rollback；7 天前 → 采纳；镜像剥掉 time → 仅下限守',
     channel.pickReleaseVersion(withTime(180), { ...OPTS_MINE, rollbackFloor: '0.1.0', now: NOW }) === '0.3.0'
     && channel.pickReleaseVersion(withTime(7), { ...OPTS_MINE, rollbackFloor: '0.1.0', now: NOW }) === '0.2.0'
     && channel.pickReleaseVersion(meta({ rollback: '0.2.0', latest: '0.3.0' }, obj(['0.2.0', '0.3.0'])),
       { ...OPTS_MINE, rollbackFloor: '0.1.0', now: NOW }) === '0.2.0');
-  check('A3b-10 第三方包不套 rollback/下限语义（RC-3 不受影响）',
+  check('第三方包不套 rollback/下限语义（第三方包规则不受影响）',
     channel.pickReleaseVersion(meta({ rollback: '0.9.0', latest: '1.0.0' }, obj(['0.9.0', '1.0.0'])), OPTS_THIRD) === '1.0.0');
 }
 
@@ -67,16 +67,16 @@ const obj = (arr) => arr.reduce((m, v) => { m[v] = {}; return m; }, {});
   const m = meta({ canary: '0.1.6-BETA.1', latest: '0.1.4' }, obj(['0.1.4', '0.1.6-BETA.1']));
   check('② 名单内 + canary 合法 → 返回 canary',
     channel.pickReleaseVersion(m, { ...OPTS_MINE, canary: true }) === '0.1.6-BETA.1');
-  check('RC-4 名单外 → 忽略 canary，取 latest',
+  check('名单外 → 忽略 canary，取 latest',
     channel.pickReleaseVersion(m, { ...OPTS_MINE, canary: false }) === '0.1.4');
   check('② canary 非法（脏 tag）→ 跳过，取 latest',
     channel.pickReleaseVersion(meta({ canary: 'not-a-version', latest: '0.1.4' }, {}), { ...OPTS_MINE, canary: true }) === '0.1.4');
 }
 
-// -- 3)：优先信 latest（RC-1）--
+// -- 3)：优先信 latest--
 {
   const m = meta({ latest: '0.1.4' }, obj(['0.1.4', '0.1.5-BETA.7', '0.1.6-BETA.1']));
-  check('③ latest 存在 → 返回它（RC-1：不取全量最高）', channel.pickReleaseVersion(m, OPTS_MINE) === '0.1.4');
+  check('③ latest 存在 → 返回它（不取全量最高）', channel.pickReleaseVersion(m, OPTS_MINE) === '0.1.4');
   check('③ latest 为合法预发布号也可用',
     channel.pickReleaseVersion(meta({ latest: '0.2.0-RC.1' }, obj(['0.2.0-RC.1'])), OPTS_MINE) === '0.2.0-RC.1');
 }
@@ -115,18 +115,18 @@ const obj = (arr) => arr.reduce((m, v) => { m[v] = {}; return m; }, {});
     && channel.pickReleaseVersion(meta({}, obj(['0.1.5-BETA.9', '0.1.5-BETA.10'])), OPTS_MINE) === null);
 }
 
-// -- 第三方包：RC-3不套 rollback/canary，但 latest 优先 --
+// -- 第三方包：不套 rollback/canary，但 latest 优先 --
 {
   const m = meta({ latest: '1.0.0', alpha: '1.2.0-alpha.1' }, obj(['1.0.0', '1.1.0', '1.2.0-alpha.1']));
-  check('RC-3 第三方包 latest 优先：他人杂 tag（alpha）与更高 versions 均不进候选（旧全量最高会取 1.2.0-alpha.1）',
+  check('第三方包 latest 优先：他人杂 tag（alpha）与更高 versions 均不进候选（按 versions 最高会取 1.2.0-alpha.1）',
     channel.pickReleaseVersion(m, OPTS_THIRD) === '1.0.0'
     && channel.pickReleaseVersion(meta({ latest: '1.0.0' }, obj(['1.0.0', '1.1.0'])), OPTS_THIRD) === '1.0.0',
     channel.pickReleaseVersion(m, OPTS_THIRD));
-  check('RC-3 不套通道语义：带 rollback tag 或本机在灰度名单也不改变选版；latest 缺失才回落 versions 最高',
+  check('第三方包不套通道语义：带 rollback tag 或本机在灰度名单也不改变选版；latest 缺失才回落 versions 最高',
     channel.pickReleaseVersion(meta({ rollback: '0.9.0', latest: '1.0.0' }, obj(['0.9.0', '1.0.0', '1.1.0'])), OPTS_THIRD) === '1.0.0'
     && channel.pickReleaseVersion(meta({ canary: '2.0.0', latest: '1.0.0' }, obj(['1.0.0', '2.0.0'])), { ...OPTS_THIRD, canary: true }) === '1.0.0'
     && channel.pickReleaseVersion(meta({ alpha: '1.2.0-alpha.1' }, obj(['1.0.0', '1.1.0'])), OPTS_THIRD) === '1.1.0');
-  check('RC-3 仅 dist-tags 有 latest 也算候选；latest 非法且无 versions → null（RC-5 绝不猜）',
+  check('仅 dist-tags 有 latest 也算候选；latest 非法且无 versions → null（绝不猜）',
     channel.pickReleaseVersion(meta({ latest: '3.0.0' }, {}), OPTS_THIRD) === '3.0.0'
     && channel.pickReleaseVersion(meta({ latest: 'x' }, {}), OPTS_THIRD) === null);
 }

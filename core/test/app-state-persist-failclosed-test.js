@@ -45,11 +45,11 @@ const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main
   check('A1a 故障解除后可正常再写',
     d.persistConfigPatch({ apiPort: 7 }) === true && JSON.parse(fs.readFileSync(cf, 'utf8')).apiPort === 7, 'ok');
 
-  // -- B2-4：legacy 键清理由别名字典驱动（与 domain-config 声明同源，不硬编码键名）--
+  // -- legacy 键清理由别名字典驱动（与 domain-config 声明同源，不硬编码键名）--
   fs.rmSync(cf);
   fs.writeFileSync(cf, JSON.stringify({ switcherAutoStart: true }));
   d.persistConfigPatch({ apiPort: 6001 });
-  check('B2-4 新键未落盘时旧键保留（旧键可能是唯一意图，预删=静默丢失）',
+  check('新键未落盘时旧键保留（旧键可能是唯一意图，预删=静默丢失）',
     JSON.parse(fs.readFileSync(cf, 'utf8')).switcherAutoStart === true, 'ok');
 }
 
@@ -78,7 +78,7 @@ const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main
   check('A1b 解锁后普通写恢复', JSON.parse(fs.readFileSync(mf, 'utf8')).guardian === true, 'ok');
 }
 
-// B2-4 lan-panel 写口归一：setLanPanel 不自拼 read-merge-write，与 access.js 同口径走
+// lan-panel 写口归一：setLanPanel 不自拼 read-merge-write，与 access.js 同口径走
 //   state.persistConfigPatch（唯一入口）+ verifyPersisted（写后读回）；配置损坏时原字节保留且回 ok:false。
 {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), 'b24-lanpanel-'));
@@ -101,7 +101,7 @@ const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main
   {
     fs.writeFileSync(cf, '{"apiAccessKey":"SECRET","swit'); // 半截 JSON
     const r = mk().setLanPanel(false);
-    check('B2-4 配置损坏：经 fail-closed 单源拒写、原字节保留、如实回 ok:false',
+    check('配置损坏：经 fail-closed 单源拒写、原字节保留、如实回 ok:false',
       r.ok === false && fs.readFileSync(cf, 'utf8') === '{"apiAccessKey":"SECRET","swit', JSON.stringify(r.error));
   }
 }

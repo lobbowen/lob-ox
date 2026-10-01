@@ -26,7 +26,7 @@ _t="$(mktemp)"; sed -E "s/^version = .*/version = \"$NEW\"/" src-tauri/Cargo.tom
 _t="$(mktemp)"; sed -E "/^name = \"dsh-supervisor-gui\"$/{n;s/^version = .*/version = \"$NEW\"/}" src-tauri/Cargo.lock > "$_t" && mv "$_t" src-tauri/Cargo.lock
 NEW="$NEW" node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(p));j.version=process.env.NEW;fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
 echo "=== 壳版本已提升: $CUR → $NEW ==="
-echo "  1) 更新 CHANGELOG.md —— ⚠️ 该文件已于 2026-10-01 随 .md 清理移出仓库（C:\work\_md_backup）"
+echo "  1) 更新 CHANGELOG.md —— ⚠️ 本仓无该文件，变更记录随 Release 说明维护"
 echo "  2) git add -A && git commit && git push origin HEAD（走 PR：主干有分支保护，直推会被拒）"
 echo "  3) CI 全绿后合并，再从主干打 tag 并推送：git tag shell-\$NEW && git push origin shell-\$NEW"
 # tag 命名空间：壳与内核各自独立版本，而 path 过滤对 tag 推送不生效 ⇒ 两条产线共用 `v*` 时

@@ -71,7 +71,7 @@ async function main() {
     daemon.start(d1.id);
     const disk = JSON.parse(fs.readFileSync(path.join(TMP2, 'tasks.json'), 'utf8'));
     const kinds = disk.tasks.map((x) => x.kind + '/' + x.action);
-    check('跨进程：守卫与 daemon 的任务都留在磁盘（旧实现只剩后者）',
+    check('跨进程：守卫与 daemon 的任务都留在磁盘（不得只留一侧）',
       kinds.indexOf('native/install') >= 0 && kinds.indexOf('proxy-app/update') >= 0, kinds.join(','));
     // 反向：同 id 必须以本方为准（不能出现重复条目）
     const g2 = guard.begin('native', 'upgrade', { id: 'main', name: '原生 DSH' }, {});

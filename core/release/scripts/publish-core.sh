@@ -35,7 +35,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --publish) PUBLISH=1 ;;
   --all-platforms)
     # 硬标准：**发布也经 GitHub CI**；本地不得全平台发布。
-    echo '拒绝：--all-platforms 已废弃（2026-09-13 硬标准）。' >&2
+    echo '拒绝：--all-platforms 不再接受：本产线一律四平台构建。' >&2
     echo '  四平台子包由 CI 各平台 runner 各自发布（tag 触发）；本地不得全平台发布。' >&2
     exit 2 ;;
   --dry-run) PUBLISH=0 ;;   # 显式 dry-run（默认即 dry-run；供编排脚本语义清晰传递）
@@ -166,7 +166,7 @@ fi
 # ---- 通道回补：latest 必须跟随本次发布（仅当本次版本更高）----
 # 只升不降：把 latest 往回拉属「紧急回退」语义，是人工运维，脚本绝不自动做。
 # 比较用内核自己的 semverCompare 单源（src/shared/version.js），不在此手写第二套版本比较。
-# 失败必须非零退出：「包发出去了但通道没对齐」正是本步骤要消灭的状态（契约 RC-5）。
+# 失败必须非零退出：「包发出去了但通道没对齐」正是本步骤要消灭的状态。
 reconcile_latest_tag() {
   local cur promote out
   cur="$(npm view "$PKG_NAME" dist-tags.latest --json --registry="$REGISTRY" 2>/dev/null \

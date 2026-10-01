@@ -109,7 +109,7 @@ function fakeRegistry() {
     getManualRestart: () => false, setManualRestart() {},
     stopProcess() {}, tick() {},
   });
-  check('M3a fallback entry 形态不含 guardian 键（B2-3 红线收口）',
+  check('M3a fallback entry 形态不含 guardian 键',
     !('guardian' in mk(fakeRegistry()).fallbackEntry()),
     Object.keys(mk(fakeRegistry()).fallbackEntry()).join(','));
 
@@ -181,7 +181,7 @@ function fakeRegistry() {
   // desired 一旦进沙箱申报，实例崩进 BACKOFF 时实然观测会被反推成意图；
   //   guardian 进申报 = 出现第二权威源（域记录才是权威源）。
   const spec = control.sandboxSpec({ id: 's1', name: '沙箱', port: 3900, state: { phase: 'RUNNING' }, guardian: true });
-  check('P4 sandboxSpec 不含 desired（B2-1）也不含 guardian（B2-2），且 unit/rootPath 就位（P5 并入）',
+  check('P4 sandboxSpec 不含 desired 也不含 guardian，且 unit/rootPath 就位',
     spec && !('desired' in spec) && !('guardian' in spec)
     && spec.ownership.unit === 'dsh-web@s1' && spec.ownership.rootPath === '/root/s1',
     'keys=' + Object.keys(spec || {}).join(','));
@@ -192,7 +192,7 @@ function fakeRegistry() {
 
   reg.unregister('main'); // main 交给 syncManagedRegistry 重新申报
   control.syncManagedRegistry();
-  check('P9 B2-2 目录申报项一律无 guardian 键（main/router-daemon/lan-daemon，域记录才是权威源）',
+  check('P9 目录申报项一律无 guardian 键（main/router-daemon/lan-daemon，域记录才是权威源）',
     ['main', 'router-daemon', 'lan-daemon'].every((k) => reg.get(k) && !('guardian' in reg.get(k))),
     ['main', 'router-daemon', 'lan-daemon'].map((k) => k + ':' + (reg.get(k) ? Object.keys(reg.get(k)).join('/') : '缺')).join(' | '));
 

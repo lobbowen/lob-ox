@@ -100,7 +100,7 @@ async function main() {
     check('过期 monthlyResetAt → 回退 credits/poll（不赌不可靠恢复点）', acc.limit && acc.limit.kind === 'credits' && acc.limit.recovery && acc.limit.recovery.type === 'poll', acc.limit);
   }
   // 本块验的是**分类与动作**（reactToFailure 的真实职责），不依赖任何取证旁路。
-  console.log('== reactToFailure：上游 ≥400 的分类与动作（取证旁路已删除）==');
+  console.log('== reactToFailure：上游 ≥400 的分类与动作 ==');
   {
     const { SwitchEngine } = require(path.join(ROOT, 'src', 'domains', 'router', 'switch'));
     const se = new SwitchEngine({ logger: { info(){} } });
@@ -123,7 +123,7 @@ async function main() {
       JSON.stringify({ r3, r4: r4 && { action: r4.action, signal: r4.signal } }));
   }
 
-  console.log('== bodyResetMs/headerRetryMs：ISO 绝对重置时间解析（2026-09-05 修复，Command 实测格式）==');
+  console.log('== bodyResetMs/headerRetryMs：ISO 绝对重置时间解析 ==');
   {
     const { bodyResetMs, headerRetryMs } = require(path.join(ROOT, 'src', 'domains', 'router', 'providers', 'base'));
     // CC 429 真实样本：body 用绝对 ISO 时间而非 "resets in N min"（动态未来 2h，防时间流逝致测试失效）

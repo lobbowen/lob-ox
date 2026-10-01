@@ -45,7 +45,7 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     const lc = new ManagedLifecycle({ id: 't3', stop: async () => ({ ok: false, error: 'nope' }) });
     lc._setPhase('failed'); // 输入夹具：模拟「对一个已失败模块点停止」
     await lc.stop('user');
-    check('T-a stop 被拒：phase 恢复为 failed（旧实现硬编码 running）', lc.phase === 'failed', lc.phase);
+    check('T-a stop 被拒：phase 恢复为 failed', lc.phase === 'failed', lc.phase);
   }
 
   // -- T-b：从 backoff 进入，stop 抛异常 -> 必须回到 backoff --

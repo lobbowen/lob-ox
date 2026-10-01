@@ -1,6 +1,6 @@
 // 00-runtime：NS 命名空间、共享状态、全局错误处理与窗口栏。
 // 必须最先加载 - onerror / unhandledrejection 未先注册时，后续文件的错误无人捕获（不变量 F2）。
-// 按职责分文件让一处语法错不再导致全页不执行；每文件独立语法检查（门禁 G5）。
+// 按职责分文件让一处语法错不再导致全页不执行；每文件独立语法检查（门禁）。
 window.__BOOT_NS = window.__BOOT_NS || {};
 (function (NS) {
   NS.core = (window.__TAURI__ && window.__TAURI__.core) || null;

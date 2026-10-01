@@ -94,7 +94,7 @@ describe("kernelUpdateBridge：入站校验、进度与超时", () => {
     vi.unstubAllGlobals();
   });
 
-  it("非父帧来源的“成功”被忽略（门禁 SW-8 的行为面）", async () => {
+  it("非父帧来源的“成功”被忽略", async () => {
     const rid = start();
     h.dispatch(resultFrame(rid), { notTheParent: true });
     await flush();
@@ -144,7 +144,7 @@ describe("kernelUpdateBridge：入站校验、进度与超时", () => {
     expect(settled?.error || "").toContain("第 2/4 个源");
   });
 
-  it("旧壳不下发 maxWaitMs 时，兜底上界必须大于后端 17 分钟预算（写死 6 分钟即回归）", async () => {
+  it("壳不下发 maxWaitMs 时，兜底上界必须大于后端 17 分钟预算", async () => {
     start();
     await vi.advanceTimersByTimeAsync(6 * 60 * 1000 + 1000);
     expect(settled).toBe(null);

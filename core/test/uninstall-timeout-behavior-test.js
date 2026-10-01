@@ -66,7 +66,7 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   check('行为：超时被如实上报（timedOut=true）',
     r && r.timedOut === true, JSON.stringify({ ok: r && r.ok, timedOut: r && r.timedOut }));
   check('行为：结果不是成功', r && r.ok === false, 'ok=' + (r && r.ok));
-  check('行为：卸载锁**已释放**（旧实现会永久为真）',
+  check('行为：卸载锁**已释放**（不得永久为真）',
     mgr.uninstalling === null, 'uninstalling=' + String(mgr.uninstalling));
   check('行为：超时后 manifest **保留**（可重试，K10 语义未回退）',
     fs.existsSync(manifestFile), fs.existsSync(manifestFile) ? '保留' : '被误删');

@@ -121,7 +121,7 @@ function makeConfig(apiPort, targetPort, regPort, pkgJson, overrides = {}) {
 function startDaemon(cfg, env = {}) {
   const cfgPath = path.join(TMP, `cfg-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-// 测试卫生（RC6）：任意退出路径统一清理 mock——防残留进程污染下一轮运行
+// 测试卫生：任意退出路径统一清理 mock——防残留进程污染下一轮运行
 process.on('exit', () => {
   try { const { execSync } = require('node:child_process');
     execSync("pkill -CONT -f 'mock-target.js' || true", { stdio: 'ignore' });
@@ -130,7 +130,7 @@ process.on('exit', () => {
 });
 
   // 场景前提：守护开（升级时 DSH 在运行，面板给升级用户的默认形态）。
-  // dsh-main.json 与 stateFile 同目录；RC2 后升级恢复还叠加 upgrade-resume 意图。
+  // dsh-main.json 与 stateFile 同目录；升级恢复还叠加 upgrade-resume 意图。
   try { fs.writeFileSync(path.join(path.dirname(cfg.stateFile), 'dsh-main.json'), JSON.stringify({ guardian: true })); } catch {}
 
   const child = spawn('node', [CLI, 'daemon', '-c', cfgPath], {

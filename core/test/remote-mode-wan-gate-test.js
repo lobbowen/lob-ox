@@ -47,7 +47,7 @@ function mk(meta0) {
     && f.written[0].remoteMode === 'wan' && typeof f.written[0].remoteToken === 'string'
     && /^[A-Za-z0-9_-]{8,}$/.test(f.meta.remoteToken) && f.meta.remoteToken === f.written[0].remoteToken,
     JSON.stringify({ r, w: f.written }));
-  check('W-h 行为：TK-5 事件脱敏 —— 自动分配只记布尔，事件载荷零令牌明文',
+  check('W-h 行为：事件脱敏 —— 自动分配只记布尔，事件载荷零令牌明文',
     f.evData.some((d) => d && d.tokenSet === true && d.autoAllocated === true)
     && !JSON.stringify(f.evData).includes(f.meta.remoteToken), JSON.stringify(f.evData));
 }
@@ -86,7 +86,7 @@ function mk(meta0) {
     && off2.ok === true && f2.written.length === 1 && f2.written[0].remoteToken === undefined,
     JSON.stringify({ r: off, w: f.written, w2: f2.written }));
 }
-// B1-2：mode/token 必须显式给出 —— 漏字段请求不得被缺省成 'off'/清除（静默关远程控制/清凭据）。
+// mode/token 必须显式给出 —— 漏字段请求不得被缺省成 'off'/清除（静默关远程控制/清凭据）。
 {
   const f = mk();
   const noMode = f.actions.setRemoteMode('main');
@@ -112,7 +112,7 @@ function mk(meta0) {
   const good = f6.actions.setRemoteToken('main', 'remote-tok-0123');
   check('W-d 行为：合规令牌写入通过（写入口 ok:true 且落盘）',
     good && good.ok === true && f6.meta.remoteToken === 'remote-tok-0123', JSON.stringify(good));
-  check('W-h 行为：TK-5 事件脱敏 —— 显式设置同样零令牌明文',
+  check('W-h 行为：事件脱敏 —— 显式设置同样零令牌明文',
     !JSON.stringify(f6.evData).includes('remote-tok-0123'), JSON.stringify(f6.evData));
 }
 

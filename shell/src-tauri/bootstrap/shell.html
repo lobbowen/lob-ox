@@ -155,7 +155,7 @@
     var replyToPanel = function (src, origin, msg) {
       try { src.postMessage(msg, origin); } catch (e) {}
     };
-    // 内核安装进度转发给面板（B4b）。面板没有 IPC，本主帧是唯一能听到 install_* 事件的人：
+    // 内核安装进度转发给面板。面板没有 IPC，本主帧是唯一能听到 install_* 事件的人：
     //   不转发，面板就只能停在「正在更新内核…」，而壳在 npm install 上最多要花 17 分钟（预算见 src/bridge.rs）。
     //   一次只有一个在途请求（面板按钮在收到终结消息前是禁用态），故只记一份 pending，
     //   换源/重启等阶段各自都会发一帧，收尾时随终结消息一起清空。

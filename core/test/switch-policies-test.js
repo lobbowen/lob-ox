@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// router 纯策略单测（DF-6）：只 require policies/switch 与 policies/failure，给假 state/ctx，零 IO。
+// router 纯策略单测：只 require policies/switch 与 policies/failure，给假 state/ctx，零 IO。
 //   覆盖选号序列（selected/sticky/rotate/clearSelected/excludeKeys/反代就绪优先）
 //   与失败动作映射（credits/window/banned/transient/none + retryMs 阈值）。
 

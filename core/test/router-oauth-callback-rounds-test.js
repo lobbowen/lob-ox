@@ -57,12 +57,12 @@ const check = (n, c, x) => {
       inflight.on('response', (res) => { let b = ''; res.on('data', (c) => { b += c; }); res.on('end', () => resolve({ status: res.statusCode, body: b })); });
       inflight.on('error', reject);
     });
-    check('O-b 第二轮登录轮启动成功（前置），且旧轮在途迟到回调回 410（旧实现此处 200 且决议新轮 promise）',
+    check('O-b 第二轮登录轮启动成功（前置），且旧轮在途迟到回调回 410',
       s2.ok === true && s2.state !== s1.state && r1.status === 410, JSON.stringify(r1));
     const w2p = ops.commandcodeLoginWait(4000);
     const ok2 = await post(s2.port, cred(s2.state, 'K2'));
     const w2 = await w2p;
-    check('O-c 新轮仍以自身凭据正常决议（旧实现此处解析出 K1 串轮）',
+    check('O-c 新轮仍以自身凭据正常决议',
       ok2.status === 200 && w2.ok === true && w2.apiKey === 'K2', JSON.stringify(w2).slice(0, 100));
     // 决议器同轮守卫：旧轮「浏览器已关闭」监视迟到触发，必须被丢弃。
     const s3 = await ops.commandcodeLoginStart();
@@ -70,7 +70,7 @@ const check = (n, c, x) => {
     const w3p = ops.commandcodeLoginWait(4000);
     await post(s3.port, cred(s3.state, 'K3'));
     const w3 = await w3p;
-    check('O-d 第三轮启动成功，且旧轮浏览器监视迟到不误杀新轮（旧实现此处报「浏览器已关闭，登录已取消」）',
+    check('O-d 第三轮启动成功，且旧轮浏览器监视迟到不误杀新轮',
       s3.ok === true && w3.ok === true && w3.apiKey === 'K3', JSON.stringify(w3).slice(0, 100));
 
     // 失败档：授权地址与分发依据必须一起活着走到面板（否则界面只剩「再点一次」），且当场拆轮，

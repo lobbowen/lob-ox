@@ -37,7 +37,7 @@ function underFake(platform, arch, body) {
   const D = osLayer.capabilityProfile('darwin', 'x64');
   const W = osLayer.capabilityProfile('win32', 'x64');
   const U = osLayer.capabilityProfile('freebsd', 'x64');
-  //  字段拆分：拉起能力与限额执行档位是两个正交维度（W3 落地：三平台都能跑舱，但限额强制不同档）。
+  //  字段拆分：拉起能力与限额执行档位是两个正交维度（三平台都能跑舱，但限额强制不同档）。
   //  只判「三平台都是显式档位而非 none、未知平台一律 none」，不锁具体档位字符串（实现档位可选）。
   check('P-5 三平台可跑舱且限额为显式档位；未知平台一律 false/none（不谎报）',
     L.sandboxLaunch === true && D.sandboxLaunch === true && W.sandboxLaunch === true && U.sandboxLaunch === false

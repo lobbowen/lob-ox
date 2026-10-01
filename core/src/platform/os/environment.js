@@ -39,7 +39,7 @@ const SECTION_TTL_MS = 60000;
  *  没有「等壳上报」的轮询，报告旧到什么程度由 data.ageMs 如实交出。 */
 const SHELL_REPORT_TTL_MS = 10000;
 
-/** 装配期注入的取数口。platform 不得 require app/api（分层门禁 L-1），而「用户的偏好」住在内核配置里、
+/** 装配期注入的取数口。platform 不得 require app/api（分层门禁），而「用户的偏好」住在内核配置里、
  *  「能力矩阵的实测覆写」住在 ./index.js 里，只能由上层在组装时把 getter 绑进来；绑一次即全局生效。 */
 let _sources = {};
 
@@ -170,7 +170,7 @@ const SECTION_ORDER = ['runtime', 'shell', 'dsh', 'browsers', 'session', 'egress
 /** 表单自己装配的同步维度：这些名字由本文件每拍现装，不接受外部注册（注册即两个口径）。 */
 const SYNC_DIMS = ['browsers', 'session', 'capabilities', 'preference', 'pick'];
 
-/** 注册一个环境维度（app 层在装配期调用；platform 不得反向 require app，L-1）。
+/** 注册一个环境维度（app 层在装配期调用；platform 不得反向 require app）。
  *  probe 同步或异步都收：异步维度（子进程/网络）只由 refresh() 拍，同步维度不得在 HTTP 路径上跑。
  *  @param {string} id 维度名（进 sections/快照，故必须稳定）
  *  @param {{label?:string, probe:Function, ttlMs?:number, source?:string}} def

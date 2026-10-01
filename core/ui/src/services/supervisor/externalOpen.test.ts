@@ -140,7 +140,7 @@ describe("evidenceDetail：把启动形态摊给用户（真机报错只有文�
     expect(evidenceDetail({ bin: "xdg-open", via: "dispatcher", ownsWindow: true, exitCode: 3 })).toBe("xdg-open | dispatcher | exit 3");
     expect(evidenceDetail({ bin: "xdg-open", via: "dispatcher", ownsWindow: true, error: "ENOENT" })).toBe("xdg-open | dispatcher | ENOENT");
   });
-  it("反向：ownsWindow 缺失（旧内核结果）不得凭空标注证据规则", () => {
+  it("反向：ownsWindow 缺失不得凭空标注证据规则", () => {
     expect(evidenceDetail({ bin: "open", via: "dispatcher", exitCode: 0 })).toBe("open | dispatcher | exit 0");
     expect(evidenceDetail(null)).toBe(null);
     expect(evidenceDetail({})).toBe(null);
@@ -208,7 +208,7 @@ describe("evidenceDetail：把启动形态摊给用户（真机报错只有文�
     expect(evidenceDetail({ bin: "/usr/bin/safari", via: "isolated", ownsWindow: true, exitCode: 0, isolated: false }))
       .toBe("safari | isolated | exit 0 | 未隔离（并入既有窗口）");
   });
-  it("反向：旧内核不带 diagnostics 时不得凭空造出探测结论", () => {
+  it("反向：内核不带 diagnostics 时不得凭空造出探测结论", () => {
     expect(evidenceDetail({ bin: "/usr/bin/chromium", via: "browser", ownsWindow: false, exitCode: 0 }))
       .toBe("chromium | browser | 退出码不作证据 | exit 0");
   });

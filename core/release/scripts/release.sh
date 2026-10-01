@@ -54,6 +54,6 @@ echo "=== 源码打包产物就绪 ==="
 echo "tar:      $TAR  ($(du -h "$TAR" | awk '{print $1}'))"
 echo "sha256:   $SHA"
 echo
-echo "说明（D1 定案）：本产物为源码打包，非发布通道。内核发布通道只有 CI："
+echo "说明：本产物为源码打包，非发布通道。内核发布通道只有 CI："
 echo "  推 tag（内核命名空间 = core-<内核版本>，见 release/scripts/bump.sh）触发 CI 的 core.yml 矩阵 —— 四平台各自 build:launcher 并在 token-scoped 步骤 publish:core --publish"
-echo "  （launcher 构建与子包发布在本机一律被拒；原硬标准 RELEASE-STANDARD.md 已归档至 C:\work\_md_backup）"
+echo "  （launcher 构建与子包发布在本机一律被拒）"

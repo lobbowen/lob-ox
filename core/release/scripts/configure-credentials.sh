@@ -77,7 +77,7 @@ check() {
   if [ -n "$cred_file" ] && [ -f "$cred_file" ]; then
     echo "Git: 规范库推送凭据存在（权限 $(perm_of "$cred_file")）：$cred_file"
   else
-    echo "Git: ❌ 规范库缺少 git-credentials 条目或文件（原规范 CREDENTIALS-STANDARD.md §5 已归档至 C:\work\_md_backup）"
+    echo "Git: ❌ 规范库缺少 git-credentials 条目或文件（推送凭据只应存在规范库这一份；缺失时推送会退回交互输入或失败）"
   fi
   if command -v gh >/dev/null 2>&1; then
     echo "gh: 已安装（gh auth status 查登录态）"
@@ -95,7 +95,7 @@ check() {
 
 case "${1:-}" in
   --npm) write_npmrc ;;
-  --git) echo "❌ --git 模式已于 2026-09-13 删除（GitHub 凭据原规范 CREDENTIALS-STANDARD.md 已归档；本脚本只管 npm）。" >&2; exit 2 ;;
+  --git) echo "❌ --git 不再提供：本脚本只管 npm，Git 凭据由 cred.sh 管理。" >&2; exit 2 ;;
   --check) check ;;
   *) echo "用法: configure-credentials.sh --npm | --check"; exit 2 ;;
 esac

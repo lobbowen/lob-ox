@@ -55,7 +55,7 @@ const RANGE = { base: 28130, count: 50 };
     // 未登记端口 + ownerId：必须是 no-op 返回 false，**不得抛**
     let threw = null, ret;
     try { ret = reg.release(65500, 'owner-X'); } catch (e) { threw = e; }
-    check('R-a release(未登记端口, ownerId) 不抛且返回 false（no-op，旧实现抛 TypeError）',
+    check('R-a release(未登记端口, ownerId) 不抛且返回 false（no-op）',
       threw === null && ret === false, threw ? threw.constructor.name + ': ' + threw.message : 'no-throw ret=' + ret);
 
     // 未登记 + 不带 ownerId 也应 no-op
@@ -98,7 +98,7 @@ const RANGE = { base: 28130, count: 50 };
     mig && !mig.conflict && mig.bindingLost === true && mig.from === RANGE.base && !!lost && lost.to === mig.port && !!recMain && recMain.port === mig.port && recMain.port !== RANGE.base,
     JSON.stringify(mig) + ' lost=' + JSON.stringify(lost));
 
-  // B2-5 契约：注册表是多进程共享事实源（守卫 + lan-daemon 同写 ports.json）。
+  // 契约：注册表是多进程共享事实源（守卫 + lan-daemon 同写 ports.json）。
   //   写口/冲突判读口进入前按指纹（mtime+size）自动对时——「阶段三」手动 reload 前的
   //   陈旧快照语义**已废止**；「以文件为 truth、未落盘内存记录丢弃」保留。
   {
@@ -117,7 +117,7 @@ const RANGE = { base: 28130, count: 50 };
       p2.byOwner('owner-ghost') === null, String(p2.byOwner('owner-ghost')));
   }
 
-  // -- B14：IPv6-only 监听不再漏判 + 跨进程分配锁 + 登记后复检 --
+  // -- IPv6-only 监听不再漏判 + 跨进程分配锁 + 登记后复检 --
   {
     const net = require('node:net');
     const probe = require(path.join(ROOT, 'src', 'platform', 'service', 'ports', 'probe'));
@@ -131,19 +131,19 @@ const RANGE = { base: 28130, count: 50 };
       occ.listen(RANGE2.base + 3, '::1', () => res(true));
     });
     if (v6Ok) {
-      check('B14 isTaken 识出 IPv6-only 监听者、bindable 拒绝该端口（旧实现只探 127.0.0.1 → 漏判）',
+      check('isTaken 识出 IPv6-only 监听者、bindable 拒绝该端口（不得只探 127.0.0.1）',
         (await p6.isTaken(RANGE2.base + 3)) === true && (await probe.bindable(RANGE2.base + 3)) === false, 'taken');
       const got = await p6.claimSlot('relay', 'relay:v6owner', { range: RANGE2 });
-      check('B14 claimSlot 绕开 IPv6-only 占用端口', !!got && got.port !== RANGE2.base + 3 && !got.conflict, JSON.stringify(got));
+      check('claimSlot 绕开 IPv6-only 占用端口', !!got && got.port !== RANGE2.base + 3 && !got.conflict, JSON.stringify(got));
       occ.close();
     } else {
-      console.log('SKIP B14 IPv6 探针：本机 ::1 不可绑定（无 IPv6 栈）');
+      console.log('SKIP IPv6 探针：本机 ::1 不可绑定（无 IPv6 栈）');
       try { occ.close(); } catch {}
     }
     // bindable：真实 IPv4 监听者仍被拒
     const occ4 = net.createServer();
     await new Promise((res) => { occ4.once('error', res); occ4.listen(RANGE2.base + 9, '127.0.0.1', res); });
-    check('B14 bindable 拒绝 IPv4 已占端口', (await probe.bindable(RANGE2.base + 9)) === false, 'false');
+    check('bindable 拒绝 IPv4 已占端口', (await probe.bindable(RANGE2.base + 9)) === false, 'false');
     occ4.close();
 
     // 跨进程锁存在性：模拟并发者持锁（fresh mtime）-> 本次分配不崩、fail-open 结果仍正确
@@ -152,18 +152,18 @@ const RANGE = { base: 28130, count: 50 };
     fs.writeFileSync(lockF, String(process.pid));
     const t0 = Date.now();
     const slot = await px.claimSlot('relay', 'relay:xlock', { range: RANGE2 });
-    check('B14 持锁者在场：claimSlot 超时后 fail-open 仍完成分配（不冻结）',
+    check('持锁者在场：claimSlot 超时后 fail-open 仍完成分配（不冻结）',
       !!slot && slot.port > 0 && Date.now() - t0 >= 1000, 'took ' + (Date.now() - t0) + 'ms slot=' + JSON.stringify(slot));
     fs.unlinkSync(lockF);
     // 老化接管：stale 锁（mtime 远超窗口）可被接管，分配照常
     fs.writeFileSync(lockF, '999999');
     fs.utimesSync(lockF, new Date(Date.now() - 60000), new Date(Date.now() - 60000));
     const slot2 = await px.claimSlot('relay', 'relay:xlock2', { range: RANGE2 });
-    check('B14 stale 锁被老化接管（持有者崩溃不死锁）', !!slot2 && slot2.port > 0 && slot2.port !== slot.port, JSON.stringify(slot2));
+    check('stale 锁被老化接管（持有者崩溃不死锁）', !!slot2 && slot2.port > 0 && slot2.port !== slot.port, JSON.stringify(slot2));
     // 正常路径：锁在临界区被创建、释放后不残留
     const px2 = new PortRegistry({ file: path.join(TMP, 'ports-xlock3.json') });
     await px2.claimSlot('relay', 'relay:clean', { range: { base: 28230, count: 10 } });
-    check('B14 正常分配后不残留 .alloc.lock', !fs.existsSync(path.join(TMP, 'ports-xlock3.json') + '.alloc.lock'), 'clean');
+    check('正常分配后不残留 .alloc.lock', !fs.existsSync(path.join(TMP, 'ports-xlock3.json') + '.alloc.lock'), 'clean');
   }
 
   // == KI1：固定 role 全表唯一 —— 避让/重绑后「按 role 取号」不许拿到没人监听的僵尸端口 ==
@@ -196,7 +196,7 @@ const RANGE = { base: 28130, count: 50 };
       zombieRead === pNew && sz.list().filter((r) => r.role === SOLE).length === 1 && sz.get(SOLE) === pNew, String(zombieRead));
   }
 
-  // == B2-5 跨进程夹具：两个真 node 进程共写同一 ports.json，B（常驻方）不得抢注/丢写
+  // == 跨进程夹具：两个真 node 进程共写同一 ports.json，B（常驻方）不得抢注/丢写
   //    A 侧「已配置但停止」的端口（静默端口 TCP 探测不可见，注册表是唯一可见性来源）。
   //    双本账（ports-lan.json）与陈旧快照语义下此夹具必红——本段即该缺陷的牙齿。 ==
   {
@@ -233,13 +233,13 @@ const RANGE = { base: 28130, count: 50 };
     const line = (out.split('RESULT:')[1] || '').split('\n')[0];
     let bRes = null;
     try { bRes = JSON.parse(line); } catch { /* 保留 null 让断言如实报红 */ }
-    check('B2-5 跨进程：B 侧 claim 绕开 A 侧已登记的静默端口 ' + XB + '（陈旧快照不得抢注）',
+    check('跨进程：B 侧 claim 绕开 A 侧已登记的静默端口 ' + XB + '（陈旧快照不得抢注）',
       exitCode === 0 && !!bRes && !bRes.conflict && bRes.port > 0 && bRes.port !== XB,
       'exit=' + exitCode + ' bRes=' + line);
     const fileRecs = JSON.parse(fs.readFileSync(XF, 'utf8')).records;
-    check('B2-5 跨进程：B 侧落盘不丢写——ports.json 仍含 A 侧 inst:stopped@' + XB + '（全量覆盖=丢更新）',
+    check('跨进程：B 侧落盘不丢写——ports.json 仍含 A 侧 inst:stopped@' + XB + '（全量覆盖=丢更新）',
       fileRecs.some((r) => r.port === XB && r.owner === 'inst:stopped'), JSON.stringify(fileRecs));
-    check('B2-5 跨进程：B 侧自己的绑定也在册（对时是合并视野而非失忆）',
+    check('跨进程：B 侧自己的绑定也在册（对时是合并视野而非失忆）',
       fileRecs.some((r) => r.owner === 'relay:longlive'), JSON.stringify(fileRecs.map((r) => r.owner)));
   }
 

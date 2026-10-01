@@ -66,11 +66,11 @@ const pendingChecks = [];
     JSON.stringify([...inodes]));
 }
 
-// -- Y-2：P1-2 回归锚点 —— wmic 空输出必须回退 --
+// -- Y-2：回归锚点 —— wmic 空输出必须回退 --
 {
   //  核心：进程已退出/权限不足时 wmic 输出下面这句 -> 必须 null（=> 调用方走 CIM 回退）
   const noInstance = 'No Instance(s) Available.';
-  check('Y-2 **P1-2 锚点**：wmic 输出 No Instance(s) Available. → null（触发 CIM 回退）',
+  check('Y-2 wmic 输出 No Instance(s) Available. → null（触发 CIM 回退）',
     pid.parseWmicCommandLine(noInstance) === null, JSON.stringify(pid.parseWmicCommandLine(noInstance)));
   check('Y-2 wmic 正常输出取 CommandLine 并 trim（内部换行保留）；空值/无输出 → null；PowerShell CIM 输出 trim、空串 → null',
     pid.parseWmicCommandLine('CommandLine=node.exe --flag  ' + CRLF + CRLF) === 'node.exe --flag'
@@ -103,10 +103,10 @@ const pendingChecks = [];
     && notify.powerShellString("it's") === SQ + 'it' + SQ + SQ + 's' + SQ
     && notify.notifyCommand('win32', raw, raw).args[3]
       .indexOf('ShowBalloonTip(4000, ' + SQ + 'a' + Q + 'b' + SQ + ', ' + SQ) >= 0, 'ok');
-  // B9 注入行为：$(...) 与反引号必须原样处于单引号内（不成为插值点）
+  // 注入行为：$(...) 与反引号必须原样处于单引号内（不成为插值点）
   const inj = 'x$(calc.exe)y`z';
   const wrapped = notify.powerShellString(inj);
-  check('B9 $()/反引号 原样留在单引号串内（PowerShell 单引号语义=字面量）',
+  check('$()/反引号 原样留在单引号串内（PowerShell 单引号语义=字面量）',
     wrapped === SQ + inj + SQ, wrapped);
 }
 

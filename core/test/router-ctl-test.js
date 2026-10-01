@@ -60,7 +60,7 @@ function ctlGet(port, urlPath) {
 
 async function main() {
   const router = fakeRouter();
-  //  安全面（PG-5）：白名单缺省必须**拒绝启动**（fail-closed），不得回退到放行/借用他域表。
+  //  安全面：白名单缺省必须**拒绝启动**（fail-closed），不得回退到放行/借用他域表。
   let threw = false;
   try { createCtlServer({ target: router }); } catch { threw = true; }
   check('PG-5 未注入 allowMethods → 拒绝启动（fail-closed）', threw);
@@ -94,7 +94,7 @@ async function main() {
   const r5 = await ctlPost(port, { method: 'removeProvider', args: [] }); // 触发内部 throw
   check('方法异常 → ok:false error=boom', r5.json.ok === false && r5.json.error === 'boom', r5.json);
 
-  // 6b.  白名单闸（PG-5）：未登记方法一律拒绝，内部方法（_ 前缀）永不可达。
+  // 6b.  白名单闸：未登记方法一律拒绝，内部方法（_ 前缀）永不可达。
   //     `_internalSecret` 在替身上真实存在 -> 404 只能来自前缀闸（不是「方法不存在」的巧合）。
   const r6 = await ctlPost(port, { method: '_internalSecret', args: [] });
   const r7 = await ctlPost(port, { method: '_save', args: [] });

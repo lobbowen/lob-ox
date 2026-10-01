@@ -19,7 +19,7 @@ const check = (n, c, x) => {
 // -- A1：成功必非 null（核心）--
 {
   const r = ex.run('node', ['--version'], { stdio: 'ignore', timeoutMs: 5000 });
-  check('A1 exec.run 成功且 stdio:ignore 时仍返回非 null（旧实现返回 null）',
+  check('A1 exec.run 成功且 stdio:ignore 时仍返回非 null',
     r !== null && r !== undefined, JSON.stringify(r));
   const r2 = ex.runOut('node', ['--version'], { timeoutMs: 5000 });
   check('A1 exec.runOut 成功返回版本串', typeof r2 === 'string' && /^v\d+/.test(r2.trim()), JSON.stringify(r2));
@@ -39,7 +39,7 @@ const check = (n, c, x) => {
 // -- A3：hasTool 对必然存在的命令为 true --
 {
   // node 必然存在（我们正跑在 node 上）；反向：不存在的命令必须 false（不能为修 A3 变成恒 true）。
-  check('A3 hasTool(node) === true（旧实现恒 false → 沙箱功能全禁）；不存在的命令 === false',
+  check('A3 hasTool(node) === true（判定错则沙箱功能全禁）；不存在的命令 === false',
     osIdx.hasTool('node') === true && osIdx.hasTool('dsh-no-such-tool-xyz') === false,
     String(osIdx.hasTool('node')));
 }
@@ -96,7 +96,7 @@ if (process.platform === 'linux') {
     if (activeUnit && !/\.service$/.test(activeUnit)) activeUnit = null; // 与 A4b 白名单同判据，防非 service 混入
   } catch { /* 无 user session */ }
   if (activeUnit) {
-    check('A6 isUnitActive(确实 active 的单元) === true（旧实现恒 false）',
+    check('A6 isUnitActive(确实 active 的单元) === true',
       svc.isUnitActive(activeUnit) === true, activeUnit.slice(0, 50));
   } else {
     console.log('SKIP A6 本机无 active 的 --user service 单元（非 Linux user session）—— 非通过，仅跳过');

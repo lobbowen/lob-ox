@@ -141,7 +141,7 @@ const { PluginMarket } = require(SRC);
     const pA = m.buildIndex();
     const pB = m.buildIndex(); // 直接叠建（绕过 getIndex 去重的真实形状：contract 公开 buildIndex）
     await pA;
-    check('M-h A 结束后 B 的预算 deadline 仍有效（旧实现此处已被清零）',
+    check('M-h A 结束后 B 的预算 deadline 仍有效',
       ctxs.length === 2 && ctxs[0].deadline === 0 && ctxs[1].deadline > 0,
       JSON.stringify(ctxs.map((c) => c.deadline)));
     await pB;
@@ -185,7 +185,7 @@ const { PluginMarket } = require(SRC);
     const after = await m.getIndex();
     check('M-j 构建失败：error 如实上报（不得显示成「没有插件」）',
       /镜像源不可达/.test(String(after.error)) && after.plugins.length === 0, JSON.stringify(after.error));
-    check('M-j 失败后进入退避：再读不叠建（旧形态每读一次点一轮 4 分钟构建）',
+    check('M-j 失败后进入退避：再读不叠建',
       after.building === false && builds === 1, 'builds=' + builds + ' building=' + after.building);
     await m.getIndex(true);
     check('M-j 反向：force（用户点刷新）绕开退避立即重试', builds === 2, 'builds=' + builds);

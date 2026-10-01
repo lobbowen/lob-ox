@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// 沙箱实例状态机与监督拍行为（state-machine.js 纯转移 + 守护语义 + W2 控制面接线）：
+// 沙箱实例状态机与监督拍行为（state-machine.js 纯转移 + 守护语义 + 控制面接线）：
 //   restartCount 稳定窗归零与 20 次上限 FAILED 语义；第 7 节验 govern tick（观测->决策->下发/处置）
 //   与准入（预算摊薄跌破下限显式拒绝）。域改造后状态转移是**纯函数**，只 require 叶子模块 + 假依赖。
 
@@ -63,7 +63,7 @@ sm.setStopped(deps, i6);
 check('setStopped → STOPPED', i6.state.phase === 'STOPPED', i6.state.phase);
 check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'saves=' + saves);
 
-// -- 6. B15：守护开关必须约束 BACKOFF/FAILED 的自愈拉起 --
+// -- 6. 守护开关必须约束 BACKOFF/FAILED 的自愈拉起 --
 //    supervise 是域级行为：用可注入假 service + 临时目录构造 InstanceManager，
 //    端口取 0（pidlookup 必不命中）-> 探测恒「未运行」，绝不触碰真实 systemd/进程。
 (async () => {
@@ -110,7 +110,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     mgr.instances = [inst];
     mgr.supervise('b15');
     await new Promise((r) => setImmediate(r));
-    check('B15 BACKOFF+守护关 → STOPPED（不再无限重试）且未触碰 service',
+    check('BACKOFF+守护关 → STOPPED（不再无限重试）且未触碰 service',
       inst.state.phase === 'STOPPED' && svcCalls.length === 0, inst.state.phase + ' ' + svcCalls.join(','));
   }
   // 6b. FAILED + 守护关 + installOk=true -> 不自动拉起（停就停红线）
@@ -119,7 +119,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     const inst = mk('FAILED', { installOk: true, lastError: '安装任务登记失败' });
     mgr.instances = [inst];
     mgr.supervise('b15');
-    check('B15 FAILED+守护关 → 维持 FAILED 且零拉起', inst.state.phase === 'FAILED' && svcCalls.length === 0, inst.state.phase + ' ' + svcCalls.join(','));
+    check('FAILED+守护关 → 维持 FAILED 且零拉起', inst.state.phase === 'FAILED' && svcCalls.length === 0, inst.state.phase + ' ' + svcCalls.join(','));
   }
   // 6c. 反向（判据有牙）：守护开 + 到期 -> 走自愈拉起（BACKOFF 与 FAILED 两条入口同判）
   {
@@ -139,7 +139,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     mgr2.instances = [inst2];
     seedEntry(mgr2, inst2);
     mgr2.supervise('b15');
-    check('B15 反向：守护开+到期（BACKOFF）/ FAILED+installOk → 均自愈拉起',
+    check('反向：守护开+到期（BACKOFF）/ FAILED+installOk → 均自愈拉起',
       backoffPulled && svcCalls.includes('startTransient') && inst2.state.phase === 'STARTING',
       inst.state.phase + ' / ' + inst2.state.phase + ' ' + svcCalls.join(','));
   }
@@ -167,7 +167,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       r.ok === false && inst.state.phase === 'RUNNING', 'ok=' + r.ok + ' phase=' + inst.state.phase);
   }
 
-  // ---- 6g. B2-6d：手动拉起开新失败链 —— fail() 承诺的「由用户手动重试」成为真实通道 ----
+  // ---- 6g. 手动拉起开新失败链 —— fail() 承诺的「由用户手动重试」成为真实通道 ----
   //   旧缺陷：attempts>20 后 restart() 瞬回 FAILED，清零只靠稳定 RUNNING>5min，
   //   超限实例的手动重试通道实质封死（第 4 段的 21 次循环即达该状态）。
   {
@@ -181,7 +181,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       'ok=' + r.ok + ' ' + JSON.stringify(inst.state));
     // 手动拉起后进程再失败，监督拍的 restart 从第 1 次重试重新走起。
     sm.restart(deps, inst, '实例进程退出');
-    check('D-2 手动启动后的失败重新进 BACKOFF 计第 1 次（旧实现此处必直落「重试超限」FAILED）',
+    check('D-2 手动启动后的失败重新进 BACKOFF 计第 1 次',
       inst.state.phase === 'BACKOFF' && inst.state.restartCount === 1, inst.state.phase + ' count=' + inst.state.restartCount);
   }
   {
@@ -199,7 +199,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       inst.state.phase === 'FAILED' && /重试超限/.test(inst.state.lastError || ''), inst.state.phase);
   }
 
-  // ---- 7. W2 控制面治理（逐实例采样拍 + 拍末 governSweep decide）+ 准入：观测(假 resstats)->
+  // ---- 7. 控制面治理（逐实例采样拍 + 拍末 governSweep decide）+ 准入：观测(假 resstats)->
   //   每拍决策(真 governor+假机器事实)->下发(展示值)->处置(违规停单元+退避)。注入走 ctor opts。 ----
   {
     const net = require('node:net');
@@ -216,7 +216,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
         tasks: { isBusy: () => false, current: () => null, list: () => [] },
         service: {
           daemonReload() { journal.push({ kind: 'daemonReload' }); return true; },
-          // W3：stopUnit 的 ctx（端口/run.pid/cmdline 锚 + timeoutMs 边界）纳入记录，供调用点判据核对
+          // stopUnit 的 ctx（端口/run.pid/cmdline 锚 + timeoutMs 边界）纳入记录，供调用点判据核对
           stopUnit(unit, o) { journal.push({ kind: 'stopUnit', unit, ctx: o }); return true; },
           resetFailed() { return true; },
           isUnitActive() { return false; },
@@ -259,7 +259,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       const stop = journal.findIndex((j) => j.kind === 'stopUnit');
       check('7A 连续第 3 个证据拍触发违规处置', !!ev && stop >= 0, JSON.stringify(ev && ev.data));
       check('7A 事件先于动作（既定纪律）', !!ev && stop > journal.indexOf(ev), 'stopIdx=' + stop);
-      // W3：违规处置经 Provider 动词 + 身份锚（portable 档据此归属，绝不盲杀；有界防冻结）
+      // 违规处置经 Provider 动词 + 身份锚（portable 档据此归属，绝不盲杀；有界防冻结）
       const stopEntry = stop >= 0 ? journal[stop] : null;
       // 有界超时是判据（绝不盲杀后无限等）；具体毫秒数属实现选择，只断区间。
       check('7A 违规 stopUnit 带身份锚与有界超时（W3 调用点）',
@@ -338,7 +338,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
         inst.state.phase === 'RUNNING' && !journal.some((j) => j.name === 'inst_resource_violation'), inst.state.phase);
       srv.close();
     }
-    // 7E. W3 执行面调用点：单元档门控（非 systemd 平台零结构残留）+ 启停身份锚贯通 + setLimits 动态下发
+    // 7E. 执行面调用点：单元档门控（非 systemd 平台零结构残留）+ 启停身份锚贯通 + setLimits 动态下发
     {
       const sdir = path.join(os.tmpdir(), 'dsh-w3-never-' + process.pid + '-' + Date.now());
       const port = safePort('instance-state', 4);
@@ -398,7 +398,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       const y = govInst('gf2', p2, { phase: 'RUNNING', restartCount: 0, backoffLevel: 0, startAt: 2000, allocation: null });
       mgr.instances = [x, y];
       for (let k = 0; k < 3; k++) { mgr.supervise('gf1'); mgr.supervise('gf2'); mgr.governSweep(); await sleep(10); }
-      check('7F 双实例三拍仍不处置（每拍一次 decide；旧形态双计早已触顶）',
+      check('7F 双实例三拍仍不处置（每拍一次 decide）',
         x.state.phase === 'RUNNING' && y.state.phase === 'RUNNING' && !journal.some((j) => j.kind === 'stopUnit'),
         x.state.phase + '/' + y.state.phase);
       mgr.supervise('gf1'); mgr.supervise('gf2'); mgr.governSweep(); await sleep(10);
@@ -473,7 +473,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
         normalizeInstance(r).remoteMode === 'wan', JSON.stringify(normalizeInstance(r)));
     }
   }
-})().catch((e) => { check('B15 supervise 块无异常', false, e && e.message); }).then(() => {
+})().catch((e) => { check('supervise 块无异常', false, e && e.message); }).then(() => {
   const failed = results.filter((x) => !x);
   console.log('\n结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');
   process.exit(failed.length ? 1 : 0);

@@ -95,7 +95,7 @@ const fakePorts = {
   try { reg.registerAdapter('nope', {}); } catch { athrew++; }
   check('未知类型 adapter 拒绝', athrew === 1);
 
-  // 8. heartbeat（R3 C3-1）：观测收集/节流/异常隔离/未挂 adapter 跳过
+  // 8. heartbeat：观测收集/节流/异常隔离/未挂 adapter 跳过
   const hbFile = path.join(TMP, 'hb-objects.json');
   const hb = new ManagedRegistry({ file: hbFile, logger: null, events: null });
   let observeCount = 0;
@@ -115,7 +115,7 @@ const fakePorts = {
   check('heartbeat 节流生效(s2 跳过)且每拍对象继续观测(s1)',
     r2.observed.indexOf('s2') < 0 && r2.observed.indexOf('s1') >= 0);
 
-  // 8b. B2-6e 拍末钩子 onBeatDone：每拍恰一次（不随条目数放大）、带拍汇总、钩子异常不断心跳
+  // 8b. 拍末钩子 onBeatDone：每拍恰一次（不随条目数放大）、带拍汇总、钩子异常不断心跳
   {
     const hkFile = path.join(TMP, 'hb-hook.json');
     const hk = new ManagedRegistry({ file: hkFile, logger: null, events: null });
@@ -171,7 +171,7 @@ const fakePorts = {
       JSON.stringify(r.observed));
   }
 
-  // 11. A1-c：既有目录文件损坏 != 首启空目录 ——
+  // 11. 既有目录文件损坏 != 首启空目录 ——
   //     改名 .bad-<ts> 保全原始字节 + 以「未加载」态启动（允许 state.json 种子回灌）+ 事件不静默。
   {
     const cf = path.join(TMP, 'corrupt-objects.json');

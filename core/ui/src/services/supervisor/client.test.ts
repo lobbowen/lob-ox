@@ -53,7 +53,7 @@ describe("supervisorApi http 客户端", () => {
   });
 });
 
-describe("B8 访问密钥携带与 401 语义", () => {
+describe("访问密钥携带与 401 语义", () => {
   /** 最小 localStorage 替身（client 经 globalThis.localStorage 可选链访问） */
   function stubLocalStorage() {
     const store: Record<string, string> = {};
@@ -122,7 +122,7 @@ describe("B8 访问密钥携带与 401 语义", () => {
 /** 2xx 响应体里的 { ok:false } 是「假成功」形态：http() 只看状态码（探测类端点 ok:false 属数据），
  *  判失败的责任在 failureFromResult，由共享动作 hook run() 消费。
  *  （vitest 环境为 node，无法挂载 React hook，故这里只测纯判据。） */
-describe("UI 条 5 假成功判据 failureFromResult", () => {
+describe("假成功判据 failureFromResult", () => {
   it("ok:false + error → 返回后端拒因", () => {
     expect(failureFromResult({ ok: false, error: "安全策略：仅允许公网地址" })).toBe("安全策略：仅允许公网地址");
   });

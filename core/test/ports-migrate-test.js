@@ -16,7 +16,7 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
 
 (async () => {
   const { PortRegistry } = require(path.join(ROOT, 'src', 'platform', 'service', 'ports'));
-  // DS-G4（反转法）：owner 前缀是**域知识**，platform 只做通用前缀迁移 -> 由本域申报。
+  // 反转法：owner 前缀是**域知识**，platform 只做通用前缀迁移 -> 由本域申报。
   const { OWNER_PREFIXES } = require(path.join(ROOT, 'src', 'domains', 'router', 'port-segments'));
   const ports = new PortRegistry({ file: path.join(TMP, 'unused.json') });
   const oldF = path.join(TMP, 'mig-old.json');
@@ -78,7 +78,7 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
       fs.chmodSync(hDir, 0o755);
     }
     const hDoc = JSON.parse(fs.readFileSync(hOld, 'utf8'));
-    check('MIG-4 半途失败：抛错上抛（旧实现清源失败静默）且源记录经回写保持完整（0 丢失 / 0 双登记）',
+    check('MIG-4 半途失败：抛错上抛且源记录经回写保持完整（0 丢失 / 0 双登记）',
       (threw3 === 'skipped(win32: chmod 非强制)' || (!!threw3 && threw3.code === 'EACCES')) && hDoc.records.length === 2 && hDoc.records.some((x) => x.owner === 'proxy:hf'),
       (threw3 === null ? '未抛' : (threw3.code || threw3.message)) + ' recs=' + JSON.stringify(hDoc.records.map((x) => x.port)));
     try { fs.rmSync(hDir, { recursive: true, force: true }); } catch { /* 清理尽力 */ }

@@ -45,7 +45,7 @@ function registerAll(mgr, deps) {
 
   // 2. 远程控制（LanManager：relay + frpc）
   if (lan) {
-    // 同域 B 契约 G-1：lan-daemon 不设 guardian。
+    // 同域 B 契约：lan-daemon 不设 guardian。
                 // B 平面 id='lan'，A 平面目录 id='lan-daemon'；两平面经 _daemonSuperviseOnce('lan') <->
                 //   registerAdapter('lan-daemon') 显式映射。两个 id 均已对外发布，改名会破坏 API 消费面。
     const llc = new ManagedLifecycle({

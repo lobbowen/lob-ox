@@ -39,7 +39,7 @@ function bodyResetMs(text) {
 
 /** S2：失败信号 -> 处置动作（唯一纯判定）。ctx = { status, headers, body, key }。
  *  credits|window -> retry（needEffect）；banned -> passthrough（needEffect）；
- *  transient -> retry+transient（不施加 effect）；none/unknown -> passthrough（绝不误切，INV-1）。 */
+ *  transient -> retry+transient（不施加 effect）；none/unknown -> passthrough（绝不误切）。 */
 function decideFailure(signal, ctx) {
   const c = ctx || {};
   const key = c.key || '?';

@@ -82,7 +82,7 @@ try {
 
   // 1) 核心断言：预置的同名文件必须**仍在且内容不变**
   const stillThere = fs.existsSync(s.userFile);
-  check('预置的同名文件未被删除（旧实现的 rmSync 会删掉它）', stillThere, stillThere ? '仍在' : '**已被删除**');
+  check('预置的同名文件未被删除（不得用 rmSync 连坐）', stillThere, stillThere ? '仍在' : '**已被删除**');
   if (stillThere) {
     check('预置文件内容逐字未变', fs.readFileSync(s.userFile, 'utf8') === s.userBody, 'ok');
   }

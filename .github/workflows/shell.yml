@@ -47,7 +47,7 @@ on:
   workflow_dispatch:
     inputs:
       ver:
-        description: '要复核的已发布版本（如 1.2.6；也可直接粘 tag：shell-1.2.6 或老形态 v1.2.6。留空 = 用当前仓库版本）'
+        description: '要复核的已发布版本（如 1.2.6；也可直接粘 tag：shell-1.2.6 或已发布版本号。留空 = 用当前仓库版本）'
         required: false
         default: ''
 
@@ -217,7 +217,7 @@ jobs:
 
       # 测试：跑全部无外部依赖的 test target + src 内嵌单元测试。
       # `updater_artifacts` 需要打包产物，故不并入本步、在下方「产物验收」步骤单独跑。
-      - name: 测试（--bins 单元 + tests/*.rs 自动枚举；原 G1–G6/B1–B56 套件已移出）
+      - name: 测试（--bins 单元 + tests/*.rs 自动枚举）
         shell: bash
         run: |
           # 不截断：失败时断言文案就是排障依据（与上一步同理）。

@@ -108,7 +108,7 @@ describe("supervisorStore 事件合并", () => {
 
 /** 游标防污染 + 心跳失败退避：退避曲线用 refresh() 驱动（确定性、不依赖计时器），心跳是否真的自排/停得下来用 fake timers 计数。
  *  两条 fake-timer 用例互为对照 —— 健康用例证明链条确实推进，失败用例才不至于「因为压根没跑」而假通过。 */
-describe("UI 条 6 事件游标与心跳退避", () => {
+describe("事件游标与心跳退避", () => {
   it("非法 seq 不得污染游标（NaN 会让后续 after=NaN 永久停摆）", async () => {
     const asked: Array<string | null> = [];
     vi.stubGlobal("fetch", vi.fn((url: string) => {

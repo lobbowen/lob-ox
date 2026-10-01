@@ -23,7 +23,7 @@
     "publish:core": "bash release/scripts/publish-core.sh",
     "build:launcher:all": "bash release/scripts/build-launcher.sh --all-platforms"
   },
-  "_uninstallTests": "卸载类测试政策：native-test.js 刻意不入 test/manifest.js 登记表（它真起 npm 子进程，Windows 上建符号链接需特权/开发者模式）。原先承载该排除表与入册前提的门禁 test/test-chain-completeness-test.js 已于 2026-10-01 按用户决定拆除（移至 C:\\work\\_gate_backup），故此处不再指向任何单一事实源。承担卸载行为面的仍是 uninstall-timeout-behavior-test.js（npmBin 注入）与 api-contract-test.js、plugin-change-restart-test.js。",
+  "_uninstallTests": "卸载类测试政策：native-test.js 刻意不入 test/manifest.js 登记表（它真起 npm 子进程，Windows 上建符号链接需特权/开发者模式）；本字段不指向任何单一事实源。承担卸载行为面的是 uninstall-timeout-behavior-test.js（npmBin 注入）与 api-contract-test.js、plugin-change-restart-test.js。",
   "engines": {
     "node": ">=18"
   },

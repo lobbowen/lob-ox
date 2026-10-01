@@ -78,13 +78,13 @@ async function expectedSha256({ asset, download: dl, report, logger, cache }) {
     c[asset] = sum;
     if (!sum) {
       if (report) report('warn: 官方校验表中未找到 ' + asset + '（安装将被拒绝）');
-      if (logger && logger.warn) logger.warn('[frp] 校验表中未找到 ' + asset + ' —— fail-closed：本次安装将被拒绝（A2）');
+      if (logger && logger.warn) logger.warn('[frp] 校验表中未找到 ' + asset + ' —— fail-closed：本次安装将被拒绝');
     }
     return sum;
   } catch (e) {
     // 失败不写 cache：离线一次不得让本进程后续永久拒绝安装。
     if (report) report('warn: 取官方校验和失败(' + e.message + ')（安装将被拒绝）');
-    if (logger && logger.warn) logger.warn('[frp] 取官方校验和失败：' + e.message + ' —— fail-closed：本次安装将被拒绝，稍后可重试（A2）');
+    if (logger && logger.warn) logger.warn('[frp] 取官方校验和失败：' + e.message + ' —— fail-closed：本次安装将被拒绝，稍后可重试');
     return null;
   }
 }

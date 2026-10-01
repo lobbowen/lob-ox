@@ -97,31 +97,31 @@ async function main() {
     check('取消订阅生效（后续广播不再回调）', pushed === null, '未回调');
   }
 
-  console.log('== 令牌边界：clear() 必须同步清空 stdout 残留行（TK-1 死令牌回灌，AUDIT B-3）==');
+  console.log('== 令牌边界：clear() 必须同步清空 stdout 残留行（死令牌不得回灌）==');
   {
     const sup = buildSupervisor();
     sup.tokenService.attach('inst-w', { kind: 'dsh-instance', unit: null }); // 合规分类登记（同上）
     sup.tokenService.feedLine('inst-w', 'dsh web: http://127.0.0.1:3081/?token=OLD999');
     check('清除前 capture 正常（前置状态）', sup.tokenService.get('inst-w') === 'OLD999');
     sup.tokenService.clear('inst-w');
-    check('clear 后 get 为空串（TK-8 失效已广播）', sup.tokenService.get('inst-w') === '');
+    check('clear 后 get 为空串（失效已广播）', sup.tokenService.get('inst-w') === '');
     // capture 不得从残留 stdout 行复活旧令牌（池仍为空是同一状态）。
     const revived = sup.tokenService.capture('inst-w');
     check('capture() 不得从残留行复活旧令牌（且池仍为空）',
       !revived && sup.tokenService.get('inst-w') === '', String(revived) + ' / ' + sup.tokenService.get('inst-w'));
     sup.tokenService.feedLine('inst-w', 'dsh web: http://127.0.0.1:3081/?token=NEW111');
-    check('clear 后重喂新行仍可捕获（链路未被清死，TK-1 恒通）', sup.tokenService.get('inst-w') === 'NEW111');
+    check('clear 后重喂新行仍可捕获（链路未被清死）', sup.tokenService.get('inst-w') === 'NEW111');
   }
 
-  console.log('== 令牌边界：批4 条3 feedLine 未 attach 旁路封堵（TK-3）==');
+  console.log('== 令牌边界：feedLine 未 attach 旁路封堵 ==');
   {
     const sup = buildSupervisor();
     // 既未 attach、inferKind 又推不出（id 不在 byId、无 unit/file）-> feedLine 必须拒绝入池。
     const r = sup.tokenService.feedLine('ghost-id', 'dsh web: http://127.0.0.1:3081/?token=GHOST');
-    check('B4-3 无法分类的未 attach 源：feedLine 不入池（get 为空）', r === null && sup.tokenService.get('ghost-id') === '', String(r) + '/' + sup.tokenService.get('ghost-id'));
+    check('无法分类的未 attach 源：feedLine 不入池（get 为空）', r === null && sup.tokenService.get('ghost-id') === '', String(r) + '/' + sup.tokenService.get('ghost-id'));
   }
 
-  console.log('== 令牌边界：批4 条4 journal 捕获异步化（不阻塞心跳）==');
+  console.log('== 令牌边界：journal 捕获异步化（不阻塞心跳）==');
   {
     // 行为：注入**永不 settle** 的 journal，capture() 仍须同步返回且不得同步广播（改成「等 journal 再返回」即挂住判红）。
     const { TokenPool } = require(path.join(ROOT, 'src', 'platform', 'service', 'token', 'pool.js'));
@@ -131,7 +131,7 @@ async function main() {
     const un = pool.onChange((id, tok) => { syncPush = { id, tok }; });
     const hit = pool.capture('inst-j');
     un();
-    check('B4-4 journal 档 capture() 同步返回、不等 journal 结果（悬挂 journal 不阻塞心跳）', hit === null && syncPush === null && pool.get('inst-j') === '', '返回=' + String(hit));
+    check('journal 档 capture() 同步返回、不等 journal 结果（悬挂 journal 不阻塞心跳）', hit === null && syncPush === null && pool.get('inst-j') === '', '返回=' + String(hit));
   }
 
   console.log('== 令牌边界：journald 档的服务档闸（无 systemd 单元的机器上没有任何 journal 可查）==');
@@ -159,7 +159,7 @@ async function main() {
   }
 
 
-  console.log('== 令牌边界：B2-6a journal 回填 attach 世代守卫（TK-8：在途回填被换代后必须作废）==');
+  console.log('== 令牌边界：journal 回填 attach 世代守卫（在途回填被换代后必须作废）==');
   {
     const { TokenPool } = require(path.join(ROOT, 'src', 'platform', 'service', 'token', 'pool.js'));
     const quiet = { warn() {}, info() {}, error() {} };
@@ -175,7 +175,7 @@ async function main() {
     pool.detach('gp');
     late({ token: 'LATE1', source: 'journal', line: 'http://127.0.0.1:3101/?token=LATE1' });
     await drain();
-    check('B2-6a detach 后迟到回填不得复活令牌', pool.get('gp') === '', pool.get('gp'));
+    check('detach 后迟到回填不得复活令牌', pool.get('gp') === '', pool.get('gp'));
 
     // B：换源重 attach —— 旧代在途结果作废（unit/file 属旧代事实）
     pool.attach('gr', { kind: 'dsh-instance', unit: 'u-gr' });
@@ -184,7 +184,7 @@ async function main() {
     pool.attach('gr', { kind: 'dsh-instance', unit: 'u-gr-new' });
     late({ token: 'STALE2', source: 'journal', line: 'http://127.0.0.1:3102/?token=STALE2' });
     await drain();
-    check('B2-6a 重 attach 后旧代回填不得落池', pool.get('gr') === '', pool.get('gr'));
+    check('重 attach 后旧代回填不得落池', pool.get('gr') === '', pool.get('gr'));
 
     // C：未换代的及时回填仍正常落池 —— 守卫不得连带砍死正常链路（防空转判据）
     pool.attach('gq', { kind: 'dsh-instance', unit: 'u-gq' });
@@ -192,7 +192,7 @@ async function main() {
     await drain();
     late({ token: 'GOOD3', source: 'journal', line: 'http://127.0.0.1:3103/?token=GOOD3' });
     await drain();
-    check('B2-6a 同代及时回填仍落池', pool.get('gq') === 'GOOD3', pool.get('gq'));
+    check('同代及时回填仍落池', pool.get('gq') === 'GOOD3', pool.get('gq'));
 
     // D：发射前就 clear —— journal 档根本不该启动（同步换代先于微任务）
     const callsBefore = journalCalls;
@@ -200,7 +200,7 @@ async function main() {
     pool.capture('gs');
     pool.clear('gs');
     await drain();
-    check('B2-6a 发射前已清除则 journal 不执行', journalCalls === callsBefore, String(journalCalls - callsBefore));
+    check('发射前已清除则 journal 不执行', journalCalls === callsBefore, String(journalCalls - callsBefore));
   }
 
 

@@ -148,7 +148,7 @@ module.exports = {
       };
       if (d.events() && d.events().append) { try { d.events().append('shadow_dsh_action', ev); } catch {} }
       if (!rec.diff && d.readConsistentBeats() > 0 && d.readConsistentBeats() % 5 === 0 && d.logger() && d.logger().info) {
-        d.logger().info('[shadow] dsh 影子与实际迁移连续 ' + d.readConsistentBeats() + ' 拍零 diff——满足 G3 切换门槛');
+        d.logger().info('[shadow] dsh 影子与实际迁移连续 ' + d.readConsistentBeats() + ' 拍零 diff——满足切换门槛');
       }
     } catch (e) {
       d.logger() && d.logger().warn && d.logger().warn('[shadow] 心跳记账异常: ' + ((e && e.message) || e));

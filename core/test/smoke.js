@@ -15,7 +15,7 @@ const CLI = path.join(ROOT, 'bin', 'dsh-supervisor');
 const MOCK = path.join(__dirname, 'mock-target.js');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-sup-test-'));
 
-// 测试卫生（RC6）：任意退出路径统一清理 mock/守护进程——防残留进程污染下一轮运行
+// 测试卫生：任意退出路径统一清理 mock/守护进程——防残留进程污染下一轮运行
 process.on('exit', () => {
   try { const { execSync } = require('node:child_process');
     execSync("pkill -CONT -f 'mock-target.js' || true", { stdio: 'ignore' });

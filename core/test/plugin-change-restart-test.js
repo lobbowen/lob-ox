@@ -296,7 +296,7 @@ const homePatchFile = (profileDir) => path.join(path.dirname(path.dirname(profil
     check('N1/N2 本地型更新 job failed 且不执行 CLI',
       job.state === 'failed' && !instances.calls.some((c) => c.startsWith('cli:inst-a:update')), job.state + ' / ' + (job.error || ''));
   }
-  // -- O. B16：INV-S1 退出门约束插件变更生效重启 --
+  // -- O. 退出门约束插件变更生效重启 --
   //   本测试注入的是裸 instances（无外层适配器门）——域侧必须自查 ctx.exitIntended。
   {
     const A_TGT = { id: 'inst-a', name: '沙箱甲', kind: 'sandbox', profileDir: 'p', profileName: 'web' };
@@ -348,7 +348,7 @@ const homePatchFile = (profileDir) => path.join(path.dirname(path.dirname(profil
     const t0 = Date.now();
     const first = await pm.checkUpdates(true);
     const dt = Date.now() - t0;
-    check('Q1 registry 未回时读端点已返回（旧形态会卡到这里被面板 15s 判失败）',
+    check('Q1 registry 未回时读端点已返回',
       dt < 100 && first.refreshing === true && first.checkedAt === 0 && (first.plugins || []).length === 0,
       dt + 'ms ' + JSON.stringify({ r: first.refreshing, c: first.checkedAt }));
     release();
@@ -377,7 +377,7 @@ const homePatchFile = (profileDir) => path.join(path.dirname(path.dirname(profil
 
     const r2 = await call(() => wq.setBundleEnabled('p2', false, 'native'));
     const r3 = await call(() => wq.setBundleEnabled('p3', false, 'native'));
-    check('R2 异常后队列未毒化：后续两次调用仍执行内层（旧实现被毒化 → 返回旧错误、inner 停在 1）',
+    check('R2 异常后队列未毒化：后续两次调用仍执行内层',
       r2 && r2.ok === true && r2.n === 2 && r3 && r3.ok === true && inner === 3, JSON.stringify({ r2, r3, inner }));
 
     // 卸载路径（_scrubPluginLayers）共用同一队列：异常同样不得毒化
@@ -385,7 +385,7 @@ const homePatchFile = (profileDir) => path.join(path.dirname(path.dirname(profil
     wq._scrubPluginLayersInner = () => { scrubInner++; if (scrubInner === 1) throw new Error('scrub-boom'); return { ok: true }; };
     const s1 = await call(() => wq._scrubPluginLayers('native', 'x', null));
     const s2 = await call(() => wq._scrubPluginLayers('native', 'x', null));
-    check('R3 scrub 首次异常如实上报且第二次仍执行（旧实现静默跳过 scrub，uninstall 照常报成功）',
+    check('R3 scrub 首次异常如实上报且第二次仍执行',
       s1 && s1.ok === false && s2 && s2.ok === true && scrubInner === 2, JSON.stringify({ s1, s2, scrubInner }));
 
     // 反向：两条路径必须共用**同一**串行队列（否则丢更新防线失效）。行为判据：

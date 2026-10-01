@@ -24,7 +24,7 @@ while [ $# -gt 0 ]; do
     --publish-only) PUBLISH=1; PUBLISH_ONLY=1 ;;
     --all-platforms)
       # 硬标准：本地不得有全平台构建/发布路径。
-      echo '拒绝：--all-platforms 已废弃（2026-09-13 硬标准：构建与发布均经 GitHub CI）。' >&2
+      echo '拒绝：--all-platforms 不再接受：本产线一律四平台构建，且构建与发布均经 GitHub CI。' >&2
       exit 2 ;;
     *) echo "未知参数: $1（支持 --publish / --publish-only / --all-platforms）"; exit 2 ;;
   esac

@@ -40,7 +40,7 @@
   }
   function stepShellApply() {
     var target = (NS.updPlan && NS.updPlan.latest) || '';
-    // 下载态一律经统一入口（SSOT  节 3.2/T-6）：本模块不自拼下载样式、不画进度条。
+    // 下载态一律经统一入口（SSOT  节 3.2）：本模块不自拼下载样式、不画进度条。
     //   进度细节由 install_progress 事件接续刷新同一行文字（80-init.js）。
     NS.install.begin('shell', '发现桌面新版本 ' + target + ' · 正在下载…');
     return NS.withTimeout(NS.core.invoke('shell_update_apply'), NS.SHELL_DOWNLOAD_BUDGET_MS, '下载长时间无进展')

@@ -173,7 +173,7 @@ export function SupervisorApp() {
                   </button>
                 ) : null}
                 {
-                  // 会话生命周期优先（INV-S4）：stopping/stopped 是整个服务链的运行相位，
+                  // 会话生命周期优先：stopping/stopped 是整个服务链的运行相位，
                   // 比单看 main phase 准确（退出中 main 可能已 STOPPED），须明确呈现「退出中/已退出」。
                   sessionState === "stopping" ? (
                 <span className="inline-flex items-center gap-1.5 text-xs leading-tight text-muted-foreground">

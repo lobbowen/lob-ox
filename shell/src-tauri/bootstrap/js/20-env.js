@@ -5,7 +5,7 @@
   //   而不是「某个分支决定放行」—— 散装两字段时代每个分支各写一遍，漏写一处不报错，
   //   只让就绪文案少一半，并在重试时残留上一轮的值。
   function applyToolchain(st) {
-    // 未完成的读取不覆盖已知事实：超时项没有事实，probing/busy 是中间态（T-2）。
+    // 未完成的读取不覆盖已知事实：超时项没有事实，probing/busy 是中间态。
     if (!st || st.__timeout || st.probing || st.busy) return;
     var t = NS.emptyToolchain();
     t.node = st.installed || null;
@@ -120,7 +120,7 @@
     if (!st.installed) {
       NS.setStep(0);
       return NS.probeMirrorThen(function () {
-        // 安装文案统一走 NS.install（SSOT  节 3.2 / 不变量 T-6）：本模块只决定「装什么、说什么」，
+        // 安装文案统一走 NS.install（SSOT  节 3.2）：本模块只决定「装什么、说什么」，
         //   样式与进度形态由 10-ui.js 的唯一实现负责，避免再次分裂成各阶段各画各的。
         NS.install.begin('node', '未检测到 Node.js · 正在补全运行环境…');
         return NS.core.invoke('start_node_install').then(function () { return NS.stepNodeWait('node'); });
@@ -142,7 +142,7 @@
     if (st.npmOk !== true) {
       NS.setStep(0);
       return NS.probeMirrorThen(function () {
-        // 文案必须自带 npm 字样（SSOT 门禁 G-5）：只说「补全环境」会让 npm 缺失再次被掩盖。
+        // 文案必须自带 npm 字样（SSOT 门禁）：只说「补全环境」会让 npm 缺失再次被掩盖。
         // npmWhy 由后端 probe_npm_usable 回传（「文件存在」与「本平台拉得起来」是两件事）：
         //   不写出原因，用户与开发者都只能在这句文案前猜是归档残缺、垫片不可执行还是 npm 自身报错。
         NS.install.begin('npm', '检测到缺少/不可用的 npm'
@@ -165,14 +165,14 @@
       var t = setInterval(function () {
         NS.readEnv().then(function (st) {
           if (st.__timeout) return;   // 下次 tick 重试
-          // 失败前置检查（SSOT  节 3.1 不变量 T-5）：安装器报错后它不再 busy，若只看 busy 会一路
+          // 失败前置检查（SSOT  节 3.1）：安装器报错后它不再 busy，若只看 busy 会一路
           //   轮询到兜底超时并被当作成功、直奔内核步骤 —— 而 npm 仍缺失，装内核必失败。
           if (!st.busy && st.error) { if (!done) { done = true; clearInterval(t); resolve(failOnMissingNpm(kind, st.error)); } return; }
           // 就绪 = node **且** npm **且**达门槛（npm 缺失时安装器可能先出 node，必须继续等）。
           if (!st.busy && st.installed && st.minOk !== false && st.npmOk === true) { if (!done) { done = true; clearInterval(t); resolve(NS.stepNodeDone()); } }
         }).catch(function () {});
       }, 700);
-      // 兜底：Node 安装可能长达数分钟。此处**绝不**默认成功（SSOT  节 3.1 不变量 T-5）——
+      // 兜底：Node 安装可能长达数分钟。此处**绝不**默认成功（SSOT  节 3.1）——
       //   旧实现在此直接 stepNodeDone()，于是「npm 没补上」也会进入内核步骤，用不存在的 npm 去装内核。
       //   改为最后一次查询确认缺失项仍缺即如实失败，仅当节点确实已就绪才放行。
       setTimeout(function () {
@@ -187,7 +187,7 @@
   }
 
   // 安装失败/超时且 node 或 npm 仍缺失：**唯一**出口是既有失败面板（NS.fail），
-  //   返回 null 给调用链，确保**不进内核步骤**（SSOT  节 3.1 不变量 T-5：不得用不存在的 npm 装内核）。
+  //   返回 null 给调用链，确保**不进内核步骤**（SSOT  节 3.1：不得用不存在的 npm 装内核）。
   //   为什么按 kind 分辨文案：补 npm 失败与补 node 失败的可操作结论不同，笼统一句「安装失败」会让用户无从下手。
   function failOnMissingNpm(kind, error) {
     var target = kind === 'npm' ? 'npm' : 'Node.js';

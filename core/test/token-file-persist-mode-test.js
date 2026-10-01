@@ -29,7 +29,7 @@ if (!POSIX) console.log('SKIP 权限位断言（Windows 无 POSIX mode；chmodSy
   fs.writeFileSync(fp, 'old-line\n');
   if (POSIX) fs.chmodSync(fp, 0o644);
   appendByRotation(fp, 'http://127.0.0.1:3080/?token=ABC');
-  if (POSIX) check('T-a 写入既有 0644 文件后 mode 收口为 0600（旧实现仍 644，世界可读）',
+  if (POSIX) check('T-a 写入既有 0644 文件后 mode 收口为 0600（不得留 644）',
     (fs.statSync(fp).mode & 0o777) === 0o600, (fs.statSync(fp).mode & 0o777).toString(8));
   check('T-a 令牌行确实追加（功能未受影响）',
     /token=ABC/.test(fs.readFileSync(fp, 'utf8')), 'ok');
@@ -58,7 +58,7 @@ if (!POSIX) console.log('SKIP 权限位断言（Windows 无 POSIX mode；chmodSy
   const bakAll = ['.bak-0', '.bak-1'].map((s) => { try { return fs.readFileSync(fpD + s, 'utf8'); } catch { return ''; } }).join('');
   const fpNow = fs.readFileSync(fpD, 'utf8');
   check('T-c 备份槽携带轮转前旧内容', /token=OLD/.test(bakAll), JSON.stringify(bakAll.slice(0, 120)));
-  check('T-c 轮转窗口期的并发追加不丢失（旧实现此断言必红：截断抹掉）',
+  check('T-c 轮转窗口期的并发追加不丢失（截断即抹掉）',
     /token=RACE/.test(bakAll + fpNow), 'bak+fp=' + String(bakAll + fpNow).replace(/\n/g, '|'));
   check('T-c 轮转后本次新行落入目标新文件', /token=NEW/.test(fpNow), JSON.stringify(fpNow));
 }

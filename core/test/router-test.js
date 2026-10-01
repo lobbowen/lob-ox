@@ -129,7 +129,7 @@ function req(port, method, reqPath, headers = {}) {
     ledP.recordUsage(mkEntry('a\u0000b'));
     ledP.recordUsage(mkEntry('real-model'));
     const byP = ledP.totals.byModel;
-    check('E-4 危险对象键不重定向 byModel 的原型（旧形态的真实破坏面）',
+    check('E-4 危险对象键不重定向 byModel 的原型',
       Object.getPrototypeOf(byP) === Object.prototype, 'proto=' + (Object.getPrototypeOf(byP) === Object.prototype ? 'Object.prototype' : '被改写'));
     check('E-4 违规 model 折进 (other) 且计数不丢（3 违规 + 1 正常 = 4）',
       byP['(other)'] && byP['(other)'].requests === 3 && byP['real-model'] && byP['real-model'].requests === 1 && ledP.totals.requests === 4,
@@ -146,7 +146,7 @@ function req(port, method, reqPath, headers = {}) {
     const throttled = !fs.existsSync(fThrottle);
     ledTh.flush();
     check('B19 节流落盘：未到点不落盘，flush 强制落盘（未到点的账不丢）', throttled && fs.existsSync(fThrottle) && JSON.parse(fs.readFileSync(fThrottle, 'utf8')).requests === 1, 'exists=' + fs.existsSync(fThrottle));
-    // 6d canPersist 单闸仍生效（PG-7 语义保留）
+    // 6d canPersist 单闸仍生效（语义保留）
     const fGate = path.join(TMP, 'usage-gate.json');
     try { fs.rmSync(fGate, { force: true }); } catch {}
     const ledG = new UsageLedger({ file: fGate, writeDelayMs: 0, canPersist: () => false });

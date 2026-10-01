@@ -33,7 +33,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       && m.buildConfig(settings, [{ id: 'y', remoteMode: 'lan', wanPort: 28071 }, { id: 'z', wanPort: 28072 }]).count === 0, 'ok');
   }
 
-  // -- R5：凭据落盘卫生 + API 回显掩码（AUDIT B-6/B-7）--
+  // -- R5：凭据落盘卫生 + API 回显掩码 --
   console.log('== R5 frp.json 写入卫生 + status() 掩码 ==');
   {
     const D5 = fs.mkdtempSync(path.join(TMP, 'hyg-'));
@@ -43,13 +43,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     check('R5-a settings 落盘可读（写链路未被掩码改动破坏）', /S3CR3T-frp/.test(raw5), 'ok');
     if (process.platform !== 'win32') {
       const mode5 = fs.statSync(m5.settingsFile).mode & 0o777;
-      check('R5-b frp.json 权限 0600（authToken 明文不出属主；旧实现默认 umask 落盘）',
+      check('R5-b frp.json 权限 0600（authToken 明文不出属主）',
         mode5 === 0o600, 'mode=' + (mode5).toString(8));
     } else console.log('SKIP R5-b（Windows 无 POSIX 权限位）');
     const strays5 = fs.readdirSync(D5).filter((f) => /\.tmp/.test(f));
     check('R5-c 写完成无 .tmp 残留（rename 原子替换）', strays5.length === 0, strays5.join(','));
     const st5 = m5.status();
-    check('R5-e status().settings 不回显 authToken 明文，只报 authTokenSet（AUDIT B-7，与 access.js 同规）',
+    check('R5-e status().settings 不回显 authToken 明文，只报 authTokenSet（与 access.js 同规）',
       !('authToken' in st5.settings) && st5.settings.authTokenSet === true && !JSON.stringify(st5).includes('S3CR3T-frp'),
       JSON.stringify(st5.settings));
     check('R5-f 非机密配置字段照常回显（UI 回填面不丢；总闸字段已随三态模型废止）',

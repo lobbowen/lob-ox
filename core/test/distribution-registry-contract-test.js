@@ -39,7 +39,7 @@ const check = (n, c, x) => {
     // 把载入时刻拨回 TTL 之前
     dm._contractLoadedAt = Date.now() - (CONTRACT_TTL_GUARD);
     await dm.registryInfo();
-    check('C-b TTL 过后**重载**并获得新 catalog（旧实现永远 boot）',
+    check('C-b TTL 过后**重载**并获得新 catalog',
       dm.contract.catalog[0] === 'https://new.example', JSON.stringify(dm.contract.catalog));
     check('C-b 新**探测规格**也生效（这正是「两侧选源不一致」的根因）',
       dm.contract.probe && dm.contract.probe.pathTemplate === 'pkg-b',
@@ -61,7 +61,7 @@ const check = (n, c, x) => {
     const policies = require(path.join(ROOT, 'src', 'platform', 'distribution', 'policies.js'));
     const spec = { kind: 'package-metadata', pathTemplate: 'pkg/{platform}', timeoutMs: 6000 };
     const ping = policies.resolveProbe('https://r.example', spec, null);
-    check('C-d resolveProbe(tag=null) 退化 ping（旧实现把字面量 undefined 拼进 URL 恒 404）、无契约同样 ping 兜底；tag 有效仍走 package-metadata 展开（修法不扩大）',
+    check('C-d resolveProbe(tag=null) 退化 ping、无契约同样 ping 兜底；tag 有效仍走 package-metadata 展开',
       ping.kind === 'ping' && ping.url === 'https://r.example/-/ping'
       && policies.resolveProbe('https://r.example', null, null).kind === 'ping'
       && policies.resolveProbe('https://r.example', spec, 'linux-x64').url === 'https://r.example/pkg/linux-x64',

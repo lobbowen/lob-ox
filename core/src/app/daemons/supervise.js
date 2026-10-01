@@ -56,7 +56,7 @@ module.exports = {
           if (rlcx && typeof rlcx.classify === 'function') {
             const c = rlcx.classify();
             if (c && c.mode === 'external') {
-              // 异主隔离：只告警不接管；不发 guardian_action（契约 域 B / G-2）。
+              // 异主隔离：只告警不接管；不发 guardian_action（契约 域 B）。
               d.logger() && d.logger().warn && d.logger().warn('[router] 监督：ctl ' + d.ctl().routerPort() + ' 被外部进程占用（pid=' + c.owner + '），不接管不拉起');
               return { ok: false };
             }

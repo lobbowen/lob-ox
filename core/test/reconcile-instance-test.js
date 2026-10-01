@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// 实例对账（reconcile）契约（PROXY-LIFECYCLE-STANDARD W1 形态），验证生命周期引擎（pool.js 期望集 +
+// 实例对账（reconcile）契约（PROXY-LIFECYCLE-STANDARD 形态），验证生命周期引擎（pool.js 期望集 +
 //   restart.js 执行面）：R1 期望集恒为「在用1+预热1」且对账幂等 · R2 sticky 与退位回收 · R3 绝不为不可用
 //   账号保活 · R4 冻结即时回收/恢复回池 · R6 ready+满额矛盾落盘前归位 frozen · R11 重启幸存者弃用重拉 · R12 停服台账 · R14 锁收敛。
 
@@ -213,7 +213,7 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     p.stopInstance = function (i) { stops++; return ost(i); };
     for (let rr = 0; rr < 10; rr++) {
       const a = (rr % 2 === 0) ? a1 : a2;
-      // 真实请求路径：forward 选定账号后经引擎门面 ensureServable 保证可服务（W1 门面）
+      // 真实请求路径：forward 选定账号后经引擎门面 ensureServable 保证可服务（门面）
       await p.ensureServable(a);
       p.markInUse(a.keyId);
       if (rr % 2 === 1) { await p.reconcileInstances(); }

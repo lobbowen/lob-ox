@@ -36,7 +36,7 @@ case "$MODE" in
     node -e "const fs=require('fs');const p='package-lock.json';const j=JSON.parse(fs.readFileSync(p));j.version='$NEW';j.packages[''].version='$NEW';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
     node release/scripts/verify-versions.js --core
     echo "=== 内核版本已提升: $CUR → $NEW ==="
-    echo "  1) CHANGELOG.md：整理 [未发布] 段为 [$NEW] 并新开 [未发布] —— ⚠️ 该文件已于 2026-10-01 随 .md 清理移出仓库（C:\work\_md_backup）"
+    echo "  1) CHANGELOG.md：整理 [未发布] 段为 [$NEW] 并新开 [未发布] —— ⚠️ 本仓无该文件，变更记录随 Release 说明维护"
     echo "  2) git add -A && git commit && git push origin HEAD（走 PR，CI 全绿后合并）"
     # tag 命名空间：内核与壳各自独立版本，而 path 过滤对 tag 推送不生效
     #   ⇒ 两条产线共用 `v*` 时任一 tag 会同时触发内核与壳两条产线。故按组件前缀分开：
@@ -44,7 +44,7 @@ case "$MODE" in
     #   不带 `v` 前缀：`core-` 之后即 package.json#version 的字面值，故 tag 与版本可直接对账。
     echo "  3) 打 tag 并推送：git tag core-$NEW && git push origin core-$NEW"
     echo "  4) 此后**全部由 CI 完成**：四平台完整构建 + 验证 + 各平台发布子包 + 挂 Release 附件"
-    echo "     （硬标准：不得在本地构建/发布；本机只到 S0-S3 的版本与纯静态自检，S4 起全在 CI）"
+    echo "     （不得在本地构建/发布；本机只做版本提升与纯静态自检，构建与发布全在 CI）"
     ;;
   *) echo "未知模式: $MODE （本仓只支持 --core；壳版本见壳仓 scripts/bump-shell.sh）"; exit 2;;
 esac

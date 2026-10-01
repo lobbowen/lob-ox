@@ -37,7 +37,7 @@ function underFake(platform, body, opts) {
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
 
-// -- X-3：service —— W3 分派 kind + 方法集一致 + 未知平台显式抛错 --
+// -- X-3：service —— 分派 kind + 方法集一致 + 未知平台显式抛错 --
 {
   // 分派口径（平台档位由实测决定，不写死）：伪造 linux 且清空 PATH 下 systemd-run 必然测不到
   // -> 必须落 portable（容器/WSL1 正是这个形状）；darwin/win32 恒 portable；未知平台恒 none。
@@ -441,7 +441,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   fs.writeFileSync(fakeNpx, '@echo off\r\n');
   check('X-2 npx win32 命中注入的 npx.cmd',
     ep.npxBin({ platform: 'win32', env }) === fakeNpx, ep.npxBin({ platform: 'win32', env }));
-  // 反向（原 cross-platform P0 的「解析不到 → null」）：解析不出可执行时绝不返回猜测路径。
+  // 反向（原 cross-platform 的「解析不到 → null」）：解析不出可执行时绝不返回猜测路径。
   check('X-2 resolveExecutable 对不存在的名字返回 null（不拿不可执行路径去 spawn）',
     ep.resolveExecutable('dsh-nonexistent-xyz-123', { platform: 'linux', env: { PATH: emptyDir } }) === null, 'null');
 }

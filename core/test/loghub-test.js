@@ -11,7 +11,7 @@ const http = require('node:http');
 const ROOT = path.join(__dirname, '..');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'loghub-test-'));
 const { EventHub, isInternalEvent } = require(path.join(ROOT, 'src', 'platform', 'service', 'log', 'hub'));
-// DS-G4（反转法）：源名/内部簿记类型由 app/assembly/log-sources.js 声明注入（不在 platform 硬编码）。
+// 反转法：源名/内部簿记类型由 app/assembly/log-sources.js 声明注入（不在 platform 硬编码）。
 // 平台门面（logcore）负责在装配落地前完成注入：凡经 logcore 装配的路径（含本测试）行为不变；
 // 生产路径另由 compose.js 在 LogCore.init 前无条件 require 同一模块。
 require(path.join(ROOT, 'src', 'app', 'assembly', 'log-sources'));

@@ -57,7 +57,7 @@ const det = br.detector;
     && br.openCommand('freebsd', u).cmd === 'xdg-open'
     && [['linux', true], ['darwin', true], ['win32', true], ['freebsd', false]].every(([p, v]) => cprof(p, 'x64').openBrowser === v),
     ['linux', 'darwin', 'win32', 'freebsd'].map((p) => p + '=' + cprof(p, 'x64').openBrowser).join(','));
-  check('A4 入口闸门 isSafeHttpUrl：只放 http(s) 绝对 URL（file:///、javascript:、含 shell 元字符的相对串、空串全拒）',
+  check('入口闸门 isSafeHttpUrl：只放 http(s) 绝对 URL（file:///、javascript:、含 shell 元字符的相对串、空串全拒）',
     br.isSafeHttpUrl(u) === true && br.isSafeHttpUrl('https://a.b/c') === true
     && br.isSafeHttpUrl('file:///c:/windows/system32/calc.exe') === false && br.isSafeHttpUrl('javascript:alert(1)') === false
     && br.isSafeHttpUrl('not a url & calc.exe') === false && br.isSafeHttpUrl('') === false, 'ok');
@@ -81,7 +81,7 @@ const det = br.detector;
   // reg.exe 把根名展开后打印（问 HKLM 回 HKEY_LOCAL_MACHINE）：产品若按简写比前缀，
   //   真机每行都匹配不上 => 整个 StartMenuInternet 枚举静默交出空清单。
   const subOf = (text) => det.regSubkeys(() => text, () => {}, 'HKLM\\SOFTWARE\\Clients\\StartMenuInternet');
-  check('X-8 posix/键名侧解析 + 事故①：parseExecLine 去壳分词、safeRegKeyPart 拒 shell 活性字符（键名进 reg.exe 的 argv）、regSubkeys 只认完整根名（简写形态反向钉住）',
+  check('X-8 posix/键名侧解析：parseExecLine 去壳分词、safeRegKeyPart 拒 shell 活性字符（键名进 reg.exe 的 argv）、regSubkeys 只认完整根名（简写形态反向钉住）',
     JSON.stringify(det.parseExecLine('env DISPLAY=:0 brave-browser --ozone-platform=x11 %U')) === JSON.stringify({ bin: 'brave-browser', baseArgs: ['--ozone-platform=x11'] })
     && JSON.stringify(det.parseExecLine('"google chrome"  --incognito %u')) === JSON.stringify({ bin: 'google chrome', baseArgs: ['--incognito'] })
     && det.parseExecLine('%u') === null
@@ -143,7 +143,7 @@ const det = br.detector;
     runOut.values['HKLM\\Software\\Classes\\Firefox\\shell\\open\\command'] = 'C:\\FF\\firefox.exe "%1"';
     const r = winProbe(runOut);
     const picked = env.pickLauncher('win32', r, null);
-    check('X-8 事故②/③ 判据：StartMenuInternet 默认值不得被当默认项 = UserChoice 被系统忽略；此时两候选仍在册、分发依据落候选次序层（不冒认系统默认、不静默换人、不 no-launcher 死路）',
+    check('X-8 StartMenuInternet 默认值不得被当默认项 = UserChoice 被系统忽略；此时两候选仍在册、分发依据落候选次序层（不冒认系统默认、不静默换人、不 no-launcher 死路）',
       r.defaultId === null && r.defaultSource === null && r.browsers.length === 2
       && picked.browser !== null && picked.how === 'candidate-rank',
       JSON.stringify({ d: r.defaultId, s: r.defaultSource, how: picked.how }));
@@ -247,7 +247,7 @@ const det = br.detector;
       p(base, 'c:\\gone\\browser.exe').browser === ff && p(base, 'c:\\gone\\browser.exe').stale === true
       && p(base, 'c:\\gone\\browser.exe').wanted === 'c:\\gone\\browser.exe',
       JSON.stringify(p(base, 'c:\\gone\\browser.exe')));
-    check('X-8 事故③ 判据（计划层）：多候选无默认=候选次序且给出浏览器（旧实现在此给空对象=>整链 no-launcher「点了没弹」）；单候选=only-installed；空清单/null=none-found 且 browser:null',
+    check('X-8 判据（计划层）：多候选无默认=候选次序且给出浏览器；单候选=only-installed；空清单/null=none-found 且 browser:null',
       p(invOf([ff]), null).how === 'only-installed'
       && p(invOf([ff, chrome]), null).how === 'candidate-rank' && p(invOf([ff, chrome]), null).browser === chrome
       && p(invOf([]), null).how === 'none-found' && p(invOf([]), null).browser === null
@@ -266,7 +266,7 @@ const det = br.detector;
     const knone = br.openPlan('win32', u, { inventory: invOf([]) });
     const kmany = br.openPlan('win32', u, { inventory: invOf([brow('C:\\Edge\\msedge.exe'), brow('C:\\FF\\firefox.exe')]) });
     const ko = br.openPlan('darwin', u, { inventory: invOf([brow('/Applications/Safari.app/Contents/MacOS/Safari')]) });
-    check('X-8 openPlan win32：探到本体=直启（Windows 唯一路，无调度器可退）；探不到任何浏览器=bin:null（旧形态在此退 explorer.exe 冒开）；多候选而系统说不出默认=按候选次序启并记账 candidate-rank（事故③）；偏好直通且失效偏好随计划交出 stale',
+    check('X-8 openPlan win32：探到本体=直启（Windows 唯一路，无调度器可退）；探不到任何浏览器=bin:null；多候选而系统说不出默认=按候选次序启并记账 candidate-rank；偏好直通且失效偏好随计划交出 stale',
       kw.bin === 'C:\\Edge\\msedge.exe' && kw.via === 'browser' && kw.engine === 'chromium' && kw.pick === 'only-installed'
       && knone.bin === null && knone.via === 'none' && knone.pick === 'none-found' && knone.exitIsEvidence === false
       && kmany.bin === 'C:\\Edge\\msedge.exe' && kmany.via === 'browser' && kmany.pick === 'candidate-rank'
@@ -530,7 +530,7 @@ async function x10() {
   const rThrow = await br.openBrowser(U, { platform: 'linux', inventory: NO_INV, binAvailable: () => true, spawn: () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }); } });
   const rNull = await br.openBrowser(U, { platform: 'linux', inventory: NO_INV, binAvailable: () => true, spawn: () => null });
   const rUrl = await br.openBrowser(U, { platform: 'linux', inventory: NO_INV, observe: obs(EX_OK), spawn: okSpawn, binAvailable: () => true });
-  check('X-10 spawn 同步抛错与返回空句柄 -> ok:false/spawn-failed（旧形态会把前者冒成成功）；结果恒原样带回 url',
+  check('X-10 spawn 同步抛错与返回空句柄 -> ok:false/spawn-failed；结果恒原样带回 url',
     rThrow.ok === false && rThrow.reason === 'spawn-failed' && rThrow.evidence.error === 'EACCES'
     && rNull.ok === false && rNull.reason === 'spawn-failed' && rUrl.url === U, JSON.stringify([rThrow, rNull]));
 
@@ -588,7 +588,7 @@ async function x10() {
     const le = br.loginEnv(() => 0.5);
     const injected = Object.keys(le.antiEnv).filter((k) => le.sysEnv[k] !== le.antiEnv[k]);
     if (savedTZ === undefined) delete process.env.TZ; else process.env.TZ = savedTZ;
-    check('X-10 事故④ 判据：反指纹档相对宿主档只改 TZ 一项（宿主 LANG 原样带过，不再随机化界面语言 => 中文 Windows 不会弹法语窗口）',
+    check('X-10 判据：反指纹档相对宿主档只改 TZ 一项（宿主 LANG 原样带过，不再随机化界面语言 => 中文 Windows 不会弹法语窗口）',
       JSON.stringify(injected) === JSON.stringify(['TZ']) && !!isoEnv && typeof isoEnv.TZ === 'string' && !!isoEnv.TZ && isoEnv.LANG === le.sysEnv.LANG,
       JSON.stringify([injected, isoEnv && isoEnv.TZ]));
     check('X-10 只在 watch 形态将关闭回调接到 spawn（并入既有实例时 onExit 恒误报，宁可不接）；成功后延迟回收临时 profile（一次登录留一个目录 = 磁盘上的孤儿）',
@@ -606,7 +606,7 @@ async function x10() {
     const ln = await br.openBrowser(U, { platform: 'linux', inventory: chromeInv, intent: 'isolated-login', spawn: okSpawn, egress: EG_OK,
       binAvailable: () => false, desktopAvailable: () => false, allocProfile: () => '/P', rmTree: (p, ms) => removed.push([p, ms]) });
     const lb = await br.openBrowser('file:///etc/passwd', { platform: 'linux', intent: 'isolated-login', binAvailable: () => true, spawn: okSpawn });
-    check('X-10 隔离登录吃同一套预检：无图形会话即 no-desktop-session、零 spawn 且已分配 profile 被回收；失败也带 reason/url/error（旧形态只给 ok:false，面板无从解释）',
+    check('X-10 隔离登录吃同一套预检：无图形会话即 no-desktop-session、零 spawn 且已分配 profile 被回收；失败也带 reason/url/error',
       vocabOk(ln) === null && ln.ok === false && ln.reason === 'no-desktop-session' && spawned.length === 0 && ln.url === U
       && !!ln.error && JSON.stringify(removed) === JSON.stringify([['/P', 0]])
       && vocabOk(lb) === null && lb.ok === false && lb.reason === 'unsafe-url' && !!lb.error, JSON.stringify([ln, removed]));

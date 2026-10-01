@@ -65,10 +65,10 @@ async function main() {
   const s2 = await waitStatus((x) => x.dshPid === pid, 12000);
   check('新守卫接管原实例（adopted）', !!s2 && s2.dshPid === pid, JSON.stringify(s2));
 
-  // SIGTERM 不得改动 desired（P1-4）。等一个稳定窗口后才判，兼验收敛循环不翻转 desired。
+  // SIGTERM 不得改动 desired。等一个稳定窗口后才判，兼验收敛循环不翻转 desired。
   await sleep(2000);
   const s3 = await api(28190, 'GET', '/status');
-  check('SIGTERM 后 desired 保持 running（P1-4 契约，稳定窗口后仍成立）',
+  check('SIGTERM 后 desired 保持 running（稳定窗口后仍成立）',
     !!s2 && s2.desired === 'running' && s3.desired === 'running', JSON.stringify({ desired: s3.desired, pid: s3.dshPid }));
 
   d2.kill('SIGKILL');

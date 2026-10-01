@@ -200,7 +200,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
   fs.writeFileSync(noext, 'dummy-not-a-real-token');
   fs.chmodSync(noext, 0o644);
   const r14 = runCredIn(d14, ['doctor']);
-  check('D-14 无扩展名凭据文件权限过宽 -> doctor 判红（旧通配整体漏检）',
+  check('D-14 无扩展名凭据文件权限过宽 -> doctor 判红（不得按扩展名通配）',
     IS_POSIX ? (r14.code !== 0) : true,
     IS_POSIX ? 'exit=' + r14.code : 'Windows 无 POSIX 权限位');
   fs.chmodSync(noext, 0o600);
@@ -235,13 +235,13 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
   j16.entries[0].file = path.join(TMP, 'elsewhere', 'npm-token');
   fs.writeFileSync(f16.idxPath, JSON.stringify(j16, null, 2));
   const r16 = runCredIn(d16, ['doctor']);
-  check('D-16 非 github-pat kind 的条目指向库外 -> doctor 判红（旧 kind 过滤恒放过）',
+  check('D-16 非 github-pat kind 的条目指向库外 -> doctor 判红（不得按 kind 过滤）',
     r16.code !== 0, 'exit=' + r16.code);
 
   // -- D-17 verify 的尾账：未知条目不得假绿，且不得依赖 curl --
   const r17 = runCredIn(d1, ['verify', 'nope']);
   const r17b = runCredIn(d1, ['verify', 'kernel']);
-  check('D-17 verify 未知条目 -> 非零退出（旧实现过滤成空集后零退出）；无 API 打点的条目如实说明并退出 0',
+  check('D-17 verify 未知条目 -> 非零退出；无 API 打点的条目如实说明并退出 0',
     r17.code !== 0 && r17b.code === 0, 'exit=' + r17.code + '/' + r17b.code);
 }
 

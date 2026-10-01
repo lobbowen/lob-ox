@@ -491,7 +491,7 @@ function cmdInstall() {
   // 服务定义（systemd/launchd/schtasks）、开机自启、桌面入口的**所有者是桌面壳**：
   //   内核 install 不写任何服务定义或 autostart —— 否则与壳争夺「谁定义、谁拉起」，Windows 上更会形成双启动器。
   //   此处只准备内核本体需要的 config 与命令入口。
-  console.log('[install] 服务定义/开机自启/桌面入口由桌面壳负责（本命令不再部署）。');
+  console.log('[install] 服务定义/开机自启/桌面入口由桌面壳负责（本命令不部署）。');
   console.log('[install] 内核本体已就绪。启动由桌面壳或服务管理器发起：dsh-supervisor daemon');
 }
 
@@ -572,7 +572,7 @@ function cmdSelfUpdate(action) {
       // 单写入者契约：内核包只能由桌面壳安装（守卫不自装）。
       //   CLI 不代跑安装；接口 /self-update/apply 返回 410 KERNEL_UPDATE_SINGLE_WRITER。
       console.error('内核更新由桌面壳执行（单写入者契约）：请在桌面壳面板「关于」中点「更新」。');
-      console.error('本命令不再安装内核。');
+      console.error('本命令不安装内核。');
       process.exit(2);
     }
     console.log('用法: dsh-supervisor self-update [check]');

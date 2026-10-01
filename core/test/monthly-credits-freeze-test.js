@@ -78,12 +78,12 @@ async function main() {
     limit: { kind: 'credits', creditsAt },
     quota: { monthlyRemaining: remaining, credits: { monthlyCredits: remaining } },
   });
-  check('G-B18 null/undefined 基线 + 任意正余额 → 不判「已充值」（fail-closed）',
+  check('null/undefined 基线 + 任意正余额 → 不判「已充值」（fail-closed）',
     quota.creditsRefilled(mkFrozen(null, 9.99)) === false && quota.creditsRefilled(mkFrozen(undefined, 9.99)) === false, 'ok');
   // 反向（防空转）：数值基线且余额确实回升 -> 必须判 true（证明未写死 false）
-  check('G-B18 反向：数值基线 5→10 回升 → 判「已充值」true',
+  check('反向：数值基线 5→10 回升 → 判「已充值」true',
     quota.creditsRefilled(mkFrozen(5, 10)) === true, 'ok');
-  check('G-B18 反向：数值基线 5→3 未回升 → 判 false',
+  check('反向：数值基线 5→3 未回升 → 判 false',
     quota.creditsRefilled(mkFrozen(5, 3)) === false, 'ok');
 
   // -- 场景 H：null 基线冻结账号收到正余额快照（无到期）-> applyDetection 维持冻结 --
@@ -91,12 +91,12 @@ async function main() {
     quota: { rolling: { status: 'ok', percent: 0 }, weekly: { status: 'ok', percent: 0 }, monthly: { status: 'ok', percent: 0 } } }; // 无 monthlyRemaining/credits -> 冻结基线为 null
   p.accounts.push(noEv);
   p.markCreditsExhausted(noEv); // 触发 credits 冻结（此时无余额证据 -> creditsAt=null）
-  check('H-B18 冻结基线为 null（无余额证据）', noEv.status === 'frozen' && noEv.limit.creditsAt === null, JSON.stringify(noEv.limit && noEv.limit.creditsAt));
+  check('冻结基线为 null（无余额证据）', noEv.status === 'frozen' && noEv.limit.creditsAt === null, JSON.stringify(noEv.limit && noEv.limit.creditsAt));
   // 后续补探测带回正余额（percent 已回落不再 creditsLow），且无 periodEnd 到期 -> 不得解冻
   noEv.nextResetAt = Date.now() + 3600e3;
   if (noEv.limit.recovery) noEv.limit.recovery.at = noEv.nextResetAt;
   p.applyDetection(noEv, { ok: true, quota: { rolling: { status: 'ok', percent: 0 }, weekly: { status: 'ok', percent: 0 }, monthly: { status: 'ok', percent: 0 }, monthlyRemaining: 8.0, credits: { monthlyCredits: 8.0 } } });
-  check('H-B18 null 基线 + 正余额快照 + 未到期 → 维持冻结（旧实现此处误解冻）', noEv.status === 'frozen', noEv.status);
+  check('null 基线 + 正余额快照 + 未到期 → 维持冻结', noEv.status === 'frozen', noEv.status);
 
   console.log('\n==============================');
   console.log('结果: ' + pass + ' passed, ' + fail + ' failed');

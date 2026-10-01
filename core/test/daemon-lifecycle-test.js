@@ -182,32 +182,32 @@ const waitCtl = async (ms = 8000) => { const t0 = Date.now(); while (Date.now() 
     ghostAcquire === false && !fs.existsSync(ghost) && !fs.existsSync(ghostDir), 'false/absent');
 }
 
-// -- B1-5：判活三态（alive/dead/unknown）—— 探测异常不得被折叠成任何一侧 --
+// -- 判活三态（alive/dead/unknown）—— 探测异常不得被折叠成任何一侧 --
 //   非 EPERM 的 kill 异常当死会误删他主锁/误认领死 pid；三态源 probeAlive 与布尔门面 isAlive 分离。
 {
   const pidlook = require(path.join(ROOT, 'src', 'platform', 'os', 'pidlookup'));
-  check('B1-5 非正整数 pid 一律 dead（不触碰 kill）',
+  check('非正整数 pid 一律 dead（不触碰 kill）',
     pidlook.probeAlive(0) === 'dead' && pidlook.probeAlive(-1) === 'dead' &&
     pidlook.probeAlive(NaN) === 'dead' && pidlook.probeAlive(1.5) === 'dead', 'dead');
   const realKill = process.kill;
   try {
     process.kill = () => { const e = new Error('ep'); e.code = 'EPERM'; throw e; };
-    check('B1-5 EPERM → alive（存在但无权，不得判死）', pidlook.probeAlive(4321) === 'alive', 'alive');
+    check('EPERM → alive（存在但无权，不得判死）', pidlook.probeAlive(4321) === 'alive', 'alive');
     process.kill = () => { const e = new Error('es'); e.code = 'ESRCH'; throw e; };
-    check('B1-5 ESRCH → dead', pidlook.probeAlive(4321) === 'dead', 'dead');
+    check('ESRCH → dead', pidlook.probeAlive(4321) === 'dead', 'dead');
     process.kill = () => { const e = new Error('ei'); e.code = 'EINVAL'; throw e; };
-    check('B1-5 其它错误码 → unknown（既不判活也不判死）', pidlook.probeAlive(4321) === 'unknown', 'unknown');
+    check('其它错误码 → unknown（既不判活也不判死）', pidlook.probeAlive(4321) === 'unknown', 'unknown');
     // _pidAlive 的 unknown 分支必须回落到所有权判定（只有登记过的主人才算活）。
     const { DaemonLifecycle } = require(path.join(ROOT, 'src', 'app', 'daemons', 'process'));
     const probeHost = Object.create(DaemonLifecycle.prototype);
     probeHost._ctlOwnerPid = () => 4321;
-    check('B1-5 _pidAlive: unknown + 是登记主人 → true；非主人 → false',
+    check('_pidAlive: unknown + 是登记主人 → true；非主人 → false',
       probeHost._pidAlive(4321) === true && probeHost._pidAlive(9999) === false, 'owner-fallback');
     process.kill = () => { const e = new Error('es'); e.code = 'ESRCH'; throw e; };
-    check('B1-5 _pidAlive: ESRCH 时即便是登记主人也判死；无 pid 入参直接 false',
+    check('_pidAlive: ESRCH 时即便是登记主人也判死；无 pid 入参直接 false',
       probeHost._pidAlive(4321) === false && probeHost._pidAlive(null) === false, 'dead/no-pid');
   } finally { process.kill = realKill; }
-  check('B1-5 反向：真实 kill 已恢复 —— isAlive 布尔门面与 probeAlive 三态同源判活',
+  check('反向：真实 kill 已恢复 —— isAlive 布尔门面与 probeAlive 三态同源判活',
     pidlook.isAlive(process.pid) === true && pidlook.probeAlive(process.pid) === 'alive', 'alive');
 }
 

@@ -15,7 +15,7 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
 
 (async () => {
   const { PortRegistry, DEFAULT_POOLS, SEGMENT_POOL } = require(path.join(ROOT, 'src', 'platform', 'service', 'ports'));
-  // DS-G4（反转法）：段名/独立池是**域知识**，测试显式申报（等价于生产由 router/relay 域装配期注入；未申报段回退 managed）。
+  // 反转法：段名/独立池是**域知识**，测试显式申报（等价于生产由 router/relay 域装配期注入；未申报段回退 managed）。
   require(path.join(ROOT, 'src', 'domains', 'router', 'port-segments'));
   require(path.join(ROOT, 'src', 'domains', 'relay', 'port-segments'));
 

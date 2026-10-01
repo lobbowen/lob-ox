@@ -67,7 +67,7 @@ function shutdown(host) {
               rlc._monitoring = false; // 守卫退出不再监督该 daemon（daemon 自身继续运行）
             }
           } catch {}
-          await host.lifecycleManager.stopAll('guard-shutdown', { exclude: ['dsh'] }); // 守卫退出绝不动 DSH（RC2 契约）
+          await host.lifecycleManager.stopAll('guard-shutdown', { exclude: ['dsh'] }); // 守卫退出绝不动 DSH
         } else {
           // 兜底：lifecycleManager 未初始化时防孤儿
           try { if (host.lan) await host.lan.shutdown(); } catch (e) { host.logger.warn && host.logger.warn('lan shutdown: ' + (e && e.message)); }
