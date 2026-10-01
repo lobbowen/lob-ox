@@ -7,7 +7,7 @@ const { identity } = require('./journal');
 const { exeFromCmdline, isShellProcess } = require('./core');
 const { semverCompare } = require('../../shared/version');
 
-const SHELL_RELEASE_PKG = '@dsh-sup/shell-release';
+const SHELL_RELEASE_PKG = '@lobox/shell-release';
 
 async function checkUpdate(dist, opts) {
   const id = identity();

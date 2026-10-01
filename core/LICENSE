@@ -10,7 +10,7 @@ UNLICENSED — 保留所有权利。
 内核以构建物形态对外分发（Node launcher，经 npm 平台子包安装，见 `release/scripts/publish-core.sh`），
 构建物授权范围同样以本许可为准（UNLICENSED，全部权利保留）。
 
-## 壳（src-tauri/）
+## 壳（shell/）
 
-MIT —— 完整文本见 `src-tauri/LICENSE`。壳源码随公开仓库 **dsh-supervisor-launcher** 以 MIT 开源发布，
-用于引流与贡献；本仓库中的壳目录与其同步。
+MIT —— 完整文本见 `shell/LICENSE`。本仓 `shell/` 下的壳源码以 MIT 开源发布，
+用于引流与贡献。

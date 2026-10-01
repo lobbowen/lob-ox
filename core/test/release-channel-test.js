@@ -18,7 +18,7 @@ const meta = (tags, versions) => ({ 'dist-tags': tags, versions: versions || {} 
 const obj = (arr) => arr.reduce((m, v) => { m[v] = {}; return m; }, {});
 
 {
-  check('归属 我们的内核/壳发布包 → isOurReleasePackage', channel.isOurReleasePackage('@dsh-sup/dsh-core-linux-x64') === true && channel.isOurReleasePackage('@dsh-sup/shell-release') === true);
+  check('归属 我们的内核/壳发布包 → isOurReleasePackage', channel.isOurReleasePackage('@lobox/dsh-core-linux-x64') === true && channel.isOurReleasePackage('@lobox/shell-release') === true);
   check('归属 第三方 DSH 本体/代理包 → 非我们的', channel.isOurReleasePackage('@deepseek-ai/dsh') === false && channel.isOurReleasePackage('commandcode-api-proxy') === false);
 }
 

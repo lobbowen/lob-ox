@@ -46,9 +46,8 @@ docs/
 *.key
 *.key.pub
 
-# 内核仓不得包含壳仓（防呆：曾误被 git add -A 收为 gitlink）。
-# 2026-09-11：壳 checkout 已移出本仓目录（现位于 ../dsh-supervisor-launcher），
-# 此条目保留为纵深防御 —— 若再次在本仓内克隆壳仓，至少不会被提交。
+# core/ 下不得出现 shell/ 的检出副本或构建产物：内核的构建与发布都以 core/ 为根，
+# core/ 里混入壳的东西会让壳改动经 core/** 触发内核产线（本 workflow 的触发路径）。
 .shell-work/
 
 # 临时文件（发布提交时曾被误纳入）

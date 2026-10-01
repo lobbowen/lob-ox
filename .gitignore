@@ -32,6 +32,12 @@ tmp/
 !.env.example
 _token.txt
 
+# 凭据文件名（绝不入库；私钥泄露=账号被接管）
+_npmtoken.txt
+*.key
+*.key.pub
+*.pw
+
 # 编辑器 / 系统
 .DS_Store
 Thumbs.db

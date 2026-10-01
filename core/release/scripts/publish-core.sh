@@ -12,7 +12,7 @@ MAIN_LICENSE="$(node -p "require('./package.json').license")"
 # repository.url 必须与 provenance 签名的仓库地址一致，否则 registry 校验 E422 拒发。
 MAIN_REPO="$(node -p "try{const p=require('./package.json');(p.repository&&p.repository.url)||''}catch(e){''}")"
 [ -n "$SCOPE" ] || SCOPE="${DSH_CORE_SCOPE:-}"
-[ -n "$SCOPE" ] || SCOPE="@dsh-sup"
+[ -n "$SCOPE" ] || SCOPE="@lobox"
 while [ $# -gt 0 ]; do case "$1" in
   --publish) PUBLISH=1 ;;
   --all-platforms)

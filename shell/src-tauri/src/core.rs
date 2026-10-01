@@ -12,7 +12,7 @@ pub fn package_name() -> Result<String, String> {
     let tag = crate::platform::current()
         .core_platform_tag()
         .ok_or_else(|| "当前平台/架构无对应的内核发布包".to_string())?;
-    Ok(format!("@dsh-sup/dsh-core-{}", tag))
+    Ok(format!("@lobox/dsh-core-{}", tag))
 }
 
 pub fn npm_exe() -> &'static str {
@@ -445,7 +445,7 @@ pub fn dist_from(pkg: &str, version: &str, origin: &str) -> Result<DistInfo, Str
     })
 }
 
-/// 包内落点名：包名带 scope 与 `/`（`@dsh-sup/dsh-core-linux-x64`），必须先归一才准进路径 —— 否则一个来自 registry 的字符串就成了目录穿越的入口。
+/// 包内落点名：包名带 scope 与 `/`（`@lobox/dsh-core-linux-x64`），必须先归一才准进路径 —— 否则一个来自 registry 的字符串就成了目录穿越的入口。
 fn dist_slug(s: &str) -> String {
     s.chars()
         .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '_' })
@@ -660,8 +660,8 @@ mod tests {
 
     #[test]
     fn dist_slug_leaves_no_path_separators_or_dots() {
-        let s = dist_slug("@dsh-sup/dsh-core-win-x64");
-        assert_eq!(s, "_dsh-sup_dsh-core-win-x64", "scope 里的 / 必须被换掉：{s}");
+        let s = dist_slug("@lobox/dsh-core-win-x64");
+        assert_eq!(s, "_lobox_dsh-core-win-x64", "scope 里的 / 必须被换掉：{s}");
         for evil in ["../../../etc/passwd", "a\\b", "..", ""] {
             let out = dist_slug(evil);
             assert!(!out.contains('/') && !out.contains('\\'), "{evil} 归一后仍带分隔符: {out}");

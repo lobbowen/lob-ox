@@ -138,7 +138,7 @@ class EnvCatalog {
         label: '内核更新（桌面壳执行）',
         required: false,
         state: 'unconfigured',
-        detail: '未配置 corePackageName（形如 @dsh-sup/dsh-core-<os>-<arch>）',
+        detail: '未配置 corePackageName（形如 @lobox/dsh-core-<os>-<arch>）',
       };
     }
     return { label: '内核更新（桌面壳执行）', required: false, state: 'configured', detail: pkg };

@@ -145,6 +145,8 @@ fn main() {
             domain::windowing::show_main(app);
         }))
                 // 壳自更新插件：强制 minisign 验签；平台安装语义内部处理。未配置 pubkey 时插件仍可注册（check 会失败并返回错误，由引导页按「失败放行」处理）。
+                // 该公钥（tauri.conf.json 的 plugins.updater.pubkey）用于校验更新包签名，私钥只在发布方 CI secret、绝不入仓。
+                // 换钥后老客户端无法验证新更新：新更新由新私钥签名，老客户端手持的旧公钥验不过。
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(Mutex::new(RunState::default()))
