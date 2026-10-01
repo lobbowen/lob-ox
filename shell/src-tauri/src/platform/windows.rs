@@ -1,6 +1,5 @@
 //! Windows 平台实现（计划任务 schtasks）。
-//!
-//! 本文件是 Windows 的**全部**平台知识（门禁 G1）。
+//! 本文件是 Windows 的**全部**平台知识。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -9,16 +8,14 @@ use super::service::ServiceControl;
 use super::{home_dir, Capabilities, LaunchSpec, Platform, SVC_NORMAL, SVC_QUICK};
 
 pub const NAME: &str = "windows";
-/// 计划任务名（**定义由本文件建立**；内核不再管理，见 D6）。
+/// 计划任务名（**定义由本文件建立**）。
 pub const GUARD_TASK: &str = "DSH-Supervisor";
-/// 崩溃自拉的保活任务（**由壳建立**；停止守卫时须先停它）。
-/// 所有者 = 壳（KERNEL-DAEMON-CONTRACT D6）。
+/// 崩溃自拉的保活任务（**由壳建立**；停止守卫时须先停它）。所有者 = 壳。
 pub const WATCHDOG_TASK: &str = "DSH-Supervisor-Watchdog";
 
-/// 看护任务的调用参数：只是稳定入口的一个无头模式（--watchdog），不再内嵌脚本。
-/// 「守卫活着吗」只看 TCP 端口存活（旧内嵌 PowerShell 用 `Test-NetConnection` 判活），
-/// GUI 自愈的唯一所有者是守卫（内核 `domains/shell/watchdog`：进程实存 + 宽限 + 更新相位时效），
-/// 看护任务只剩：守卫没就绪时把它拉起来 —— 见 `domain::cli::cli_watchdog`。
+/// 看护任务的调用参数：只是稳定入口的一个无头模式（--watchdog），不内嵌脚本。
+/// 「守卫活着吗」不得只看 TCP 端口存活；GUI 自愈的唯一所有者是守卫（内核 `domains/shell/watchdog`：
+/// 进程实存 + 宽限 + 更新相位时效），看护任务只剩：守卫没就绪时把它拉起来 —— 见 `domain::cli::cli_watchdog`。
 pub const WATCHDOG_ARGS: &[&str] = &["--watchdog"];
 
 /// PowerShell 单引号字符串（内部单引号翻倍；反斜杠为字面量，无需转义）。
@@ -52,7 +49,6 @@ fn extract_with_tar(archive: &Path, dest: &Path) -> Result<(), String> {
 }
 
 /// 回退解包器：PowerShell 内置 `Expand-Archive`（更老的 Windows 上唯一无需安装的解法）。
-///
 /// 它可能产出**残缺树** —— 调用方必须过 `commit_user_node` 的完整性校验，
 /// 该校验就是为这条路兜底的：宁可报「不含可用 npm」，也不报「环境已就绪」。
 fn extract_with_expand_archive(archive: &Path, dest: &Path) -> Result<(), String> {
@@ -94,7 +90,7 @@ impl Platform for Impl {
         Capabilities {
             platform: NAME,
             native_service: true, // 计划任务
-            privilege_channel: true, // 仅壳自更新（替换安装包）用；Node 安装已改为用户级、零权限
+            privilege_channel: true, // 仅壳自更新（替换安装包）用；Node 安装是用户级、零权限
             node_artifact: "zip",
         }
     }
@@ -175,7 +171,7 @@ impl Platform for Impl {
     }
 
     fn node_bin_after_install(&self) -> PathBuf {
-        // 用户级安装落点（零权限）；不再指向 %ProgramFiles%\nodejs（那需要管理员）。
+        // 用户级安装落点（零权限）；%ProgramFiles%\nodejs 需要管理员。
         crate::env::node_install_root().join(self.node_exe_name())
     }
 
@@ -292,23 +288,21 @@ impl Platform for Impl {
     }
 
     fn has_privilege_channel(&self) -> bool {
-        // Windows 恒有 UAC 提权通道（**仅壳自更新用**；Node 安装已用户级、零权限）。
+        // Windows 恒有 UAC 提权通道（**仅壳自更新用**；Node 安装是用户级、零权限）。
         true
     }
 
-    // 可执行文件名的平台差异（P2/G1：原为平台层之外的 cfg!() 宏）
+    // 可执行文件名的平台差异。
     fn node_exe_name(&self) -> &'static str { "node.exe" }
-    /// Windows 上 npm 是 `.cmd`；Node 的 spawn/execFileSync **不做 PATHEXT 解析** ——
-    /// 与内核侧 `platform/os/exec-path.js::npmBin()` 同一事实（P1-C）。
+    /// Windows 上 npm 是 `.cmd`；Node 的 spawn/execFileSync **不做 PATHEXT 解析** —— 与内核侧 `platform/os/exec-path.js::npmBin()` 同一事实。
     fn npm_exe_name(&self) -> &'static str { "npm.cmd" }
     /// Windows 内核候选：`.cmd` 垫片必须在内 —— PATH 解析只认扩展名形态。
     fn core_exe_names(&self) -> &'static [&'static str] {
         &["dsh-supervisor.exe", "dsh-supervisor.cmd", "dsh-supervisor"]
     }
 
-    /// 只有 PE 可执行程序能被 CreateProcessW 直接拉起：
-    ///   `.cmd`/`.bat` 是 cmd.exe 的脚本、无扩展名的 `npm` 是 POSIX sh 脚本，
-    ///   都「文件存在而拉不起来」（ERROR_BAD_EXE_FORMAT）。
+    /// 只有 PE 可执行程序能被 CreateProcessW 直接拉起：`.cmd`/`.bat` 是 cmd.exe 的脚本、
+    /// 无扩展名的 `npm` 是 POSIX sh 脚本，都「文件存在而拉不起来」（ERROR_BAD_EXE_FORMAT）。
     /// 因此 Windows 上 npm 一律经 node.exe + npm-cli.js 调用（见 runtime_contract::probe_npm）。
     fn is_directly_spawnable(&self, prog: &Path) -> bool {
         prog.extension()
@@ -320,10 +314,9 @@ impl Platform for Impl {
 /// Windows 的私有辅助（**不属于** ServiceControl 契约：放进 trait impl 会触发 E0407，
 /// 由 ensure_defined 调用）：守卫任务的建任务/免提权自启两个通道，与壳拥有的看护任务。
 impl Impl {
-    /// 建立/更新守卫计划任务，返回成功所用的方式。用户态守卫不需要最高权限，故不再请求
-    ///   `/RL HIGHEST`：非提权进程带这一项必被拒，而「先试必失败的一条再试同一条的另一形态」
-    ///   只是把同一句拒绝访问打印两遍。同名任务由更高权限持有时先 `/Delete` 再建一次；
-    ///   连删都拒绝，就把「谁持有它」说清并交回调用方换通道。
+    /// 建立/更新守卫计划任务，返回成功所用的方式。用户态守卫不需要最高权限，故不请求
+    /// `/RL HIGHEST`：非提权进程带这一项必被拒。同名任务由更高权限持有时先 `/Delete` 再建一次；
+    /// 连删都拒绝，就把「谁持有它」说清并交回调用方换通道。
     fn create_guard_task(&self, action: &str) -> Result<&'static str, String> {
         let build = || {
             let mut c = Command::new("schtasks");
@@ -368,9 +361,8 @@ impl Impl {
         Err(r.failure("reg add 登录自启项"))
     }
 
-    /// 壳拥有的 Windows 看护任务（D6/H5）：计划任务直接指向稳定入口的无头模式。
-    /// 幂等：每次 ensure_defined 都 `/Create /F`（覆盖语义），
-    ///   故不会因守卫任务「已是最新」而被跳过；升级后旧版本留下的 `watchdog.ps1` 就地删除。
+    /// 壳拥有的 Windows 看护任务：计划任务直接指向稳定入口的无头模式。
+    /// 幂等：每次 ensure_defined 都 `/Create /F`（覆盖语义），故不会因守卫任务「已是最新」而被跳过。
     fn watchdog_status(&self, spec: &LaunchSpec) -> String {
         match self.ensure_watchdog(spec) {
             Ok(s) => format!("；{}", s),
@@ -379,9 +371,7 @@ impl Impl {
     }
 
     fn ensure_watchdog(&self, spec: &LaunchSpec) -> Result<String, String> {
-        // 脚本形态已废除（见 WATCHDOG_ARGS 注释）；清掉历史文件，避免留下无人维护的第二实现。
-        // 本仓的写入路径自 v1.2.2 起已移除，故本段对跑过它的装机是一次性的：清完即为 no-op。
-        // 退役期限：v1.3（删除前置 = 活跃装机最低版本 >= 1.2.2；K-13 钉着 remove_file 必须在）。
+        // 清掉历史遗留的 watchdog.ps1，避免留下无人维护的第二实现（清完即为 no-op）。
         let stale = crate::env::supervisor_dir().join("watchdog.ps1");
         if stale.exists() {
             let _ = std::fs::remove_file(&stale);
@@ -430,10 +420,8 @@ impl Channel {
     }
 }
 
-/// 动作记录形如 `<通道>\t<动作串>`。无制表符的旧格式按**计划任务**解读（那是它当时唯一的
-/// 通道），否则升级后会把已装用户的任务判成过时并白重建一次。
-/// 退役依据：带通道前缀是自 v1.2.3 起的唯一写入形态（见 `write_action_record`），旧记录只可能在
-/// 更早装机升上来、且尚未重装过通道时读到。退役期限 v1.4，删除前置 = 活跃装机最低版本 >= 1.2.3。
+/// 动作记录形如 `<通道>\t<动作串>`。无制表符的旧格式按**计划任务**解读（那是它当时唯一的通道），
+/// 否则会把已装用户的任务判成过时并白重建一次。
 fn read_action_record(path: &Path) -> (Option<Channel>, String) {
     let raw = match std::fs::read_to_string(path) {
         Ok(s) => s,
@@ -602,7 +590,7 @@ fn drive_is_fixed(letter: u16) -> bool {
 
 #[cfg(test)]
 mod toolchain_tests {
-    //! Windows 工具链事实的行为门禁：本模块只在 Windows 上编译才成立 ——
+    //! Windows 工具链事实：本模块只在 Windows 上编译才成立 ——
     //! `.cmd` 能否被 CreateProcessW 拉起、官方 zip 解出来 npm 载荷完不完整，
     //! 都是只有本平台能判定的事实，这些断言在 Linux/macOS 上恒真、写在那里等于没写。
 
@@ -692,8 +680,7 @@ mod toolchain_tests {
     }
 
     /// 真机取证：下载官方归档并走生产解包路径，断言解出来的 npm 真实可用。
-    /// zip -> node_modules\\npm -> `npm --version` 整条链不被 CI 构建与门禁触碰（不碰真归档），
-    /// 故由 build.yml 的 Windows leg 以 `--ignored` 显式执行。
+    /// 整条链（zip -> 包内 npm -> `npm --version`）不参与常规测试，故标 `#[ignore]` 由 Windows 上显式执行。
     #[test]
     #[ignore = "联网下载官方 Node 归档（约 30MB），仅由 CI 的 Windows leg 执行"]
     fn official_artifact_installs_usable_npm() {
@@ -732,9 +719,8 @@ mod toolchain_tests {
             "心跳报出了比归档本身还大的字节量：{:?}",
             b.iter().map(|x| x.0).collect::<Vec<_>>()
         );
-        // 刻意**不**断言全局单调：换源重下（`download_verified` 的镜像回退）合法地把已取回量
-        //   退回 0，而那正是该报给用户看的「重新开始」。单次尝试内的单调性由
-        //   `http_get_bytes_progress` 的累加结构保证，把它写成真机断言只会平添网络抖动导致的误红。
+        // 刻意**不**断言全局单调：换源重下（`download_verified` 的镜像回退）合法地把已取回量退回 0。
+        // 单次尝试内的单调性由 `http_get_bytes_progress` 的累加结构保证，写成真机断言只会平添误红。
         let node = crate::platform::current()
             .install_node(&archive)
             .expect("生产解包路径失败（这一步的报错就是面板会显示给用户的那句）");
@@ -753,8 +739,7 @@ mod toolchain_tests {
 
 #[cfg(test)]
 mod definition_tests {
-    //! 定义通道的形态门禁：权限类判定与通道记录是 Windows 拉起链唯一的分支点，
-    //! 判错的代价是用户看到「两次同样的拒绝访问」而不说原因。
+    //! 定义通道：权限类判定与通道记录是 Windows 拉起链唯一的分支点，判错的代价是用户看到「两次同样的拒绝访问」而不说原因。
 
     use super::{is_access_denied, read_action_record, write_action_record, Channel};
 

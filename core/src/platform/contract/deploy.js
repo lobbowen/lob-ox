@@ -2,7 +2,6 @@
 
 // 部署形态判定：自更新的安装目标必须等于运行目标。本模块是形态与运行目标的唯一判定点，
 // 调用方（apply/restart/面板显隐）不得自行猜测。
-// 标准产品形态不再是 SEA，而是 npm 安装的文本 launcher 加同级 core.cjs（源码开发形态无法自更新）。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -23,8 +22,7 @@ function isBinaryExecutable(file) {
 }
 
 /** launcher 形态识别：运行目标的同目录或上级目录存在 core.cjs 即为发布布局。
- *  两处都查以兼容 argv[1] 指向 bin/dsh-supervisor 或 core.cjs 本身。
- *  不用文本内容是否含 require('../core.cjs') 判定：那与实现细节耦合。 */
+ *  两处都查：argv[1] 可能指向 bin/dsh-supervisor 或 core.cjs 本身。 */
 function isLauncherForm(target) {
   try {
     const dir = path.dirname(target);
@@ -47,7 +45,7 @@ function runningTarget() {
  *  form: 'launcher'（标准，可自更新）/ 'sea-binary'（历史兼容，可自更新）/
  *        'source-shell'（源码开发，不可自更新）/ 'unknown'（无法判定，保守禁用）。 */
 function detect() {
-  // 测试/CI 注入口：强制形态；生产不设置该变量，走真实判定。
+  // DSH_DEPLOY_FORM 强制形态；生产不设置该变量。
   const forced = process.env.DSH_DEPLOY_FORM;
   const target = runningTarget();
   if (forced === 'sea-binary') {
@@ -59,7 +57,7 @@ function detect() {
   if (isBinaryExecutable(target)) {
     return { form: 'sea-binary', runningTarget: target, updatable: true, reason: null };
   }
-  // 有 core.cjs 即标准产品形态；无则是 node 脚本壳指向源码目录，npm i -g 的新包与其无关。
+  // 有 core.cjs 即标准产品形态，否则是 node 脚本壳指向源码目录。
   if (isLauncherForm(target)) {
     return { form: 'launcher', runningTarget: target, updatable: true, reason: null };
   }

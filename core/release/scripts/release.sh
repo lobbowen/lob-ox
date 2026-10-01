@@ -4,11 +4,10 @@
 #  - version 默认取 package.json。
 # 产物：dist/release/dsh-supervisor-<ver>.tar.gz（bin/src/ui，零依赖源码包）。
 #
-#  发布通道收敛：本脚本不再是自更新通道——
-#   不再生成 dist/release/manifest.json（曾产出 url=127.0.0.1:39240 污染 manifest）。
-#   内核发布唯一通道 = build:launcher Node launcher + scripts/publish-core.sh npm 平台子包；
+# 内核发布唯一通道 = build:launcher Node launcher + release/scripts/publish-core.sh 的 npm 平台子包；
 #   守卫自身更新走同一 npm 执行器（DistributionManager.runNpmInstall + 平台子包）。
-#   本脚本仅保留为「源码打包」出口（人工审计/分发自用），产出自检照旧。
+# 本脚本只做「源码打包」出口（人工审计/分发自用），产出自检照旧，不生成 manifest.json、
+#   也不是自更新通道。
 # 双仓隔离：壳源码不在本仓（壳是独立仓），包内只含内核资产。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -19,9 +18,9 @@ PAK="dsh-supervisor-$VER"
 DIR="$DIST/$PAK"
 
 rm -rf "$DIR"; mkdir -p "$DIR"
-# 内核资产（双仓拆分后本仓无 src-tauri；壳图标不再随内核源码包分发——内核包用 ui-react 面板）。
+# 内核资产（本仓无 src-tauri；内核包用 ui-react 面板，壳图标不随内核源码包分发）。
 for d in bin src; do [ -e "$ROOT/$d" ] && cp -r "$ROOT/$d" "$DIR/"; done
-# 清理：不再拷 ROOT/config.json（含构建机绝对路径的死双源）——守卫运行读内嵌 DEFAULT_CONFIG
+# 不拷 ROOT/config.json（含构建机绝对路径的死双源）；守卫运行读内嵌 DEFAULT_CONFIG
 #   或用户配置 <产品状态根>/supervisor/config.json
 cp "$ROOT/package.json" "$DIR/"
 
@@ -39,8 +38,8 @@ if [ -d "$ROOT/ui-react" ]; then
 fi
 
 # 产物自检：全部 JS 语法冒烟（含 bin 入口脚本，排除 vendor）
-# 复：find 默认换行输出配 read -d ""（NUL 分隔）会让循环体永不执行（门禁静默失效）；
-# 改用 find -print0（NUL 分隔）配 read -d ""，并用括号限定 -o 优先级只收集 .js 与 bin 入口。
+# find 必须用 -print0 配 read -d ""（默认换行输出会让循环体永不执行），
+# 并用括号限定 -o 优先级，只收集 .js 与 bin 入口。
 fails=0
 while IFS= read -r -d "" f; do
   case "$f" in *vendor*) continue;; esac

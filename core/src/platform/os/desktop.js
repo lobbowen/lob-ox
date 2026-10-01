@@ -1,12 +1,11 @@
 'use strict';
 
 // 图形会话的唯一判定与补齐处：两件事共用同一份平台事实，谁都不许自己再摸一遍 socket。
-//   1) 可用性 —— 守卫看护桌面壳前必须先确认有图形会话：无会话时拉起 GUI 必失败，
-//      看护的周期重试会酿成重启风暴并掩盖真因。
-//   2) 环境补齐 —— systemd --user 等语境不 import DISPLAY/WAYLAND_DISPLAY，此时要把真实
-//      socket 位置补成环境变量交给 xdg-open（反代登录调浏览器走的就是这条路）。
-// Linux 两件事都要实测（环境变量缺席不等于会话不存在）；
-// darwin/win32 恒为可用且不补齐：守卫由图形会话内的 LaunchAgent / schtasks ONLOGON 载入，注销即随会话结束。
+//   1) 可用性 —— 无图形会话时拉起 GUI 必失败，守卫看护的周期重试会酿成重启风暴。
+//   2) 环境补齐 —— systemd --user 等语境不 import DISPLAY/WAYLAND_DISPLAY，需把实测到的 socket
+//      位置补成环境变量交给 xdg-open（反代登录调浏览器走的就是这条路）。
+// Linux 两件事都要实测（环境变量缺席不等于会话不存在）；darwin/win32 恒为可用且不补齐
+// （守卫由图形会话内的 LaunchAgent / schtasks ONLOGON 载入，注销即随会话结束）。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -15,7 +14,7 @@ const PLATFORM = process.platform;
 
 const X11_DIR = '/tmp/.X11-unix';
 
-/** 探测侧的依赖注入缝（行为测试不摸宿主 /tmp 与 /run，且能在任意宿主上穷举）。 */
+/** 探测侧的依赖注入缝（不摸宿主 /tmp 与 /run，可在任意宿主上穷举）。 */
 function deps(o) {
   const ov = o || {};
   return {
@@ -48,8 +47,7 @@ function waylandSockets(o) {
 function hasX11Socket(o) { return x11Displays(o).length > 0; }
 function hasWaylandSocket(o) { return waylandSockets(o).length > 0; }
 
-/** 补齐缺失的图形环境变量（只回「本语境缺、而 socket 实测在」的那几项）：
- *  已有值一律不覆盖 —— 用户/服务自己导出的 DISPLAY 就是他的意图。
+/** 补齐缺失的图形环境变量（只回「本语境缺、而 socket 实测在」的那几项）：已有值一律不覆盖。
  *  DBUS 与会话是否已在图形环境无关（xdg-open 的端口级私有地址常靠它），故单独判。 */
 function sessionEnv(o) {
   const d = deps(o);
@@ -94,8 +92,7 @@ function describe() {
       waylandDisplay: process.env.WAYLAND_DISPLAY || null,
     };
   }
-  // 必须委托 sessionAvailable()：此处若重写判定表达式，两份副本会漂移
-  // （把 sessionAvailable 改成 false 后 describe 仍报可用，即此症）。
+  // 必须委托 sessionAvailable()：此处若重写判定表达式，两份副本会漂移。
   return { platform: PLATFORM, available: sessionAvailable(),
            reason: 'session-scoped-by-launcher' };
 }

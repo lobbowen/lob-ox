@@ -1,8 +1,8 @@
 'use strict';
 
-// app/domain-actions/lan.js —— relay(lan) 域写动作（facade 只读）：远程控制意图的唯一写入口 setRemoteMode/setRemoteToken（main 与沙箱同口、按 id 路由），
-// 另有 frpc 门面 lanFrpc（settings/install）与 syncFrpc，实现只经注入的惰性 deps 取事实。本地（非 daemon）模式不直接穿透 lan 改 LanManager，只经 lifecycleManager 的 'lan' 登记项（adapters 注册时挂 module）取用，
-// 生命周期登记/视图不被绕开；daemon 模式下本层仍是唯一写入方（写守卫存储后 lanCall 收敛），daemon 只是运行时执行者、不接受意图写入。wan 前置闸单一事实源：domains/relay/core.validateWanAccess（令牌强度）；serverAddr 缺失不拦写入（frpc 执行边界已拒 spawn、视图如实报 reason），避免配置顺序锁死用户。缺失访问令牌的分配口同样在 domains/relay/core.generateRemoteToken（本层只调用，不自己拼随机串）。
+// relay(lan) 域写动作（facade 只读）：远程控制意图的唯一写入口 setRemoteMode/setRemoteToken（main 与沙箱同口、按 id 路由），
+//   另有 frpc 门面 lanFrpc 与 syncFrpc。本地模式不直接穿透 lan 改 LanManager，只经 lifecycleManager 的 'lan' 登记项取用；
+//   daemon 模式下属唯一写入方（daemon 只执行）。wan 前置闸单一事实源 domains/relay/core.validateWanAccess；令牌分配口 generateRemoteToken。
 
 const { validateWanAccess, generateRemoteToken } = require('../../domains/relay/core');
 // 强度下限是 L0 纯判定（与 relay/instance 域同源）；app->domains 只取纯闸，不触域状态。
@@ -62,13 +62,11 @@ function createLanActions(deps) {
 
   return {
 
-    /** 远程控制模式唯一写入口（off|lan|wan）。mode 必须显式给出——缺省归 'off' 会让
-     *  漏字段的请求静默关闭远程控制。
-     *  开启（lan|wan）时若该实例压根没有访问令牌，就在这里分配一个并随模式一次落盘：
-     *  「开启远程控制」是用户唯一的开远程动作，把「先去别处设令牌」留在流程里，产出的是开关已开、
-     *  屏幕无二维码、用户也不知凭据为何的半截状态。已有令牌（含过弱的）一律不覆盖——静默改写
-     *  用户自设凭据是另一类事故，弱令牌交给 wan 闸显式拒绝并把用户引到令牌框。
-     *  wan 前置闸按**补齐后**的令牌复判：分配在复判之前完成、落盘在复判之后发生，被拒仍零写入。 */
+        /**
+     * 远程控制模式唯一写入口（off|lan|wan）。mode 必须显式给出 —— 缺省归 'off' 会让漏字段的请求静默关闭远程控制。
+     * 开启（lan|wan）时若该实例没有访问令牌，就地分配一个并随模式一次落盘（避免开关已开、无凭据的半截状态）；
+     * 已有令牌（含过弱的）一律不覆盖，弱令牌交给 wan 闸显式拒绝。wan 前置闸按补齐后的令牌复判，被拒仍零写入。
+     */
     setRemoteMode(id, mode) {
       if (mode !== 'off' && mode !== 'lan' && mode !== 'wan') {
         return { ok: false, error: 'mode 必须显式给出（off|lan|wan）' };
@@ -86,7 +84,7 @@ function createLanActions(deps) {
         if (allocate) patch.remoteToken = nextToken;
         if (allocate || target.mode !== mode) {
           applyMainIntent(patch, { id: 'main', name: '原生 DSH', mode });
-          // 自动分配同样要留「令牌已设」的审计事实（载荷只记布尔，TK-5）
+                    // 自动分配同样要留「令牌已设」的审计事实（载荷只记布尔，不带明文）。
           if (allocate) {
             const events = g.getEvents();
             if (events) { try { events.append('dsh_remote_token_changed', { id: 'main', tokenSet: true, autoAllocated: true }); } catch {} }
@@ -101,10 +99,11 @@ function createLanActions(deps) {
       return r;
     },
 
-    /** 访问令牌唯一显式写入口。token 必须是字符串：空串=显式清除；缺字段/非字符串=请求方缺陷，
-     *  拒绝而非当作清除（漏 token 字段清掉访问凭据是事故，不是语义）。
-     *  lan 模式清除后仍然可用（relay 空令牌放行），但下一次写入远程控制模式会由 setRemoteMode 重新分配；
-     *  wan 模式的守门由执行边界闸兜住（令牌清空后 syncFrpc 复判不过闸即停隧道）。 */
+        /**
+     * 访问令牌唯一显式写入口。token 必须是字符串：空串=显式清除；缺字段/非字符串=请求方缺陷，拒绝而非当作清除。
+     * lan 模式清除后仍可用（relay 空令牌放行），下一次写入远程控制模式会由 setRemoteMode 重新分配；
+     * wan 模式的守门由执行边界闸兜住（令牌清空后 syncFrpc 复判不过闸即停隧道）。
+     */
     setRemoteToken(id, token) {
       if (typeof token !== 'string') {
         return { ok: false, error: 'token 必须显式给出（空串=清除）' };
@@ -118,7 +117,7 @@ function createLanActions(deps) {
       if (target.kind === 'main') {
         applyMainIntent({ remoteToken: next }, null);
         const events = g.getEvents();
-        // 事件只记「是否已设」，绝不带令牌值（TK-5 脱敏纪律）
+                // 事件只记「是否已设」，绝不带令牌值（脱敏纪律）。
         if (events) { try { events.append('dsh_remote_token_changed', { id: 'main', tokenSet: next !== '' }); } catch {} }
         return { ok: true };
       }

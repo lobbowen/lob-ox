@@ -1,8 +1,8 @@
 'use strict';
 
-// 「一个可用的镜像源到底是什么」的单一所有者。此前这句话在两侧各解释一遍：壳的目录允许基址带路径
-// （华为云/腾讯云本来就是这个形态），内核的闸把「不得带 path」当安全判据 —— 结果是一批准许的镜像
-// 在探测阶段判可达、在消费阶段判非法，面板表现为「取不到版本也下载不了」。
+// 「一个可用的镜像源到底是什么」的单一所有者：形态与安全（parseRegistryBase）、交给 npm 的注入形态
+// （registryEnvPair）、包名 URL（registryPackagePath）、传输与跳转复验（fetchRegistry）各自定义一次。
+// 两侧各解释一遍会让同一镜像「探测阶段判可达、消费阶段判非法」。
 // 本模块把四件事各自定义一次：形态与安全（parseRegistryBase）、交给 npm 的注入形态（registryEnvPair）、
 // 包名 URL（registryPackagePath）、传输与跳转复验（fetchRegistry）。
 
@@ -30,10 +30,9 @@ function hostViolation(host) {
   return null;
 }
 
-/** 配置的镜像基址：**只做形态判定**（协议白名单 + 无凭证/查询/片段 + 允许 path）。
- *  主机维度不在此处：私网字面量闸在写入口（policies.registryOriginViolation）与跨主机跳转
- *  （targetHostViolation）两处施加。把两者混在这一把尺里的旧形态，会让「合法带 path 的镜像」
- *  与「夹带凭证的基址」得到同一个答案 —— 前者被误杀、后者被放过。
+/** 配置的镜像基址：只做形态判定（协议白名单 + 无凭证/查询/片段 + 允许 path）。主机维度不在此处：
+ *  私网字面量闸在写入口（policies.registryOriginViolation）与跨主机跳转（targetHostViolation）两处施加 ——
+ *  混在一把尺里会让「合法带 path 的镜像」与「夹带凭证的基址」得到同一个答案。
  *  @returns {{ok:boolean, base:string, protocol:string, host:string, violation:string|null}} */
 function parseRegistryBase(raw) {
   const base = normalizeBase(raw);
@@ -114,9 +113,8 @@ async function readCapped(res, maxBytes) {
   return buf.toString('utf8');
 }
 
-/** 取镜像内容的唯一传输口：`redirect:'manual'` + **逐跳复验** + 状态码/字节/时长三重有界。
- *  旧形状是反的 —— 探测阶段拒绝一切跳转（判死健康的 302 型镜像），取数据阶段却用默认策略
- *  盲从跳转到任意主机。统一到这里之后，探测与消费得到同一个答案。
+/** 取镜像内容的唯一传输口：`redirect:'manual'` + 逐跳复验 + 状态码/字节/时长三重有界。
+ *  探测与消费共用此口，两阶段的跳转策略才不会分叉。
  *  @param {string} startUrl @param {object} [opts] {timeoutMs,maxHops,maxBytes,expect:'json'|'none'} */
 async function fetchRegistry(startUrl, opts) {
   const o = opts || {};
@@ -155,7 +153,7 @@ async function fetchRegistry(startUrl, opts) {
       return { ok: true, status: res.status, json: null, error: null, url, hops };
     }
     // 读体阶段的中断（对端半路关连接、超时掐流）也必须落成结构化失败：本口是「可达」的唯一
-    // 判据源，抛出去会让每个调用方各自长出一份 try —— 那正是探测与消费答案分叉的起点。
+// 判据源，抛出去会让每个调用方各长出一份 try。
     let text;
     try {
       text = await readCapped(res, maxBytes);

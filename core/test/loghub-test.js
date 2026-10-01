@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
-// 系统日志框架回归（docs/LOGGING-SINGLETON-AUDIT.md / SYSTEM-LOGGING-ARCHITECTURE.md）：
-//  - 装配键契约：supervisor 用短键 ctlPorts/daemonLogs {router,lan}，EventHub 内部长键 which('router-daemon')
-//  - daemon 事件经 ctl eventsTail 增量入聚合（首拉建基线不回溯）
-//  - 内部簿记事件打 internal 标（默认时间线过滤、审计保留）；LogCore 单例语义
+// 系统日志框架回归：装配键契约（supervisor 用短键 ctlPorts/daemonLogs {router,lan}，EventHub 内部长键
+//   which('router-daemon')）· daemon 事件经 ctl eventsTail 增量入聚合（首拉建基线不回溯）· internal 标 · LogCore 单例语义。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -13,9 +11,9 @@ const http = require('node:http');
 const ROOT = path.join(__dirname, '..');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'loghub-test-'));
 const { EventHub, isInternalEvent } = require(path.join(ROOT, 'src', 'platform', 'service', 'log', 'hub'));
-// DS-G4（反转法）：源名/内部簿记类型已移出 platform —— 注入声明在 app/assembly/log-sources.js。
-// 平台门面（logcore）负责在装配落地前完成注入：**凡经 logcore 装配的路径（含本测试）行为不变**；
-// 生产路径另由 compose.js 在 LogCore.init 前无条件 require 同一模块（装配自明，不赖隐式副作用）。
+// DS-G4（反转法）：源名/内部簿记类型由 app/assembly/log-sources.js 声明注入（不在 platform 硬编码）。
+// 平台门面（logcore）负责在装配落地前完成注入：凡经 logcore 装配的路径（含本测试）行为不变；
+// 生产路径另由 compose.js 在 LogCore.init 前无条件 require 同一模块。
 require(path.join(ROOT, 'src', 'app', 'assembly', 'log-sources'));
 const LogCore = require(path.join(ROOT, 'src', 'platform', 'service', 'log', 'logcore'));
 const Events = require(path.join(ROOT, 'src', 'platform', 'service', 'log', 'events'));
@@ -116,8 +114,7 @@ const freePort = () => new Promise((res) => { const s = http.createServer(); s.l
     check('tailLog 有文件/无文件两分支（guard 取值 / router 不抛返回空）',
       hub.tailLog('guard', 1).join('') === 'b' && hub.tailLog('router', 1).length === 0); // lan daemonLogs 短键，文件不存在返回空不抛
   }
-  // 5) EventReader 读适配器（原在 session-lifecycle-test.js，同源语义并入本文件）
-  //    空对象适配器：接口完备 + 与 EventHub 同源（共用共享实现）
+  // 5) EventReader 读适配器（空对象适配器：接口完备 + 与 EventHub 同源）。
   {
     const { EventReader } = require(path.join(ROOT, 'src', 'platform', 'service', 'log', 'hub'));
     const fakeEvents = { seq: 7, readAll: () => ([{ seq: 1, type: 'a' }, { seq: 2, type: 'shadow_beat' }]), readSince: (a, l) => [{ seq: 1, type: 'a' }] };

@@ -10,8 +10,8 @@ const DEFAULTS = {
   updateGraceMs: 300000,    // 壳正处于更新/重启预期态时的宽限（5 分钟）
   maxRestarts: 5,           // 窗口内拉起次数上限
   windowMs: 1800000,        // 30 分钟窗口
-  // identity.phase 的时效上限：超过则视为陈旧（壳已崩），不再当预期缺席，让看护按
-  // 正常宽限期介入。取值需大于正常更新耗时（含下载+校验+重启）。
+  // identity.phase 的时效上限：超过则视为陈旧（壳已崩），不再当预期缺席，让看护按正常宽限期介入。
+  // 取值需大于正常更新耗时（含下载+校验+重启）。
   phaseMaxAgeMs: 600000,    // 10 分钟
   procPattern: 'dsh-supervisor-gui',
 };
@@ -33,7 +33,7 @@ function isShellProcess(proc) {
   return /dsh-supervisor-gui(\.exe)?/.test(c);
 }
 
-/** 纯决策（不碰进程/时钟/文件系统，便于穷举单测）。
+/** 纯决策（不碰进程/时钟/文件系统，便于穷举验证）。
  *  i: { alive, absentForMs, expectedAbsence, sessionAvailable, restartsInWindow, hasExe, config:{ graceMs, updateGraceMs, maxRestarts } }
  *  返回 { action:'alive'|'record'|'wait'|'skip'|'restart', reason, needMs? } */
 function decide(i) {
@@ -78,9 +78,8 @@ function exeFromCmdline(cmdline) {
 }
 
 /** 更新账本状态机纯内核：由（壳身份, 更新账本）两快照推导 { state, reason, ... }：
- *  idle 无进行中更新；pending 已安装待壳启动确认；confirmed 壳已成功运行新版本。
- *  无回退判定（壳更新强制且不可回退）。只描述事实不落盘（落盘由调用方 evaluate 按 state
- *  执行）；不修改入参：确认分支返回新账本对象（confirmed=true）。 */
+ *  idle 无进行中更新；pending 已安装待壳启动确认；confirmed 壳已成功运行新版本。无回退判定（壳更新强制且不可回退）。
+ *  只描述事实不落盘（落盘由调用方 evaluate 按 state 执行）；不修改入参：确认分支返回新账本对象（confirmed=true）。 */
 function deriveState(id, journal) {
   const j = journal || {};
   if (!j.to) return { state: 'idle', reason: '无进行中的更新', journal: j, identity: id };

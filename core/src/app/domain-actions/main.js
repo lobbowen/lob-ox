@@ -1,9 +1,8 @@
 'use strict';
 
-// app/domain-actions/main.js —— 原生 DSH(main) 域写动作（facade 只读，写动作下沉至此）。
-// 实现只经注入的惰性 deps 取事实；装配侧（app/assembly/facets.js）把方法平铺装到 host，消费面不变。
-// 本补丁只持守卫元数据（guardian）；远程控制意图（remoteMode/remoteToken）的唯一写入口在
-// app/domain-actions/lan.js#setRemoteMode/setRemoteToken，不再经设置面旁路。
+// 原生 DSH(main) 域写动作（facade 只读）。实现只经注入的惰性 deps 取事实；装配侧把方法平铺装到 host，消费面
+//   不变。本补丁只持守卫元数据（guardian）；远程控制意图（remoteMode/remoteToken）的唯一写入口在
+//   app/domain-actions/lan.js#setRemoteMode/setRemoteToken。
 
 /** patchDshMain 工厂。
  *  @param deps { getState, getViews, getLogger } 全为惰性取值。 */

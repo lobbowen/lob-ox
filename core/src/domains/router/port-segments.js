@@ -1,13 +1,12 @@
 'use strict';
 
-// router 域端口段/独立池申报（反转法，DS-G4：platform 源码去注释后不得出现业务域名词）。
-// platform/service/ports 只保留通用机制（物理池 + 分配算法 + 注册接口），段名与独立池是域知识、在此申报。
+// router 域端口段/独立池申报：段名与独立池是域知识，platform/service/ports 只保留通用机制。
 // require 即申报（模块缓存保证幂等）；由本域各入口 require，确保消费前已就位；
-// 未申报段回退通用池 managed，与迁出前行为一致。
+// 未申报段回退通用池 managed。
 
 const ports = require('../../platform/service/ports');
 
-/** router 域独立池。base/count 为历史字面量，端口迁移兼容性要求逐字不得改动。 */
+/** router 域独立池。base/count 有端口迁移兼容性要求，逐字不得改动。 */
 const POOLS = {
   providerApi: { base: 24000, count: 2000 },  // 每供应商独立 API 端点段（24000-25999）
 };

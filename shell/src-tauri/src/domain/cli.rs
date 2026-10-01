@@ -1,5 +1,5 @@
 //! 无头自检入口（任何平台可跑，无需 GUI）：不建图形会话即可验证镜像 / 环境 / 内核治理链路。
-//! 用户的机器大多没有 Xvfb，出问题时这些命令是唯一的现场取回手段，同时也是发布后冒烟与三平台 CI 门禁的抓手。
+//! 用户的机器大多没有 Xvfb，出问题时这些命令是唯一的现场取回手段。
 
 
 pub(crate) fn cli_mirror_plan() -> i32 {
@@ -43,8 +43,7 @@ pub(crate) fn cli_mirror_plan() -> i32 {
 pub(crate) fn cli_env_plan() -> i32 {
     println!("== 环境探测自检 ==");
     println!("平台          = {}", std::env::consts::OS);
-  // 注意顺序：候选摘要由**探测线程**写入缓存，必须在 status() 之后再读，
-  // 否则首次调用会读到空串（诊断输出出现空白，易被误读为「没有候选」）。
+  // 候选摘要由**探测线程**写入缓存，必须在 status() 之后再读，否则首次调用会读到空串。
     let out = crate::nodeprobe::status(std::time::Duration::from_secs(60));
     println!("{}", crate::nodeprobe::candidate_summary());
     println!("完成          = {}", out.finished);
@@ -100,10 +99,8 @@ pub(crate) fn cli_service_plan() -> i32 {
     println!("== 守卫服务定义自检 ==");
     println!("平台          = {}", std::env::consts::OS);
     println!("服务定义路径  = {}", crate::platform::service().definition_path().display());
-  // 经 ServiceControl::is_defined()（平台**事实**判定）——
-  //  原先用 definition_path().is_file()，而 Windows 的路径是标识串
-  //  schtasks://DSH-Supervisor，is_file() **恒 false** -> 自检无论计划任务是否
-  //  存在/刚建立都报「否」，把排障方向带偏（本自检正是「服务定义」能力的官方入口）。
+  // 必须经 ServiceControl::is_defined()（平台**事实**判定）：Windows 的路径是标识串
+  // schtasks://DSH-Supervisor，is_file() 恒 false。
     println!("现存          = {}", if crate::platform::service().is_defined() { "是" } else { "否" });
     println!(
         "HOME          = {}",
@@ -127,8 +124,8 @@ pub(crate) fn cli_service_plan() -> i32 {
 
   // 打出的必须是**真正会写进服务定义的那一行**：走运行时同一条装配路径（LaunchSpec::from_runtime +
   // service_command），不在此另拼一遍，否则「自检显示正确、实际写入不同」本身就是排障陷阱。
-  // Windows 上「任务能建、`/Run` 却失败」的线索基本落在这一行：取不到壳自身路径时曾静默写空串，
-  // 或留着 current_exe() 的 `\\?\` verbatim 前缀，而定义一旦写坏就回读不到当时用的值。
+  // Windows 上「任务能建、`/Run` 却失败」的线索基本落在这一行：壳自身路径不可为空，
+  // 也不得带 current_exe() 的 `\\?\` verbatim 前缀。
     match (&guard, crate::runtime_contract::read_node()) {
         (Some(g), Some(rt)) => match crate::platform::LaunchSpec::from_runtime(&rt, g.clone()) {
             Ok(spec) => {
@@ -177,7 +174,7 @@ pub(crate) fn cli_service_plan() -> i32 {
 
 /// 运行时守卫入口（`--run-guard`）：每次启动重新本地检测 node + 守卫再执行，
 /// 让服务定义只指向稳定入口，node 迁移 / 内核升级后无需重建定义。
-/// 不触网：只做本地检测（运行期契约 + 内核位置契约 + 候选扫描），离线也能启动；线上对齐（P1）由壳在创建/启动服务前把关。
+/// 不触网：只做本地检测（运行期契约 + 内核位置契约 + 候选扫描），离线也能启动；线上对齐由壳在创建/启动服务前把关。
 pub(crate) fn cli_run_guard() -> i32 {
     let Some((rt, guard)) = crate::domain::guardctl::resolve_local(None) else {
         eprintln!("[run-guard] 本地检测失败：未找到可用的 node 或内核守卫");
@@ -199,9 +196,8 @@ pub(crate) fn cli_run_guard() -> i32 {
 }
 
  /// 无头看护入口（`--watchdog`，Windows 计划任务每 5 分钟调用一次）。判据只有 `guardctl::ready()`
-/// （TCP + `/healthz` 2xx），与 GUI 启动、面板轮询同一实现；此处不得内嵌 PowerShell 用 `Test-NetConnection`
-/// 只看 TCP 端口，那等于给「守卫活着吗」写第三个答案（端口被占但服务没起 = 判为活）。
-/// 只拉守卫不拉 GUI；不走 ensure_guard（那条链含 P1 线上对齐，看护无权改变安装态），复用 P4->P6 的 `ensure_started`。
+/// （TCP + `/healthz` 2xx），与 GUI 启动、面板轮询同一实现；此处不得内嵌 PowerShell 用 `Test-NetConnection` 只看 TCP 端口（端口被占但服务没起 = 判为活）。
+/// 只拉守卫不拉 GUI；不走 ensure_guard（那条链含线上对齐，看护无权改变安装态），复用 `ensure_started`。
 pub(crate) fn cli_watchdog() -> i32 {
     let port = crate::env::current_api_port();
     if crate::domain::guardctl::ready(port, WATCHDOG_PROBE_TIMEOUT) == crate::domain::guardctl::Readiness::Ready {

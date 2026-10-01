@@ -157,7 +157,7 @@ function createScheduler(deps) {
         }
       }
     }
-    // 使用中账号每 10 分钟刷新（信息化管理）：ready 账号定期检测额度。
+    // 使用中账号每 10 分钟刷新：ready 账号定期检测额度。
     if (!state.lastRefreshAt || t - state.lastRefreshAt >= 10 * 60 * 1000) {
       state.lastRefreshAt = t;
       refreshReadyAccounts().catch(() => {});

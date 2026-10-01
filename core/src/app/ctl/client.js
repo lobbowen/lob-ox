@@ -2,8 +2,8 @@
 
 const hub = require('../../platform/service/log/hub');
 
-// ctl 客户端工厂：router(43107)/lan(43108) 控制通道调用与端口解析。
-// 具名纯函数 + deps 注入；host 兼容方法见文件末 methods。
+// ctl 客户端工厂：router(43107)/lan(43108) 控制通道调用与端口解析。具名纯函数 + deps 注入；host 兼容方法见
+//   文件末 methods。
 
 /** 通用 ctl 调用（router 43107 / lan 43108 共用），实现为 hub.ctlCall。
  *  本包装只负责本层契约：默认 120s（面板写操作可达秒级）+ 在 Error 上挂 ok/error。 */
@@ -33,8 +33,7 @@ function createCtlClient(deps) {
   };
 }
 
-// host 既有方法安装（facets.js 的 { methods } 形状不动）：其他切面仍经宿主方法取用；
-// config 为宿主字段读取，其余走上面的具名函数。
+// host 既有方法安装：config 为宿主字段读取，其余走上面的具名函数；其他切面仍经宿主方法取用。
 const methods = {
   _ctlCall: ctlCall,
   _routerCtlPort() { return routerCtlPort(this.config); },

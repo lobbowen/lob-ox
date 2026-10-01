@@ -129,7 +129,7 @@ function handle(ctx) {
       });
       return;
     }
-    // 无账号确认端点：账号入库即终态，不留无写入方的 review 状态。
+    // 账号入库即终态。
 
     if (req.method === 'POST' && pathname === '/router/providers/account/discard') {
       if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }

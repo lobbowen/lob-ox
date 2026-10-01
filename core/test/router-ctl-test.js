@@ -1,9 +1,7 @@
 'use strict';
 
-// router-ctl 控制通道测试：GET /health 存活；POST /ctl 同步/异步/参数透传/未知方法/方法抛错；
-// 守卫侧 routerCtlCall 语义（{ok:true,value} / {ok:false,error}）。
-// 自包含：假 RouterService + 真实 http，不依赖真实 daemon/守卫/账号数据。
-// 同一闸的「纯判据 + 行为」双采样只留一条有区分度的纯判据（text/plain 拒 / 合法通过）。
+// router-ctl 控制通道：GET /health 存活；POST /ctl 同步/异步/参数透传/未知方法/方法抛错；守卫侧 routerCtlCall
+//   语义（{ok:true,value} / {ok:false,error}）。自包含：假 RouterService + 真实 http，不依赖真实 daemon/守卫/账号数据。
 
 const http = require('node:http');
 const path = require('node:path');

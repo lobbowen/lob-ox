@@ -22,13 +22,9 @@ function execInherit(bin, args) {
   return r;
 }
 
-// 包根解析：
-//   本文件有两种运行形态，__dirname 语义不同：
-//     源码态：node <repo>/bin/dsh-supervisor            -> __dirname = <repo>/bin
-//     发行态：esbuild 打成 core.cjs 后 require 执行      -> __dirname = <pkg>（core.cjs 旁）
-//   硬写 path.join(__dirname, '..')：只覆盖源码态；发行态却指向**包外**，
-//   导致 systemd 模板/desktop 模板路径错位、BIN_PATH 指向不存在的文件。
-//   现从 __dirname 逐级向上找含 package.json 的目录作为包根，两种形态均正确。
+// 包根解析：本文件有两种运行形态，__dirname 语义不同 —— 源码态 `node <repo>/bin/dsh-supervisor`
+//   → `<repo>/bin`；发行态（esbuild 打成 core.cjs 后 require）→ `<pkg>`（core.cjs 旁）。
+//   硬写 `path.join(__dirname, '..')` 只覆盖源码态（发行态指向包外），故从 __dirname 逐级向上找含 package.json 的目录作包根。
 function findPackageRoot(start) {
   let d = start;
   for (let i = 0; i < 6; i += 1) {
@@ -45,14 +41,9 @@ const stateRoot = require('../src/platform/service/state-root');
 const SUPERVISOR_DIR = stateRoot.supervisorDir();
 const USER_CONFIG = path.join(SUPERVISOR_DIR, 'config.json');
 
-// 内嵌默认配置（发行态唯一模板源）：发布物不再依赖 ROOT/config.json 外置文件（fresh-HOME 自举必需）。
-// command 用 PATH 查找的 'dsh'（用户本机路径由 install/壳写入用户配置；nativeCommand 会注入 --port）。
-// 配置单一事实源 = platform/service/config 的默认值；此处仅补充默认值未含的「模板必填项」
-// command（DSH 启动命令）与 healthUrl（探活地址）——避免默认配置在多处复制漂移。
-//
-// 业务域配置键（如 daemon 控制通道端口 / 启用意图）**不在** platform
-//   的模块级 DEFAULTS 里（那会让平台源码带域名词）。此处是**进程入口**，向 app/settings 取
-//   注入声明后经 buildDefaults 合成完整默认值 —— 落盘模板与反转前逐字一致（键名/值/键序均不变）。
+// 内嵌默认配置（发行态唯一模板源）：发布物不依赖 ROOT/config.json 外置文件（fresh-HOME 自举必需）。
+// command 用 PATH 查找的 'dsh'（nativeCommand 会注入 --port）；配置单一事实源 = platform/service/config 的默认值，
+//   此处只补默认值未含的模板必填项 command 与 healthUrl；业务域配置键由进程入口向 app/settings 取注入声明后经 buildDefaults 合成。
 const { buildDefaults } = require('../src/platform/service/config');
 const { extension: domainConfigExtension } = require('../src/app/settings/domain-config');
 const DEFAULT_CONFIG = Object.assign(
@@ -62,10 +53,9 @@ const DEFAULT_CONFIG = Object.assign(
 );
 const STATE_FILE = path.join(SUPERVISOR_DIR, 'state.json');
 const EVENTS_FILE = path.join(SUPERVISOR_DIR, 'events', 'guard.events.log');
-// 跨平台命令行入口：
-//   Unix    ：~/.local/bin/dsh-supervisor（软链到包内脚本，无扩展名）。
-//   Windows ：%APPDATA%\npm 下的 .cmd 垫片——Windows 可执行须有扩展名，且创建**符号链接**
-//             需管理员/开发者模式（普通用户 EPERM），故用 .cmd 而非 symlink。
+// 跨平台命令行入口：Unix 为 ~/.local/bin/dsh-supervisor（软链到包内脚本，无扩展名）；
+//   Windows 为 %APPDATA%\npm 下的 .cmd 垫片 —— 可执行须有扩展名，且创建符号链接需管理员/开发者模式
+//   普通用户下创建符号链接会 EPERM，故用 .cmd 而非 symlink。
 const IS_WINDOWS = process.platform === 'win32';
 const BIN_DIR = IS_WINDOWS
   ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'npm')
@@ -191,13 +181,8 @@ function apiRequest(method, apiPath) {
 }
 
 // ---- 单实例锁：O_EXCL 原子创建 + 三证据让位 + 崩溃残留清理 ----
-// 守卫是「唯一监管者」，两个守卫并存会双写状态文件、双 tick、竞态 spawn（双实例风险）。
-// 锁文件（可用 DSH_SUPERVISOR_LOCK_FILE 覆盖路径，供测试隔离/多实例部署）
-// 默认 <状态根>/supervisor/guard.lock，内容是 {pid,started,entry} JSON：
-//  - O_EXCL 创建保证原子性（并发启动只有一个成功）；
-//  - 已存在时按「pid 存活 / 命令行是本产品的守卫 / 锁还在续约」三证据决定让位还是接管；
-//    活着的前任守卫给 LOCK_TAKE_RETRY_MS 的有界窗口退出（壳的停止请求是异步的）；
-//  - SIGTERM/SIGINT/exit 统一释放；SIGKILL 无法捕获，靠下一次的存活检测与续约老化自愈。
+// 守卫是「唯一监管者」，两守卫并存会双写状态文件、双 tick、竞态 spawn。锁文件默认 <状态根>/supervisor/guard.lock（DSH_SUPERVISOR_LOCK_FILE 可覆盖），
+//   内容 {pid,started,entry}；O_EXCL 保证并发只有一个成功，已存在时按「pid 存活 / 命令行是本产品守卫 / 锁在续约」三证据让位或接管，SIGTERM/SIGINT/exit 统一释放。
 const LOCK_FILE = process.env.DSH_SUPERVISOR_LOCK_FILE || path.join(SUPERVISOR_DIR, 'guard.lock');
 const LOCK_OWNER = { pid: process.pid, started: Date.now(), entry: process.argv[1] || '' };
 
@@ -236,10 +221,9 @@ function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 
-// 前任守卫的死亡抖动窗口：壳停守卫是异步的（Windows 按命令行强杀，从发起到进程咽气可达数秒），
-// 用户随即重开就会撞在这把锁上。立刻让位 = 把「它还没咽气」变成「永远起不来」——前任一死，
-// 锁留着、端口没人监听、面板只有拒绝连接。有界等它退出再接管； healthy 的守卫不会在窗口内消失，
-// 到时仍按单实例让位（并发双写状态/竞态 spawn 比晚起几秒严重得多）。
+// 前任守卫的死亡抖动窗口：壳停守卫是异步的（Windows 按命令行强杀，从发起到进程咽气可达数秒），用户随即重开就会撞锁。
+//   立刻让位会把「它还没咽气」变成「永远起不来」——锁留着、端口没人监听、面板只有拒绝连接。故有界等它退出再接管；
+//   到窗口末仍按单实例让位（并发双写状态/竞态 spawn 比晚起几秒严重得多）。healthy 的守卫不会在窗口内消失。
 const LOCK_TAKE_RETRY_MS = 8000;
 const LOCK_TAKE_NAP_MS = 250;
 
@@ -375,16 +359,9 @@ function cmdDaemon() {
   // 否则打包产物只含 CLI 壳、daemon 运行期仍依赖发行目录旁置的 src/。
   const { Supervisor } = require('../src/supervisor');
   const sup = new Supervisor(cfg, cfgPath);
-  // **必须等 shutdown 真正完成再退出**：
-  //
-  //   `shutdown()` 内部要
-  //     `await lifecycleManager.stopAll()`（停内嵌 router/lan：反代实例、relay、frpc、
-  //     端口释放）。那是**异步**的；`process.exit` 立即终止进程，stop 只跑了同步前缀，
-  //     子进程与端口**残留成孤儿**（正是 shutdown 里那段注释声称要防的事）。
-  //
-  //   故等 shutdown 的 Promise settle 后再 exit；并加**兜底超时**（8s），
-  //     防止某个模块的 stop 卡住导致进程永不退出（systemd 会再 SIGKILL，但那样更难排查）。
-  //     重复信号：第二次直接强退（用户/服务管理器连续发信号时不该再等）。
+  // **必须等 shutdown 真正完成再退出**：`shutdown()` 内部的 `await lifecycleManager.stopAll()`
+  // 停内嵌 router/lan（反代实例、relay、frpc、端口释放）是异步的，`process.exit` 会让 stop 只跑同步前缀，
+  //   子进程与端口残留成孤儿。故等 Promise settle 后再 exit 并加 8s 兜底超时；重复信号第二次直接强退。
   let _exiting = false;
   function gracefulExit(code) {
     if (_exiting) { process.exit(code); }
@@ -466,13 +443,12 @@ function printStatus(s) {
 }
 
 function cmdControl(action) {
-  // 唯一入口（R3 C3-5a）：main 启停经统一生命周期 /lifecycle/dsh/{start|stop|restart}；
-  // 旧 /start|/stop|/restart 路由已删除——CLI 曾直打旧路由，恒 404。
-  // 兼容性：新版 daemon 走 /lifecycle/dsh/*；对旧版 daemon（仅旧路由）做一次回退。
+  // 唯一入口：main 启停经统一生命周期 /lifecycle/dsh/{start|stop|restart}；旧 /start|/stop|/restart 路由返回 404，
+  // 对仅提供旧路由的旧版 daemon 回退一次旧路径。
   const primary = '/lifecycle/dsh/' + action;
   apiRequest('POST', primary).then((r) => {
     if (r && r.error === 'not found') {
-      // 旧版 daemon 回退（过渡期）：仅当明确 404 语义时
+      // 旧版 daemon 回退：仅当明确 404 语义时
       return apiRequest('POST', '/' + action).then(finishControl);
     }
     finishControl(r);
@@ -512,10 +488,8 @@ function cmdInstall() {
     fs.symlinkSync(path.join(ROOT, 'bin', 'dsh-supervisor'), BIN_PATH);
     console.log('[install] 命令行链接: ' + BIN_PATH + ' → ' + __dirname + '/dsh-supervisor');
   }
-  // 服务定义（systemd/launchd/schtasks）、开机自启、桌面入口的**所有者是桌面壳**
-  //   （KERNEL-DAEMON-CONTRACT D6 / KERNEL-LAUNCH-STANDARD H5）：
-  //   内核 install **不再**写任何服务定义或 autostart —— 否则与壳争夺「谁定义、谁拉起」，
-  //   Windows 上更会形成双启动器（kernel watchdog + 壳计划任务）。
+  // 服务定义（systemd/launchd/schtasks）、开机自启、桌面入口的**所有者是桌面壳**：
+  //   内核 install 不写任何服务定义或 autostart —— 否则与壳争夺「谁定义、谁拉起」，Windows 上更会形成双启动器。
   //   此处只准备内核本体需要的 config 与命令入口。
   console.log('[install] 服务定义/开机自启/桌面入口由桌面壳负责（本命令不再部署）。');
   console.log('[install] 内核本体已就绪。启动由桌面壳或服务管理器发起：dsh-supervisor daemon');
@@ -540,7 +514,7 @@ function cmdGuiAutostart(onoff) {
 }
 
 function cmdUninstall() {
-  // 服务定义 / 开机自启 / linger 的所有者是**桌面壳**（D6）：内核卸载只移除自己的命令行入口，
+  // 服务定义 / 开机自启 / linger 的所有者是**桌面壳**：内核卸载只移除自己的命令行入口，
   //   绝不触碰壳建立或持有的服务定义与自启项（否则与壳争夺所有权）。
   //   状态目录（config/日志/端口）**故意保留** —— 卸载不应销毁用户数据。
   try {
@@ -596,7 +570,7 @@ function cmdSelfUpdate(action) {
     }
     if (action === 'apply') {
       // 单写入者契约：内核包只能由桌面壳安装（守卫不自装）。
-      //   CLI 不再代跑安装；接口 /self-update/apply 已下架（410 KERNEL_UPDATE_SINGLE_WRITER）。
+      //   CLI 不代跑安装；接口 /self-update/apply 返回 410 KERNEL_UPDATE_SINGLE_WRITER。
       console.error('内核更新由桌面壳执行（单写入者契约）：请在桌面壳面板「关于」中点「更新」。');
       console.error('本命令不再安装内核。');
       process.exit(2);

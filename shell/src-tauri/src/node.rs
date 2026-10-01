@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-// 镜像候选已收敛到 mirror.rs 的 NODE_PRESETS（壳自持配置，支持用户自定义）。
+// 镜像候选来自 mirror.rs 的 NODE_PRESETS（壳自持配置，支持用户自定义）。
 
 /// 整个请求的时间上限（ureq 的 timeout 覆盖整次调用，含响应体读取）。
 /// Node 安装包 30-90MB，必须给足；否则慢网下会误报为网络故障。
@@ -15,9 +15,8 @@ fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
 }
 
 /// 取回整个响应体，边下边报字节进度。`on_bytes(已取回, 总量)`：总量优先取响应头的 Content-Length，
-/// 没有就用 `total_hint`（调用方从别处已知的真实大小，如 registry 的 `dist.size`），两者都没有才是
-/// None。按块回调而不是整块：Node 官方归档 30~90MB，慢网下整块读取要数分钟，而这段时间此前对 UI
-/// 完全不可见。`pub(crate)`：全仓只有这一个带进度的 GET，内核包下载必须复用它而非再写一份客户端。
+/// 没有就用 `total_hint`（调用方已知的真实大小，如 registry 的 `dist.size`），两者都没有才是 None。
+/// 必须按块回调：归档 30~90MB，整块读取期间进度对 UI 完全不可见。全仓只有这一个带进度的 GET。
 pub(crate) fn http_get_bytes_progress(
     url: &str,
     total_hint: Option<u64>,
@@ -90,8 +89,7 @@ fn best_from_index(raw: &str) -> Option<(String, String)> {
         if !is_lts { continue; }
         let ver = item.get("version").and_then(|v| v.as_str()).unwrap_or("");
         if ver.is_empty() || !ver.starts_with('v') { continue; }
-  // 标签与文件名**同源**（平台层一次给出）——
-// 标签与文件名同源（平台层一次给出），避免判定与下载对象不一致。
+  // 标签与文件名**同源**（平台层一次给出），避免判定与下载对象不一致。
         let art = match platform_artifact(&ver[1..]) { Some(a) => a, None => continue };
         let file = art.file;
         let tag = art.tag;
@@ -214,10 +212,8 @@ pub fn download_verified(
             Err(e) => { last_err = Some(e); continue; }
         };
         let digest = hex::encode(Sha256::digest(&data));
-  // 镜像回退必须在 SHASUMS 失败时也能继续：写成 `String::from_utf8(http_get_bytes(...)?)` 时外层 `?`
-  // 让网络失败直接 return，下面的 `continue` 只覆盖非 UTF-8 情形 —— 一次限流或超时即中断整条回退链，
-  // 即使后续镜像完全健康，与本函数上方「校验失败换下一个源」的承诺矛盾。条目未找到（`ok_or_else(...)?`）
-  // 同理改为 continue。
+  // SHASUMS 获取失败必须 `continue`（网络失败、非 UTF-8、条目未找到同理）：
+  // 用 `?` 会让一次限流或超时中断整条镜像回退链。
         let sums = match http_get_bytes(&format!("{}/{}/SHASUMS256.txt", base, version)) {
             Ok(bytes) => match String::from_utf8(bytes) {
                 Ok(s) => s,
@@ -246,9 +242,9 @@ pub fn download_verified(
     Err(last_err.unwrap_or_else(|| "下载失败".into()))
 }
 
-/// 平台安装：官方产物 + 一次性系统授权弹窗。实现已下沉到 platform 层（三平台的提权通道与安装器各不相同，
-/// 现统一为用户级归档解包，零权限，见 ENV-TOOLCHAIN-INSTALL-STANDARD）。
-/// 这是壳独有的能力：装内核之前必须先把运行环境装好（引导顺序 R1），而提权需要人在场 —— 无头的内核永远做不到。
+/// 平台安装：官方产物 + 一次性系统授权弹窗。实现下沉到 platform 层（三平台统一为用户级归档解包，零权限，
+/// 见 ENV-TOOLCHAIN-INSTALL-STANDARD）。
+/// 这是壳独有的能力：装内核之前必须先把运行环境装好，而提权需要人在场 —— 无头的内核永远做不到。
 pub fn install(file: &Path) -> Result<PathBuf, String> {
     crate::platform::current().install_node(file)
 }
@@ -260,7 +256,7 @@ pub fn outdated(installed: Option<&str>, latest: &str) -> bool {
     }
 }
 
-/// DSH 运行最低 Node 门槛（commander 要求 Node >= 22.12.0， 核实）。
+/// DSH 运行最低 Node 门槛（commander 要求 Node >= 22.12.0）。
 /// 引导策略：达到最低标准即放行（不要求最新 LTS）——旧于最新但 >= 门槛直接进后续。
 pub const MIN_NODE: &str = "v22.12.0";
 
@@ -302,7 +298,7 @@ mod tests {
 }
 
 /// npm 仍缺失时的**可操作**文案（ENV-TOOLCHAIN-INSTALL-STANDARD，必须给手动安装指引）。
-/// 经平台层取 npm 可执行名（G1：平台差异只在 platform 层）。
+/// 经平台层取 npm 可执行名（平台差异只在 platform 层）。
 pub fn npm_manual_hint(version: &str) -> String {
     format!(
         "Node.js {} 已安装，但配套的 npm（{}）仍不可用。请手动安装 Node 官方分发包（自带 npm）后重试：\
@@ -314,9 +310,8 @@ pub fn npm_manual_hint(version: &str) -> String {
 }
 
 /// 重新执行官方安装以补齐 npm（幂等）。复用已下载且 SHA256 校验通过的同一产物，不重新下载：
-/// 再下一遍会把「补 npm」拖成一次完整重装，让用户多等一个 30~50MB 的下载。失败一律归 npm 步骤。
-/// `version` 由 `finalize_install` 传入已校验值；不 `unwrap_or_default()` 兜空版本 —— 空版本一旦写进契约，
-/// 下游每一条「已就绪」播报都会念出一个看不见的号。
+/// 再下一遍会把「补 npm」拖成一次完整重装。失败一律归 npm 步骤。`version` 由 `finalize_install`
+/// 传入已校验值；不兜空版本 —— 空版本一旦写进契约，下游每条「已就绪」播报都会念出一个看不见的号。
 pub fn reinstall_for_npm(local: &Path, version: &str) -> Result<crate::runtime_contract::NodeRuntime, String> {
   // 重装可能把「另一个旧 Node」留在 PATH/记录里，故用安装器返回的路径直接复探，
     //   而不是再问一次 PATH（否则可能拿到旧版本，与目标版本不一致 -> 永不收敛）。
@@ -329,8 +324,7 @@ pub fn reinstall_for_npm(local: &Path, version: &str) -> Result<crate::runtime_c
 
 /// 安装收尾（ENV-TOOLCHAIN-INSTALL-STANDARD）：校验 node（版本 + 最低门槛）-> 校验 npm ->
 /// 不可用则重装补 npm（幂等）。成功返回运行期契约本身，而不是再拼一份字段子集：外层每一条播报必须出自
-/// 同一份事实，否则会出现「拿 node 版本当 npm 版本念出去」那类无从校验的口径分叉。
-/// 失败以 bool 区分归属（true=npm / false=node）。这段属于 node.rs 而非 main.rs：G3 要求 main.rs 只做组装。
+/// 同一份事实。失败以 bool 区分归属（true=npm / false=node）。
 pub fn finalize_install(
     node_bin: &Path,
     target: &str,
@@ -351,8 +345,8 @@ pub fn finalize_install(
         return Ok(rt);
     }
   crate::update::log("官方分发包未提供可用 npm，正在重新执行官方安装（幂等）…");
-  // 直接返回重装后的契约：路径/版本以安装器**这次**给出的为准（旧实现把重装前的 node_bin
-    //   报出去，一旦重装换了落点，外层拿到的就是一个不再存在的路径）。
+  // 直接返回重装后的契约：路径/版本以安装器**这次**给出的为准（重装可能换落点，
+  // 沿用重装前的 node_bin 会得到不再存在的路径）。
     reinstall_for_npm(local, &v).map_err(|e| (true, e))
 }
 
@@ -362,10 +356,7 @@ pub fn probe_after() -> Option<(PathBuf, String)> {
     crate::env::known_install_node_path().and_then(|p| crate::env::node_version(&p).map(|v| (p, v)))
 }
 
-// record_runtime_meta 已删除：它与 runtime_contract::write 是
-// **两个写者**写同一个 <supervisor_dir>/runtime.json，且它不写 npmPath/npmArgs/schema ——
-// 在 runtime_contract::write 之后调用会把 npm 事实整体覆盖掉（随后 read_node() 还会用
-// 不存在的 bin/npm 伪造路径）。运行时纪要现由 runtime_contract::write 单一写入。
+// 运行期契约只有 runtime_contract::write 单一写入点（两个写者会互相覆盖 npm 事实）。
 
 /// 当前 UTC 时间，ISO 8601（`YYYY-MM-DDTHH:MM:SSZ`）。
 /// 纯 std 计算（Howard Hinnant civil-from-days），三平台一致、无副作用；

@@ -15,8 +15,8 @@ function handle(ctx) {
       return send(200, sup.statusSummary());
     }
 
-    // 会话生命周期：GET /session/status 为会话态唯一读取口（INV-S4）；
-    // POST /session/stop 进入 stopping、停全部被管对象后置 stopped 并回执（INV-S2）。
+    // 会话生命周期：GET /session/status 为会话态唯一读取口；
+    // POST /session/stop 进入 stopping、停全部被管对象后置 stopped 并回执。
     // 守卫不停止自己；壳收到本回执后执行 systemctl --user stop。
     if (req.method === 'GET' && pathname === '/session/status') {
       return send(200, { sessionState: sup.sessionState ? sup.sessionState() : 'unknown' });
@@ -93,10 +93,9 @@ function handle(ctx) {
         const typ = u.searchParams.get('type');
         if (src || typ) filter = { source: src || undefined, type: typ || undefined };
       } catch {}
-      // /events 读守卫 EventHub 聚合流（gseq 全局有序、跨守卫重启连续）；sup.eventHub 为真实
-      // EventHub 或 EventReader 降级适配器，同接口同语义。
-      // 默认过滤内部簿记事件（heartbeat 影子 shadow_* / 注册机 managed_object_*，聚合时打 internal 标），
-      // 它们只进审计（internal=1 / /logs/export），UI 时间线只显示业务事件。
+      // /events 读守卫 EventHub 聚合流（gseq 全局有序、跨守卫重启连续）；sup.eventHub 为真实 EventHub
+      // 或 EventReader 降级适配器，同接口同语义。默认过滤内部簿记事件（heartbeat 影子 shadow_* / 注册机
+      // managed_object_*，聚合时打 internal 标）：它们只进审计（internal=1 / /logs/export），UI 时间线只显示业务事件。
       const hub = sup.eventHub;
       if (!hub) return send(200, { seq: (sup.events && sup.events.seq) || 0, events: [] });
       const seq = hub.seq;

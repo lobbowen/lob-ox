@@ -1,7 +1,6 @@
 'use strict';
 
-// app/control/specs.js —— 受管对象申报工厂（真 ctor 注入）：createSpecs(deps) 自己持有
-// 申报/注册实现，只 require 本模块 + 假 deps 即可直测。
+// 受管对象申报工厂（真 ctor 注入）：createSpecs(deps) 自己持有申报/注册实现。
 
 const os = require('node:os');
 const path = require('node:path');
@@ -17,7 +16,9 @@ function createSpecs(deps) {
   const daemons = () => (typeof g.getDaemons === 'function' ? g.getDaemons() : null);
   const logger = () => (typeof g.getLogger === 'function' ? g.getLogger() : null);
 
-  /** main(dsh) 申报为管家注册项。guardian 不申报（B2-2）：守护开关权威在 dsh-main.json，消费者直读源。 */
+    /**
+   * main(dsh) 申报为管家注册项。guardian 不申报：守护开关权威在 dsh-main.json，消费者直读源。
+   */
   function mainSpec() {
     return {
       kind: 'dsh', id: 'main', name: '主实例',
@@ -30,8 +31,10 @@ function createSpecs(deps) {
     };
   }
 
-  /** 单个沙箱实例申报。不申报 desired（B2-1）也不申报 guardian（B2-2）：运行意图没有第二
-   *  落点，守护开关权威在实例记录 inst.guardian（supervise 直读）；相位不进应然面。 */
+    /**
+   * 单个沙箱实例申报。不申报 desired 也不申报 guardian：运行意图没有第二落点，守护开关权威在实例记录
+   * inst.guardian（supervise 直读），相位不进应然面。
+   */
   function sandboxSpec(inst) {
     if (!inst || !inst.id) return null;
     let rootPath = null;
@@ -48,9 +51,10 @@ function createSpecs(deps) {
     };
   }
 
-  /** 申报或更新（存在->update 应然；否则 register）。spec.desired 若给出必须是意图源的投影
-   *  （main=state.desired、域 B=config 业务条件），不得由 phase 推导（契约 M-1）；
-   *  沙箱实例有意不申报 desired——update 见 undefined 即跳过，目录项不落第二意图源。 */
+    /**
+   * 申报或更新（存在->update 应然；否则 register）。spec.desired 若给出必须是意图源的投影（main=state.desired、
+   * 域 B=config 业务条件），不得由 phase 推导；沙箱实例有意不申报 desired —— update 见 undefined 即跳过。
+   */
   function upsert(spec) {
     const m = reg();
     if (!m || !spec) return;
@@ -83,11 +87,10 @@ function createSpecs(deps) {
       const sandboxes = (_m && typeof _m.all === 'function' && _m.all()) || [];
       for (const inst of sandboxes) {
         if (inst.id === 'main' || inst.domain === 'native') continue;
-        // 沙箱 spec 只带身份/所有权（B2-1/B2-2）：load() 后的 state.phase 是实然快照，
-        // 观测对齐路径对目录的 desired/guardian 零写权。
+                // 沙箱 spec 只带身份/所有权：load() 后的 state.phase 是实然快照，观测对齐路径对目录的 desired/guardian 零写权。
         upsert(sandboxSpec(inst));
       }
-      // 目录全域不持 guardian（B2-2，契约 G-1 收口形态）；域 B 的 desired 由配置业务条件驱动。
+            // 目录全域不持 guardian；域 B 的 desired 由配置业务条件驱动。
       const c = ctl();
       upsert({
         kind: 'router-daemon', id: 'router-daemon', name: '智能路由 daemon',

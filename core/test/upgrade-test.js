@@ -29,8 +29,6 @@ function check(name, cond, extra = '') {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// （2026-10-12 瘦身 THIN-1-12）原 testCmp() 的 7 向量 semverCompare 单测已删：
-//   同一判据由 version-vectors-test.js 逐条向量覆盖，此处属重复采样（省约 22 行）。
 
 // ---- mock registry ----
 function startRegistry(port, version) {
@@ -191,8 +189,7 @@ async function main() {
   await api(3940, 'POST', '/native/upgrade');
   const st3 = await waitUpgrade(3940, (x) => x.state === 'done' || x.state === 'failed', 15000);
   if (st3 && st3.state !== 'done') console.log('  [U3-diag] lastError=' + st3.lastError + ' logTail=' + JSON.stringify((st3.logTail || []).slice(-12)));
-  // 原「重复升级被安全处理」只断 `!!st3`（对象非空即通过，失败态也绿）——已改成真判据：
-  //   已是最新时终态必须是 done（跳过），且版本号不得被反复安装改写。
+  // 「重复升级被安全处理」的真判据：已是最新时终态必须是 done（跳过），且版本号不得被反复安装改写。
   const pkg3 = JSON.parse(fs.readFileSync(pkgA, 'utf8'));
   check('已是最新 → 跳过（终态 done）且版本保持 2.0.0',
     !!st3 && st3.state === 'done' && pkg3.version === '2.0.0', JSON.stringify(st3 && st3.state) + ' ' + pkg3.version);
@@ -216,10 +213,7 @@ async function main() {
   await killDaemon(dA);
 
   // == U5：升级作业不得挡住自身的重启（非升级调用必须幂等短路）==
-  //   原 instance-upgrade-test 的 R1 有两个断言，其中「fromUpgrade=true → 真正拉起 systemd」
-  //   已由 instance-state-test.js 覆盖（7C fromUpgrade 旁路准入/真正拉起，另有 6e/7E 同源样本）
-  //   -> 此处只保留它**独有**的那一半：作业忙时**非升级**调用必须幂等短路且不启动
-  //   （防双开安装）。其比对价值正在于两条分支的行为差异，故夹具仍需能观察 startTransient。
+  //   作业忙时**非升级**调用必须幂等短路且不启动（防双开安装）；夹具仍需能观察 startTransient 以区分两条分支。
   console.log('== U5: 升级作业不得挡住自身的重启（非升级调用必须幂等短路）==');
   {
     const { InstanceManager } = require(path.join(ROOT, 'src', 'domains', 'instance', 'index'));
@@ -230,9 +224,8 @@ async function main() {
     // 模拟「升级作业进行中」：tasks.isBusy('instance', id) 恒 true
     const id = 'u1';
     const tasksStub = { isBusy: () => true, current: () => ({ action: 'upgrade' }) };
-    //  迁移硬前置：域内拆分后 _prepareSystemd/_systemdStart 成了组装根的闭包委托，
-    //   实例上的补丁不再拦截内部调用（会真跑 systemctl --user daemon-reload 与真 mkdir）。
-    //   故按本仓既有约定改为**构造期注入**假平台服务，systemd 目录指向临时目录。
+    // _prepareSystemd/_systemdStart 是组装根的闭包委托，实例上的补丁拦不住内部调用（会真跑 systemctl --user
+    //   daemon-reload 与真 mkdir）⇒ 必须**构造期注入**假平台服务，systemd 目录指向临时目录。
     const systemdDir = path.join(TMP, 'systemd');
     const started = [];
     const fakeService = {
@@ -273,18 +266,15 @@ async function main() {
   }
 
   // == U6：健康验证的稳定期预算（慢启动不得被误判 -> 避免不必要回滚）==
-  //   原 instance-upgrade-test 的 R2：waitPortHealthy 在「剩余时间 < stabilityMs」时直接 break
-  //   判失败——端口其实已就绪（只是探测晚）-> 慢启动实例被误判 -> 触发不必要回滚。
-  //   修复：用剩余预算做缩短稳定期复检。本段是 U4「失败真回滚」的互补面：
-  //   真失败必回滚（U4），而「只是慢」不得回滚（U6）。
+  //   waitPortHealthy 在「剩余时间 < stabilityMs」时直接 break 判失败，会把「端口已就绪只是探测晚」的慢启动误判；
+  //   修复：用剩余预算做缩短稳定期复检。U4「真失败必回滚」与本条互补。
   console.log('== U6: 健康验证稳定期预算（慢启动不得被误判 → 避免不必要回滚）==');
   {
     const net = require('node:net');
     const { DistributionManager } = require(path.join(ROOT, 'src', 'platform', 'distribution', 'index'));
     const logger = { info() {}, warn() {}, error() {}, debug() {} };
     const dist = new DistributionManager({ logger });
-    // 端口健壮性：原先用固定端口，前一次运行的 socket 处于 TIME_WAIT 时会导致
-    // EADDRINUSE 使整个测试链中断（实测发生过）。改为向内核申请空闲端口，彻底消除该 flake。
+    // 端口健壮性：向内核申请空闲端口，避免固定端口 TIME_WAIT 导致 EADDRINUSE 中断整条链。
     const freePort = () => new Promise((resolve, reject) => {
       const s = net.createServer();
       s.once('error', reject);
@@ -313,9 +303,6 @@ async function main() {
     execSync("pkill -9 -f 'mock-target.js'", { stdio: 'ignore' });
   } catch {}
 
-  // （2026-10-01 已移除）原「升级 hold 释放单点化 + 失败尾部清理」整段 —— 它读
-  //   src/app/native/upgrade.js 的**源码文本**抽函数体做正则/计数/位置断言，属文本门禁，
-  //   已按用户决定清理。升级行为面由本文件上方的真 spawn / 真回滚断言覆盖。
 
   console.log('\n==============================');
   console.log(`结果: ${passed} passed, ${failed} failed`);

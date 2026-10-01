@@ -34,7 +34,7 @@ class PortAllocator {
     while (r._allocLock) { await new Promise((res) => setTimeout(res, 10)); }
     r._allocLock = true;
     this._xrel = await this._acquireXLock();
-    // 锁内对时（B2-5）：等锁期间他进程可能已登记新端口；不重载则陈旧快照会抢注
+    // 锁内对时：等锁期间他进程可能已登记新端口；不重载则陈旧快照会抢注
     //  「配置了端口但当前停止」的实例端口（TCP 探测看不见静默端口，注册表是唯一可见性）。
     r._syncFromDisk();
   }

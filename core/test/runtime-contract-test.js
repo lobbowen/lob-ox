@@ -1,34 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 运行期启动契约（壳写、内核读）门禁
-//
-// ## 解决的问题
-//   内核自身也要执行 npm（自更新 / 装 DSH / 插件）。旧实现用 ambient PATH 的裸 npm 与 process.env；
-//   GUI/服务环境的 PATH 常不含 nvm/fnm 的 npm -> 「壳能装、内核自己装不了」。现统一读壳投放的
-//   <产品状态根>/supervisor/runtime.json（schema 2）。同一份事实曾在内核里被解析四处（分发安装 /
-//   原生管理 / 环境探测 / 版本探测），且读取口只取 npmPath 丢掉 npmArgs —— 「node + 包内 npm-cli.js」
-//   被降级成裸跑 node。本门禁把「唯一解析口 + 成对消费」钉住。
-//
-// ## 锁定不变量
-//   R-1  read() 解析 schema2（含嵌套 node{}/npm{}）与兼容 schema1；缺失/损坏返回 null（绝不抛）
-//   R-2  npmLauncher() 返回启动形态对 { program, args, version, source }；契约优先，
-//        契约缺席/指向不存在的文件才退回平台解析
-//   R-3  withPath() 把 nodeBinDir 置于 PATH 首位（分隔符跨平台）
-//   R-4  消费点接入：分发安装 / 原生管理 / env-catalog 一律经 npmLauncher 且 program 与 args 同源
-//   R-5  反向：无契约时退回 ambient（不空转） · R-6 契约 schema 版本与壳 handshake
-//   R-7  单一解析口：契约缺席时退回平台解析（静态文本判据已移除） · R-8 版本号不得编造
-//
-// ## SR 组：另一条入站通道 —— 壳的环境观测报告（contract/shell-report.js）
-//   与启动契约同目录、同性质（壳写内核读），但**永不参与 spawn**：只回答「壳最后一次看到本机
-//   Node/npm/镜像源/前缀是什么时候、看到了什么」。
-//   SR-1..2  没报过与读不出分得开（两种处置相反，说反一次就够把人引去查不存在的文件）
-//   SR-3..6  schema handshake 与整份作废的边界（缺时戳/缺观察都算读不出）
-//   SR-7..9  逐字段摊平、三态不折叠、入站即脱敏
-//   SR-10..11 明细超限只截断并如实报数；超大文件不读进内存
-//   SR-12 读取口永不抛（原先并列的 SR-13「全仓只有契约模块拼这个路径」是源码文本判据，已移除）
-// ---------------------------------------------------------------------------
+// 运行期启动契约（壳写、内核读）：内核自身也要执行 npm（自更新/装 DSH/插件），而 ambient PATH 的裸 npm
+//   与 process.env 在 GUI/服务环境常不含 nvm/fnm 的 npm ⇒ 壳能装、内核自己装不了。
+//   现统一读 <产品状态根>/supervisor/runtime.json（schema 2）：唯一解析口 + program/args 成对消费（只取 npmPath 会把「node + 包内 npm-cli.js」降级成裸跑 node）。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -85,7 +60,7 @@ writeContract({
       && c2.npmArgs[0] === NPM_CLI && c2.npmVersion === '10.9.2' && c2.nodeVersion === 'v22.12.0'),
     JSON.stringify(c2 && { n: c2.nodePath, a: c2.npmArgs, v: c2.npmVersion }));
   const l = rc.npmLauncher();
-  // 缺陷本体：只取 program 会把「node 跑 npm-cli.js」降级成裸跑 node —— args 非空即证明拆读必然失真。
+  // 只取 program 会把「node 跑 npm-cli.js」降级成裸跑 node —— args 非空即证明拆读必然失真。
   check('R-2 契约在场：source=contract，program 取契约绝对路径，args 与 program 成对（缺一半即失真）',
     l.source === 'contract' && l.program === NODE && l.args.length === 1 && l.args[0] === NPM_CLI,
     JSON.stringify(l));
@@ -144,14 +119,9 @@ check('R-1 损坏 JSON -> null（不抛）', rc.read() === null);
 
 // -- R-6 契约版本握手：本侧 schema 常量必须与壳写入的 schema 一致（各自断言，不跨仓读源码）--
 check('R-6 契约 schema 版本 = 2（与壳 handshake）', rc.SUPPORTED_SCHEMA === 2, String(rc.SUPPORTED_SCHEMA));
-// 原先此处「R-7 旧的单值 npmBin() 不再从契约模块导出」（`typeof rc.npmBin === 'undefined'`）已删：
-//   断言「某个符号不存在」+ 只判 typeof，改名即红而产品等价。「唯一解析口」由 R-2 的成对判据按行为钉住。
-// R-4 / R-7 / R-8 静态判据已整体移除（判据对象是源码文本，不是真实执行）。
 
-// -- SR 组：桌面壳环境上报的接收口（壳写、内核读的文件契约，与 runtime.json 同目录但性质不同）--
+// -- SR 组：桌面壳环境上报的接收口（壳写、内核读，与 runtime.json 同目录但性质不同）--
 //   只钉三件事：「没报过」与「读不出」分得开、三态读数不折叠、来自另一个进程的自由文本必过脱敏。
-//   这里绝不做投递重试，也不许猜一份默认报告 —— 壳没报就是没报，伪装成「已经收到」会让
-//   排障时读到一个本机根本没发生过的环境。
 {
   const RP = path.join(SUP, 'shell-report.json');
   const NOW = () => 2000000;
@@ -226,13 +196,8 @@ check('R-6 契约 schema 版本 = 2（与壳 handshake）', rc.SUPPORTED_SCHEMA 
 }
 
 // -- A5/A1 工具链可见性与能力矩阵：事实走完「契约 / 平台档 -> /env/status -> 面板」整条链 --
-//   源自 test/cross-platform-test.js 的 A5 段与 A1 段。**全仓唯此**：`envStatus`/`catalog`/`capabilities`
-//   这个出口没有第二处覆盖，并入本文件是因为它就是「契约读取器 + 平台档」的消费面（同一 runtime.json、
-//   同一解析口）。A1 的字段语义还分别由 four-platform-behavior-matrix P-4（键集合四平台一致）与
-//   本门禁所在平台层的 X-4（hostService 与 status().kind 同源）覆盖，故此处只留**接线 + 形状**这一处唯此判据。
-//   壳侧曾「装了 npm 却看不见 npm」；内核侧是同根因的另一半：/env/status 的 node 有三段、
-//   npm 只有 detected；面板只念 Node 版本，而把 npm 标成 required 的声明式目录零消费。
-//   三处各自都能自洽，合起来是「面板说就绪、实机跑不通」。
+//   **全仓唯此**：envStatus/catalog/capabilities 这个出口没有第二处覆盖；壳侧曾「装了 npm 却看不见 npm」，
+//   内核侧同根因的另一半（npm 只有 detected 而声明式目录零消费）⇒ 面板说就绪、实机跑不通。
 (async function () {
   const { Supervisor } = require(path.join(ROOT, 'src', 'supervisor'));
   writeContract({
@@ -248,7 +213,7 @@ check('R-6 契约 schema 版本 = 2（与壳 handshake）', rc.SUPPORTED_SCHEMA 
     supervisorLogFile: path.join(TMP, 's.log'), dshLogFile: path.join(TMP, 'd.log'), upgradeLogFile: path.join(TMP, 'u.log'),
   });
   const ev = await s.envStatus();
-  // -- A1：能力矩阵接线（caps 只有 /env/status 这一个出口，grep 实测全仓唯此）--
+  // -- A1：能力矩阵接线（caps 只有 /env/status 这一个出口）--
   check('A1-a envStatus 暴露 capabilities 对象（能力矩阵的后端出口，面板据此降级呈现）',
     !!ev.capabilities && typeof ev.capabilities === 'object', JSON.stringify(ev.capabilities));
   const caps = ev.capabilities || {};

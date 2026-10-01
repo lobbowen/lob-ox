@@ -1,21 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 令牌持久化：写后必须**收口权限**，超限必须**轮转而非截断**
-//
-// 缺陷（被测对象：src/platform/service/token/persist.js::appendByRotation）：
-//   · appendFileSync 的 mode 仅对 O_CREAT 生效、对既有文件被忽略；若曾以 0644 落盘，每次轮换
-//     都把明文令牌追加进**世界可读**文件（该令牌即可直连面板的会话凭据）。
-//   · 轮转用「读 -> 写 -> 截断」：read 与 truncate 之间的跨进程追加行既进不了备份也被截断
-//     抹掉（窗口期丢数据）。修法为原子改名抢占。
-//
-// 锁定不变量：T-a 既有宽权限文件写入后被收口为 0600（写后显式 chmod，不只靠 O_CREAT）·
-//   T-b 新建文件也是 0600 且功能正常 · T-c 轮转：备份槽携带轮转前旧内容、窗口期并发追加
-//   **不丢失**、本次新行落新文件。
-//   **POSIX 权限位在 Windows 上不存在**（chmodSync 只能切换只读位，mode 恒 0666/0444），
-//   故模式断言只在 POSIX 上执行并**显式打 SKIP**（不静默变绿）—— 这是夹具的平台限制，非产品缺陷。
-// ---------------------------------------------------------------------------
+// 令牌持久化：写后必须**收口权限**，超限必须**轮转而非截断**。appendFileSync 的 mode 仅对 O_CREAT 生效，
+//   对既有 0644 文件被忽略（每次轮换把明文追加进世界可读文件）；「读 -> 写 -> 截断」会让窗口期的跨进程追加行
+//   既进不了备份也被抹掉 ⇒ 改为原子改名抢占。**POSIX 权限位在 Windows 上不存在**，故模式断言只在 POSIX 执行并显式打 SKIP。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -35,7 +23,7 @@ const { appendByRotation } = require(path.join(ROOT, 'src', 'platform', 'service
 const POSIX = process.platform !== 'win32';
 if (!POSIX) console.log('SKIP 权限位断言（Windows 无 POSIX mode；chmodSync 仅切换只读位）');
 
-// 场景 A：既有文件为 0644 -> 写入后必须收口到 0600
+// 场景 A：既有文件为 0644 -> 写入后必须收口到 0600。
 {
   const fp = path.join(TMP, 'token.log');
   fs.writeFileSync(fp, 'old-line\n');
@@ -57,8 +45,8 @@ if (!POSIX) console.log('SKIP 权限位断言（Windows 无 POSIX mode；chmodSy
   else check('T-b 新建文件写入成功（Windows 无 POSIX 权限位）', /token=NEW/.test(fs.readFileSync(fp2, 'utf8')), 'ok');
 }
 
-// 场景 C（T-c）：轮转必须「原子改名抢占」而非「读->写->截断」（旧实现窗口期的跨进程追加行既进不了
-//   备份也会被截断抹掉）。用「先持有旧 fd、轮转后再写」确定性复现该窗口：rename 语义下迟到行落进备份本体。
+// 场景 C（T-c）：轮转必须「原子改名抢占」而非「读->写->截断」，否则窗口期的跨进程追加行既进不了备份也被抹掉。
+//   用「先持有旧 fd、轮转后再写」确定性复现该窗口：rename 语义下迟到行落进备份本体。
 {
   const fpD = path.join(TMP, 'token-rotate.log');
   fs.writeFileSync(fpD, 'OLD-LINE http://127.0.0.1:3080/?token=OLD\n');

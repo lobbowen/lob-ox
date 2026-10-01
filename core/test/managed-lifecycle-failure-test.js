@@ -1,30 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// ManagedLifecycle 的**显式失败**处理（同题合并宿主：原 round13-lifecycle-stop-phase-test.js 的
-//   T-a/T-b/T-c 与 原 test/lifecycle-restart-failure-test.js 的 P-a..P-e 均已并入）
-//
-// 缺陷 1：start()/stop() 不看回调返回的 r.ok，无条件 _setPhase('running')/('stopped') 且
-//   healthy=true —— /lifecycle/status 谎报成功，面板显示运行中而服务实际是死的。
-// 缺陷 2（原 round13）：stop() 失败路径硬编码 _setPhase('running')，只对「进入前确实 running」成立；
-//   从 failed/backoff/installing 进入时会把**已知失败**改写成运行中，与观测相反。
-// 缺陷 3：无 _restart 回调的 restart() 丢弃 stop/start 两步返回值并无条件 return {ok:true} ——
-//   停不掉/起不来时仍报成功，是同一纪律的第三条出口。
-//
-// 锁定不变量（判据见下，一处不删）
-//   K4-a  start 返回 {ok:false} -> phase 不得 running、healthy 必须 false
-//   K4-b  同上 -> 返回值 ok:false 且带 error（snapshot 相位一致）
-//   K4-c  start 不返回 ok 字段（历史合法形态）-> 仍视为成功（向后兼容）
-//   K4-d  stop 返回 {ok:false} -> 不得置 stopped：如实回执，且相位回退到**进入前相位**
-//   K4-e  回调抛异常 -> 与返回 {ok:false} 同等视为失败
-//   T-a   stop 被拒后 phase 恢复为进入前相位（从 failed 进入）
-//   T-b   stop 抛异常后同样恢复（从 backoff 进入）
-//   T-c   对「本来是 running」的情形行为不变（仍回到 running）
-//   P-a..P-e  restart() 回退路径尊重 stop/start 的显式失败（-a/-b 报 ok:false、-c 不误伤正常路径、
-//             -d 尊重 _restart 回调的 {ok:false}、-e 不吞异常）
-//   （原 T-d「反向：判据能识别『硬编码 running』的旧形态」已于 2026-10-01 随文本断言清理删除）
-// ---------------------------------------------------------------------------
+// ManagedLifecycle 的**显式失败**处理：start()/stop()/restart() 必须看回调返回的 r.ok，否则
+//   /lifecycle/status 谎报成功（面板显示运行中而服务实际是死的）、stop 失败把**已知失败**改写成 running、
+//   restart 停不掉也报 ok:true。K4-a..e / T-a..c（相位回退到进入前相位）/ P-a..e。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');

@@ -19,7 +19,7 @@ function createUpgrade(deps) {
   const _updCache = {};                 // id -> { latest, checkedAt, error }
   const _updJobs = {};                  // id -> { state, startedAt, finishedAt, step, errors, error }
   const _updTTL = 6 * 3600 * 1000;      // 缓存 6h；升级作业收尾时 _scheduleJobCleanup 删缓存，下一次检查即重新查询
-  /** 升级作业收尾清理：完成后保留 60s 供前端轮询，随后删除 _updJobs 与 _updCache（否则长寿命守卫下 _updCache 只写不删、内存单调增长）；定时器 unref 不拖住进程退出。 */
+  /** 升级作业收尾清理：完成后保留 60s 供前端轮询，随后删除 _updJobs 与 _updCache（否则缓存只写不删、内存单调增长）；定时器 unref。 */
   function _scheduleJobCleanup(id) {
     const t = setTimeout(() => {
       try { if (_updJobs[id] && _updJobs[id].state !== 'running') delete _updJobs[id]; } catch {}
@@ -27,7 +27,7 @@ function createUpgrade(deps) {
     }, 60000);
     if (t.unref) t.unref();
   }
-  // 安装/版本叶子（DF-7：upgrade 编排到 ops 叶子；单向）
+  // 安装/版本叶子（upgrade 编排到 ops 叶子；单向）
   const install = dshInstall.createDshInstall({ store, dist, tasks, logger, instancesRoot });
 
   function installSandbox(inst) { return install.installSandbox(inst); }
@@ -154,7 +154,7 @@ function createUpgrade(deps) {
             rbOk = rbRes.ok;
           } catch { rbOk = false; }
         }
-        // 不写 inst.state.version：全仓无读取（版本经 readInstalledVersion 实时读盘），多余字段只会污染 instances.json。
+        // 不写 inst.state.version：无消费者，版本经 readInstalledVersion 实时读盘。
         if (!rbOk) { nj.error = (nj.error || why) + '；自动回滚失败（npm install 退出非 0），请手动处理'; return false; }
         const rbStart = await lifecycle.start(id, { fromUpgrade: true }).catch(() => ({ ok: false }));
         if (!rbStart || !rbStart.ok) { nj.error = (nj.error || why) + '；回滚后重启也失败'; if (task) tasks.log(task.id, '回滚后重启失败：' + ((rbStart && rbStart.error) || '')); return false; }
@@ -198,7 +198,7 @@ function createUpgrade(deps) {
       save();
       _scheduleJobCleanup(id);
     })().catch((e) => {
-      // RC4 执行契约兜底：作业体任何 reject 必达终态——任务落 failed、_updJobs 释放，绝不永久 running。
+      // 执行契约兜底：作业体任何 reject 必达终态——任务落 failed、_updJobs 释放，绝不永久 running。
       try { logger && logger.error && logger.error('upgrade job crashed ' + id + ': ' + (e && e.stack || e)); } catch {}
       if (nj.state === 'running') { nj.state = 'failed'; nj.error = '升级作业异常: ' + ((e && e.message) || e); nj.finishedAt = Date.now(); }
       try { if (task) tasks.fail(task.id, nj.error || ('升级作业异常: ' + ((e && e.message) || e))); } catch {}

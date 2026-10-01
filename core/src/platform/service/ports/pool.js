@@ -28,7 +28,7 @@ class PortRegistry {
     return this._pools;
   }
 
-  /** 实例侧注册接口（委托 core 模块级函数）；段名/池名是域知识，不在本平台模块硬编码（DS-G4）。 */
+  /** 实例侧注册接口（委托 core 模块级函数）；段名/池名是域知识，不在本平台模块硬编码。 */
   registerSegment(role, pool) { core.registerSegment(role, pool); return this; }
 
   /** 逻辑段到池定义（未注册段名回退 managed 池）。 */
@@ -52,10 +52,9 @@ class PortRegistry {
     this._diskStamp = store.fileStamp(this._file);
   }
 
-  /** 跨进程对时（B2-5）：ports.json 是多进程（守卫 + lan-daemon）共享事实源，各方全量
-   *  read-modify-write，陈旧内存快照会在 _save 时把他人新增整段覆盖丢失、或让分配器抢注
-   *  他进程已登记的端口。指纹（mtime+size）变化即重载——所有写口与冲突判读口的入口。
-   *  不动 _allocLock（复位会击穿本进程在飞分配的互斥）。 */
+  /** 跨进程对时：ports.json 是多进程（守卫 + lan-daemon）共享事实源，各方全量 read-modify-write，
+   *  陈旧内存快照会在 _save 时把他人新增整段覆盖丢失、或让分配器抢注他进程已登记的端口。
+   *  指纹（mtime+size）变化即重载——所有写口与冲突判读口的入口；不动 _allocLock（复位会击穿在飞分配的互斥）。 */
   _syncFromDisk() {
     if (store.fileStamp(this._file) !== this._diskStamp) this._load();
   }
@@ -92,10 +91,8 @@ class PortRegistry {
   }
 
   /** 登记固定端口，并保证该 role 在全表唯一（先清除同 role 的其它端口记录再登记）。
-   *  登记表以端口号为键，避让/重绑后新端口是**追加**记录；只 release 旧端口不足以立住不变式
-   *  （该调用在内核侧被 catch{} 包住且忽略返回值），残留两条同 role 记录时任何「按 role 取号」
-   *  的读法（本表 get、桌面壳读 ports.json）都可能拿到一个没人监听的端口。
-   *  @returns {number} port */
+   *  登记表以端口号为键，避让/重绑后新端口是**追加**记录；只 release 旧端口不足以立住不变式，
+   *  因为该调用在内核侧被 catch{} 包住且忽略返回值——残留两条同 role 记录时按 role 取号可能拿到没人监听的端口。@returns {number} port */
   registerSole(role, port) {
     const p = Number(port);
     for (const [existing, r] of [...this._records]) {

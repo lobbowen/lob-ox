@@ -63,20 +63,16 @@ impl ServiceControl for Impl {
 
 
 
-    /// 未知平台：没有服务定义 -> 明确 false（默认实现即 definition_path().is_file()，
-    /// 但这里显式写出，使「未知平台绝不静默成功」的纪律在方法级也可见）。
+    /// 未知平台：没有服务定义，显式返回 false（默认实现是 `definition_path().is_file()`）。
     fn is_defined(&self) -> bool {
         false
     }
 }
 
-// Platform 与 ServiceControl 的 impl 必须各自收束、方法不得错位。
-// 说明：原先钉住本结构的结构门禁（tests/platform_unsupported_structure_test.rs）已于 2026-10-01
-// 按用户决定拆除（移至 C:\work\_gate_backup）—— 故本模块的归属正确性**不再有自动检查**，
-// 审阅时请人工确认方法未被错放到另一个 impl 块。
+// 注意：`Impl` 的 Platform 与 ServiceControl 两个 impl 块各自收束，方法不得错位。
 impl Platform for Impl {
     fn node_artifact(&self, _version: &str) -> Option<super::NodeArtifact> {
-        // 未知平台：**显式返回 None**（无可用制品），而不是猜一个。
+        // 未知平台：显式返回 None（无可用制品）。
         None
     }
 
@@ -121,8 +117,7 @@ impl Platform for Impl {
     }
 
     fn is_local_fixed_dir(&self, _dir: &Path) -> bool {
-        // Unix：无「网络盘 / 可移动盘」概念上的 is_file() 触网风险，
-        // 本地文件系统调用不会因路径本身而阻塞数十秒。
+        // 无「网络盘 / 可移动盘」的 is_file() 触网风险，本地文件系统调用不会因路径本身阻塞数十秒。
         true
     }
 
@@ -137,7 +132,6 @@ impl Platform for Impl {
         false
     }
 
-    // 可执行文件名的平台差异（P2/G1）
     // 未知平台按 POSIX 形态给出（保守：至少不引入 Windows 专有扩展名）。
     fn node_exe_name(&self) -> &'static str { "node" }
     fn npm_exe_name(&self) -> &'static str { "npm" }

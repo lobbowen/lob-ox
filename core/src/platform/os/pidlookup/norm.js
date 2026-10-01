@@ -1,8 +1,8 @@
 'use strict';
 
-// pidlookup/norm.js —— 平台输出的纯解析器 + cmdline 归一化：零 IO，不 require 任何 IO 模块
-// （DF-6：可独立 require 测试）。解析与 IO 分离才能在任意宿主穷举三种平台格式（平台输出差异
-// 正是跨平台 bug 的藏身处），且生产代码直接调用这一份实现，不允许在带 IO 的一侧另写平行解析器。
+// 平台输出的纯解析器 + cmdline 归一化：零 IO，不 require 任何 IO 模块，可独立 require。
+// 解析与 IO 分离才能在任意宿主穷举三种平台格式；生产代码直接调用这一份实现，
+// 不得在带 IO 的一侧另写平行解析器。
 
 /** 解析 /proc/net/tcp{,6} 文本，取该 port 处于 LISTEN(0A) 的 socket inode 集合。
  *  @returns {Set<string>} 形如 socket:[12345]（与 /proc/<pid>/fd 的 link 同名） */
@@ -56,8 +56,8 @@ function parseSsPid(out) {
 }
 
 /** 解析 Windows wmic ... get CommandLine /value 输出，取命令行或 null。
- *  「No Instance(s) Available.」（进程已退出/权限不足）同样返回 null，让调用方继续走
- *  PowerShell CIM 回退；在此短路 = cmdline 防线静默失效（解析不中/无输出同此）。 */
+ *  「No Instance(s) Available.」同样返回 null，让调用方继续走 PowerShell CIM 回退；
+ *  在此短路 = cmdline 防线静默失效。 */
 function parseWmicCommandLine(out) {
   if (!out) return null;
   const m = /CommandLine=([\s\S]*)/.exec(String(out));
@@ -70,7 +70,8 @@ function parsePowerShellCommandLine(out) {
   return v || null;
 }
 
-// 归一化 cmdline 的路径分隔符为 /。readCmdline 返回各平台原生分隔符，而本仓进程标记
+// 归一化 cmdline 的路径分隔符为 /：readCmdline 返回各平台原生分隔符，而本仓进程标记
+// （_cmdMarks、/domains/... 字面量）按约定统一为 /，不归一化则 Windows 上永远不匹配。
 // （_cmdMarks、/domains/... 字面量）按约定统一为 /；不归一化则 Windows 上永远不匹配，
 // 可能误判端口异主 / 重复拉起。
 function normCmdline(s) { return String(s || '').replace(/\\/g, '/'); }

@@ -1,10 +1,7 @@
 'use strict';
 
 // api/static —— UI 产物目录解析 + MIME + CSP + 静态托管。
-//
-// 本文件是安全面（CSP / nosniff / 路径穿越防护 / 禁止缓存），语义不得"顺手优化"；
-// 断言见 test/api-security-test.js（CSP 指令级、nosniff、编码穿越 404/403）；
-//  原 test/core-test.js 已于 2026-10-01 随门禁清理拆分/删除。
+// 本文件是安全面（CSP / nosniff / 路径穿越防护 / 禁止缓存），语义不得"顺手优化"。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -45,11 +42,9 @@ const MIME = {
   '.png': 'image/png',
   '.ico': 'image/x-icon',
 };
-// frame-ancestors 必须是**壳 origin 白名单**而不是 'none'：桌面壳以内容 iframe 承载本面板
-//  （壳主帧 origin 与 api/security.js 的 isShellOrigin 同一集合），'none' 连它一起拒 -> 面板永远
-//  空白。白名单不外溢：不放 'self'（面板自身不做同源嵌套框架），第三方页仍全禁——面板写操作是
-//  同源 fetch 而 originAllowed 对同源 iframe 同样放行，一次单击即可开公网暴露/停实例，所以框架
-//  禁令仍是 Origin 闸之外的唯一防线。浏览器直接访问面板属顶层导航，不受本指令约束。
+// frame-ancestors 必须是**壳 origin 白名单**而不是 'none'：桌面壳以内容 iframe 承载本面板（壳主帧 origin 与
+//   api/security.js 的 isShellOrigin 同一集合），'none' 连它一起拒 -> 面板永远空白。白名单不外溢：不放 'self'，
+//   第三方页仍全禁——写操作是同源 fetch 且 originAllowed 对同源 iframe 同样放行，故框架禁令是 Origin 闸外的唯一防线。
 const FRAME_ANCESTORS = "tauri://localhost http://tauri.localhost https://tauri.localhost";
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors " + FRAME_ANCESTORS;
 

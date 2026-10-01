@@ -1,8 +1,6 @@
 'use strict';
 
-// app/control/collaborator.js —— Control 协作方工厂（真 ctor 注入）。
-// createControlPlane(deps) 组合视图投影与申报工厂，自己持有实现；
-// 可只 require 本模块 + 假 deps 直接断言。
+// Control 协作方工厂（真 ctor 注入）：createControlPlane(deps) 组合视图投影与申报工厂，自己持有实现。
 
 const { createProjection } = require('./projection');
 const { createSpecs } = require('./specs');

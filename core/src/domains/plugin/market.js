@@ -2,7 +2,7 @@
 
 // 插件市场索引服务：实时聚合 npm + GitHub 的 DeepSeek Harness 插件；权威判定 = 包/仓库声明 dsh.bundle；
 // 分类基于 keywords + 描述启发；来源标注 npm/github/community；磁盘缓存 + TTL 刷新。
-// HTTP 原语在 market-net.js、源叶子在 market-sources.js；批次循环体必须留在本文件（test/market-budget-test.js M-d 以源码正则锁定「预算检查在 slice 之前」）。
+// HTTP 原语在 market-net.js、源叶子在 market-sources.js；批次循环体留在本文件，且预算检查必须在 slice 之前。
 
 const path = require('node:path');
 const { getJson } = require('./market-net');
@@ -50,9 +50,9 @@ class PluginMarket {
     this._nextAllowAt = 0;
     // 冷启动构建失败后的重试退避：读端点每次命中「无缓存」都会点火重建，没有退避就是读一次点一轮 4 分钟。
     this.retryBackoffMs = opts.retryBackoffMs || 60000;
-    // 整体构建预算（默认 4 分钟）：社区源候选约 2468 个，8 并发分批最坏可达数十分钟。
-    // 到点即停止发起新批次，用已采集部分构建索引（截断源与旧缓存按 source 取并集，见 _buildIndexInner）。
-    // 预算与「请求何时结束」无关：构建在后台跑，快照以 building 暴露进度（见 getIndex）。
+    // 整体构建预算（默认 4 分钟）：社区源候选约 2468 个，8 并发分批最坏可达数十分钟。到点即停止发起新批次，
+    // 用已采集部分构建索引（截断源与旧缓存按 source 取并集，见 _buildIndexInner）。预算与「请求何时结束」无关：
+    // 构建在后台跑，快照以 building 暴露进度（见 getIndex）。
     this.buildBudgetMs = opts.buildBudgetMs || 240000;
     this.loadFromDisk();
   }
@@ -92,8 +92,7 @@ class PluginMarket {
 
   /** 启动一次构建（无消费者 await）并登记为在飞引用；两条不变量：
    *  (a) 无人等待的失败不得成为进程级 unhandledRejection —— 给 raw 挂 no-op handler「标记已处理」；
-   *  (b) 去重：已有在飞构建就直接复用，force 连点不得叠加并发构建（M-i）。
-   *  失败原因记入 _lastError 并由快照如实上报 —— 取不到不能显示成「没有插件」。 */
+   *  (b) 去重：已有在飞构建直接复用，force 连点不得叠加并发构建。失败原因记入 _lastError 并由快照如实上报 —— 取不到不能显示成「没有插件」。 */
   _requestBuild() {
     if (this._inFlight) return this._inFlight;
     const raw = this.buildIndex();
@@ -112,8 +111,8 @@ class PluginMarket {
 
   async buildIndex() {
     const start = Date.now();
-    // B2-6c：预算归一次构建所有，不归实例——叠建（直接 buildIndex / 去重窗口外的竞拍）时
-    //   实例级 deadline 互踩：先结束者在 finally 清零，后启动者预算上限整个失效。
+    // 预算归一次构建所有，不归实例——叠建（直接 buildIndex / 去重窗口外的竞拍）时实例级 deadline 互踩：
+    //   先结束者在 finally 清零，后启动者预算上限整个失效。
     const bctx = { deadline: start + this.buildBudgetMs, truncated: new Set() };
     try { return await this._buildIndexInner(start, bctx); }
     finally { bctx.deadline = 0; } // 只清自己的；bctx 随本次构建销毁

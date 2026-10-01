@@ -1,7 +1,6 @@
 'use strict';
 
-// app/control/projection.js —— 聚合视图投影工厂（真 ctor 注入）：createProjection(deps)
-// 持有三个 sync 视图实现（纯视图投影，不驱动启停），假 deps 可直测。
+// 聚合视图投影工厂（真 ctor 注入）：createProjection(deps) 持有三个 sync 视图实现（纯视图投影，不驱动启停）。
 
 function createProjection(deps) {
   const g = deps || {};

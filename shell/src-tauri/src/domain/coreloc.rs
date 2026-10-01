@@ -1,19 +1,18 @@
 //! 内核（`dsh-supervisor`）的定位：候选枚举 + 版本仲裁。内核是 npm 全局包，落点随安装方式而异，
 //! 故枚举全部候选再按版本取最高；只认一个路径会在「装了却找不到」或「装了新版却用旧版」时出错。
-//! 平台差异已下沉到 platform 层，本模块平台无关（门禁 G1）。is_file/canonicalize 在断开的映射盘或 UNC 上
+//! 平台差异已下沉到 platform 层。is_file/canonicalize 在断开的映射盘或 UNC 上
 //! 会触网，故先问 `platform::is_local_fixed_dir`（GetDriveTypeW 不触网）再访问文件系统。
 use tauri::Manager;
 
 use std::path::PathBuf;
 
-/// 内核可执行候选名 —— 下沉到 trait（P2/G1：原为 `cfg!()` 宏）。
+/// 内核可执行候选名（下沉到 platform trait）。
 pub(crate) fn core_exe_names() -> &'static [&'static str] {
     crate::platform::current().core_exe_names()
 }
 
-/// 把 npm 垫片规范化为可被 node 执行的 JS 入口。Windows 的 npm 全局 bin 是 `<prefix>\<name>.cmd`
-/// 批处理垫片，`node <垫片>` 会当 JS 解析而必然失败；真实入口在
-/// `<prefix>\node_modules\<pkg>\bin\<name>`，找不到包内入口时原样返回（平台层会退回 `cmd /C`）。
+/// 把 npm 垫片规范化为可被 node 执行的 JS 入口。Windows 的 npm 全局 bin 是 `<prefix>\<name>.cmd` 批处理垫片，
+/// `node <垫片>` 会当 JS 解析而必然失败；真实入口在 `<prefix>\node_modules\<pkg>\bin\<name>`，找不到包内入口时原样返回。
 /// 返回值总是外部工具可用的规范路径：归一在 `platform::external_path` 一处完成，调用方不得再各自剥前缀。
 pub fn normalize_guard(bin: PathBuf, pkg: Option<&str>) -> PathBuf {
     let bare = crate::platform::external_path(&bin);
@@ -30,7 +29,6 @@ pub fn normalize_guard(bin: PathBuf, pkg: Option<&str>) -> PathBuf {
 }
 
 /// 在候选集中按**版本最高**仲裁（读 package.json，无进程开销）。
-///
 /// 单一实现：`resolve_local`（--run-guard 运行时检测）与 `locate_core_with_version` 同源。
 pub fn pick_highest(cands: Vec<PathBuf>) -> Option<PathBuf> {
     cands
@@ -40,51 +38,45 @@ pub fn pick_highest(cands: Vec<PathBuf>) -> Option<PathBuf> {
         .map(|(c, _)| c)
 }
 
-/// 收集全部内核候选（去重 + 解析符号链接）供版本仲裁：PATH（Windows 走 PATHEXT）、
-/// %APPDATA%\npm 与包内真实脚本、/opt/homebrew/bin 与 /usr/local/bin、
-/// ~/.npm-global/bin 与 ~/.local/bin、资源目录内嵌兜底。
+/// 收集全部内核候选（去重 + 解析符号链接）供版本仲裁：PATH（Windows 走 PATHEXT）、%APPDATA%\npm 与包内真实脚本、
+/// /opt/homebrew/bin 与 /usr/local/bin、~/.npm-global/bin 与 ~/.local/bin、资源目录内嵌兜底。
 /// `resource_dir` 为 None 时跳过内嵌兜底 —— CLI 自检（无 AppHandle）走这条。
 pub(crate) fn locate_core_candidates(resource_dir: Option<PathBuf>) -> Vec<PathBuf> {
     let home = crate::env::home();
     let mut out: Vec<PathBuf> = Vec::new();
-  // 与 env.rs 的 PATH 探测同一类防护：
-  //  is_file() / canonicalize() 底层会触网 —— 在断开的映射盘或 UNC 路径上
-  //  可能阻塞数十秒，而本函数在**内核定位的关键路径**上（引导页每一步都要用）。
-  //  故先做「本地固定盘」判定（GetDriveTypeW 自身不触网），再访问文件系统。
+  // is_file() / canonicalize() 底层会触网：断开的映射盘或 UNC 路径上可能阻塞数十秒，
+  // 而本函数在内核定位的关键路径上（引导页每一步都要用）。故先做「本地固定盘」判定（GetDriveTypeW 不触网）。
     let pkg_for_add = crate::core::package_name().ok();
     let add = |p: PathBuf, out: &mut Vec<PathBuf>| {
         if let Some(dir) = p.parent() {
             if !crate::env::is_local_fixed_dir(dir) { return; }
         }
         if !p.is_file() { return; }
-  // 1) 解析 ~/.local/bin 软链到包内真实路径；
-  // 2)3) 都由 normalize_guard 完成：剥掉 Windows verbatim/device 前缀（外部工具不接受，
-  //  规则只在 platform::external_path 一处），并把 .cmd 垫片换成包内 JS 入口。
+  // 解析 ~/.local/bin 软链到包内真实路径；剥掉 Windows verbatim/device 前缀（外部工具不接受，
+  // 规则只在 platform::external_path 一处）并把 .cmd 垫片换成包内 JS 入口 —— 均由 normalize_guard 完成。
         let real = normalize_guard(
             std::fs::canonicalize(&p).unwrap_or(p),
             pkg_for_add.as_deref(),
         );
         if !out.contains(&real) { out.push(real); }
     };
-  // 1) 位置契约优先（core.json.bin）—— 安装成功后壳写入的**确切位置**。
-  //  为什么必须最先：npm 全局 prefix 可能是 nvm/volta/fnm 的 node 目录或任何自定义目录，
-  //  PATH 与下面两个硬编码目录都不含它；契约是唯一可靠的事实源。
+  // 先位置契约（core.json.bin）—— 安装成功后壳写入的**确切位置**：npm 全局 prefix 可能是
+  // nvm/volta/fnm 的 node 目录或任何自定义目录，PATH 与下面的硬编码目录都不含它。
     let names_owned: Vec<&str> = crate::domain::coreloc::core_exe_names().to_vec();
     if let Some(c) = crate::core_contract::read() {
         add(c.bin.clone(), &mut out);
     }
-  // 2) 运行期契约派生：内核由 npm 装到 node 所在 prefix，其 bin 就在 nodeBinDir。
+  // 再运行期契约派生：内核由 npm 装到 node 所在 prefix，其 bin 就在 nodeBinDir。
     if let Some(rt) = crate::runtime_contract::read_node() {
         for name in &names_owned {
             add(rt.node_bin_dir.join(name), &mut out);
         }
     }
-  // 3) 启发式：壳进程 PATH。
+  // 再启发式：壳进程 PATH。
     for name in crate::domain::coreloc::core_exe_names().iter().copied() {
         if let Some(p) = crate::env::find_in_path(name) { add(p, &mut out); }
     }
-  // 平台额外候选（Windows 的 %APPDATA%\npm 与包内真实脚本；macOS 的 Homebrew 落点）
-  // —— 已下沉到 platform 层，本文件不再出现平台分支。
+  // 平台额外候选（Windows 的 %APPDATA%\npm 与包内真实脚本；macOS 的 Homebrew 落点）由 platform 层给出。
     {
         let names: Vec<&str> = crate::domain::coreloc::core_exe_names().to_vec();
         let pkg = crate::core::package_name().ok();
@@ -102,10 +94,8 @@ pub(crate) fn locate_core_candidates(resource_dir: Option<PathBuf>) -> Vec<PathB
     out
 }
 
-/// 在候选集（含指定 prefix 的平台候选）中找**恰好等于 `version`** 的内核。
-///
-/// 用途：P2「安装成功后回读确切位置并记录 core.json」。找不到 -> None：
-///  调用方必须**如实报**「已安装但定位不到目标版本（安装前缀不一致）」，绝不假装成功。
+/// 在候选集（含指定 prefix 的平台候选）中找**恰好等于 `version`** 的内核；安装成功后回读确切位置并记录 core.json。
+/// 找不到 -> None：调用方必须如实报「已安装但定位不到目标版本（安装前缀不一致）」，绝不假装成功。
 pub(crate) fn locate_core_at_version(
     app: &tauri::AppHandle,
     version: &str,
@@ -124,15 +114,14 @@ pub(crate) fn locate_core_at_version(
         .find(|c| crate::core::installed_version(c).as_deref() == Some(version))
 }
 
-/// 定位已安装内核：多候选**按版本最高**仲裁（K5 修复）——旧内核不得遮蔽新内核。
+/// 定位已安装内核：多候选按版本最高仲裁，旧内核不得遮蔽新内核。
 pub(crate) fn locate_core(app: &tauri::AppHandle) -> Option<PathBuf> {
     locate_core_with_version(app).map(|(p, _)| p)
 }
 
 /// 定位内核并**一并返回其版本**（避免调用方再执行一次二进制取版本）。
-///
-/// 仲裁规则（K5）：多候选中**按版本最高**选取 —— 旧内核不得遮蔽新内核；探测失败的候选不参与
-/// 仲裁，整批都探不到时版本返回 `None`，而非会一路显示到面板的假版本 0.0.0。
+/// 多候选按版本最高选取（旧内核不得遮蔽新内核）；探测失败的候选不参与仲裁，
+/// 整批都探不到时版本返回 `None`，而非会一路显示到面板的假版本 0.0.0。
 pub(crate) fn locate_core_with_version(app: &tauri::AppHandle) -> Option<(PathBuf, Option<String>)> {
     let cands = crate::domain::coreloc::locate_core_candidates(app.path().resource_dir().ok());
     if cands.is_empty() { return None; }
@@ -153,9 +142,7 @@ pub(crate) fn locate_core_with_version(app: &tauri::AppHandle) -> Option<(PathBu
 
 #[cfg(test)]
 mod tests {
-  //! 行为门禁：直接驱动路径规范化与版本仲裁，
-  //! 而不是 `str::contains` —— 真机 1.1.4/1.1.5 的失效正是「静态断言全部通过、运行时把
-  //! `.cmd` 交给 node」。
+  //! 测试直接驱动路径规范化与版本仲裁，而不是 `str::contains`。
     use super::*;
     use std::path::{Path, PathBuf};
 

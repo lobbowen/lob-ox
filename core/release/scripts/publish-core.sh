@@ -5,16 +5,14 @@
 #   按硬标准不得在本机执行（本机自查上限是纯静态检查）。
 #   release/scripts/publish-core.sh                  # 组装 + npm publish --dry-run（默认，不触网）
 #   release/scripts/publish-core.sh --publish        # 真发布（**另需 GITHUB_ACTIONS=true**；本地 exit 2）
-#   release/scripts/publish-core.sh --all-platforms  # 一律拒绝（已废弃；四平台由 CI 各 runner 各自发布）
+#   release/scripts/publish-core.sh --all-platforms  # 一律拒绝（本地不得全平台发布）
 #   release/scripts/publish-core.sh --scope @acme    # 指定 scope（不传则读 npmPublish.scope / DSH_CORE_SCOPE）
 #
 # -- 防误发保护（默认 dry-run；须两道显式条件才真发）--
-#   1) 默认 PUBLISH=0：不传 --publish 即 npm publish --dry-run —— 只做组装/校验，
-#      绝不触网写 registry。这是**默认值**，不是靠调用方记得加 --dry-run。
-#   2) 传 --publish 后还有第二道门：GITHUB_ACTIONS 必须为 true（下面的硬标准，本地 exit 2）。
-#   2) 传 --publish 后还有第二道门：GITHUB_ACTIONS 必须为 true（下面的硬标准，本地 exit 2）。
-#   两道都满足才会执行真发布（且发布后按版本补打通道标签，见文件末尾）。
-#   tag 策略见下方「dist-tag 规范」；rollback/canary **不由本脚本设置**（人工运维，契约）。
+#   1) 默认 PUBLISH=0：不传 --publish 即 npm publish --dry-run —— 只组装/校验，绝不触网写 registry。
+#   2) 传 --publish 后还须 GITHUB_ACTIONS=true（下面的硬标准，本地 exit 2）。
+#   两道都满足才真发布；发布后按版本补打通道标签（见文件末尾，tag 策略见下方「dist-tag 规范」）。
+#   rollback / canary **不由本脚本设置**（人工运维，契约）。
 #
 # 硬标准：所有平台构建与发布必须经 GitHub CI 完成；本地不得产生发布产物。
 # 版本规范：version 从仓库根 package.json 注入（禁手写）；发布前强制校验 launcher self-check 自报版本
@@ -28,15 +26,15 @@ VER="$(node -p "require('./package.json').version")"
 PUBLISH=0
 SCOPE="$(node -p "try{const p=require('./package.json');(p.npmPublish&&p.npmPublish.scope)||''}catch(e){''}")"
 MAIN_LICENSE="$(node -p "require('./package.json').license")"
-# 子包 repository 单源=根 package.json#repository.url。必须与 provenance 签名的
-# 仓库地址一致，否则 registry 校验 E422 拒发（BETA.10 首发实测：缺字段即被拒）。
+# 子包 repository 单源=根 package.json#repository.url；必须与 provenance 签名的
+# 仓库地址一致，否则 registry 校验 E422 拒发。
 MAIN_REPO="$(node -p "try{const p=require('./package.json');(p.repository&&p.repository.url)||''}catch(e){''}")"
 [ -n "$SCOPE" ] || SCOPE="${DSH_CORE_SCOPE:-}"
-[ -n "$SCOPE" ] || SCOPE="@dsh-sup"   # 产品 scope（2026-09 用户定稿：@dsh-sup/dsh-core-<os>-<arch>）
+[ -n "$SCOPE" ] || SCOPE="@dsh-sup"   # 产品 scope 默认值（@dsh-sup/dsh-core-<os>-<arch>）
 while [ $# -gt 0 ]; do case "$1" in
   --publish) PUBLISH=1 ;;
   --all-platforms)
-    # 硬标准：**发布也经 GitHub CI**。曾可本机一次发四平台 —— 那正是本地残留的发布侧。
+    # 硬标准：**发布也经 GitHub CI**；本地不得全平台发布。
     echo '拒绝：--all-platforms 已废弃（2026-09-13 硬标准）。' >&2
     echo '  四平台子包由 CI 各平台 runner 各自发布（tag 触发）；本地不得全平台发布。' >&2
     exit 2 ;;
@@ -47,7 +45,6 @@ while [ $# -gt 0 ]; do case "$1" in
 esac; shift; done
 
 # -- 硬标准：真发布只允许在 GitHub CI 内 —— **单平台也不例外** --
-#   原漏洞：--all-platforms 被拒绝，但单平台 --publish 仍可本机直发 npm。
 if [ "$PUBLISH" = 1 ] && [ "${GITHUB_ACTIONS:-}" != 'true' ]; then
   echo '拒绝：真发布（--publish）只允许在 GitHub CI 内运行（GITHUB_ACTIONS=true）。' >&2
   echo '  硬标准：所有平台构建与发布必须经 GitHub CI 完成；本地不得产生发布产物。' >&2
@@ -69,9 +66,8 @@ PKG_NAME="$SCOPE/dsh-core-$OS_TAG-$ARCH"
 SRC_DIR="dist/launcher/dsh-supervisor-$VER-$PLAT-$ARCH"
 [ -d "$SRC_DIR" ] || {
   echo "缺少构建产物: $SRC_DIR"
-  # 本脚本只在 CI 内运行，产物由同一次 CI run 的 launcher 构建步产出，
-  #   所以缺产物意味着那条构建步骤本身没跑或跑错平台 —— 去查同一 run 的构建步，
-  #   **不要**按旧提示在本机补跑构建（本地不得产生发布产物）。
+  # 本脚本只在 CI 内运行：缺产物即同一次 run 的 launcher 构建步没跑或跑错平台；
+  #   不得在本机补跑构建（本地不得产生发布产物）。
   echo "  同一 run 内的 launcher 构建入口：npm run build:launcher（仅 CI 内，按 DSH_*_OVERRIDE 定平台）"
   exit 1
 }
@@ -95,7 +91,7 @@ if [ -d "$SRC_DIR/ui-react" ]; then
 else
   echo "警告：launcher 产物缺 ui-react"
 fi
-# B23：包元数据生成**不得**把 shell 变量拼进 JS 源码 ——
+# 包元数据生成**不得**把 shell 变量拼进 JS 源码 ——
 #   MAIN_REPO/MAIN_LICENSE 等来自 package.json 字段，含 ' 即可越出字符串字面量改写整段
 #   node -e 脚本（CI 内执行 = 供应链注入面）。统一经 env 导出、JS 只读 process.env。
 export GEN_PKG_NAME="$PKG_NAME" GEN_VER="$VER" GEN_LICENSE="$MAIN_LICENSE" GEN_REPO="$MAIN_REPO" GEN_STAGE="$STAGE" GEN_PLAT="$PLAT" GEN_ARCH="$ARCH" GEN_OSTAG="$OS_TAG"
@@ -131,38 +127,13 @@ ls -lh "$STAGE/bin/" | tail -1
 
 # ---- 发布（默认 dry-run 保护） ----
 cd "$STAGE"
-# dist-tag 规范——产品只有两档：BETA（测试版）/ RC（正式版）。
-#
-#   -BETA.n  -> 发布挂 tag beta，发布后回补 latest（见 reconcile_latest_tag）
-#   -RC.n    -> 发布挂 tag latest（主）+ 补打 rc 别名
-#
-#    npm publish **只接受一个 --tag**（默认 latest）——多标签必须发布后用
-#     `npm dist-tag add` 补（见本脚本末尾的 RC 附加标签与 latest 回补步骤）。
-#
-#    为什么 BETA 也要回补 latest：`--tag beta` 只决定「这次发布挂哪个标签」，于是
-#    latest 永久停在切档前的那个版本，而客户端选版链（契约 RELEASE-CHANNEL-CONTRACT.md
-#    第 3 节）第 3 步只读 latest、第 4 步兜底又**刻意排除** -BETA. 形态。两条合起来的
-#    后果不是「测试版不外泄」，而是**最新一批版本对全体自动升级的机器永久不可达**
-#    （实证：registry 上 latest=0.1.5-BETA.7、beta=0.1.5-BETA.11）。当前产品形态下
-#    BETA 线就是出货线，「我们发布什么，latest 就该是什么」只能由脚本在发布后核验补齐。
-#
-#    以下两个 tag **刻意不由本脚本设置**（它们是人工运维操作，见契约）：
-#     - rollback —— 紧急回退开关，全量最高优先级；仅回退时人工
-#                   `npm dist-tag add <pkg>@<ver> rollback`，解除用 `npm dist-tag rm <pkg> rollback`。
-#                   发布脚本若自动写它，等于把「发布」和「回退」两种意图混在一起。
-#     - canary   —— 灰度通道，仅灰度名单内机器可见；由灰度发布时人工设置（脚本无从得知名单）。
-#
-#  历史背景（公开发行审计发现）：
-#   更早的策略把 RC 只标 rc、**从不更新 latest**，于是 latest 永久停留在历史 SEA 形态
-#   （实证：四平台 latest 分别停在 0.1.1/0.1.2/0.1.2/0.1.2，且描述仍是已废弃的 SEA）
-#   ——「我们发布什么，latest 就该是什么」被打破，且四平台版本不一致。
-#   那次修正把 latest 的更新条件绑在了「发布的是 RC」上，等于把同一个坑换了一种形态
-#   留在 BETA 线上；现在的口径是**发布档位决定别名标签，latest 只由「是否更新」决定**。
-# 🔴 2026-10 修复（与 shell.yml 同一原则）：选档改为**结构性判断（版本串是否含预发布后缀 `-`）**，
-#   不再逐档枚举后缀名。复（原缺陷）：枚举法只认 `-BETA.*` / `-RC.*`，任何新后缀（如 `-test1`）
-#   两个分支都不匹配 ⇒ DIST_TAG="" ⇒ `npm publish` **默认挂 latest** —— 虽然 BETA 线的 latest
-#   本就由 reconcile_latest_tag 回补（RC-6），但「测试版落到 npm 默认值」是**无人裁决的隐式后果**，
-#   不该由 npm 的默认行为决定；含 `-` 的版本一律显式挂 beta，只有纯 `x.y.z` 才挂 latest。
+# dist-tag 规范——产品只有两档：BETA（测试版，挂 beta）/ RC（正式版，挂 latest + 补打 rc 别名）。
+#   选档是**结构性判断**：版本串含预发布后缀 `-` 一律显式挂 beta，只有纯 x.y.z 才挂 latest
+#   （不逐档枚举后缀名，也不依赖 npm 的默认 tag 行为）。
+#   两档发布后都要调 reconcile_latest_tag：客户端选版链只读 latest，其兜底步**刻意排除** -BETA. 形态，
+#   故不回补 latest 会让最新一批版本对全体自动升级的机器永久不可达。latest 只升不降。
+#   rollback / canary **刻意不由本脚本设置**（人工运维，见契约 RELEASE-CHANNEL-CONTRACT.md §3）：
+#   前者是全量最高优先级回退开关，发布脚本自动写它等于把「发布」与「回退」两种意图混在一起。
 DIST_TAG=""
 case "$VER" in
   *-RC.*) DIST_TAG="--tag latest" ;;   # 正式版占 latest（rc 标签发布后补，见文件末尾）
@@ -171,8 +142,7 @@ case "$VER" in
 esac
 # 发布到官方 npm registry（发布必须官方源；本机默认 npmmirror 只读消费不适配发布认证）
 #
-# 认证：解析逻辑**单源**收敛到 release/scripts/_npm-auth.sh——
-# 本脚本与 configure-credentials.sh 共用同一份实现（此前各写一套，行为不一致）。
+# 认证：解析逻辑**单源**收敛到 release/scripts/_npm-auth.sh，本脚本与 configure-credentials.sh 共用。
 # 解析顺序：DSH_NPMRC -> NPM_CONFIG_USERCONFIG -> NPM_TOKEN(临时 userconfig) -> 真实 home ~/.npmrc -> 沙箱 $HOME/.npmrc。
 # 关键点：「真实 home」经 getent/dscl/~user 解析，**不受沙箱 $HOME 覆盖影响**——
 # 否则同一台机器上会「A 沙箱能发版、B 沙箱报 ENEEDAUTH」。
@@ -194,8 +164,6 @@ else
 fi
 
 # ---- 通道回补：latest 必须跟随本次发布（仅当本次版本更高）----
-# 为什么单独一步而不是靠 publish 的 --tag：--tag 只决定「这次发布挂哪个别名」，
-# BETA 档挂 beta，latest 于是停在切档前的旧版；客户端只信 latest，结果新版本对外不可达。
 # 只升不降：把 latest 往回拉属「紧急回退」语义，是人工运维，脚本绝不自动做。
 # 比较用内核自己的 semverCompare 单源（src/shared/version.js），不在此手写第二套版本比较。
 # 失败必须非零退出：「包发出去了但通道没对齐」正是本步骤要消灭的状态（契约 RC-5）。
@@ -220,11 +188,8 @@ reconcile_latest_tag() {
 
 if [ "$PUBLISH" = 1 ]; then
   # -- 幂等发布--
-  # 为什么需要：npm **不允许覆盖同版本**，而发布流水线可能「部分平台成功、部分失败」
-  # （实测 v0.1.3-BETA.1：linux-x64 已发，mac/win 因 CI 失败未发）。此时重跑，
-  # 已成功的平台会 403 报错，而 npm 又没有「只补发缺失平台」的入口 ——
-  # 结果就是重跑永远无法自愈。故：同版本已存在 -> 视为成功（幂等），并做内容一致性核对。
-  # B24：幂等判定不得「只看体积、不一致只警告」。改为：
+  # npm **不允许覆盖同版本**，而流水线可能「部分平台成功、部分失败」——已成功的平台重跑会 403，
+  # 且 npm 没有「只补发缺失平台」的入口，故同版本已存在时按幂等处理：视为成功，先做内容一致性核对。
   #   1) 存在性：npm view **退出码为 0** —— `--json` 对不存在的版本也往 stdout 打一个 E404 错误对象，
   #      以「输出非空」判存在会把首次发布当成已发布；非 0 一律走发布分支，网络/权限失败由 npm publish
   #      自身非零退出，不在这里换成「视为成功」；
@@ -257,7 +222,7 @@ if [ "$PUBLISH" = 1 ]; then
     exit 0
   fi
   echo "== 发布 $PKG_NAME@$VER ${DIST_TAG:-（tag=latest）} → $REGISTRY =="
-  # A3-a：--provenance 供应链溯源证明 —— 用 GitHub OIDC 短时令牌
+  # --provenance 供应链溯源证明 —— 用 GitHub OIDC 短时令牌
   #   向 npm 签发「此产物由本仓库此 commit 的这次 CI run 构建」的 attestation，
   #   npm 侧长期凭证不参与签发；审计/安装方可核。需 build job 已授 id-token: write。
   #   逃生阀：DSH_NPM_PROVENANCE=0 显式关闭（如无 OIDC 的环境）。

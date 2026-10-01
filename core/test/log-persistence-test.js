@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
-// 日志与事件持久化行为测试（原 core-test.js 的 Logger/Events 两段拆出的归属文件，THIN-1-12）。
-//   被测对象：src/platform/service/log/{log,events}.js。Logger：级别过滤 / 超限轮转保留一代 /
-//   记账不失控 / LineBuffer 跨 chunk 半行还原；Events：轮转备份 / seq 跨重启续号 /
-//   轮转点即时持久化 / readSince 跨轮转与增量语义 / limit 钳制。全部针对临时文件，不触碰真实 DSH。
+// 日志与事件持久化行为（src/platform/service/log/{log,events}.js）：Logger 级别过滤 / 超限轮转保留一代 /
+//   LineBuffer 跨 chunk 半行还原；Events 轮转备份 / seq 跨重启续号 / 轮转点即时持久化 / readSince 增量语义 / limit 钳制。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -65,8 +63,6 @@ function testEventsRotation() {
   for (let i = 0; i < 40; i++) ev.append('tick_event', { i });
   check('轮转后存在 .1 备份文件，且 seq 全局连续（40 条）、新实例续号不重置',
     fs.existsSync(file + '.1') && ev.seq === 40 && new Events(file, 600).seq === 40, String(ev.seq));
-  // 2026-10-12 瘦身：原「meta 节流生效」「节流窗口内重启仍单调」是**形态锁**（把「meta 节流落盘」
-  //   这一实现选择当正确性判据），已删；续号单调性由上面一条覆盖，轮转点持久化由 rotatedSeq 守住。
   const metaDoc = JSON.parse(fs.readFileSync(file + '.meta.json', 'utf8'));
   check('条1 轮转点即时持久化：meta.rotatedSeq == 内存水位（跨重启 .1 事件仍可见）',
     ev.rotatedSeq !== null && metaDoc.rotatedSeq === ev.rotatedSeq,

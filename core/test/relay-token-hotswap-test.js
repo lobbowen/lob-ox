@@ -1,17 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// relay 门卫令牌必须**可热换**：改了令牌，运行中的 relay 必须立刻生效
-//
-// 缺陷（被测对象：InstanceManager.updateInstance 的 remoteToken 变更链 + relay.setToken）：
-//   syncProxy 的「已存在则 return」快路径**不重读** remoteToken；applyToken 只处理 dshToken
-//   -> 令牌闸已放行，而 relay 进程内 token 仍是空串 -> **tokenGate 恒放行**（门卫形同不存在）。
-//
-// 锁定不变量：H-a 弱令牌写入口即拒且同补丁其它字段未被改（不留半改状态）· H-b 只换令牌即触发
-//   onRemoteChange（读到新值）· H-c 同值幂等写不再触发（防空转刷屏）· H-d 清空令牌同样触发 ·
-//   H-e 真实 relay：空令牌 hasToken()=false -> setToken 后 true -> 清空后 false。
-// ---------------------------------------------------------------------------
+// relay 门卫令牌必须**可热换**：syncProxy 的「已存在则 return」快路径不重读 remoteToken、applyToken 只处理
+//   dshToken ⇒ 令牌闸已放行而 relay 进程内 token 仍是空串（tokenGate 恒放行，门卫形同不存在）。
+//   H-a 弱令牌即拒且不留半改 · H-b 只换令牌即触发 onRemoteChange · H-c 同值幂等不触发 · H-d 清空同样触发 · H-e 真实 relay 的 hasToken 三态。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');

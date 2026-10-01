@@ -1,17 +1,10 @@
 'use strict';
 
-// 桌面壳环境上报的读取口（壳写、内核读）：写入者在壳仓，落点是本侧唯一口径 ——
-//   <产品状态根>/supervisor/shell-report.json（schema 1），与 ./runtime.js 投放的 runtime.json 同目录。
-//
-// 为什么走文件而不是新开上报端点：壳与内核恒同机，而本机实况的采集者就是写入者。走 HTTP 要新造带体
-//   动词、新开写端点、再加投递重试；那条重试正是把「没送达」伪装成「已上报」。文件只回答一个问题：
-//   「壳最后一次看到了什么、什么时候看到的」。读不到就如实标 never-written，不猜、不补、不重试。
-// 与 ./runtime.js 的分工：那一份是**启动契约**（内核拿它去 spawn，字段错一个字符就装不上内核）；
-//   本文件是**观测报告**（只给人和判据读，永远不参与 spawn）。两者形状互不迁移，合在一起会让
-//   契约的严格读回被一堆展示字段拖累。
-// 三态纪律：ok/writable/reachable 允许 true|false|null，null = 壳那一侧也判不出（Record::pending），
-//   不得折成 false —— 「没报」与「报了不通过」是两件事（与 ./runtime.js 的 npm.version=null 同一条）。
-// 机密边界：所有来自壳的自由文本在这里过一次 ../util/redact 再进台账（私有镜像源常把 token 写在 URL 里）。
+// 桌面壳环境上报的读取口（壳写、内核读）：<产品状态根>/supervisor/shell-report.json（schema 1），
+// 与 ./runtime.js 的 runtime.json 同目录。那份是启动契约（内核拿它 spawn），本份是观测报告，
+// 只给人和判据读、不参与 spawn，两者形状互不迁移；读不到就标 never-written，不补不重试。
+// 三态纪律：ok/writable/reachable 允许 true|false|null，null 表示壳也判不出，不得折成 false
+//   ——「没报」与「报了不通过」是两件事。机密边界：壳来的自由文本在此过一次 ../util/redact。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -71,8 +64,7 @@ function registryView(n) {
   return { best: maskProxyServer(raw(o.best)), latencyMs: num(o.latencyMs), probes: rows, probesTotal: list(o.probes).length };
 }
 
-/** 壳的探测记录原样并规整（probe/source/target/ms/ok/note 与壳侧 Record::json 同键）：
- *  这一份是排障时唯一的「壳当时看到了什么」，规整而不是重述 —— 改名或丢字段就等于换了一套词汇。 */
+/** 壳的探测记录原样规整（probe/source/target/ms/ok/note 与壳侧 Record::json 同键）。 */
 function recordsView(recs) {
   const all = list(recs);
   const rows = all.slice(0, MAX_ROWS).map((r) => {
@@ -83,8 +75,7 @@ function recordsView(recs) {
   return { rows, truncated: all.length > MAX_ROWS ? all.length - MAX_ROWS : 0 };
 }
 
-/** 一份可用的报告主体：至少要有壳的时戳与一条明细，否则与「没报过」没有区别（不拿空对象冒充本机实况）。
- *  返回 null 即调用方按「读不出」处理。 */
+/** 报告主体：至少一个维度非空或有一条明细才算有内容，否则返回 null（不拿空对象冒充实况）。 */
 function bodyOf(j) {
   const recs = recordsView(j.records);
   const body = {
@@ -101,15 +92,15 @@ function bodyOf(j) {
   return seen ? body : null;
 }
 
-/** 交出的就是「这一维的全部答案」，故摊平为一层：读侧再套一层 data 只会让界面写出 data.data。 */
+/** 摊平为一层：读侧再套一层 data 只会让界面写出 data.data。 */
 function envelope(p, at, ageMs, reason, body) {
   return Object.assign({ available: reason === 'ok', path: p, at, ageMs, reason }, body || {
     writtenBy: null, schema: null, node: null, npm: null, prefix: null, registry: null, records: [], droppedRecords: 0,
   });
 }
 
-/** 读壳投放的环境报告。**永不抛错**；读不出与没报过必须分档（说反了会引着人去查一个不存在的文件）。
- *  @param {{now?:Function}} [o] 注入时钟，判定年龄用（门禁据此锁死「多久算旧」的口径）
+/** 读壳投放的环境报告，永不抛错；读不出与没报过分档上报。
+ *  @param {{now?:Function}} [o] 注入时钟，判定年龄用
  *  @returns {{available:boolean,path:string,at:number|null,ageMs:number|null,
  *             reason:'ok'|'never-written'|'unreadable-or-schema-mismatch',
  *             schema:number|null,writtenBy:string|null,node:object|null,npm:object|null,

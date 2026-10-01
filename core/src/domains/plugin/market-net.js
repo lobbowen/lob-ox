@@ -3,7 +3,6 @@
 // 插件市场 HTTP JSON/文本原语：体积上限 + 非 2xx 直接失败 + 重定向最多 5 跳 + 目标协议校验。
 // 重定向必须校验协议：file:// 会让 http.get 同步抛 ERR_INVALID_PROTOCOL，且此处位于响应回调内，
 // 会逃逸为进程级 uncaughtException（registry 可配任意 https，302 可落到第三方镜像）。
-// 注意：test/round8-fixes-test.js J-g 按源码断言本文件保留两条协议校验。
 
 const http = require('node:http');
 const https = require('node:https');

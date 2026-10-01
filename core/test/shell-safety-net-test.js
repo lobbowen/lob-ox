@@ -17,9 +17,7 @@ const LF = String.fromCharCode(10);
 // 而 CommonJS 顶层不允许 await —— 之前全同步掩盖了这一点。
 (async () => {
 
-  // 隔离 HOME，避免污染真实壳状态。
-  //  必须同时设 USERPROFILE：Node 的 os.homedir() 在 Windows 上**优先读 USERPROFILE**，
-  //   只设 HOME 会退回真实用户目录 -> 该测试在 Windows 上断言失败（实测 CI #22）。
+  // 隔离 HOME，避免污染真实壳状态。**必须同时设 USERPROFILE**：Node 的 os.homedir() 在 Windows 上优先读 USERPROFILE。
   const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'shell-net-'));
   process.env.HOME = TMP;
   process.env.USERPROFILE = TMP;
@@ -58,8 +56,6 @@ const LF = String.fromCharCode(10);
   const h = shell.health({ phase: 'ready', version: '0.2.0' });
   check('R2-a ready + 版本匹配 → confirmed 且落账', h.state === 'confirmed' && shell.readJournal().confirmed === true, h.state);
 
-  // 保底：attempt 再高也不回退（只有一个方向 —— 永不回退到旧版本）。R3-d/R3-e/R3-f 已删
-  //   （「已删除的面仍不存在」与否定匹配属内部形态，改产品即红而产品没坏）。
   shell.markPending('0.2.0', '0.3.0');
   writeIdentity({ version: '0.2.0', attempt: 1, phase: 'boot' });
   const ev1 = shell.evaluate();

@@ -2,9 +2,9 @@
 
 const spawnOS = require('../../platform/os/spawn');
 
-// 受管进程生命周期核心（router-daemon / lan-daemon / 常驻进程共用）。
-// 不变量：一个逻辑服务=一个受管进程；换代按 TERM 旧代、短暂 latch、spawn 顺序执行，latch 窗口内不得再 spawn；
-// 守卫重启按身份文件 owner 连续接管，身份丢失/异主不接管；本层只对进程负责，端口分配归端口注册表。
+// 受管进程生命周期核心（router-daemon / lan-daemon / 常驻进程共用）。不变量：一个逻辑服务=一个受管进程；换代按
+//   TERM 旧代、短暂 latch、spawn 顺序执行，latch 窗口内不得再 spawn；守卫重启按身份文件 owner 连续接管，
+//   身份丢失/异主不接管。本层只对进程负责，端口分配归端口注册表。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -32,8 +32,8 @@ class DaemonLifecycle {
     this.stopGraceMs = o.stopGraceMs || 4000;
     this.portReleaseTimeoutMs = o.portReleaseTimeoutMs || 5000;
     this.spawnWindowMs = o.spawnWindowMs || 25000;
-    // 退出意图谓词钩子（守卫注入 host._exitIntended，单源）。ensureRunning 是全部 daemon spawn 的必经
-    //   入口，仅有内存 _stopping 不够——「退出管家」后守卫被外部拉起的那拍，会话/持久标记同样必须否决 spawn。
+        // 退出意图谓词钩子（守卫注入 host._exitIntended，单源）。ensureRunning 是全部 daemon spawn 的必经入口，
+        //   仅有内存 _stopping 不够 —— 「退出管家」后守卫被外部拉起的那拍，会话/持久标记同样必须否决 spawn。
     this._exitIntended = typeof o.exitIntended === 'function' ? o.exitIntended : () => false;
     this._spawnWindowUntil = 0; // spawn latch
     this._stopping = false;
@@ -49,17 +49,18 @@ class DaemonLifecycle {
       try { fs.mkdirSync(dir, { recursive: true }); } catch {}
       writeAtomic(this.identityFile, JSON.stringify({ guardPid: process.pid, daemonPid, startedAt: Date.now() }), { mode: 0o600 });
     } catch (e) {
-      // 身份文件写失败必须留痕：它决定下次守卫重启能否按 owner 连续接管该 daemon；
-      //   静默失败会让接管判定退回 cmdline 形态，异主/双监督风险变成不可见的。
+            // 身份文件写失败必须留痕：它决定下次守卫重启能否按 owner 连续接管该 daemon；静默失败会让接管判定退回
+            //   cmdline 形态，异主/双监督风险变成不可见的。
       if (this.logger && this.logger.warn) this.logger.warn(this.name + ' identity write failed: ' + ((e && e.message) || e));
       try { if (this.events && this.events.append) this.events.append('daemon_identity_write_error', { name: this.name, pid: daemonPid, error: (e && e.message) || String(e) }); } catch {}
     }
   }
   _clearIdentity() { try { fs.unlinkSync(this.identityFile); } catch {} }
 
-  /** 判活（platform/pidlookup.probeAlive 单源）：unknown 不 fail-open——必须有第二条证据
-   *  （ctl 端口属主正是该 pid 且 cmdline 匹配本服务）才认活，否则按死走 reclaim/spawn。
-   *  fail-open 会让已死 daemon 被判活，此后既不接管也不拉起，永不自愈。 */
+    /**
+   * 判活（platform/pidlookup.probeAlive 单源）：unknown 不 fail-open —— 必须有第二条证据（ctl 端口属主正是该 pid
+   * 且 cmdline 匹配本服务）才认活，否则按死走 reclaim/spawn；fail-open 会让已死 daemon 被判活，永不自愈。
+   */
   _pidAlive(pid) {
     if (!pid) return false;
     const st = pidlook.probeAlive(pid);
@@ -73,8 +74,8 @@ class DaemonLifecycle {
     try {
       const pid = pidlook.findListeningPid(this.ctlPort);
       if (!pid) return null;
-      // 两侧都要归一化：_cmdMarks 已被构造器 norm() 成 "/"，而 readCmdline 返回原生分隔符；
-      // Windows 的 cmdline 是反斜杠，直接 indexOf 永远 -1，会认不出自己的 daemon。
+            // 两侧都要归一化：_cmdMarks 已被构造器 norm() 成 "/"，而 readCmdline 返回原生分隔符（Windows 是反斜杠），
+            //   直接 indexOf 永远 -1，会认不出自己的 daemon。
       const cmd = pidlook.normCmdline(pidlook.readCmdline(pid) || '');
       // 按全部标记匹配（语义 cmdMark + 从 script 派生的路径形态）。
       return this._cmdMarks.some((mk) => mk && cmd.indexOf(mk) >= 0) ? pid : null;
@@ -84,19 +85,20 @@ class DaemonLifecycle {
   /** 当前「期望进程」= 身份文件里的 daemonPid（若还活着）。 */
   expectedPid() { const id = this._readIdentity(); return id && id.daemonPid ? id.daemonPid : null; }
 
-  /** 回收非当前受管代际的旧代进程：YAMA 下 /proc fd 对非祖先不可读、socket 到 pid 无法映射，
-   *  故用 pgrep -af 读 cmdline（跨平台/YAMA 免疫）。命中本 daemon 特征且 pid 非当前身份 pid/自己/
-   *  ctl 属主者一律视为旧代残留，TERM 回收。@returns 回收数 */
+    /**
+   * 回收非当前受管代际的旧代进程：YAMA 下 /proc fd 对非祖先不可读、socket 到 pid 无法映射，故用 pgrep -af 读 cmdline
+   * （跨平台/YAMA 免疫）。命中本 daemon 特征且 pid 非当前身份 pid/自己/ctl 属主者一律视为旧代残留，TERM 回收。
+   * @returns 回收数
+   */
   reclaimOrphans() {
-    // cfg = args 中 -c/--config 的值（生产 daemon 为 configPath，用于精确匹配防误杀其它实例/用户）；
-    // 无 -c（如测试夹具/简化调用）时 cfg 为空，仅按 cmdMark 匹配（仍排除自己/受管代/ctl 属主）。
+        // cfg = args 中 -c/--config 的值（生产 daemon 为 configPath，用于精确匹配防误杀其它实例/用户）；无 -c
+                //   （简化调用）时 cfg 为空，仅按 cmdMark 匹配（仍排除自己/受管代/ctl 属主）。
     const args = this.args || [];
     let cfg = '';
     for (let i = 0; i < args.length; i++) {
       if (args[i] === '-c' || args[i] === '--config') { cfg = String(args[i + 1] || ''); break; }
     }
-    // pgrepList 每次只接受一个 pattern，故对每个标记各查一遍并按 pid 去重
-    //   （只用语义标记会匹配 0 个，孤儿回收会空跑）。
+        // pgrepList 每次只接受一个 pattern，故对每个标记各查一遍并按 pid 去重（只用语义标记会匹配 0 个，孤儿回收空跑）。
     const marks = this._cmdMarks.length ? this._cmdMarks : [this.cmdMark];
     const seen = new Set();
     const candidates = [];
@@ -151,16 +153,15 @@ class DaemonLifecycle {
   }
 
   _spawn() {
-    // E-3 门禁：spawn 是唯一的「复活」动作，任何入口（ensure/换代/监督）都必须过退出意图闸。
+        // spawn 是唯一的「复活」动作，任何入口（ensure/换代/监督）都必须过退出意图闸。
     if (this._stopping || this._exitIntended()) return { mode: 'stopping' };
-    // 经统一封装：daemon 用 detached:true + stdio 'ignore'，走 detached()（固定 detached+windowsHide；
-    // 不加 windowsHide 时 detached 会在 Windows 上新建控制台窗口）。
+        // 经统一封装：daemon 用 detached:true + stdio 'ignore'，走 detached()（固定 detached+windowsHide；不加 windowsHide
+        //   时 detached 会在 Windows 上新建控制台窗口）。
     const child = spawnOS.detached(process.execPath, [this.script, ...this.args], {
       stdio: 'ignore', env: { ...process.env, ...(this.spawnEnv() || {}) },
     });
-    // 必须接住异步 'error'，且 child.pid 未确认时不得写身份：spawn 对 ENOENT/EPERM 不抛同步错、只发
-    //   异步 'error'（否则逃逸为守卫 uncaughtException）；若写入 daemonPid: undefined，expectedPid() 与
-    //   监督会永久误判「期望进程存在」，每轮都 spawn。
+        // 必须接住异步 'error'，且 child.pid 未确认时不得写身份：spawn 对 ENOENT/EPERM 不抛同步错、只发异步 'error'
+        //   （否则逃逸为守卫 uncaughtException）；若写入 daemonPid: undefined，监督会永久误判「期望进程存在」并每轮 spawn。
     child.on('error', (e) => {
       if (this.logger && this.logger.warn) this.logger.warn('[' + this.name + '] daemon spawn error: ' + ((e && e.message) || e));
       try { if (this.events && this.events.append) this.events.append('daemon_spawn_error', { name: this.name, error: (e && e.message) || String(e), script: this.script }); } catch {}
@@ -177,9 +178,10 @@ class DaemonLifecycle {
     return { mode: 'started', pid: child.pid };
   }
 
-  /** 无副作用分类（供监督/审计共用，绝不 spawn/stop）：running 期望代际存活 / external ctl 被异 cmdMark 进程
-   *  占用（绝不接管）/ reclaiming 期望已死且同 cmdMark 残留占 ctl / barrier latch 窗口内 / absent 可 spawn /
-   *  stopping 停止中。监督与停止路径据此识别「异主 daemon」——ensureRunning 只按 cmdline 判 active，分不清两者。 */
+    /**
+   * 无副作用分类（供监督/审计共用，绝不 spawn/stop）：running 期望代际存活 / external ctl 被异 cmdMark 进程占用
+   * （绝不接管）/ reclaiming 期望已死且同 cmdMark 残留占 ctl / barrier latch 窗口内 / absent 可 spawn / stopping 停止中。
+   */
   classify() {
     if (this._stopping) return { mode: 'stopping' };
     const exp = this.expectedPid();
@@ -220,10 +222,9 @@ class DaemonLifecycle {
       const owner = this._ctlOwnerPid();
       if (owner) { this._stopPid(owner); stopped = owner; }
     }
-    // 停止失败必须如实回报，且不得清身份：超时是唯一的失败信号。若只 warn 后无条件 _clearIdentity()
-    //   并返回 ok:true，对不响应 SIGTERM 的 daemon，守卫会宣告「已停」并抹掉身份，此后无人再知道该
-    //   pid，孤儿继续占 ctl/relay 端口。故超时返回 ok:false 且保留身份，让下一轮监督重试。
-    //   端口未释放不改变 ok，只经 portFree 标志如实上报。
+        // 停止失败必须如实回报，且不得清身份：超时是唯一的失败信号。若只 warn 后无条件 _clearIdentity() 并返回 ok:true，
+        //   对不响应 SIGTERM 的 daemon，守卫会宣告「已停」并抹掉身份，此后无人再知道该 pid，孤儿继续占 ctl/relay 端口。
+        //   故超时返回 ok:false 且保留身份，让下一轮监督重试；端口未释放不改变 ok，只经 portFree 标志如实上报。
     let dead = true;
     if (stopped) {
       dead = await waitProcessExit(stopped, this.stopGraceMs + 1500);

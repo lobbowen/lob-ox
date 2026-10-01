@@ -1,9 +1,8 @@
 'use strict';
 
 // 本机局域网可访问地址枚举：三端各用自己的命令（linux: ip route / ip -o addr；darwin: route -n get
-// default + ifconfig；win32: PowerShell Get-NetRoute / Get-NetIPAddress），不得用单平台专有命令糊弄其余两端。
-// 统一语义：只报局域网内真正可达的 IPv4 —— 默认路由的真实出口网卡优先，过滤虚拟网卡（VIRTUAL_IFACE）
-// 与回环/链路本地，同网卡静态地址优先。外部命令一律经 platform/util/exec（15s 硬超时 + SIGKILL）。
+// default + ifconfig；win32: PowerShell Get-NetRoute / Get-NetIPAddress）。
+// 统一语义：默认路由出口网卡优先，过滤虚拟网卡（VIRTUAL_IFACE）与回环/链路本地，同网卡静态地址优先；外部命令经 platform/util/exec（15s 硬超时 + SIGKILL）。
 
 const ex = require('../util/exec');
 

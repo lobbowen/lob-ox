@@ -1,29 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 智能路由端到端测试（路由域收敛宿主；吸收原 p2p-router-test.js + p2p-api-test.js）。
-//   前段：RouterService 直连/反代链路（真 listen mock 上游 + 真 spawn dry-run）——
-//         预设注入 → 真探测入池 → 激活独立端点 → 转发/用量记账 → 反代实例真启停 →
-//         持久化 round-trip → 重启后对账拉起（_ensureProxyInstances 的公开行为面）。
-//   后段：完整 Supervisor + api.js 的 /router/* —— 只留有独立风险的四组：供应商端点生命周期、
-//         keys/set 如实回报（假成功回归）、删除即释放端口登记、local() 应急视图 _stale 标注。
-// 沙箱注意：bwrap --unshare-pid 下进程组 kill(-pid) 会误杀主进程，故 stopInstance 的真实 kill 链路由宿主验证；
-//           本文件以真启停（start/stop）+ 真 pid/port/探活验证等价语义。所有网络目标均为本机 mock。
-//
-// 合并去留登记（原 p2p-router-test.js / p2p-api-test.js 的取舍，防静默丢覆盖）：
-//   留下：直连/反代真链路 A/B/C + API 层四组 D（P9a-e→D1-D5、P17/P17b→D6、P29b/P30→D8/D11、P29→D10、P21→D9）。
-//   删且判据他处承接：A3（per5hUsd 常量锁）、B9/B9b（四态词表 / 类型锁）、B11（→reconcile-instance-test）、
-//     E（解冻→本文件 A5）、F（锁收敛→reconcile-instance-test R14c / router-test / switch-policies-test）、
-//     维护私有字段段（形态锁）、key/use（→api-contract-test）、discard 正常路径（→A7）。
-//   删且此后无独立覆盖（薄参数校验 / 端点存活性采样，单独保留无鉴别力）：/router/providers/refresh 的实现
-//     就是 detectAccount+applyDetection 循环（src/domains/router/ops/quotasync.js:23-36），已由 A4/A5 真探测覆盖；
-//     /router/providers/account/discard 与 /router/providers/proxy/key|select、/ports、/self-update/status 的入参校验采样。
-// 前置装置（D8 依赖，改动前先读）：本文件反代账号用 PROXY_OK_KEY——dry-run 反代按 Key 派生配额，
-//   满额 Key 会让账号被正确冻结、实例永不拉起，D8 的 proxy 段即不可达（详见该常量处注释）。
-//   另：D11 的 proxy 段 owner 是 'proxy:<账号 keyId>'（不是供应商 id），判据据此收紧，不留空判据。
-// E 段（装配期端口账本）锁的是**两个不同根因**、各判一次，不得合并理解（详见该段注释）：
-//   E1a = 池内端口自愈登记（写口必须是 allocateMark；registerUser 的动态保留池守卫会拒绝 providerApi 池内号）；
-//   E1b/E2 = 装配顺序（ports.configureFile 必须先于 RouterService 构造）。两者改前各自红、改后各自绿。
+// 智能路由端到端（路由域收敛宿主）：前段 RouterService 直连/反代链路（真 listen mock 上游 + 真 spawn dry-run：
+//   预设注入 → 真探测入池 → 激活独立端点 → 转发/用量记账 → 反代实例真启停 → 持久化 round-trip → 重启后对账拉起）；
+//   后段完整 Supervisor + api.js 的 /router/*（供应商端点生命周期、keys/set 如实回报、删除即释放端口登记、local() 应急视图 _stale 标注）。
 
 const http = require('node:http');
 const path = require('node:path');
@@ -35,9 +15,8 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'router-e2e-'));
 const results = [];
 const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x ? '  ← ' + x : '')); };
 
-// 产品不再内置 dry-run 测试供应商：测试自行注册本地 mock 反代应用（仅本进程内生效，不进生产）。
-// 该注入面是 PROXY_APPS 注册表的落点（原 ensure-instance-test.js 的 PROXY_APPS 覆盖收敛到本文件）。
-// 直连侧同理落 PROVIDER_PRESETS（见 registerLocalUpstreamPreset）：本文件所有上游都必须是本机 mock。
+// dry-run 测试供应商由测试自行注册本地 mock 反代应用（仅本进程内生效，不进生产），注入面是 PROXY_APPS 注册表；
+//   直连侧同理落 PROVIDER_PRESETS（registerLocalUpstreamPreset）——本文件所有上游都必须是本机 mock。
 const { PROXY_APPS: TEST_APPS } = require(path.join(ROOT, 'src', 'domains', 'router', 'proxy-apps'));
 const { PROVIDER_PRESETS } = require(path.join(ROOT, 'src', 'domains', 'router', 'providers', 'base'));
 const registerCleanup = require(path.join(ROOT, 'test', 'helpers-cleanup'));
@@ -73,16 +52,9 @@ function registerLocalUpstreamPreset() {
 }
 registerLocalUpstreamPreset();
 
-// D 段（守卫 + /router/* API）的反代账号 Key 是**固定装置**，不是随手取的字符串：
-// dry-run 反代应用（test/dry-run-proxy.js:14-19）按 Key 哈希派生 5h/周/月三窗口百分比
-//   v = (sha256(key) 前 6 位十六进制 + b) % 120，b = 0/30/60；v >= 100 即 rate-limited。
-// 取到满额窗口的 Key，账号会在「添加即探测」阶段被产品**正确地**判为 window 满额 → frozen：
-// 期望集只收 ready（providers/pool.js#computeDesired + providers/instance-lifecycle.js#isAccountUsable），
-// 实例永不拉起，'proxy:<keyId>' 端口登记永不出现 —— 于是 D8 的 proxy 段在任何机器、任何等待时长下
-// 都不可满足（不是「CI 慢」，是收敛条件不可达）。
-// CI 实测：'pk-1' 派生 56/86/100 → 守卫日志 'account ***: registering → frozen'
-// （_understanding/ci-core-test-3.log:569），D8 等满 30130ms/121 轮 proxy=0。
-// 'proxy-key-d8' 派生 23/53/83（三窗口全 < 100）→ 账号 ready → 实例真拉起并按 'proxy:<keyId>' 登记。
+// D 段的反代账号 Key 是**固定装置**：dry-run 反代按 Key 哈希派生 5h/周/月三窗口百分比，取到满额窗口的 Key
+//   会被产品**正确地**判为 frozen ⇒ 期望集只收 ready，实例永不拉起，'proxy:<keyId>' 端口登记永不出现，
+//   D8 的 proxy 段收敛条件不可达（不是「CI 慢」）。故用 'proxy-key-d8'（三窗口全 < 100）。
 const PROXY_OK_KEY = 'proxy-key-d8';
 
 // 请求助手：连接失败也结算（code=0 → 判红），不把失败变成未捕获错误。
@@ -221,10 +193,8 @@ const up = http.createServer((q, s) => {
     probeIntervalMs: 300, probeTimeoutMs: 1200, failThreshold: 2, startTimeoutMs: 5000,
     stopGraceMs: 800, killWaitMs: 1500, portReleaseWaitMs: 600, crashWindowMs: 10000, crashBurst: 4, backoff: [1500, 3000, 6000],
     apiHost: '127.0.0.1', apiPort: 31930,
-    // 隔离的唯一开关是 stateFile：守卫按 dirname(stateFile) 派生 providers.json / ports.json（下面的
-    // switcherDir/providerFile 只服务于 A/B/C 段直连构造的 RouterService，守卫侧并不消费）。必须与本段
-    // 声明的 providerFile 同址（TMP/sw），否则守卫会直接复用 A/B/C 段写在 <TMP>/providers.json 的供应商
-    // （连同 activated 与 apiPort），D1「新供应商默认停用」与 D8 的端口登记前置即被污染。
+    // 隔离的唯一开关是 stateFile：守卫按 dirname(stateFile) 派生 providers.json / ports.json（switcherDir/
+    //   providerFile 只服务于直连构造的 RouterService）。必须与本段 providerFile 同址，否则守卫复用 A/B/C 段的供应商。
     stateFile: path.join(TMP, 'sw', 'state.json'),
     logFile: path.join(TMP, 'events.log'),
     supervisorLogFile: path.join(TMP, 'sup.log'),
@@ -273,13 +243,8 @@ const up = http.createServer((q, s) => {
   check('D1 新供应商默认停用（未激活不提供服务）', !!deactView && deactView.activated === false, JSON.stringify(deactView && { activated: deactView.activated, apiBase: deactView.apiBase }));
   r = await api('POST', '/router/providers/activate', { id: proxyPid });
   check('D2 激活供应商分配独立 API 端口', r.code === 200 && r.body.ok === true && typeof r.body.apiPort === 'number', r.code + ' ' + JSON.stringify(r.body));
-  // 激活即异步拉该供应商的实例（产品不承诺时限），实例端口认领后才有 proxy: 登记。有界等待它落表：
-  // 否则 D8 的 proxy 段取决于「激活→停用」之间的调度运气（deadline 只作失控守卫，不代替产品承诺）。
-  // 30s 的依据（CI 实测，非拍脑袋）：同一条 spawn→探活→认领链路在 ubuntu runner 上的耗时是
-  // 2004ms（B4，ci-core-test-3.log:557），30s ≈ 15 倍余量；且账号注册完成（约 2.1s）后无论早于
-  // 还是晚于本段激活，都会经 _onStatusTransition(ready)→reconcileNow 补齐实例，两条路径都远快于 30s。
-  // 因此「等满 30s 仍无 proxy: 段」不是慢，而是账号根本不在期望集（frozen/discarded）——
-  // 那必须查因（D8 失败信息会直接回报账号终态与配额），而不是把时限继续调大。
+  // 激活即异步拉该供应商的实例（产品不承诺时限），实例端口认领后才有 proxy: 登记，故有界等待它落表；
+  //   30s 是 15 倍余量（同链路在 ubuntu runner 上约 2s）。等满 30s 仍无 proxy: 段 = 账号根本不在期望集（frozen/discarded），必须查因。
   const wProxy = { t0: Date.now(), polls: 0 };
   for (;;) {
     wProxy.polls++;
@@ -297,9 +262,8 @@ const up = http.createServer((q, s) => {
   const deact2 = ((r.body && r.body.providers) || []).find((p) => p.id === proxyPid);
   check('D5 停用后视图独立地址失效', !!deact2 && !deact2.apiBase, JSON.stringify(deact2 && { apiBase: deact2.apiBase }));
 
-  // D6-D7 keys/set 如实回报（旧实现不 await 检测、恒报 added=1 = 假成功：用户以为加进去了）
-  // 判据是「检测拿不到配额 → 该 Key 被丢弃且带原因」这一外部可观测后果：sk-down 由本机 mock 恒返 5xx
-  // （见 mock 上游），与公网服务无关；added/discarded 不再随 CI 出网情况漂移。
+  // D6-D7 keys/set 如实回报：判据是「检测拿不到配额 → 该 Key 被丢弃且带原因」这一外部可观测后果
+  //   （sk-down 由本机 mock 恒返 5xx，与公网无关；added/discarded 不随 CI 出网情况漂移）。
   r = await api('GET', '/router/providers');
   const directP = ((r.body && r.body.providers) || []).find((p) => p.kind === 'direct');
   r = await api('POST', '/router/providers/keys/set', { id: directP.id, add: ['sk-down-1'] });
@@ -311,8 +275,7 @@ const up = http.createServer((q, s) => {
     const pvPre = (r.body && r.body.records) || [];
     const proxyPre = pvPre.filter((x) => String(x.owner || '').startsWith('proxy:'));
     const apiPre = pvPre.filter((x) => String(x.owner || '').startsWith('providerApi:'));
-    // 失败自证：proxy 段缺席时把该供应商的账号终态/配额/实例态一并回报。「等满 30s + proxy=0」若不给原因，
-    // 读日志的人只能在「慢」与「条件不可达」之间猜（本文件正是这样被误判过一次，见文件头 PROXY_OK_KEY）。
+    // 失败自证：proxy 段缺席时把该供应商的账号终态/配额/实例态一并回报，读日志的人不必在「慢」与「条件不可达」之间猜。
     let why = '';
     if (!proxyPre.length) {
       const rv = await api('GET', '/router/providers');
@@ -332,45 +295,31 @@ const up = http.createServer((q, s) => {
     const v = rp && rp.then ? await rp : rp;
     check('D10 local() 应急视图带 _stale 标注（防误当实时）', v && v._stale === true && Array.isArray(v.providers), JSON.stringify(v && { stale: v._stale, hasProviders: Array.isArray(v.providers) }));
   }
-  // D11 厂商「删除即释放端口」契约（C3 修复）：旧实现 removeProvider 不释放 providerApi/proxy 记录 → 端口登记永久泄漏
+  // D11 厂商「删除即释放端口」契约：removeProvider 必须释放 providerApi/proxy 记录，否则端口登记永久泄漏。
   r = await api('GET', '/router/ports');
   {
     const pv = (r.body && r.body.records) || [];
     const owners = pv.map((x) => String(x.owner || ''));
-    // 本段守卫内只有一个反代供应商（Dry，D9 已删）与一个未激活的直连供应商（Zen），因此删除后残留的任何
-    // proxy: 段都是泄漏。原判据用 'proxy:' + proxyPid（供应商 id）拼 owner 恒不匹配——真实 owner 是
-    // 'proxy:<账号 keyId>'（providers/probe.js:54-55 claimSlot），该子句是空判据，proxy 段泄漏照样绿。
+    // 本段守卫内只有一个反代供应商（Dry）与一个未激活的直连供应商（Zen），删除后残留的任何 proxy: 段都是泄漏。
+    //   owner 必须是 'proxy:<账号 keyId>'（providers/probe.js:54-55 claimSlot），用供应商 id 拼会恒不匹配（空判据）。
     const leaked = owners.filter((o) => o.startsWith('proxy:') || o.startsWith('providerApi:' + proxyPid));
     check('D11 删除供应商后其端口登记已释放（无泄漏）', r.code === 200 && leaked.length === 0 && !owners.some((o) => o.startsWith('system:')), r.code + ' recs=' + pv.length + ' leaked=' + leaked.length + ' owners=' + JSON.stringify(owners));
   }
-  // -------- E. 装配期端口账本：自愈写口（allocateMark）与顺序（configureFile 先于构造）各判一次 --------
-  // 本缺陷有两个可独立观测的根因（D8 的 CI 现场 recs=1 proxy=1 api=0 是其放大面，见 _understanding/CI-FIX-router.md ⑥.2）：
-  //   根因① 自愈写口用错 API —— 装配期按 providers.json 的持久化 apiPort 补登记（src/domains/router/index.js:46-47）。
-  //     旧写口 registerUser 带「动态保留池」守卫（src/platform/service/ports/pool.js:113-114 reservedPoolOf），而
-  //     providerApi 段 24000-25999（src/domains/router/port-segments.js:12）本身就在该保留池内 ⇒ **池内号必抛**，
-  //     调用点又是 try{}catch{} ⇒ 池内号在任何文件里都写不进去（CI 的 24000/24001 正是此类 = api=0 的直接原因）。
-  //     修法：allocateMark（pool.js:198-205，无池守卫；语义 =「显式登记已分配端口（复用持久化端口时调用）」），
-  //     先例 app/control/registry.js:217、domains/relay/ports.js:46。这正是「重启后复用持久化 apiPort」的语义。
-  //   根因② 顺序 —— 该写口落在「当时仍生效的旧账」上（domains.js 上一轮已修：configureFile 提到构造之前；
-  //     注册表是进程级单例、「最后一个 configureFile 生效」，pool.js:40-46）。E2 即此根因的牙齿。
-  // 判据按两种值域各判一次（缺一不足以分别锁定两个根因）：
-  //   R_IN  池内号（24001，CI 现场真实号）：只有写口修对才可能出现在活动账本（旧写口下必红 = 根因①的牙齿）。
-  //   R_OUT 池外号（26001，不在 managed 20000-23999 / providerApi 24000-25999 任何已申报池内）：两代写口都接受
-  //         ⇒ 它只判根因②（顺序对了才落进活动账本，且旧账不得被写）。
-  // 复现前提：自定义 stateFile ⇒ 活动账本（dirname(stateFile)/ports.json）与装配前生效的账本不是同一本；rPrev
-  //   显式扮演「装配前那一本」，绝不落到真实默认状态根（生产里它就是默认状态根 —— 那才是"串账"）。
+  // E. 装配期端口账本：自愈写口（allocateMark）与顺序（configureFile 先于构造）各判一次 —— 根因① 写口用错
+  //   API（registerUser 带「动态保留池」守卫，而 providerApi 段 24000-25999 本身在该池内 ⇒ 池内号必抛且被
+  //   try/catch 吞掉）；根因② 注册表是进程级单例、最后一个 configureFile 生效。R_IN(24001) 判①，R_OUT(26001) 判②。
   {
     const { shared: sharedPorts } = require(path.join(ROOT, 'src', 'platform', 'service', 'ports'));
     require(path.join(ROOT, 'src', 'domains', 'router', 'port-segments')); // 段/池申报（require 即申报、幂等）：R_IN 的「池内」语义依赖它
     const rSw = path.join(TMP, 'restart');
     fs.mkdirSync(rSw, { recursive: true });
     const rPrev = path.join(TMP, 'restart-prev', 'ports.json');
-    sharedPorts.configureFile(rPrev); // 扮演装配前进程内仍生效的旧账（生产=默认状态根；CI=上一段用例的文件）
+    sharedPorts.configureFile(rPrev); // 扮演装配前进程内仍生效的既有账（生产=默认状态根）
     // 池基线从代码申报取（不写字面量）：池基线漂移时判据不会静默失效
     const rRange = sharedPorts.rangeOf('providerApi');
     const R_IN = rRange.base + 1;                    // 池内（24001）
     const R_OUT = rRange.base + rRange.count + 1;    // 池外（26001）：构造期 configurePools 尚未生效（domains.js:39 在构造之后）
-    // 上一轮落盘的持久状态：两个供应商均已激活、apiPort 已定 —— 这正是重启后装配读到的 providers.json。
+    // 落盘的持久状态：两个供应商均已激活、apiPort 已定 —— 重启后装配读到的 providers.json。
     const rProv = (id, port) => ({
       id, name: id, kind: 'direct', baseUrl: 'http://127.0.0.1:1/v1',
       apiPort: port, activated: true, plan: null, pricing: {}, presetId: null,
@@ -390,7 +339,7 @@ const up = http.createServer((q, s) => {
       dshLogFile: path.join(rSw, 'dsh.log'), upgradeLogFile: path.join(rSw, 'up.log'),
       distDir: path.join(rSw, 'dist'),
       // 刻意**不**覆盖 portPools：池基线保持代码申报值，R_IN 才是真池内号（覆盖会把 24000 段挪走，
-      // 判据就失去根因①的牙齿 —— 上一轮正是靠覆盖把 apiPort 挪到池外才只判得了顺序）。
+      //   判据就失去根因①的牙齿）。
     });
     const rRecs = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')).records || []; } catch { return []; } };
     const rLoaded = (rSup.router.providers || []).map((p) => ({ id: p.id, apiPort: p.apiPort, activated: p.activated }));
@@ -400,12 +349,12 @@ const up = http.createServer((q, s) => {
     check('E0 重启装配读到上一轮的供应商与 apiPort（前置自证，防判据空转）',
       rLoaded.length === 2 && rLoaded.some((x) => x.apiPort === R_IN) && rLoaded.some((x) => x.apiPort === R_OUT),
       'R_IN=' + R_IN + ' R_OUT=' + R_OUT + ' ' + JSON.stringify(rLoaded));
-    // 根因① 的牙齿：池内号。旧写口 registerUser 会被保留池守卫拒绝（pool.js:113-114）且异常被吞 ⇒ 此格必红。
+    // 池内号：旧写口 registerUser 会被保留池守卫拒绝（pool.js:113-114）且异常被吞 ⇒ 此格必红。
     check('E1a 池内持久化 apiPort 经自愈写口落进活动账本（allocateMark；旧写口下必红）',
       rActive.some((x) => x.port === R_IN && x.owner === 'providerApi:prov-restart-in' && x.role === 'providerApi')
       && sharedPorts.byOwner('providerApi:prov-restart-in') === R_IN,
       'active=' + JSON.stringify(rActive.map((x) => x.port + ':' + x.owner)));
-    // 根因② 的牙齿：池外号两代写口都接受，故它只判「顺序」—— 顺序错时它会被写进 rPrev 而活动账本为空。
+    // 池外号两代写口都接受，故它只判「顺序」—— 顺序错时它会被写进 rPrev 而活动账本为空。
     check('E1b 池外持久化 apiPort 同样落进活动账本（此格与 E1a 互补：只判顺序，不判写口 API）',
       rActive.some((x) => x.port === R_OUT && x.owner === 'providerApi:prov-restart-out')
       && sharedPorts.byOwner('providerApi:prov-restart-out') === R_OUT,

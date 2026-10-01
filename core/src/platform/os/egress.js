@@ -2,15 +2,11 @@
 
 // 出网条件探测层（L0）：只回答两件事 —— 这台机器把地址交给外界时经过什么，以及某个域现在直不直得通。
 //   不 launch、不选浏览器、不解释窗口结局（那是 ./browser.js 与 ./environment.js 的事）。
-//
-// 为什么外部打开链路需要这一层：一键登录开的是**冷档案隔离窗口**（独立 user-data-dir、无痕、无扩展、
-//   无既有登录态）。「宿主浏览器打得开这个域」并不自动等于「冷档案也打得开」—— 差别正好落在
-//   出网靠系统/环境代理还是靠档案里的东西（扩展、既有的 per-profile 配置）。缺这条事实时，
-//   隔离窗口内容空白而产品只能说「已交出」，真机上就成了「弹了个看不懂的空白窗口」，谁也定不了性。
-// 三端各写一处，读数一律三态：true 判过且成立 / false 判过且不成立 / null 无从判定。
-//   把「读不到」折成 false 会让判据在 DNS 被污染的机器上凭空砍掉隔离能力，那是砍能力迁就缺陷；
-//   反过来把超时折成 true 则会让空白窗口继续冒充「已交出」。超时与无应答一律 null。
-// 本层只摸系统事实，不建表单：读数带 TTL 缓存，由 ./environment.js 的 egress 维度按拍取用并留痕。
+// 冷档案隔离窗口（独立 user-data-dir、无痕、无扩展、无既有登录态）能否出内容，取决于出网靠的是
+//   系统/环境代理还是档案里的东西，故本层只摸这条系统事实。
+// 三端各写一处，读数一律三态：true 判过且成立 / false 判过且不成立 / null 无从判定。把「读不到」
+//   折成 false 会在 DNS 被污染的机器上凭空砍掉隔离能力，把超时折成 true 会让空白窗口冒充「已交出」。
+// 读数带 TTL 缓存，由 ./environment.js 的 egress 维度按拍取用并留痕。
 
 const tls = require('node:tls');
 const dns = require('node:dns');
@@ -29,9 +25,9 @@ function hostOf(url) {
 }
 
 /** win32 系统代理：HKCU 的 Internet Settings 是唯一文档化读取位置。ProxyEnable 是 DWORD、
- *  ProxyServer / AutoConfigURL 是字符串 —— 三者缺一不能定「有没有代理」：只配 PAC 时 ProxyEnable 也是 0，
- *  配了 ProxyServer 但 ProxyEnable=0 是「存着但没开」，那种机器上冷档案同样没有路。
- *  异步 runner（本层唯一口径）：这三条查询在 HTTP 路径上同步跑就是最长 3 x 2.5s 的事件循环冻结。 */
+ *  ProxyServer / AutoConfigURL 是字符串 —— 三者缺一不能定「有没有代理」（只配 PAC 时 ProxyEnable 也是 0，
+ *  配了 ProxyServer 但 ProxyEnable=0 是「存着但没开」）。
+ *  异步 runner：这三条查询在 HTTP 路径上同步跑就是最长 3 x 2.5s 的事件循环冻结。 */
 function proxyWin(runner, note) {
   const KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
   const read = (args) => Promise.resolve(runner('reg.exe', args));
@@ -78,7 +74,7 @@ function proxyMac(runOut, note) {
 }
 
 /** linux：环境变量是唯一文档化口径（大小写都认）。一个都没导出 = unknown 而不是 off：
- *  systemd/服务语境本就 import-environment 不全，判成「没配」会把有代理的机器说成没代理。 */
+ *  systemd/服务语境本就 import-environment 不全。 */
 function proxyLinux(env, note) {
   const pick = (k) => (typeof env[k] === 'string' && env[k].trim() ? env[k].trim() : null);
   const server = pick('https_proxy') || pick('HTTPS_PROXY') || pick('http_proxy') || pick('HTTP_PROXY')
@@ -136,11 +132,10 @@ function proxyRead() {
   return hit ? hit.value : null;
 }
 
-/** 一次通路判定：DNS 解析 -> TLS 握手（带 SNI）依次留痕。
- *  判据停在 TLS 完成，不发业务请求：那是「浏览器能不能渲染这个站」的最低充分事实，
- *  而取内容属于消费方，探测顺手 GET 页面会把能力判定变成内容依赖。
- *  ok 三态的分工写死在这里：明确否定（NXDOMAIN / 连接被拒 / TLS 报错）才是 false，
- *  没有答案（解析服务器不响应、连接超时）一律 null —— null 不支撑任何砍能力的结论。 */
+/** 一次通路判定：DNS 解析 -> TLS 握手（带 SNI）依次留痕。判据停在 TLS 完成，不发业务请求 ——
+ *  那是「浏览器能不能渲染这个站」的最低充分事实，取内容属于消费方。
+ *  ok 三态：明确否定（NXDOMAIN / 连接被拒 / TLS 报错）才是 false，没有答案（解析服务器不响应、
+ *  连接超时）一律 null —— null 不支撑任何砍能力的结论。 */
 function reachWith(deps, host, port, timeoutMs) {
   const d = deps || {};
   const ms = timeoutMs || PROBE_TIMEOUT_MS;

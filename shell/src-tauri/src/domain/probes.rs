@@ -1,7 +1,6 @@
 //! 环境探测记录的唯一所有者：维度表 `Probe`、记录形态 `Record`（`ok` 三态）、渲染（`render` / `json`）。
-//! 新增维度只需在 `Probe` 登记并写一个探测函数，CLI、诊断串与面板自动跟上；否则同一条结论拆在三处各写一遍，
-//! 漏改不报错。本文件不做网络 I/O（registry 只读 mirror::cached() 并写明是缓存），依赖维度按 TTL 复用缓存。
-//! `ok = None` 是「无从判定」，与 Some(false)（判过且失败）两件事 —— 没有事实就不要伪造事实。
+//! 新增维度只需在 `Probe` 登记并写一个探测函数，CLI、诊断串与面板自动跟上。本文件不做网络 I/O
+//! （registry 只读 mirror::cached() 并写明是缓存），依赖维度按 TTL 复用缓存。`ok = None` 是「无从判定」，与 Some(false) 两件事。
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -57,7 +56,6 @@ impl Record {
     }
 
   /// 「某一步还没返回」的记录：卡住时的唯一线索，形态与失败不同（`ok = None`）。
-  /// 旧实现把它记成 `ok = false`，于是诊断串里的「失败候选数」把在飞步骤也算成失败。
     pub fn pending(probe: Probe, source: &str, target: String, ms: u128, note: &str) -> Record {
         Record::new(probe, source, target, ms, None, note)
     }
@@ -169,8 +167,8 @@ fn invalidate() {
 
 /// 作废**全部**环境事实缓存（node 候选 + 依赖维度）。node 安装/升级完成处调用。
 ///
-/// 为什么是一个函数而不是两处各自调用：只失效一半会出现「新 Node + 旧 npm 结论」这种
-/// 自相矛盾的快照，而它恰好出现在刚装完 Node 的那一刻 —— 引导页最需要正确结论的时候。
+/// 必须一起作废：只失效一半会出现「新 Node + 旧 npm 结论」这种自相矛盾的快照，
+/// 而它恰好出现在刚装完 Node 的那一刻 —— 引导页最需要正确结论的时候。
 pub fn invalidate_all() {
     crate::nodeprobe::invalidate();
     invalidate();
@@ -178,7 +176,7 @@ pub fn invalidate_all() {
 
 /// 是否复用上一轮依赖结论。**纯判据**：换 node 必须重探，过期必须重探。
 ///
-/// 为什么抽出来：这条判据只能靠真实探测（含子进程 + 系统时钟）验证的话，测试就是在猜时序 ——
+/// 抽成纯函数：这条判据只能靠真实探测（含子进程 + 系统时钟）验证的话，测试就是在猜时序 ——
 /// 而它恰恰是「刚装完新 Node 却沿用旧 npm 结论」这类自相矛盾快照的唯一防线。
 fn reusable(cached_node: &Option<PathBuf>, node: &Option<PathBuf>, age: Duration) -> bool {
     cached_node == node && age < DEPENDENT_TTL
@@ -194,8 +192,8 @@ pub fn dependents(node: Option<PathBuf>) -> Snapshot {
         if let Some(c) = g.as_ref() {
             if reusable(&c.node, &node, c.at.elapsed()) {
                 let mut s = c.snapshot.clone();
-                // registry 那一格绕过 TTL：它只是读一次内存里的预热快照，零成本。复用的话，
-                // 预热完成后面板仍会念着 10 秒前的问号，而问号正是用户报的「看不到检测」。
+                // registry 那一格绕过 TTL：它只是读一次内存里的预热快照，零成本；
+                // 复用会让面板继续念着 10 秒前的问号。
                 if let Some(r) = s.records.iter_mut().find(|r| r.probe == Probe::Registry) {
                     *r = registry_record();
                 }
@@ -219,9 +217,9 @@ fn run_dependents(node: Option<&Path>) -> Snapshot {
     }
 }
 
-/// npm 可用性：委托 `runtime_contract::probe_npm_usable`（真实执行 `--version`，不变量 T-1b），
+/// npm 可用性：委托 `runtime_contract::probe_npm_usable`（真实执行 `--version`），
 /// 且**只用本轮探测到的 node 路径**的兄弟目录 —— 否则「探针用的 npm」与「装内核用的 npm」
-/// 可以不是同一个（T-10 同一条 spawn 路径）。
+/// 可以不是同一个（探针与消费者必须同一条 spawn 路径）。
 fn probe_npm(node: Option<&Path>) -> (Record, NpmFact) {
     let t0 = Instant::now();
     let Some(np) = node else {
@@ -263,9 +261,7 @@ fn probe_npm(node: Option<&Path>) -> (Record, NpmFact) {
 }
 
 /// npm registry 可达性：只读镜像**预热缓存**，故本维度零网络 I/O。
-///
-/// 为什么值得单独成一条记录：内核安装要连 npm 源，而「源不可达」在面板上此前只出现在
-/// 诊断串的镜像片段里 —— 与环境探测结论分属两套文字，排障时对不上号。
+/// 单独成一条记录：内核安装要连 npm 源，而镜像片段与环境探测结论分属两套文字时排障对不上号。
 fn registry_record() -> Record {
     let t0 = Instant::now();
     match crate::mirror::cached() {
@@ -345,8 +341,7 @@ fn write_probe(dir: &Path) -> Result<(), String> {
     let probe = dir.join(format!(".dsh-supervisor-writability-{}-{}", std::process::id(), nanos));
     match std::fs::write(&probe, b"") {
         Ok(()) => {
-  // 删不掉不是失败（前缀仍可写），但必须留在 note 之外由日志承担 ——
-  // 此处静默删除失败，失败面比「写不进去」小得多。
+  // 删不掉不是失败（前缀仍可写），此处静默忽略。
             let _ = std::fs::remove_file(&probe);
             Ok(())
         }
@@ -394,10 +389,9 @@ mod tests {
         );
     }
 
-    /// 本轮没探到 node 时，node 派生的维度必须是「未知」而不是「失败」：探测还在跑时把 npm
-    /// 判成缺失，前端就会据此发起一次无根因的重装（与 T-1b 的放行同一纪律）。
-    /// registry 与 node 无关（读镜像预热缓存），有结论是正当的 —— 本用例只锁「每个维度都留依据」，
-    /// 不锁取值（否则就成了缓存状态的第二个事实源）。全程不 spawn 子进程、不碰网络。
+    /// 本轮没探到 node 时，node 派生的维度必须是「未知」而不是「失败」。registry 与 node 无关
+    /// （读镜像预热缓存），有结论是正当的 —— 本用例只锁「每个维度都留依据」，不锁取值
+    /// （否则就成了缓存状态的第二个事实源）。全程不 spawn 子进程、不碰网络。
     #[test]
     fn without_node_node_derived_dimensions_are_unknown() {
         let s = dependents(None);

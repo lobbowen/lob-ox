@@ -1,14 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 受管 daemon 路径回归
-// 生产级缺陷：拆分后路径推导未更新 -> `_daemonLifecycle()` 恒返回 null -> 守卫永远无法自起
-// router/lan daemon。本测试直接调用**真实的原型方法**（而非重新实现一遍路径逻辑）：既有测试的
-// 问题正是「直接 new DaemonLifecycle / 自行 spawn」，完全绕过路径推导，于是缺陷对测试不可见。
-// 覆盖：K1-a/b router 与 lan 生命周期可构造；K1-c script 指向真实存在的文件；
+// 受管 daemon 路径回归：直接调用**真实的原型方法**（不重新实现路径逻辑），
+//   K1-a/b router 与 lan 生命周期可构造 · K1-c script 指向真实存在的文件 ·
 //   K1-d 无 configPath 时仍返回 null（测试/非守卫实例不越权管理）。
-// ---------------------------------------------------------------------------
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -47,8 +42,7 @@ for (const kind of ['router', 'lan']) {
   check('K1-a ' + kind + ' daemon 生命周期可构造（非 null）', !err && !!inst,
     err ? ('抛错: ' + err.message) : (inst ? 'ok' : 'null（路径解析失败 → 该 daemon 永不启动）'));
   if (inst) {
-    // DaemonLifecycle 的公开字段就是 `script`（src/app/daemons/process.js:22）——不再猜 opts 形状：
-    //   猜错会让断言在**产品无恙**时假红（本文件注释已记录过一次导出形态变更导致的失真）。
+    // 字段名取自 DaemonLifecycle 的公开字段 `script`（src/app/daemons/process.js:22）——猜错会让断言在产品无恙时假红。
     const script = inst.script;
     check('K1-c ' + kind + ' script 指向真实文件', !!script && fs.existsSync(script), String(script));
   }

@@ -1,8 +1,8 @@
 'use strict';
 
-// process-pool 能力面（mixin）：实例进程治理契约方法在此实现，生命周期引擎（L-A，进程动作唯一发出方）外部只经
-// ensureServable / reclaimAccount / _onStatusTransition 门面驱动；调用方以 supports(cap) 守卫不按 kind 分支，ctor 接线在此装配（DG-4：this 图单向）。
-// POOL_CAPS：instanceLifecycle=池存在；reconcile=对账；processPool=伞能力（_stopping 纪律/端口恢复守卫）；gracefulStop=在途收敛。
+// process-pool 能力面（mixin）：实例进程治理契约方法在此实现，调用方以 supports(cap) 守卫、不按 kind
+// 分支；外部只经 ensureServable / reclaimAccount / _onStatusTransition 门面驱动，ctor 接线在此装配。
+// POOL_CAPS：instanceLifecycle=池存在；reconcile=对账；processPool=伞能力；gracefulStop=在途收敛。
 
 const life = require('./instance-lifecycle');
 const restart = require('./restart');
@@ -80,7 +80,7 @@ function withProcessPool(Base) {
       return inst.startingPromise;
     }
 
-    /** 启动实例底层治理（spawn/探活在 probe.js）。测试以 _doStart 打桩替换 spawn；留在 mixin 侧是为 this 图单向。 */
+    /** 启动实例底层治理（spawn/探活在 probe.js）；留在 mixin 侧是为 this 图单向。 */
     async _doStart(inst) { return probe.spawnInstance(this, inst); }
 
     /** 请求级熔断计数清零；独立于健康监测的 _monitorFails。 */
@@ -89,7 +89,7 @@ function withProcessPool(Base) {
       inst._unhealthyCount = 0;
     }
 
-    /** 统一可服务化门面（LC 核心-1）：幂等启动 + 预算内同步等待，外部不裸调 start/kill。
+    /** 统一可服务化门面：幂等启动 + 预算内同步等待，外部不裸调 start/kill。
      *  budgetMs=null 表示等满探活周期（显式切换预算）；超时诚实报错，绝不静默换号。 */
     async ensureServable(acc, opts) {
       const inst = this.instanceOf(acc);
@@ -106,12 +106,12 @@ function withProcessPool(Base) {
       return { ok: false, warming: !!inst.pid, error: '实例未在等待期内就绪' };
     }
 
-    /** 等待区回收唯一入口（LC 核心-3）：force 终止 + 释放端口，账号进程层面同一轮零存在。
+    /** 等待区回收唯一入口：force 终止 + 释放端口，账号进程层面同一轮零存在。
      *  冻结零宽限：发不出请求的账号不该继续占进程；丢弃在途属预期语义。幂等。 */
     reclaimAccount(acc) { return life.reclaimAccount(this, acc); }
 
     /** 状态迁移事件表的进程侧接线（freeze.js setStatus 调用）：进等待区立即回收；
-     *  回 ready 立即重算期望集补缺口（LC 核心-5），不等周期对账。 */
+     *  回 ready 立即重算期望集补缺口，不等周期对账。 */
     _onStatusTransition(acc, prev, status) {
       if (status === 'frozen' || status === 'banned' || status === 'discarded') {
         try { this.reclaimAccount(acc); } catch {}

@@ -1,29 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
 // 测试链 runner —— 读 test/manifest.js，逐条起独立子进程执行。
-//
-// 为什么仍是「一条一个进程」而不是 in-process 串联：链中测试普遍以 process.exit() 收尾，
-//   in-process 跑会把整条链在第一道退出码处掐断。子进程形态同时保留了
-//   _preload.js 的按进程隔离（DSH_SUPERVISOR_HOME 每个测试一份临时状态根）。
-//
-// 用法：
-//   node test/_runner.js                  # 全链（CI test job 用）
-//   node test/_runner.js --tier=L2       # 只跑依赖真实宿主 OS 的那批（产线矩阵腿用）
-//   node test/_runner.js --only=a,b      # 只跑指定条目（本地排查/复现用）
-//   node test/_runner.js --fail-fast     # 首个红点即停（默认跑完并汇总全部红点）
-//
-// 为什么默认不短路：`&&` 巨链的首个红点会截断其后全部条目，于是「本轮只报 N 条红」
-//   不代表其余已绿 —— 排障者只能反复推 CI 复算。每条本就是独立子进程，
-//   跑完不改变任何判定，红点台账因此完整。
-//
-// 输出末尾的 SKIP 台账：本宿主不该跑而被跳过的 L2 条目，以及被标了 skip-of-platform
-//   的实跑文件（由 test 自行打印 SKIP 行）。
-//   ⚠️ 2026-10-01：原先"SKIP 不等于通过、由 test-chain-completeness 判某平台在该跑的项上
-//   全跳 = 红"这条执法**已随门禁整体拆除**（该门禁移至 C:\work\_gate_backup）
-//   ⇒ **现在 SKIP 就是跳过，没有任何机制会把它记成缺口**。这是有意的。
-// ---------------------------------------------------------------------------
+//   一条一个进程：链中测试普遍以 process.exit() 收尾，in-process 串联会被首个退出码掐断。
+//   用法：--tier=L2 只跑依赖真实宿主 OS 的那批（CI 矩阵腿用）/ --only=a,b / --fail-fast（默认跑完汇总全部红点）。
 
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -40,13 +20,11 @@ const TIER = flag('tier', 'all');
 const ONLY = flag('only', '').split(',').map((s) => s.trim()).filter(Boolean);
 const KEEP_GOING = !has('fail-fast');
 const ROOT = path.join(__dirname, '..');
-// 必须相对（与旧 && 链的字面量一致）：子进程 cmdline 会被被测层当作归属锚点读回来。
-//   绝对路径把仓库检出目录名写进每条 cmdline，而 src/app/main/signals.js 的接管判据
-//   含「命令行出现过 dsh」这种子串匹配 —— 测试进程就被守卫认成受管 DSH 并 SIGTERM
-//   （smoke 的端口占用用例实证：改回相对后同一条判定不再触发）。
+// 必须相对：子进程 cmdline 会被被测层当归属锚点读回来，而绝对路径把检出目录名写进每条 cmdline，
+//   src/app/main/signals.js 的接管判据含「命令行出现过 dsh」子串匹配 ⇒ 测试进程被守卫 SIGTERM。
 const PRELOAD = './test/_preload.js';
 
-// tier=all 不按宿主过滤（见 manifest.select 注释）；--tier=L2 才按当前宿主筛。
+// tier=all 不按宿主过滤（见 manifest.select）；--tier=L2 才按当前宿主筛。
 let picked = MANIFEST.select(TIER === 'os' ? 'L2' : TIER, process.platform);
 if (ONLY.length) {
   const norm = (f) => path.basename(f);
@@ -68,8 +46,7 @@ for (const entry of picked) {
     cwd: ROOT, stdio: 'inherit', windowsHide: true,
   });
   const code = r.status === null ? -1 : r.status;
-  // status=null 只说明「被子进程收到的信号打死」，不记信号就等于没记 ——
-  //   红点会退化成「它挂了」，排障只能再推一轮 CI 猜。
+  // status=null = 被子进程收到的信号打死；不记信号名，红点就退化成「它挂了」。
   const why = r.status === null ? 'signal=' + (r.signal || '?') + (r.error ? ' error=' + r.error.code : '') : 'exit ' + r.status;
   results.push({ file: entry.file, tier: entry.tier, code, why, ms: Date.now() - started });
   if (code !== 0) {

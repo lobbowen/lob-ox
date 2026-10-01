@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 确定性槽位仲裁 claimSlot 回归：
-//  byOwner 绑定复用 / binding-lost 迁移(显式) / preferred advisory 回退 / 顺序补位 / 单 owner 单端口
-// 隔离 range（28130+50）-> 确定性，不依赖宿主真实 relay 段占用。
-// 同域另含：release 空值语义（未登记端口 + ownerId 必须 no-op 返回 false）/ IPv6-only 占用识别 /
-//  跨进程落盘不丢写 / 固定 role 全表唯一（registerSole 自愈）。
+// 确定性槽位仲裁 claimSlot 回归：byOwner 绑定复用 / binding-lost 迁移(显式) / preferred advisory 回退 /
+//   顺序补位 / 单 owner 单端口（隔离 range 28130+50）。同域另含 release 空值语义 / IPv6-only 占用识别 /
+//   跨进程落盘不丢写 / 固定 role 全表唯一（registerSole 自愈）。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -47,9 +45,7 @@ const RANGE = { base: 28130, count: 50 };
   check('无重复端口、每 owner 一条', recs.length === new Set(recs.map((s) => s.split(':')[0])).size && recs.length === new Set(recs).size, JSON.stringify(recs));
 
   // == release 空值语义：未登记端口 + ownerId 必须 no-op 返回 false（不得抛 TypeError）==
-  //   缺陷本体：release(port, ownerId) 的空值检查排在 owner 比较之后，rec 为 undefined 时先读 rec.owner
-  //   -> 未包裹调用方直接崩、包裹者静默吞掉（契约无声失效）；而「端口已不归我」正是 ownerId 的设计用途。
-  //   门禁：未登记端口（带/不带 ownerId）无异常且返回 false；owner 不匹配 = no-op 不删记录 / 匹配 = 真释放。
+  //   release(port, ownerId) 的空值检查排在 owner 比较之后 ⇒ rec 为 undefined 时先读 rec.owner，未包裹的调用方直接崩。
   {
     // 独立文件：不污染本文件上方由 `ports`（ports.json）建立的登记表。
     const reg = new PortRegistry({ file: path.join(TMP, 'ports-release.json') });
@@ -190,8 +186,7 @@ const RANGE = { base: 28130, count: 50 };
     check('KI1 registerSole 只清同 role，不误删其它固定端口',
       sp.get('dsh-main') === pMain && sp.get(SOLE) === pB, JSON.stringify(sp.list()));
 
-    // 反向样本：老版本（避让只追加记录、release 被 catch 吞掉）留下的双记录仍在表内。
-    // 判据必须取**最新登记**，且要能证明「首个命中即返回」的老读法会取错——否则本条空转。
+    // 反向样本：表内存在同一端口的双记录。判据必须取**最新登记**，且要证明「首个命中即返回」的读法会取错。
     const sz = new PortRegistry({ file: path.join(TMP, 'ports-zombie.json') });
     sz._records.set(pOld, { port: pOld, role: SOLE, owner: 'system:' + SOLE, createdAt: 1 });
     sz._records.set(pNew, { port: pNew, role: SOLE, owner: 'system:' + SOLE, createdAt: 2 });
@@ -248,9 +243,6 @@ const RANGE = { base: 28130, count: 50 };
       fileRecs.some((r) => r.owner === 'relay:longlive'), JSON.stringify(fileRecs.map((r) => r.owner)));
   }
 
-  // （2026-10-01 已移除）原「B2-5 源码层：ports-lan.json 已退场」整段 —— 它读 relay/daemon.js 与
-  //   app/facade/ports.js 的**源码文本**做剥注释正则断言，属文本门禁，已按用户决定清理。
-  //   该不变量若有行为面需要保护，应由上面那组「真起进程 + 真落盘」的断言覆盖。
 
   const failed = results.filter((r) => !r);
   console.log('\n结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');

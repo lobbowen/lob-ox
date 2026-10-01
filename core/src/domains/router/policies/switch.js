@@ -3,10 +3,9 @@
 // S1 选号纯策略：零 require / 零 this / 零 IO；可用性与就绪由调用方算好 bool 传入。
 // 契约：绝不跨供应商 failover —— 只在传入的单个 state 池内选。
 
-/** 在单个供应商的账号池内选号。
- *  state = { accounts:[{key,keyId,maskedKey,status,usable,running}], selectedAccountKeyId, activeAccountKeyId, cursor, instancePool }；
- *  opts.excludeKeys = 本请求内瞬时故障账号的排除集（强制轮换不粘滞）。
- *  -> { keyId|null, nextCursor, clearSelected, reason:'selected'|'sticky'|'rotate'|null }，clearSelected=true 表示锁定账号已永久失效、需清锁并持久化。 */
+/** 在单个供应商的账号池内选号。state = { accounts:[{key,keyId,maskedKey,status,usable,running}],
+ *  selectedAccountKeyId, activeAccountKeyId, cursor, instancePool }；opts.excludeKeys = 本请求内瞬时故障
+ *  账号排除集（强制轮换不粘滞）。-> { keyId|null, nextCursor, clearSelected, reason }，clearSelected=true 表示锁定账号已永久失效、需清锁并持久化。 */
 function pickAccount(state, opts) {
   const s = state || {};
   const accounts = s.accounts || [];

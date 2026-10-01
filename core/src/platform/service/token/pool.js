@@ -1,8 +1,8 @@
 'use strict';
 
-// 令牌池（DSH-TOKEN-CONTRACT 契约3/4，TK-1/TK-4/TK-8）：唯一事实源，消费方一律按需 get()/getRecord()，不得自行缓存。
+// 令牌池：唯一事实源，消费方一律按需 get()/getRecord()，不得自行缓存。
 // 任何值变化、清空或注销必须经广播（clear/detach 无静默删除路径）；用户配置类权威在配置存储，list() 排除、attach 只登记。
-// 落盘（TK-5/TK-6）全部委托 persist/snapshot，本文件不直连 fs；池快照需显式 opts.poolFile，缺省不落盘以免测试互相污染。
+// 落盘全部委托 persist/snapshot，本文件不直连 fs；池快照需显式 opts.poolFile，缺省不落盘。
 
 const path = require('node:path');
 const persist = require('./persist');
@@ -29,8 +29,8 @@ class TokenPool {
     this._bus = new FollowBus({ logger: this.logger });
     this._schedules = new Map(); // id 到 { seq, i, timer }；新轮次 seq 递增使旧轮次作废
     this._seq = 0;
-    this._attachGen = new Map(); // id 到登记代：attach/clear 各自递增，使在途 journal 回填作废（B2-6a）
-    this._journalFn = o.journal || capture.captureJournal; // journal 档显式注入口：CI 造不出 journalctl 输出，行为断言靠它
+    this._attachGen = new Map(); // id 到登记代：attach/clear 各自递增，使在途 journal 回填作废
+    this._journalFn = o.journal || capture.captureJournal; // journal 档显式注入口（默认 capture.captureJournal）
     this._backfillAt = new Map();
     this._poolFile = o.poolFile ? path.resolve(o.poolFile) : null;
     this._loaded = false;
@@ -38,7 +38,7 @@ class TokenPool {
 
   /* 来源登记 */
   /** 登记或更新目标的令牌来源，重复 attach 幂等并保留已推送的 stdout 行；kind 缺省时按源形态推断（infer.js）。
-   *  kind 必须在 kinds.js 登记（契约1），完全无法判定时返回 false，避免幽灵令牌入池。 */
+   *  kind 必须在 kinds.js 登记，完全无法判定时返回 false，避免幽灵令牌入池。 */
   attach(id, src) {
     if (!id) return false;
     const s = src || {};
@@ -84,9 +84,9 @@ class TokenPool {
       return this._commit(id, hit.token, hit.source);
     }
     // journald（systemd 托管）末位兜底：异步发射不占调用线程。
-    // B2-6a attach 世代守卫（照抄 scheduleCapture 的作废法）：发射前后各校验一次换代，
-    //   且源一律按 id 从池重取——闭包 src 的 unit/file 属旧代事实，
-    //   否则 detach/clear 后迟到的死令牌会以新 gen 回灌（违反 TK-8 无静默复活）。
+    // attach 世代守卫（同 scheduleCapture 的作废法）：发射前后各校验一次换代，源一律按 id
+    //   从池重取——闭包 src 的 unit/file 属旧代事实，否则 detach/clear 后迟到的死令牌会
+    //   以新 gen 回灌（无静默复活不变量）。
     if (src.unit && kinds.isCaptured(src.kind)) {
       const gen = this._attachGen.get(id) || 0;
       const fresh = () => ((this._attachGen.get(id) || 0) === gen ? this._sources.get(id) : null);
@@ -112,8 +112,8 @@ class TokenPool {
     if (!id || !line) return null;
     let src = this._sources.get(id);
     if (!src) {
-      // TK-3：隐式源必须走与 attach 相同的分类闸——推断不出或 kind 未登记一律拒绝入池，
-      //   否则此旁路绕开登记门禁，造成幽灵令牌入池。
+      // 隐式源必须走与 attach 相同的分类闸——推断不出或 kind 未登记一律拒绝入池，
+      //   否则此旁路绕开登记闸，造成幽灵令牌入池。
       const k = inferKind(id, {});
       if (!k || !kinds.isKnownKind(k)) return null;
       src = { kind: k, unit: null, file: null, lines: [] };
@@ -166,7 +166,7 @@ class TokenPool {
   }
 
   /* 生命周期 */
-  /** 清空某目标的令牌与调度；TK-8：必须广播 null（消费方立刻丢弃旧代令牌）。
+  /** 清空某目标的令牌与调度；必须广播 null（消费方立刻丢弃旧代令牌）。
    *  stdout 行缓冲同属旧代状态必须一并清：残留行会被 ensureCaptured 再“捕获”，
    *  以新 gen 把已死令牌回灌进恢复文件。 */
   clear(id) {
@@ -192,7 +192,7 @@ class TokenPool {
     return rec ? (rec.value || '') : '';
   }
 
-  /** 当前令牌记录（含"代"）；未捕获返回 null。返回副本（TK-4）。 */
+  /** 当前令牌记录（含"代"）；未捕获返回 null。返回副本。 */
   getRecord(id) {
     let rec = this._records.get(id);
     if ((!rec || !rec.value) && !this._loaded) {
@@ -203,7 +203,7 @@ class TokenPool {
     return { value: rec.value, gen: rec.gen, source: rec.source, at: rec.at };
   }
 
-  /** 展示用列表（含代号与来源）；契约4：不得含用户配置类（TK-4/TK-7）。 */
+  /** 展示用列表（含代号与来源）；不得含用户配置类。 */
   list() {
     this._loadPoolFile();
     const ids = new Set();
@@ -268,7 +268,7 @@ class TokenPool {
     this._schedules.delete(id);
   }
 
-  /** 池快照落盘（仅 poolFile 配置时）。仅持久化 TK-7 允许的分类（委托 snapshot 原子写）。 */
+  /** 池快照落盘（仅 poolFile 配置时）。仅持久化允许的分类（委托 snapshot 原子写）。 */
   _persistPool() {
     if (!this._poolFile) return;
     const entries = [];

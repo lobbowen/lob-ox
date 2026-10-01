@@ -1,11 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
-// 智能路由底座（RouterService）离线测试：
-// 供应商 CRUD / 账号状态机 / 切换引擎选可用 / 持久化 round-trip / 一账号一实例 / 冻结释放。
-// 并入原 test/router-keypool-test.js（THIN-1-12）——Key 池故障转移与本体 Key 池判据同源：
-// 额度尽自动切换次 Key / 账号冻结与活跃键切换 / 冻结后粘滞复用 / 全部限额 429 / 用量记录与按模型聚合
-// （真起上游 HTTP + 真落盘用量账本，被测 RouterService + forward-core.joinUpstream）。
+// 智能路由底座（RouterService）离线测试：供应商 CRUD / 账号状态机 / 切换引擎选可用 / 持久化 round-trip /
+//   一账号一实例 / 冻结释放；同源 Key 池故障转移（额度尽自动切换次 Key / 冻结粘滞复用 / 全部限额 429 / 用量按模型聚合，真起上游 HTTP + 真落盘用量账）。
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -59,7 +56,7 @@ function req(port, method, reqPath, headers = {}) {
   const isMsTs = (v) => typeof v === 'number' && Number.isFinite(v) && v > 1e12 && v < 4e12;
   const nISO = normalizeResetTs(ISO_RESET);
   const nSec = normalizeResetTs('1789970072');
-  // 行为断言（不再比硬编码 epoch 常量）：毫秒量级 + 等于输入所指时刻 + 秒级 ×1000 + 非法归 null。
+  // 行为断言：毫秒量级 + 等于输入所指时刻 + 秒级 ×1000 + 非法归 null。
   check('normalizeResetTs：ISO/epoch 秒 → 输入时刻的毫秒时间戳；非法 → null',
     isMsTs(nISO) && nISO === Date.parse(ISO_RESET) && isMsTs(nSec) && nSec % 1000 === 0 && normalizeResetTs('garbage') === null && normalizeResetTs(null) === null,
     nISO + '/' + nSec);
@@ -69,7 +66,7 @@ function req(port, method, reqPath, headers = {}) {
   dp2.selectedAccountKeyId = null;
   const view2 = svc2.listProviders().find((p) => p.id === r1.id);
   const rowSel = view2.accounts.find((a) => a.keyId === 'k1');
-  // 未锁定时 activeAccount 在用 → 行 selected=true 且 view.locked=false / activeKeyId 暴露当前账号（同一次派生，合 1 条）。
+  // 未锁定时 activeAccount 在用 → 行 selected=true 且 view.locked=false / activeKeyId 暴露当前账号。
   check('未锁定时 activeAccount 在用 → 行 selected=true 且 locked=false/activeKeyId=k1',
     !!rowSel && rowSel.selected === true && view2.locked === false && view2.activeKeyId === 'k1',
     JSON.stringify({ selected: rowSel && rowSel.selected, locked: view2.locked, activeKeyId: view2.activeKeyId }));
@@ -79,7 +76,7 @@ function req(port, method, reqPath, headers = {}) {
   const svc3 = new RouterService({ config: {}, providerFile, portsFile: path.join(TMP, 'ports-router.json'), logger: { info(){}, warn(){}, error(){} }, events: null });
   const dp3 = svc3.getProvider(r1.id);
   check('显式锁定持久化 round-trip（可用账号）', dp3.selectedAccountKeyId === 'k1', String(dp3.selectedAccountKeyId));
-  // 一致性守卫：满额「ready」账号(k2)落盘后为 frozen（不再产生可预热矛盾态）
+  // 一致性守卫：满额「ready」账号(k2)落盘后为 frozen（否则产生可预热的矛盾态）。
   const k2After = dp3.accounts.find((a) => a.keyId === 'k2');
   check('一致性守卫：满额 ready 账号落盘归位 frozen', k2After && k2After.status === 'frozen', JSON.stringify(k2After && k2After.status));
   const view3 = svc3.listProviders().find((p) => p.id === r1.id);
@@ -141,8 +138,6 @@ function req(port, method, reqPath, headers = {}) {
       const raw = fs.readFileSync(path.join(TMP, 'usage-p.json'), 'utf8');
       return !/"__proto__"|"constructor"/.test(raw);
     })(), 'clean');
-    // （原「反向：裸 byModel[key]=… 确实改写原型」已删：那是 JS 自身语义的同义反复，
-    //   且属「测试对自己的反向自证」，不保护任何产品行为。真判据是上方的 E-4 三条。）
     // 6c 节流落盘：writeDelayMs 很大 -> recordUsage 不同步落盘；flush() 才落。
     const fThrottle = path.join(TMP, 'usage-throttle.json');
     try { fs.rmSync(fThrottle, { force: true }); } catch {}
@@ -159,9 +154,8 @@ function req(port, method, reqPath, headers = {}) {
     check('B19 落盘仍过 canPersist 单闸（false 时不落盘）', !fs.existsSync(fGate), 'exists=' + fs.existsSync(fGate));
   }
 
-  // 7. Key 池故障转移（并入原 test/router-keypool-test.js，THIN-1-12）：
-  //    额度尽自动切换次 Key / 账号冻结与活跃键切换 / 冻结后粘滞复用 / 全部限额 429 / 用量记录与按模型聚合。
-  //    真起上游 HTTP（127.0.0.1:3993）+ 真落盘用量账本；被测 RouterService + forward-core.joinUpstream。
+  // 7. Key 池故障转移：额度尽自动切换次 Key / 账号冻结与活跃键切换 / 冻结后粘滞复用 / 全部限额 429 /
+  //    用量记录与按模型聚合。真起上游 HTTP（127.0.0.1:3993）+ 真落盘用量账本。
   {
     const { joinUpstream } = require(path.join(ROOT, 'src', 'domains', 'router', 'forward-core'));
     check('joinUpstream：客户端 /v1 去重、无 /v1 时保留并带查询串',

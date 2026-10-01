@@ -2,8 +2,9 @@
 
 const stateRoot = require('../service/state-root');
 
-// 运行期启动契约读取器（壳写、内核读），与壳 src-tauri/src/runtime_contract.rs 成对；契约文件为 <产品状态根>/supervisor/runtime.json（schema 2）。
-// 存在意义：GUI/服务环境 PATH 常缺 nvm/fnm 的 npm，壳在供给层解析一次并投放，内核消费产物。
+// 运行期启动契约读取器（壳写、内核读），与壳 src-tauri/src/runtime_contract.rs 成对；
+// 契约文件为 <产品状态根>/supervisor/runtime.json（schema 2）。
+// GUI/服务环境 PATH 常缺 nvm/fnm 的 npm，壳在供给层解析一次并投放，内核消费产物。
 // 不变量：契约不可用时返回 null 或退回调用方的 ambient 解析，绝不因此启动失败。
 
 const fs = require('node:fs');
@@ -35,22 +36,21 @@ function read() {
     npmPath: j.npmPath || npm.path || null,
     // 外壳可只提供包内 JS（npmPath=node，npmArgs=[npm-cli.js]），消费者必须带上 args。
     npmArgs: Array.isArray(j.npmArgs) ? j.npmArgs : (Array.isArray(npm.args) ? npm.args : []),
-    // npm 版本由壳真实执行 npm --version 得到；旧壳无此键时为 null（未知就是未知）。
+    // npm 版本由壳执行 npm --version 得到；无此键时为 null（未知就是未知）。
     npmVersion: (typeof npm.version === 'string' && npm.version) || null,
     minNode: j.minNode || null,
     writtenBy: j.writtenBy || null,
-    // 安装留痕（面板 /env/status 的 source/installedAt 直接念这两把）：属壳的供给事实，
-    // 内核只转述不推导。
+    // 安装留痕（面板 /env/status 的 source/installedAt 直接念这两把）：属壳的供给事实，内核只转述。
     source: j.source || null,
     installedAt: j.installedAt || null,
     raw: j,
   };
 }
 
-/** npm 启动形态的唯一解析口：{ program, args, version, source }。程序与参数必须成对取用：
- *  官方分发包只带包内 JS 时契约 program 即 node、args=[npm-cli.js]，只取 program 会降级成裸跑 node；
- *  契约缺席或指向不存在文件时退回 exec-path.npmBin()（Windows 走 PATHEXT，绝不说裸 npm）。
- *  @param {{platform?:string,env?:object}} [opts] 透传给 exec-path，便于纯函数级跨平台测试 */
+/** npm 启动形态的唯一解析口：{ program, args, version, source }。program 与 args 必须成对取用
+ *  （契约可为 node + args=[npm-cli.js]，只取 program 会降级成裸跑 node）。
+ *  契约缺席或指向不存在文件时退回 exec-path.npmBin()（Windows 走 PATHEXT）。
+ *  @param {{platform?:string,env?:object}} [opts] 透传给 exec-path */
 function npmLauncher(opts) {
   const c = read();
   if (c && c.npmPath) {
@@ -72,5 +72,5 @@ function withPath(env) {
   return e;
 }
 
-// file() 必须导出：测试要把契约写到 read() 实际读取的路径（SSOT 在此，测试不得重推导路径）。
+// file() 必须导出：契约路径的唯一真源在此，调用方不得重推导。
 module.exports = { SUPPORTED_SCHEMA, file, read, npmLauncher, withPath };

@@ -1,6 +1,5 @@
 // 确认队列的行为测试。弹窗组件没有 DOM 测试设施（vitest 跑 node 环境），但真正会出错的地方恰恰在
 // 组件之外：两条危险动作同时发起时谁先出现、上一条的关闭事件晚到会不会把下一条误判成「用户取消」。
-// 形态门禁只能证明源码里用了统一组件，证不了这两条，故这里按行为钉纯逻辑。
 import { describe, expect, it, vi } from "vitest";
 import { createConfirmQueue } from "./confirm-queue";
 

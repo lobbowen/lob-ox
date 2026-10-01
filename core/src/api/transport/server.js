@@ -1,7 +1,6 @@
 'use strict';
 
 // api/transport/server —— 本地 HTTP 网关本体（传输层原语，与安全模型、域分派无关）。
-// 注：api 契约面扫描只扫 api 顶层 + api/domains/，网关里的静态资源路由字面量不属于契约面。
 const http = require('node:http');
 
 const { API_DOMAINS } = require('../router-table');
@@ -9,12 +8,11 @@ const { collectBody } = require('./body');
 const { serveStatic } = require('../static');
 const { identify } = require('../identity');
 const { originAllowed, requestHasAccessKey, isShellOrigin } = require('../security');
-// 外部打开的唯一出口（platform/os/browser）。随 ctx 交给各域，是为了让 HTTP 契约测试在**构造期**
-//   注入假出口：域内自己 require 的话，测试只能去 patch 模块导出，而 patch 是否生效取决于消费方是
-//   解构还是按属性取用（test-safety-gate A 条记的正是这种 patch 静默失效后跑了真实副作用的事故）。
+// 外部打开的唯一出口（platform/os/browser）：随 ctx 交给各域，域内不得自行 require
+//   否则替换注入点会因消费方解构/按属性取用的差异而静默失效。
 const browserExit = require('../../platform/os/browser');
-// 环境表单（本机实况 + 分发依据，只读面）。与浏览器出口同一个注入范式：面板的「环境」区块与
-//   打开失败的定档依据都取自这一份，测试在构造期注入假表单，域内不自取平台模块。
+// 环境表单（本机实况 + 分发依据，只读面）。与浏览器出口同一注入范式：域内不自取平台模块，
+//   面板「环境」区块与打开失败的定档依据都取自这一份。
 const environmentExit = require('../../platform/os/environment');
 
 /** 请求级失败的统一兜底：只应答一次（头已发则仅断开），并记录一条错误事件。
@@ -33,7 +31,7 @@ function safeFail(res, err, where) {
 function createServer(sup, deps) {
   // deps.browser 只用于注入假出口；缺省即平台层唯一出口（生产路径不经任何加工）。
   const browser = (deps && deps.browser) || browserExit;
-  // 环境表单同范式：只读面，测试注入假表单即可断言面板拿到的字段集。
+  // 环境表单同范式：只读面，缺省即平台层实况表单。
   const environment = (deps && deps.environment) || environmentExit;
   return http.createServer((req, res) => {
     // 壳源 CORS 白名单与 CSRF 判定（isShellOrigin）共用同一事实源：

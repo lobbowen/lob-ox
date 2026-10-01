@@ -93,7 +93,6 @@ pub fn prepare(cmd: &mut Command) {
 }
 
 /// 终止子进程，并在 Windows 上连同整棵子进程树一起终止。平台分支集中在此，调用方不得各自 cfg。
-///
 /// Windows 上 npm 类命令实为 `npm.cmd` -> cmd.exe -> node.exe 三层：只终止直接子进程等于
 /// 只杀掉 cmd.exe，孙进程仍占着端口与状态根。非 Windows 保持原语义（无 .cmd 垫片这一层）。
 pub fn kill_tree(child: &mut std::process::Child) {
@@ -282,10 +281,9 @@ fn read_log(p: &std::path::Path) -> String {
     }
 }
 
-/// 子进程原始字节 -> 字符串，全仓唯一解码点。
-/// Windows 控制台程序（schtasks / taskkill / tar）按 OEM 码页写 stderr，按 UTF-8 做
-/// lossy 解码会把双字节换成 U+FFFD（现场乱码即「真话被毁容」）。故：先试 UTF-8（不回归
-/// 现有正确输出），失败交操作系统按当前控制台码页转换，仍失败才 lossy 保底。
+/// 子进程原始字节 -> 字符串，全仓唯一解码点。Windows 控制台程序（schtasks / taskkill / tar）
+/// 按 OEM 码页写 stderr，按 UTF-8 lossy 解码会把双字节换成 U+FFFD。故先试 UTF-8，
+/// 失败交操作系统按当前控制台码页转换，仍失败才 lossy 保底。
 #[cfg(windows)]
 fn decode_console(bytes: &[u8]) -> String {
     if bytes.is_empty() {
@@ -412,7 +410,7 @@ mod tests {
 
     #[test]
     fn exec_record_failure_renders_command_and_code_once() {
-        // 这是「四处各拼一遍退出码文案」的收口断言：形状必须在**这一处**成立。
+        // 失败文案形状必须在这一处成立（全仓唯一渲染点）。
         let r = ExecRecord {
             program: "schtasks".into(),
             args: vec!["/Run".into(), "/TN".into(), "DSH-Supervisor".into()],
@@ -443,8 +441,7 @@ mod tests {
     }
 
     /// 中文 Windows 现场回归：GBK 字节（cp936，schtasks /Run 对不存在任务写的原文）必须解出可读中文。
-    /// 显式传 936 而不是走 decode_console：runner 的控制台码页由机器决定，判据绑在它上会跟着机器抖；
-    /// 「生产路径会问操作系统要码页」由 B62 的形态门禁锁住。
+    /// 显式传 936 而不是走 decode_console：runner 的控制台码页由机器决定，判据绑在它上会跟着机器抖。
     #[cfg(windows)]
     #[test]
     fn decode_console_reads_gbk_console_output() {
@@ -453,14 +450,13 @@ mod tests {
             0xB5, 0xC4, 0xCE, 0xC4, 0xBC, 0xFE, 0xA1, 0xA3,
         ];
         assert_eq!(decode_codepage(GBK, 936).as_deref(), Some("系统找不到指定的文件。"));
-        // 反向钉住旧缺陷：lossy 确实会毁掉这句话（说明本测试不是空转）。
+        // lossy 确实会毁掉这句话（说明本测试不是空转）。
         assert!(!String::from_utf8_lossy(GBK).contains("系统"));
     }
 
     /// 运行期心跳：子进程还在跑时必须能周期性拿到现场（时长 + 已产出行数）。
-    ///
-    /// 这是「装内核静默 15 分钟」的机制层回归钉：`run`（无心跳）保持不变，
-    ///   心跳只由 `run_watch` 提供，且它读的就是 `run` 自己写的那两份临时输出。
+    /// `run`（无心跳）保持不变，心跳只由 `run_watch` 提供，
+    /// 且它读的就是 `run` 自己写的那两份临时输出。
     #[test]
     fn run_watch_emits_heartbeats_while_the_child_runs() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -498,8 +494,7 @@ mod tests {
         assert!(run(&mut c, Duration::from_secs(2)).is_err());
     }
 
-    /// A-4 门禁：失败路径不得在 temp 目录留下 dsh-cmd-*.log 残渣。
-    /// 注入：把 spawn 的 match 改回 `cmd.spawn().map_err(...)?` -> 本测试必须失败。
+    /// 失败路径不得在 temp 目录留下 dsh-cmd-*.log 残渣（把 spawn 改成 `cmd.spawn().map_err(...)?` 即会违反）。
     #[test]
     fn a4_spawn_failure_leaves_no_temp_logs() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());

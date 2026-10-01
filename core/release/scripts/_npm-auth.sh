@@ -2,19 +2,18 @@
 # 发布链路共享库：npm 认证解析。
 # 被 publish-core.sh（发布）与 configure-credentials.sh（配置/自检）共同 source。
 #
-# -- 为什么需要它（真实故障）--
+# -- 为什么需要它 --
 # DSH 沙箱会把 $HOME 指向实例数据目录（<产品状态根>/supervisor/instances/<id>/data；
-#   旧前缀为 ~/.dsh/supervisor，状态根迁移后单源见 src/platform/service/state-root.js）。
-# 于是「~/.npmrc 里有没有 token」取决于**你在哪个沙箱里跑**：同一台机器上，
-# A 实例能发版、B 实例报 ENEEDAUTH；发布脚本无法自证「为什么登录态时有时无」。
-# 且发布/配置脚本原先各自实现认证解析，行为不一致（有的读 $HOME、有的读环境变量）。
+#   状态根单源见 src/platform/service/state-root.js）。于是「~/.npmrc 里有没有 token」
+#   取决于**你在哪个沙箱里跑**：同一台机器上 A 实例能发版、B 实例报 ENEEDAUTH。
+# 故本库是认证解析的唯一实现，publish-core.sh 与 configure-credentials.sh 都 source 它。
 #
 # -- 唯一解析顺序（越靠前优先级越高）--
 #   1. DSH_NPMRC                    显式指定 npmrc 文件（测试/特殊部署）
 #   2. NPM_CONFIG_USERCONFIG        npm 原生标准：已设且文件存在 -> 尊重，不干预
 #   3. NPM_TOKEN / NODE_AUTH_TOKEN  环境变量 -> 临时 userconfig（0600，退出即删，不落盘）
 #   4. <真实用户 home>/.npmrc       规范位置（configure-credentials.sh 写入于此）
-#   5. $HOME/.npmrc                 兜底（沙箱内可能存在的旧副本）
+#   5. $HOME/.npmrc                 兜底（沙箱内可能存在的副本）
 #
 # 设计要点：「真实用户 home」经 getent/dscl/~user 展开解析，**不受 $HOME 覆盖影响**——
 # 这是让发布链路（CI 发布 / 本地 dry-run / 凭据自检）在任何沙箱、任何 shell 下行为一致的关键。
@@ -54,8 +53,7 @@ dsh_canonical_npmrc() { printf "%s\n" "$(dsh_real_home)/.npmrc"; }
 #   而**小写 npm_config_userconfig 会胜出**。
 #   致命场景：CI 里 `npm run publish:core` 由 npm 自身注入 `npm_config_userconfig=$HOME/.npmrc`；
 #   我们的 `export NPM_CONFIG_USERCONFIG=<临时文件>` 因此被忽略 -> npm 去读 runner 的 ~/.npmrc
-#   （无 token）-> **ENEEDAUTH**。本地因 `~/.npmrc` 恰好有 token 而完全掩盖此缺陷。
-#   实测（同一台机）：仅大写 -> npm whoami 成功；再叠加小写指向无 token 文件 -> need auth。
+#   （无 token）-> **ENEEDAUTH**。
 #   故：写入时两种都设，恢复时两种都还原。
 
 # 记录调用前的 userconfig（大写 + 小写），供 cleanup 精确恢复，避免留下悬空/污染值。

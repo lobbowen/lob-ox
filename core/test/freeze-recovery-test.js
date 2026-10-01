@@ -1,12 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 响应驱动冻结机制端到端验证：
-//   A) markQuotaExhausted 恢复点 = 上游 429 body 的精确 ISO 时间（非默认 +5h）；
-//   B) 冻结后 _probeAfterResponseFreeze 自动补探测刷新 quota（消除 stale 快照）+ 未超限时自动解冻；
-//   D) commandcode-billing 上游报文契约（原 test/commandcode-quota-test.js 并入：同一取证路径，
-//      复用本文件的真 http mock，不再另养一份 global.fetch 桩）。
-// 方法：本地 mock billing（credits + subscriptions 两路）+ 真实 ProxyProvider，不 spawn 真实实例。
+// 响应驱动冻结机制端到端验证：markQuotaExhausted 恢复点 = 上游 429 body 的精确 ISO 时间（非默认 +5h）；
+//   冻结后 _probeAfterResponseFreeze 自动补探测刷新 quota + 未超限时自动解冻；
+//   commandcode-billing 上游报文契约。方法：本地 mock billing（credits + subscriptions 两路）+ 真实 ProxyProvider，不 spawn 真实实例。
 
 const http = require('node:http');
 const path = require('node:path');
@@ -139,15 +136,12 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
       'status=' + acc.status + ' limit=' + JSON.stringify(acc.limit));
   }
 
-  // --- D：commandcode-billing 上游报文契约（原 test/commandcode-quota-test.js 并入）---
-  //   同一 commandcode-billing 取证路径，复用本文件真 http mock。只留有独立风险的上游兼容
-  //   判据：100%-无-exceeded 不矛盾 / data 信封 / 字符串 used·cap / currentPeriodEnd→
-  //   monthlyResetAt / cancelAtPeriodEnd→null / 额度充足不取订阅（防风控，唯一有运维代价者）。
-  //   已删：CC3 `overallStatus === '周限额'` 中文展示标签（与 upstream-credits-test.js:232-236
-  //   逐字重复）及 CC2/CC7/CC13 等同型第二份采样（审计 TEST-AUDIT-2 §5）。
+  // --- D：commandcode-billing 上游报文契约（复用本文件真 http mock）---
+  //   只留有独立风险的上游兼容判据：100%-无-exceeded 不矛盾 / data 信封 / 字符串 used·cap /
+  //   currentPeriodEnd→monthlyResetAt / cancelAtPeriodEnd→null / 额度充足不取订阅（防风控）。
   console.log('== D：commandcode-billing 上游报文契约（credits 面 + 订阅面）==');
   {
-    // D1 100% 周窗口、上游不返 exceeded -> 旧实现存出 status:ok + percent:100 的矛盾记录
+    // D1 100% 周窗口、上游不返 exceeded -> 不得存出 status:ok + percent:100 的矛盾记录。
     creditsReply = () => ({
       windowLimits: { fiveHour: { cap: 2000, used: 200, resetAt: Date.now() + 3600000 }, weekly: { cap: 100, used: 100, resetAt: Date.now() + 604800000 } },
       credits: { monthlyCredits: 4, purchasedCredits: 0, freeCredits: 0 },

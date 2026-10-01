@@ -1,8 +1,10 @@
 'use strict';
 
-// 受管进程载体：反代进程池这类「需管道读输出、长驻管理」的池式消费者拉起外部进程的唯一通道；
-// 与 portable.startTransient（守卫式拉起，stdio ignore、无句柄）的分工是本模块做池式拉起。
-// 归属/终止语义全仓唯一（PROXY-ISOLATION-STANDARD L1）：平台事实下沉 L0（os/spawn、os/process#killTree、os/pidlookup，无 process.platform 分支），身份判定只走 portable.findOurs（run.pid + 端口反查 + 锚点，防 PID 复用误杀）；域内不得自带 process.kill(-pid)/sameProcessGroup（win32 无进程组语义EINVAL、macOS 无 /proc 恒误判孤儿），整树终止走 killTree。
+// 受管进程载体：反代进程池这类「需管道读输出、长驻管理」的池式消费者拉起外部进程的唯一通道
+// （portable.startTransient 是守卫式拉起：stdio ignore、无句柄）。
+// 归属/终止语义全仓唯一，平台事实下沉 L0（os/spawn、os/process#killTree、os/pidlookup）；
+// 身份判定只走 portable.findOurs（run.pid + 端口反查 + 锚点）。域内不得自带 process.kill(-pid) /
+// sameProcessGroup：win32 无进程组语义（EINVAL），macOS 无 /proc 恒误判孤儿；整树终止走 killTree。
 
 const fs = require('node:fs');
 const spawner = require('./spawn');
@@ -57,8 +59,8 @@ function probe(identity) {
 }
 
 /** 发 SIGTERM 整树（fire-and-forget，1.5s 自动升级 SIGKILL）+ 台账。
- *  只用于「我们刚拉起的组长 pid」——ownGroup:true 的前提是本方 detached 创建，
- *  外来 pid 的终止一律走 stop()（锚点复核）或调用方显式 killTree(ownGroup:false)。 */
+ *  只用于「我们刚拉起的组长 pid」：ownGroup:true 的前提是本方 detached 创建；
+ *  外来 pid 一律走 stop()（锚点复核）或显式 killTree(ownGroup:false)。 */
 function signalTermination(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try { procOS.killTree(pid, 'SIGTERM', undefined, { ownGroup: true }); } catch { return false; }

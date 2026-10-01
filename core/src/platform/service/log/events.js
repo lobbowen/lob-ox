@@ -152,7 +152,7 @@ class Events {
     }
     // meta 节流落盘；写盘失败时立即落一次（保住已成功的 seq 事实）。
     if (this.seq - this._metaSavedSeq >= META_SAVE_EVERY || !wrote) this._saveMeta();
-    // 写盘失败可观测，供 EventHub 水位不推进、下轮补齐（RC5.2 契约）；不可恒吞错误致水位虚进。
+    // 写盘失败可观测，供 EventHub 水位不推进、下轮补齐；不可恒吞错误致水位虚进。
     this._lastAppendOk = wrote;
     // 已接 EventHub 则同步推入聚合流（同进程单写，无多写者）。
     if (this._hub && typeof this._hub.pushGuard === 'function') {

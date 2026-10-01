@@ -1,17 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 发布通道选版门禁（RELEASE-CHANNEL-CONTRACT）
-//   RC-1 我们的包优先信 latest；latest 合法时绝不返回 versions 最高
-//   RC-2 rollback 优先于一切（含灰度），但受 RC-7 防降级下限约束
-//   RC-7 rollback 下限：版本 >= ROLLBACK_FLOOR_VERSION 且未超 ROLLBACK_MAX_AGE_DAYS
-//        （time 缺失时仅下限守）——防「令牌失窃 -> 一条 tag 全员降级」
-//   RC-3 第三方包不套通道语义，但同样 latest 优先、缺失/非法才回落 versions 最高
-//   RC-4 灰度是定向的：名单外机器看到 canary tag 也不得取它
-//   RC-5 任一环节失败必须返回 null（明确失败），绝不猜
-// 选版算法是 dist 导出的**唯一实现** pickReleaseVersion；本测试直接测它，不另建实现。
-// ---------------------------------------------------------------------------
+// 发布通道选版（RELEASE-CHANNEL-CONTRACT）：RC-1 优先信 latest，latest 合法时绝不返回 versions 最高 ·
+//   RC-2 rollback 优先于一切（含灰度），但受 RC-7 下限约束（版本 >= ROLLBACK_FLOOR_VERSION 且未超
+//   ROLLBACK_MAX_AGE_DAYS）· RC-3 第三方包同样 latest 优先 · RC-4 灰度定向 · RC-5 任一环节失败返回 null。选版算法是 dist 导出的**唯一实现** pickReleaseVersion。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');

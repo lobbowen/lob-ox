@@ -26,7 +26,7 @@ function createForwarder(deps) {
   const getPricing = d.getPricing || (() => null);
   const readBody = d.readBody || parse.readBody;
   const agents = d.agents || {};
-  // 测试缝：单次上游请求实现可注入。注入名用别名 forwardOnceImpl，避免遮蔽下方 forwardOnce 的定义。
+  // 单次上游请求实现可注入（注入名用别名 forwardOnceImpl，避免遮蔽下方 forwardOnce 定义）。
   const callUpstream = d.forwardOnceImpl || ((...a) => forwardOnce(...a));
 
   /** 唯一在途结束执行器：所有结束路径共用，effects 必须全部执行（漏跑会丢延后重启补刀）。 */
@@ -85,7 +85,7 @@ function createForwarder(deps) {
       acc = switcher.pickFor(prov, { excludeKeys: triedKeys });
       if (!acc || triedKeys.has(acc.key)) break;
       triedKeys.add(acc.key);
-      // 按需可服务化必须在 resolveTarget 之前（实例未就绪 port=null，否则死锁）；进程动作只经门面 ensureServable（LC 核心-1）。
+      // 按需可服务化必须在 resolveTarget 之前（实例未就绪 port=null，否则死锁）；进程动作只经门面 ensureServable。
       activeProv = prov;
       const curInst = parse.instOf(activeProv, acc);
       if (activeProv && activeProv.supports && activeProv.supports('instanceLifecycle') && curInst) {

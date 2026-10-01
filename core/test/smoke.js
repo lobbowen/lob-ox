@@ -139,11 +139,11 @@ async function main() {
   try {
     process.kill(pid2, 'SIGSTOP');
   } catch {}
-  // 当前设计只做端口+pid 判定(已删HTTP探测)：进程虽被 SIGSTOP 挂起，但端口仍监听、pid 仍存活 -> 视为健康，不重启
+  // 只做端口+pid 判定：进程被 SIGSTOP 挂起但端口仍监听、pid 仍存活 -> 视为健康，不重启。
   await sleep(1200);
   s = await api(3900, 'GET', '/status');
   ev = await getEvents(3900);
-  // 同一风险（「挂起 ≠ 不健康」）的三个观察面合成一条：pid/phase 不变、无 http_unhealthy 重启、无 SIGKILL。
+  // 「挂起 ≠ 不健康」的三个观察面：pid/phase 不变、无 http_unhealthy 重启、无 SIGKILL。
   check('S3 挂起进程视为健康：同一 pid 仍 RUNNING、未触发重启、未使用 SIGKILL',
     s && s.phase === 'RUNNING' && s.dshPid === pid2
     && !ev.some((e) => e.type === 'restart_triggered' && /http_unhealthy/.test((e.data && e.data.reason) || ''))
@@ -184,8 +184,8 @@ async function main() {
   check('manual restart 执行', !!s, JSON.stringify(s));
   check('restartCount 未被手动重启计入', s.restartCount === rcBefore, `before=${rcBefore} after=${s.restartCount}`);
   await killDaemon(d1);
-  // 场景卫生：守卫退出不动目标（守护语义）-> 显式清掉本场景最后的目标进程，防遗留 mock 在下一场景
-  // 被 re-derive/adopt 误接管（S7 崩溃循环与 S1 目标端口曾因该遗留偶发串扰）。
+  // 场景卫生：守卫退出不动目标（守护语义）-> 显式清掉本场景最后的目标进程，
+  //   防遗留 mock 在下一场景被 re-derive/adopt 误接管。
   if (s && s.dshPid) { try { process.kill(s.dshPid, 'SIGKILL'); } catch {} }
 
   console.log('== S7: 崩溃循环退避（启动即挂 ×N → BACKOFF）==');
@@ -217,8 +217,7 @@ async function main() {
   const occupier = http.createServer((req, res) => { res.writeHead(500); res.end('no'); });
   await new Promise((r) => occupier.listen(3961, '127.0.0.1', r));
   const d9 = startDaemon(makeConfig(3960, 3961));
-  // 不用固定 sleep：判定耗时随 runner 负载波动（Windows CI #24 曾因固定 3s 偶发失败），
-  // 改为轮询等待目标事件，超时再判定。
+  // 不用固定 sleep：判定耗时随 runner 负载波动，改为轮询等目标事件、超时再判定。
   ev = await getEvents(3960);
   {
     const deadline = Date.now() + 20000;

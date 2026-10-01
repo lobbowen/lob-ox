@@ -32,9 +32,9 @@ function dirSizeBytes(root) {
 }
 
 /** 原子写：状态/配置文件的唯一落盘路径（各调用点不得自行实现 tmp+rename）。
- *  tmp 名含 pid+毫秒：并发写者各用各的临时文件，rename 只落在完整内容上；mode 默认 0600（令牌/URL 类不得 0644），
- *  writeFileSync 的 mode 只对新文件生效且 rename 在部分平台重写权限，故 rename 后再 chmod 收口。
- *  失败抛出（非返回 false）；抛前把 tmp 截 0 而非 unlink——TK-G3 判 rmSync 危险，截断也不误删并发写者刚换名的文件。 */
+ *  tmp 名含 pid+毫秒：并发写者各用各的临时文件，rename 只落在完整内容上；mode 默认 0600
+ *  （令牌/URL 类不得 0644），rename 后再 chmod 收口（writeFileSync 的 mode 只对新文件生效，
+ *  且部分平台 rename 会重写权限）。失败抛出（非返回 false）；抛前把 tmp 截 0 而非 unlink。 */
 function writeAtomic(file, data, opts) {
   const mode = (opts && typeof opts.mode === 'number') ? opts.mode : 0o600;
   const fp = path.resolve(file);

@@ -9,8 +9,8 @@ const pidlookup = require('../../os/pidlookup');
 /** TCP connect 探测：双栈回环任一能连接即视为有进程在监听（见 loopbackListening）。 */
 function portListening(port) { return loopbackListening(port); }
 
-/** 双栈回环都探：只连 127.0.0.1 会漏掉 IPv6-only 监听者
- *  （net.ipv6.bindv6only=1 或明确 bind '::1' 的进程）。 */
+/** 双栈回环都探：只连 127.0.0.1 会漏掉 IPv6-only 监听者（net.ipv6.bindv6only=1
+ *  或明确 bind '::1' 的进程）。 */
 function loopbackListening(port) {
   const p = Number(port);
   return Promise.all([
@@ -21,8 +21,7 @@ function loopbackListening(port) {
 
 /** bind 探测：回环双栈 + IPv6 any 都可绑定才判「可分配」，任何 bind 错误（EADDRINUSE 等）即不可分配。
  *  除 127.0.0.1/::1 外必须再试 `::`：Linux 非 V6ONLY 的 any 绑定同时占住 v4 端口，只试 specifics 会误判空闲。
- *  剩余 TOCTOU（bind 成功后、消费方 listen 前被抢）无法在探测层根除：登记处有「登记后二次确认、被抢即撤销」
- *  的有界复检（alloc.js），消费方启动仍须按 bind 失败如实报错。 */
+ *  剩余 TOCTOU（bind 成功后、消费方 listen 前被抢）无法在探测层根除：alloc.js 有「登记后二次确认、被抢即撤销」的有界复检，消费方启动仍须按 bind 失败如实报错。 */
 function bindable(port) {
   const p = Number(port);
   const bindProbe = (host) => new Promise((resolve) => {

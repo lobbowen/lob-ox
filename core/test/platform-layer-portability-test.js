@@ -1,25 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 平台层「可移植性」穷举门禁 —— service / portable / autostart / file-protect / netinfo / exec-path /
-//   carrier 线（X-1 / X-2 / X-3 / X-3b / X-3c / X-3d / X-4 / X-6 / X-6b / X-7 / X-9 / X-11 / X-12）
+// 平台层「可移植性」穷举：service / portable / autostart / file-protect / netinfo / exec-path / carrier 线，
 //   加载期捕获 platform 的模块（service / autostart）经**子进程伪造 platform** 后穷举。
-//
-// 记录在案的缺陷（本线相关）：
-//   · autostart.status() 在未知平台谎报 kind='systemd'（原 Linux 分支无守卫 fallthrough）——
-//     同一平台两个相反答案；修法：未知平台显式 kind:'none' 且不触碰 systemctl。
-//   · icacls 的「System32 必有 icacls」曾被证伪（X-6）：环境事实不能靠推演写进判据 ——
-//     两侧各验自己的不变量，把「icacls 到底可不可用」降级为回显的事实。
-//
-// 锁定不变量：X-1 候选名/标准目录/排位 · X-2 platform/env 注入必须向下传播（否则 Windows 裸 npm 必 ENOENT）
-//   X-3 W3 分派 + 三 Provider 方法集一致 + 未知平台显式抛错 · X-3b portable 纯逻辑（23 项分 4 条诊断）
-//   X-3c 真 spawn/真停止（本文件唯一的真进程副作用） · X-3d systemd setLimits argv 实录
-//   X-4 daemonCommand 平台差异 + status().kind 与能力档位一致 · X-6 file-protect 不得静默成功
-//   X-6b ensurePrivateDir/writePrivate 真权限位 · X-9 POSIX 0644 不得判已安装
-//   X-11 carrier 真进程 E2E（真监听/锚点归属/真终止/端口释放/重拉） · X-12 dataDirProtected 可观测
-//   X-7 netinfo 平台支持矩阵 + 未知平台显式空 + pick 纯逻辑
-// ---------------------------------------------------------------------------
+//   未知平台必须显式 kind:'none'（不得 fallthrough 谎报 systemd）；环境事实（如 icacls 是否可用）不得靠推演写进判据。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -55,9 +39,8 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
 
 // -- X-3：service —— W3 分派 kind + 方法集一致 + 未知平台显式抛错 --
 {
-  // 分派口径（见 ARCHITECTURE-PLAN-instance-sandbox-governor，实测不写死）：伪造 linux 且清空 PATH 下 systemd-run 必然测不到
-  // -> 必须落 portable（容器/WSL1 正是过去被整体判死、现被解锁的形状）；
-  // darwin/win32 恒 portable；未知平台恒 none。
+  // 分派口径（平台档位由实测决定，不写死）：伪造 linux 且清空 PATH 下 systemd-run 必然测不到
+  // -> 必须落 portable（容器/WSL1 正是这个形状）；darwin/win32 恒 portable；未知平台恒 none。
   const kinds = { linux: 'portable', darwin: 'portable', win32: 'portable', freebsd: 'none' };
   const sets = {};
   for (const [p, want] of Object.entries(kinds)) {
@@ -68,9 +51,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     ].join(String.fromCharCode(10)));
     let j = null;
     try { j = JSON.parse(out); } catch { /* EXECFAIL */ }
-    // 原先此处「supportsUnits / supportsTransient 与 kind 一致」两条已删：两者都是 kind 的函数
-    //   （`units === (kind==='systemd')`、`transient === (kind!=='none')`），4 平台 × 2 = 8 条执行断言
-    //   全属**派生二阶采样** —— kind 已覆盖同一风险。
     check('X-3 ' + p + ' provider.kind = ' + want, !!j && j.kind === want, j ? j.kind : out.slice(0, 60));
     if (j) sets[p] = j.keys;
   }
@@ -80,15 +60,12 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   const norm = (o) => Object.keys(o).sort();
   const ref = JSON.stringify(norm(tp.systemd));
   const bad = Object.keys(tp).filter((k) => JSON.stringify(norm(tp[k])) !== ref);
-  // （2026-10-01 本轮）类别 2 删除：原判据含「norm(tp.systemd).length >= 11」方法条数棘轮（数量锁），
-  // 已摘除该计数子句；保留的是三个 Provider 方法集逐字一致的跨实现一致性断言。
+  // 三个 Provider 的方法集必须逐字一致（不锁方法条数：数量棘轮会在合法新增方法时误红）。
   check('X-3 systemd/portable/NONE 三方**方法集完全一致**（含 setLimits，防"声明了却没实现"）',
     bad.length === 0 && JSON.stringify(sets.linux || []) === ref,
     bad.length ? ('不一致: ' + bad.join(',')) : (norm(tp.systemd).length + ' 个成员一致'));
 
-  // 未知平台：必须**显式抛错**（带档位标签），绝不静默 no-op。
-  // （旧判据打的是 darwin/launchd —— W3 起 darwin/win32 落 portable，不再抛是**能力解锁**，
-  //   显式抛错义务移交未知平台 NONE。）
+  // 未知平台：必须**显式抛错**（带档位标签），绝不静默 no-op（darwin/win32 落 portable，不适用）。
   const thrown = underFake('freebsd', [
     "const svc = require('./src/platform/os/service.js');",
     "const c = svc.current();",
@@ -113,7 +90,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   check('X-3 portable 无任何锚点时 isUnitActive=null（无从查询不得被当成已停止）',
     inactP === 'null', inactP);
 
-  // 真实环境侧：分派结果必须**等于** systemd-run 可执行实测（写死平台的旧实现会在此露馅）。
+  // 真实环境侧：分派结果必须**等于** systemd-run 可执行实测。
   const dis = underFake('linux', [
     "const svc = require('./src/platform/os/service.js');",
     "const ep = require('./src/platform/os/exec-path.js');",
@@ -139,8 +116,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     "let FP=null; for (let q=4194200;q>4190000;q--){ try { process.kill(q,0); } catch (e) { FP=q; break; } }",
     "if (FP===null) { process.stdout.write('{\"FPFAIL\":true}'); process.exit(0); }",
     "let alive=true, cmd=CMD, listen=null, calls=0, limit=1e9;",
-    // 加载期 require.cache 注入（test-safety 门禁 A 认可的构造期替换范式；patch 模块导出被禁）：
-    // portable 在其后首次 require 时绑到假 pidlookup，探测结果完全受控、宿主无关。
+    // 加载期 require.cache 注入（构造期替换范式；patch 模块导出不被允许）：portable 在其后首次 require 时绑到假 pidlookup。
     "const plPath=require.resolve('./src/platform/os/pidlookup');",
     "require.cache[plPath]={ id: plPath, filename: plPath, loaded: true, exports: {",
     "  isAlive: function(){ calls++; return alive && calls<=limit; },",
@@ -183,8 +159,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   ].join(String.fromCharCode(10)));
   let j = null;
   try { j = JSON.parse(out); } catch { /* EXECFAIL */ }
-  // 原先这里是**一条** check 内塞 23 项（`want.every(...)`）：红了只打印键名列表、不打印哪一项的值，
-  //   诊断不可定位。按失效语义拆成 4 条（+3 行换可定位的诊断），**不减少任何一项覆盖**。
+  // 按失效语义分 4 条（一条 check 内塞 23 项时，红了只打印键名列表、不打印哪一项的值）。
   const groups = [
     ['pidfile 读取三态（正常数值/垃圾串/文件缺失）', ['pidOk', 'pidBad', 'pidMissing']],
     ['锚点归属与 ownGroup 宽严（命中/不命中/空锚/端口不属我们/端口与 pidfile 同值则跳过）', ['anchorHit', 'anchorMiss', 'anchorEmpty', 'pfOwn', 'anchorMismatchNull', 'portNotOwn', 'portEqPidfileSkipped']],
@@ -198,11 +173,10 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   }
 }
 
-// -- X-3c：portable 真实拉起/终止链（真实宿主，不伪造；CI 三 runner 各验本平台） --
+// -- X-3c：portable 真实拉起/终止链（真实宿主，不伪造）--
 {
-  // 真 spawn 一个监听临时端口的 node 子进程，验「拉起写 run.pid -> 锚点归属 -> 停止确认并清 pidfile」。
-  // 这是 W3 验收标准第 1 条的内核侧落点：伪造平台验不了真进程，真实宿主验不了别家平台，
-  // 三端各自跑自己那段（ubuntu/mac/windows runner 各覆盖 POSIX 组信号或 taskkill 路径）。
+  // 真 spawn 一个监听临时端口的 node 子进程，验「拉起写 run.pid -> 锚点归属 -> 停止确认并清 pidfile」：
+  //   伪造平台验不了真进程，真实宿主验不了别家平台，故三端各跑自己那段（POSIX 组信号 / taskkill）。
   const { portable } = require(path.join(ROOT, 'src', 'platform', 'os', 'portable.js'));
   const tmpd = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-port-real-'));
   const pf = path.join(tmpd, 'run.pid');
@@ -227,17 +201,12 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   try { fs.rmSync(tmpd, { recursive: true, force: true }); } catch { /* 尽力清 */ }
 }
 
-// -- X-3d：systemd 档 setLimits 的 argv 实录（exec 打桩，绝不碰宿主 systemd） --
-//
-//   验收标准第 2 条要求「cgroup 限额可被 governor 运行时改动」被真实验证。真发
-//   `systemctl --user set-property` 会在 CI/开发机上留下真实单元属性副作用（且 transient
-//   单元不存在时命令本身就要失败），故在**执行器边界**打桩：断言 argv 逐字、有界超时、
-//   空 alloc 与非法名的 fail-closed。argv 是平台层在这条链上唯一的真产物；
-//   systemd 收到属性后是否真限流属其自身语义，不在本仓断言面内。
+// -- X-3d：systemd 档 setLimits 的 argv 实录（exec 打桩，绝不碰宿主 systemd）--
+//   真发 systemctl --user set-property 会留真实副作用，故在执行器边界打桩：断言 argv 逐字、有界超时、fail-closed。
 {
   const out = underFake('linux', [
     "const calls = [];",
-    // 加载期 require.cache 注入（构造期替换范式；patch 模块导出被 test-safety 门禁 A 禁止）
+    // 加载期 require.cache 注入（构造期替换范式；patch 模块导出不被允许）。
     "const exPath = require.resolve('./src/platform/util/exec.js');",
     "require.cache[exPath] = { id: exPath, filename: exPath, loaded: true, exports: {",
     "  run: function (c, a, o) { calls.push([c, a, o]); return ''; },",
@@ -278,10 +247,8 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     try { j = JSON.parse(out); } catch { /* EXECFAIL */ }
     cmds[p] = j || { d: out, g: '' };
   }
-  //原断言把**期望路径硬编码**为 path.join('/H', ...)，依赖 underFake 的 home 注入。
-  //   但 Windows 宿主上产品用的是真实 home（fake 的 home 未覆盖 Windows 的 env 变量），
-  //   故在 Windows CI 恒失败 —— 该门禁长期只在 ubuntu 跑（build 矩阵被 need_build 跳过），无人发现。
-  //   断言应当表达**平台差异这一不变量**（win 带 .exe / posix 不带），而非某个绝对前缀。
+  // 断言应当表达**平台差异这一不变量**（win 带 .exe / posix 不带），而非某个绝对前缀：
+  //   硬编码 path.join('/H', ...) 依赖 underFake 的 home 注入，而 Windows 宿主产品用的是真实 home。
   const base = (x) => path.basename(String(x));
   check('X-4 win32 daemonCommand 带 .exe（否则 Windows 上守卫永不起）',
     /^dsh-supervisor[.]exe$/i.test(base(cmds.win32.d)) && path.isAbsolute(cmds.win32.d), cmds.win32.d);
@@ -289,9 +256,8 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     base(cmds.linux.d) === 'dsh-supervisor' && base(cmds.darwin.d) === 'dsh-supervisor'
     && path.isAbsolute(cmds.linux.d) && path.isAbsolute(cmds.darwin.d),
     cmds.linux.d + ' | ' + cmds.darwin.d);
-  // guiCommand（源自 cross-platform P0 的「guiCommand 返回绝对路径」，grep 实测全仓唯此）：
-  //   壳可执行名与守卫不同（dsh-supervisor-gui），故只钉**平台差异不变量**（绝对路径 + Windows 带扩展名），
-  //   不硬编码产品名 —— 安装位置随安装方式而异，硬编码会变成环境事实断言（X-6 的教训）。
+  // guiCommand（全仓唯此）：壳可执行名与守卫不同（dsh-supervisor-gui），故只钉**平台差异不变量**
+  //   （绝对路径 + Windows 带扩展名），不硬编码产品名 —— 硬编码会变成环境事实断言。
   check('X-4 guiCommand 平台差异：win32 带 .exe、posix 不带，且三端均为绝对路径',
     path.isAbsolute(cmds.win32.g) && /\.exe$/i.test(cmds.win32.g)
     && path.isAbsolute(cmds.linux.g) && !/\.exe$/i.test(cmds.linux.g)
@@ -318,8 +284,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     check('X-4 ' + p + ' status().kind=' + wantKind + ' 且 hostService=' + wantHost,
       !!j && j.kind === wantKind && j.host === wantHost,
       j ? (j.kind + '/' + j.host) : out.slice(0, 60));
-    // 原先这里有第二条「未知平台 on=false」，但在 linux/darwin/win32 三轮里 `p !== 'freebsd'` 恒真 ⇒
-    //   3 条空转断言。收成只在未知平台那一轮判一次。
     if (p === 'freebsd') {
       check('X-4 未知平台 on=false（不谎报已启用）', !!j && j.on === false, j ? String(j.on) : '-');
     }
@@ -339,11 +303,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   check('X-6 hasIcacls(linux/darwin) 恒 false（POSIX 绝不探测 icacls）',
     fp.hasIcacls('linux') === false && fp.hasIcacls('darwin') === false, 'false');
   // Windows 分支：探测不到 icacls 时必须**如实失败**（不得静默 ok）。
-  //   本块前提在 CI 上被证伪过一次：「win32 宿主 System32 必有 icacls」是**推演**，实测该 job 里
-  //   hasIcacls()=false（PATH 清空后 execFileSync 解析不到）。教训：环境事实不能靠推演写进判据。
-  //   现两侧各验自己的不变量，把「icacls 到底可不可用」降级为**回显的事实**而非前提：
-  //     POSIX 宿主 —— 清空 PATH -> 探测必不可用 -> 必须如实 ok=false/mode=none（不静默成功）；
-  //     win32 宿主 —— 真实 PATH -> 「可用 => 绝不谎报 none」且「不可用 => 绝不假称收紧」（一致性）。
+  //   两侧各验自己的不变量（POSIX 清空 PATH -> 必不可用；win32 真实 PATH -> 可用不谎报 none / 不可用不假称收紧）。
   const winMissing = path.join(TMP, 'nonexistent-xyz');
   const probeBody = [
     "const fp = require('./src/platform/os/file-protect.js');",
@@ -391,7 +351,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
 // -- X-7：netinfo —— 平台支持矩阵 + 未知平台显式空 + pick 纯逻辑 --
 {
   const ni = require(path.join(ROOT, 'src', 'platform', 'os', 'netinfo.js'));
-  // X-7 pick 是纯函数：判**行为**而不是 `typeof`（原先那条只判 `typeof ni.pick === 'function'`）。
+  // X-7 pick 是纯函数：判**行为**而不是 typeof。
   check('X-7 pick：滤掉虚拟/回环/链路本地接口，默认路由网卡优先且同网卡静态地址优先',
     JSON.stringify(ni.pick([
       { iface: 'docker0', addr: '172.17.0.1', dyn: false },
@@ -419,20 +379,9 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   }
 }
 
-// ---------------------------------------------------------------------------
-// X-1 / X-2 / X-9：exec-path 命令解析线（源自 test/exec-path-resolution-test.js，源文件已并入本门禁）
-//
-//   该文件头自注「与 test/cross-platform-test.js L27-43 同测 candidateNames/standardDirs」；
-//   cross-platform 的 P0 同测段已随本次合并删除 —— **同一平台事实只留本处一个校验点**
-//   （与 platform-matrix-single-source 同理）。cross-platform 独有的两点（无扩展名兜底**在末位**、
-//   win32 的 `.local/bin` 兼容目录）已折进 X-1 的两条断言，未另立站点。
-//
-//   锁定不变量
-//     X-1  候选名 / 标准目录 / npmBin-npxBin 的平台行为可穷举（含**排位**，防 PATHEXT 默认值假绿）
-//     X-2  P1-C 复现：platform/env 注入**必须向下传播** —— 旧实现不传 platform，在 Linux 上按宿主
-//          规则返回 POSIX 路径、在 Windows 上返回裸 `npm` ⇒ **Windows 必 ENOENT**（真机复现过）
-//     X-9  可执行位判定：POSIX 0644 普通文件不得被判成「已安装」（spawn 前可用性预检）
-// ---------------------------------------------------------------------------
+// X-1 / X-2 / X-9：exec-path 命令解析线 —— 同一平台事实只留本处一个校验点。
+//   X-1 候选名/标准目录（含**排位**，防 PATHEXT 默认值假绿）· X-2 platform/env 注入**必须向下传播**
+//   （不传 platform 时在 Windows 上返回裸 `npm` ⇒ 必 ENOENT）· X-9 POSIX 0644 不得被判成「已安装」。
 {
   const ep = require(path.join(ROOT, 'src', 'platform', 'os', 'exec-path.js'));
 
@@ -445,10 +394,9 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     JSON.stringify(ep.candidateNames('npm', 'linux')) === JSON.stringify(['npm'])
     && JSON.stringify(ep.candidateNames('npm', 'darwin')) === JSON.stringify(['npm']),
     JSON.stringify(ep.candidateNames('npm', 'linux')));
-  // 已删「X-1 PATHEXT 展开生效」：`withCustom` 与 `winNames` 是**同一次调用**（同义反复，负价值）。
 
   const wDirs = ep.standardDirs('win32', '/H', { APPDATA: '/A', LOCALAPPDATA: '/L' });
-  // 分隔符归一化：旧写法 replace(/\\\\/g,'/') 匹配**两个**反斜杠，Windows 单反斜杠路径下不生效 —— 断言在 win CI 恒失败。
+  // 分隔符归一化：Windows 单反斜杠路径必须被识别（匹配两个反斜杠的写法在 win 上不生效）。
   const norm = (d) => String(d).replace(/[\\/]+/g, '/');
   check('X-1 win32 标准目录含 APPDATA\\npm、LOCALAPPDATA\\Programs\\dsh-supervisor 与 .local/bin 兼容目录',
     wDirs.some((d) => d === path.join('/A', 'npm'))
@@ -515,7 +463,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
 }
 
 // -- X-6b：ensurePrivateDir / writePrivate（真权限位 + 原子写无 .tmp 残留）--
-//   源自 cross-platform P1 段；其余同谓词断言（ensurePrivateDir 成功、win icacls 分支）已删 —— 归 X-6。
 {
   const fp = require(path.join(ROOT, 'src', 'platform', 'os', 'file-protect.js'));
   const dir = path.join(TMP, 'priv');
@@ -555,13 +502,8 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     s.statusSummary().dataDirProtected === true, String(s.statusSummary().dataDirProtected));
 }
 
-// ---------------------------------------------------------------------------
-// X-11：反代载体契约冒烟（PROXY-ISOLATION-STANDARD 的实机牙齿）—— 源自 test/cross-platform-test.js P3 段
-//   **全仓唯此**：carrier 真 spawn -> 真监听 -> 锚点归属 -> 真终止 -> 端口释放 -> 同端口重拉。
-//   反代链的跨平台缺陷全部住在这段：单元面把 spawn 打桩后四平台 CI 恒绿（win32 组信号缺失/EINVAL、
-//   macOS 归属误判都只在用户机器上红）。假供应商（纯 node 入口 + --port 监听）走 carrier 全生命周期；
-//   载体与供应商无关，新增真实反代供应商不需要改本段，载体契约一旦变化这里必改。
-// ---------------------------------------------------------------------------
+// X-11：反代载体契约冒烟（PROXY-ISOLATION-STANDARD 的实机牙齿），**全仓唯此**：
+//   carrier 真 spawn -> 真监听 -> 锚点归属 -> 真终止 -> 端口释放 -> 同端口重拉（打桩后四平台 CI 恒绿）。
 (async function () {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const carrier = require(path.join(ROOT, 'src', 'platform', 'os', 'carrier'));

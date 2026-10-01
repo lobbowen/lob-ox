@@ -1,11 +1,8 @@
 'use strict';
 
-// 统一安装/更新任务注册表测试：
-//  - 状态机：pending -> running -> succeeded/failed/skipped/canceled
-//  - step 级进度与日志
-//  - 持久化：tasks.json 落盘，守卫重启后恢复历史
-//  - 中断恢复：running 任务跨重启标记为 failed
-//  - 当前任务索引：isBusy/current
+// 统一安装/更新任务注册表：状态机 pending -> running -> succeeded/failed/skipped/canceled · step 级进度与日志 ·
+//   持久化（tasks.json 落盘，守卫重启后恢复历史）· 中断恢复（running 任务跨重启标记为 failed）·
+//   当前任务索引 isBusy/current。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -61,11 +58,9 @@ async function main() {
   check('已完成任务状态保留 succeeded', t1 && t1.state === 'succeeded');
   check('重启后 isBusy 释放', reg2.isBusy('instance', 'inst-1') === false);
 
-  // -- 场景：**跨进程**双写者不得丢失更新--
-  //   缺陷：守卫（supervisor.js:203）与 router-daemon（daemon.js:55）各持一个
-  //     TaskRegistry 实例、写同一个 tasks.json，而 _save 是「整份覆盖」->
-  //     第一个进程刚写的任务会被第二个进程的覆盖抹掉。
-  //   修法：_save 落盘前重读磁盘并按 id 合并（本方优先，其余磁盘条目保留）。
+  // -- 场景：**跨进程**双写者不得丢失更新 --
+  //   守卫与 router-daemon 各持一个 TaskRegistry 实例写同一个 tasks.json，而 _save 是整份覆盖 ⇒ 先写的会被抹掉；
+  //   修法：落盘前重读磁盘并按 id 合并（本方优先）。
   {
     const TMP2 = fs.mkdtempSync(path.join(os.tmpdir(), 'task-xproc-'));
     const guard = new TaskRegistry({ stateDir: TMP2 });   // 模拟守卫进程

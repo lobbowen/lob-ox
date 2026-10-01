@@ -15,9 +15,8 @@ const { createAdminOps } = require('./ops/admin');
 function createAuxCore(deps) {
   const d = deps || {};
   const getProviders = d.getProviders || (() => []);
-  // 一键登录要的是「意图」，不是机制：profile 落盘、引擎方言、反指纹环境、档位与图形会话预检
-  //   全部在平台层的唯一出口里做（本域不再自造浏览器启动层，也不解释 argv 结局）。
-  //   logger 一并交下去：真机报「点了没弹窗」时，那一行 argv 与结局就是定档依据（本域不自己落日志）。
+  // 一键登录只传「意图」不传机制：profile 落盘、引擎方言、反指纹环境、档位与图形会话预检全在
+  //   平台层的唯一出口实现；logger 一并交下去，本域不自己落日志。
   const openInBrowser = (url, onExit) => platform.browser.openBrowser(url, { intent: 'isolated-login', onExit, logger: d.logger });
   const oauth = createOAuthOps({ ports, openInBrowser });
   const apps = createAppsRegistryOps({

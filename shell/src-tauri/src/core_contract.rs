@@ -1,11 +1,10 @@
 //! 内核位置契约（core.json）- 壳写、双方读（schema 1），已装内核位置的单一事实源。
-//! 壳用 npm 把内核装进「npm 全局 prefix」，而 locate_core 只能按 PATH + 少数固定目录猜；
-//! nvm/volta/fnm 或自定义 prefix 下内核落在别处，「装上了却永远拉不起来」。壳在安装/升级成功后写确切 bin/prefix/version/source，
-//! locate_core 先读契约、读不到才退回启发式（前向自愈）。不变量：只有壳写（内核只读）；原子写（tmp + rename）；版本须与写入时线上最新一致。
+//! 壳用 npm 把内核装进「npm 全局 prefix」，而 locate_core 只能按 PATH + 少数固定目录猜，
+//! nvm/volta/fnm 或自定义 prefix 下会猜错；故壳安装/升级成功后写确切 bin/prefix/version/source，locate_core 先读契约、读不到才退回启发式。不变量：只有壳写（内核只读）；原子写；版本须与写入时线上最新一致。
 
 use std::path::PathBuf;
 
-/// 契约 schema 版本（与壳测试 K-1 锁定）。
+/// 契约 schema 版本。
 pub const SCHEMA: u32 = 1;
 
 /// 已安装内核的位置事实。

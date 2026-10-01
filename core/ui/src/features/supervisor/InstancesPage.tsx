@@ -31,7 +31,7 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
   const [fPort, setFPort] = useState("");
   const [fCmd, setFCmd] = useState("");
 
-  // /instances 已拆分：instances[] 即沙箱；原生主干在 native 字段（由 Overview 主干卡呈现）
+  // instances[] 即沙箱；原生主干在 native 字段（由 Overview 主干卡呈现）
   const items = snap.instances?.instances ?? [];
   // /env/status.capabilities 分字段暴露：sandboxLaunch=能否跑舱，sandboxEnforcement=限额由谁执行；
   // 不支持时前置提示，不等用户点「添加」被后端 400 拒绝才知道
@@ -42,7 +42,7 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
     return () => { alive = false; };
   }, []);
   const sandboxUnsupported = caps !== null && caps.sandboxLaunch === false;
-  // W3 档位：三平台均可跑舱；supervise 软限（采样式治理、无内核强制）不拦功能，只如实标注语义。
+  // 三平台均可跑舱；supervise 软限（采样式治理、无内核强制）不拦功能，只如实标注语义。
   // 能力未回读（caps=null）时档位句一律不说——宁可少讲，不谎报硬限。
   const softTier = caps?.sandboxEnforcement === "supervise";
   const tierLabel = caps == null ? null
@@ -222,7 +222,7 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
               <ShieldCheck className={cn("size-4", it.guardian ? "text-status-ok" : "text-muted-foreground")} />
               {it.guardian ? "停止守护" : "启动守护"}
             </Button>
-            {/* 守护后无分割线(用户定稿, 与主 DSH 卡一致); 窄屏隐藏(只留启停+守护) */}
+            {/* 与主 DSH 卡一致：守护后无分割线；窄屏隐藏（只留启停+守护） */}
             <Button className="hidden h-[30px] md:inline-flex" disabled={busy} onClick={() => void removeInstance(it)} size="sm" variant="destructive">
               <Trash2 className="size-4" />删除
             </Button>
@@ -234,7 +234,7 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
 
   return (
     <div className="grid content-start gap-4">
-      {/* A1：平台能力前置提示——不支持的平台直接说明原因（无需等后端报错） */}
+      {/* 平台能力前置提示——不支持的平台直接说明原因（无需等后端报错） */}
       {sandboxUnsupported ? (
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-xs text-muted-foreground">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />

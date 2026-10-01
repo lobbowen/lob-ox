@@ -1,8 +1,8 @@
 'use strict';
 
-// app/main/signals.js —— 进程终止信号与接管归属（_isManagedProcess/_signalChild/_killTree/_killSequence/_killAdopted）。
-// 导出 { methods }，由 app/assembly/facets.js 装到 host；方法名与 { methods } 形态不可改（process-tree-kill-test 按符号名钉）。
-// 事实经 depsOf(host) 的按 host 惰性缓存取得。
+// 进程终止信号与接管归属（_isManagedProcess/_signalChild/_killTree/_killSequence/_killAdopted）。导出 { methods }，
+//   由 app/assembly/facets.js 装到 host；方法名与 { methods } 形态不可改。
+//   事实经 depsOf(host) 的按 host 惰性缓存取得。
 const pidlook = require('../../platform/os/pidlookup');
 const platform = require('../../platform/os/index');
 const { writeAtomic } = require('../../platform/util/fs');
@@ -73,9 +73,10 @@ module.exports = {
     }
   },
 
-  /** 校验 pid 是否属本守卫：cmdline 含配置启动 bin 或符合 DSH 特征（兼容外部手动起的标准 DSH）；
-   *  精确匹配避免"路径碰巧含 dsh 误接管"与"安装路径不含 dsh 漏接管"。
-   *  归属凭据只做否决（别的存活守卫拥有此 pid 时不接管），不单独放行：陈旧凭据的 pid 可能已被内核复用，单独放行会误接管无关进程。 */
+    /**
+   * 校验 pid 是否属本守卫：cmdline 含配置启动 bin 或符合 DSH 特征（兼容外部手动起的标准 DSH），精确匹配避免「路径碰巧
+   * 含 dsh 误接管」。归属凭据只做否决，不单独放行：陈旧凭据的 pid 可能已被内核复用，单独放行会误接管无关进程。
+   */
   _isManagedProcess(pid) {
     const d = depsOf(this);
     const own = d.readMainOwner();
@@ -89,11 +90,9 @@ module.exports = {
     if (!cmd) return false;
     const bin = d.config().command && d.config().command[1];
     if (typeof bin === 'string' && bin && cmd.includes(bin)) return true;
-    // 兜底只给「手动标准安装的 DSH」：其真实形态是 dsh web --port N，故 web 子命令词
-    //   必须与 dsh 特征同时成立。isDshCmdline 单独放行等于「命令行里出现过 dsh 三个
-    //   字母」——从含 dsh 的检出目录或安装路径跑的任意脚本都会被接管，接管后守卫
-    //   对它发 SIGTERM，即本函数上方注释要避开的「路径碰巧含 dsh 误接管」。
-    //   与 port-rederive.js 的 genericDsh 同一条闸：跨进程归属判定只此一处标准。
+        // 兜底只给「手动标准安装的 DSH」：其真实形态是 dsh web --port N，故 web 子命令词必须与 dsh 特征同时成立。
+        //   isDshCmdline 单独放行等于「命令行里出现过 dsh 三个字母」—— 从含 dsh 的检出目录跑的任意脚本都会被接管并被
+        //   发 SIGTERM。与 port-rederive.js 的 genericDsh 同一条闸：跨进程归属判定只此一处标准。
     return /(^|\s)web(\s|$)/.test(cmd) && pidlook.isDshCmdline(pid);
   },
 
@@ -103,9 +102,10 @@ module.exports = {
     platform.processControl.signalProcess(child.pid, sig);
   },
 
-  /** 整树终止：必须单独存在。平台层 killTree（Windows taskkill /PID <pid> /T /F，POSIX 进程组信号）
-   *  与 signalProcess 不同，后者在 Windows 只杀单进程——停止 DSH 会遗留子进程成孤儿、继续占端口与文件锁，守卫重启 adopt 即被楔死。
-   *  child 恒为本守卫 detached 拉起的组长，故显式 ownGroup:true 走组信号（POSIX 退化为组信号，幂等无害）。 */
+    /**
+   * 整树终止：必须单独存在。平台层 killTree（Windows taskkill /PID <pid> /T /F，POSIX 进程组信号）与 signalProcess 不同，
+   * 后者在 Windows 只杀单进程 —— 停止 DSH 会遗留子进程成孤儿、继续占端口与文件锁。child 恒为本守卫 detached 拉起的组长。
+   */
   _killTree(child, sig) {
     const d = depsOf(this);
     const pc = platform.processControl;
@@ -131,10 +131,11 @@ module.exports = {
     }, d.config().stopGraceMs));
   },
 
-  /** 杀无句柄的接管实例（仅知 pid）。失败不再静默：SIGKILL 后另给复核窗口，仍存活才判「停止落空」发 stop_failed + warn。
-   *  代际 gen：本文件只有一个 _adoptKillTimer 槽位，后一次 kill 会覆盖前一次句柄；故每次自增 _adoptKillGen，
-   *  定时器只在「本代仍是当前代」时置空槽位，防旧 timer 清掉新句柄。
-   *  代际只保护共享槽位：每个 timer 仍按自己的 pid 完成升级与复核，不因换代跳过（否则前一个 pid 的 SIGKILL 升级被吞）。 */
+    /**
+   * 杀无句柄的接管实例（仅知 pid）。失败不静默：SIGKILL 后另给复核窗口，仍存活才判「停止落空」发 stop_failed + warn。
+   * 代际 gen：本文件只有一个 _adoptKillTimer 槽位，后一次 kill 会覆盖前一次句柄；故每次自增 _adoptKillGen，定时器只在
+   * 「本代仍是当前代」时置空槽位。代际只保护共享槽位：每个 timer 仍按自己的 pid 完成升级与复核。
+   */
   _killAdopted(pid) {
     const d = depsOf(this);
     const gen = (d.readAdoptKillGen() || 0) + 1;
@@ -147,8 +148,8 @@ module.exports = {
     d.writeAdoptKillTimer(setTimeout(() => {
       releaseSlot();
       if (pidlook.isAlive(pid)) {
-        // 接管实例可能有子进程：Windows 升级为整树（taskkill /T /F），否则留孤儿子进程占端口。
-        // POSIX 外来 pid 不发组信号（可能恰为无关进程组组长，kill(-pid) 误杀整组），故不传 ownGroup -> 平台层退化单进程 SIGKILL。
+                // 接管实例可能有子进程：Windows 升级为整树（taskkill /T /F），否则留孤儿子进程占端口。POSIX 外来 pid 不发组信号
+                //   （可能恰为无关进程组组长，kill(-pid) 误杀整组），故不传 ownGroup -> 平台层退化单进程 SIGKILL。
         const pc = platform.processControl;
         if (pc && typeof pc.killTree === 'function') {
           pc.killTree(pid, 'SIGKILL', () => {});

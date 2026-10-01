@@ -10,9 +10,8 @@ function createMainStore(deps) {
   const g = deps || {};
   const config = () => (typeof g.getConfig === 'function' ? (g.getConfig() || {}) : {});
   const logger = () => (typeof g.getLogger === 'function' ? g.getLogger() : null);
-  let live = null; // dsh-main.json live 缓存（LanManager mainOf 持同一对象，须原地修改）
-  // 文件存在但读/解析失败 -> 置 corrupt，writeDshMain 拒写：否则默认值缓存（remoteToken:''）
-  //   会经任一后续写把明文令牌静默清零，且 relay 无声降级为零认证。
+  let live = null; // 文件存在但读/解析失败 -> 置 corrupt，writeDshMain 拒写：否则默认值缓存（remoteToken:''）会经任一后续写把明文令牌
+    //   静默清零，且 relay 无声降级为零认证。
   let corrupt = false;
 
   function dshMainFile() {

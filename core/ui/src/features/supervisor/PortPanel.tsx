@@ -53,12 +53,12 @@ function resolveOwner(r: PortRecord, providers: RouterProvider[]): string {
   return r.role;
 }
 export function PortPanel({ providers = [] }: { providers?: RouterProvider[] }) {
-  // /ports 已并入全局 2s 快照（polling.ts syncAll）：直接消费 snap.ports，无独立轮询
+  // /ports 随全局 2s 快照下发（polling.ts syncAll）：直接消费 snap.ports，无独立轮询
   const { snap } = useSupervisorData();
   const raw = snap.ports?.records ?? null;
   const records = useMemo<PortRecord[] | null>(() => {
     if (!raw) return null;
-    // 过滤：已废弃旧端口 3100/3101（当前 API 端口 36360 为新注册项）-> 不重复展示
+    // 只展示当前注册项：滤掉 supervisor-api 的遗留端口 3100/3101，避免重复展示
     const vis = raw.filter((r) => !(r.role === "supervisor-api" && (r.port === 3100 || r.port === 3101)));
     // 排序：激活(监听中)在上，停用在下；组内按端口号升序
     return [...vis].sort((a, b) => {

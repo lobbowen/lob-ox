@@ -1,10 +1,12 @@
 'use strict';
 
-// app/daemons/process-marks.js —— cmdline 标记派生（纯模块：无 IO、无 this）。
+// cmdline 标记派生（纯模块：无 IO、无 this）。
 
-/** 从 script 派生权威 cmdline 标记：daemon 真实 cmdline 形如 `node <script> ...`，只按调用方语义 cmdMark 匹配会恒失配
- *  （_ctlOwnerPid() 恒 null，换代分支永不执行，classify 的 external/reclaiming 永不可达），故从 script 派生标记与语义标记并列，脚本位置演进时自动跟随。
- *  @param {string} script spawn 脚本绝对路径 @param {string} [cmdMark] 语义标记 @returns {string[]} 语义名 + 绝对路径 + 相对包根尾段 */
+/**
+ * 从 script 派生权威 cmdline 标记：daemon 真实 cmdline 形如 `node <script> ...`，只按语义 cmdMark 匹配会恒失配
+ * （_ctlOwnerPid() 恒 null，换代分支永不执行，classify 的 external/reclaiming 永不可达）。
+ * @param {string} script spawn 脚本绝对路径 @param {string} [cmdMark] 语义标记 @returns {string[]} 语义名 + 绝对路径 + 相对包根尾段
+ */
 function deriveCmdMarks(script, cmdMark) {
   const norm = (s) => String(s || '').replace(/\\/g, '/');
   const marks = [];

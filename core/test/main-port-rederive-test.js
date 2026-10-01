@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
-// 原生 DSH 端口运行时再推导回归（20复）：mock DSH 以 --port N 运行（用户改端口），
-// 守卫配置端口无监听但进程在跑 -> _findManagedDshPort 推真实端口 -> _applyMainPort 更正注册。
+// 原生 DSH 端口运行时再推导回归：mock DSH 以 --port N 运行（用户改端口），守卫配置端口无监听但进程在跑
+//   -> _findManagedDshPort 推真实端口 -> _applyMainPort 更正注册。
 
 const path = require('node:path');
 const os = require('node:os');

@@ -1,7 +1,6 @@
-//! 平台适配层，全仓唯一的平台分支所在地（门禁 G1）。
-//! 服务的定义与启停收敛在同一个 [`service::ServiceControl`]：加平台只改本层，不再跨层分居。
-//! 分层：platform 可依赖 infra（如 [`crate::bounded`]），不可依赖 domain/commands；
-//! 每项能力要么实现、要么显式 Unsupported，绝不静默成功（门禁 G4）。
+//! 平台适配层，全仓唯一的平台分支所在地。
+//! 服务的定义与启停收敛在同一个 [`service::ServiceControl`]：加平台只改本层。
+//! 分层：platform 可依赖 infra（如 [`crate::bounded`]），不可依赖 domain/commands；每项能力要么实现、要么显式 Unsupported。
 
 pub mod service;
 
@@ -27,8 +26,8 @@ pub fn user_name() -> String {
 }
 
 /// 系统代理 URL（环境变量之外的第二来源），返回 http://host:port；无系统代理返回 None。
-/// 为什么需要：Windows 的 Clash/v2ray 系统代理只写 WinINET 注册表、macOS 代理面板只写
-///   SystemConfiguration，ureq 都不读这些位置，于是出现「浏览器能上网，壳却全部镜像不可用」。
+/// Windows 的 Clash/v2ray 系统代理只写 WinINET 注册表、macOS 代理面板只写 SystemConfiguration，
+/// ureq 都不读这些位置，于是出现「浏览器能上网，壳却全部镜像不可用」。
 pub fn system_proxy() -> Option<String> {
     #[cfg(target_os = "windows")]
     let v = windows_system_proxy();
@@ -43,7 +42,7 @@ pub fn system_proxy() -> Option<String> {
 fn windows_system_proxy() -> Option<String> {
     use std::process::Command;
     let query = |name: &str| -> Option<String> {
-        // 必须经 bounded::run（B32：任何外部命令不得裸 .output()/status() 无界阻塞）。
+        // 必须经 bounded::run（任何外部命令不得裸 .output()/status() 无界阻塞）。
         let mut cmd = Command::new("reg");
         cmd.args([
             "query",
@@ -105,8 +104,7 @@ fn macos_system_proxy() -> Option<String> {
 
 /// 用户级 Node 安装的原子落定（三平台共用）。调用方先把官方归档解到 staging：
 /// Unix 解包带 strip（staging 下直接是 bin/lib），Windows 不带 strip（多一层版本目录），都由本函数处理。
-/// 落定前必须验过整棵工具链（node 且 npm，且 npm 与 node 出自同一棵树），失败不留下半装状态。
-/// 落定后返回 node 可执行路径。
+/// 落定前必须验过整棵工具链（node 且 npm，且 npm 与 node 出自同一棵树），失败不留下半装状态。落定后返回 node 可执行路径。
 pub fn commit_user_node(
     staging: &std::path::Path,
     root: &std::path::Path,
@@ -180,8 +178,7 @@ pub struct NodeArtifact {
 
 /// 把要交给外部工具的路径规范成它们能接受的形式，全仓唯一实现：
 /// 剥掉 Windows 的 verbatim（`\\?\`、`\\?\UNC\`）与 device（`\\.\`）命名空间前缀 ——
-/// `current_exe()`/`canonicalize()` 会返回这种形式，而 npm 等外部工具不接受（实测栈溢出/EISDIR）。
-/// 刻意写成不带 `#[cfg]` 的纯函数：非 Windows 路径在此恒等，三平台 CI 都跑同一份实现，规则无处分叉。
+/// `current_exe()`/`canonicalize()` 会返回这种形式，而 npm 等外部工具不接受。刻意写成不带 `#[cfg]` 的纯函数：非 Windows 路径在此恒等，规则无处分叉。
 pub fn external_path(p: &std::path::Path) -> std::path::PathBuf {
     // concat! 拼出「以反斜杠结尾」的字面量（raw string 不能以反斜杠结尾）。
     const VERBATIM: &str = concat!(r"\\?", "\\");
@@ -220,7 +217,7 @@ pub fn guard_stdio(cmd: &mut std::process::Command) {
     cmd.stdin(Stdio::null()).stdout(out).stderr(err);
 }
 
-/// 「日志句柄 -> 三条标准流」的纯映射（行为门禁的落点，避免测试依赖真实状态根）。
+/// 「日志句柄 -> 三条标准流」的纯映射（避免测试依赖真实状态根）。
 fn guard_stdio_streams(
     log: Option<std::fs::File>,
 ) -> (std::process::Stdio, std::process::Stdio) {
@@ -237,9 +234,8 @@ fn guard_stdio_streams(
 }
 
 /// 守卫启动所需的已解析运行期事实（来自 `runtime_contract`）。
-/// 守卫是 `#!/usr/bin/env node` 脚本，而服务管理器/spawn 的 ambient PATH 经常
-/// 不含壳解析出的 Node（nvm/fnm/volta、GUI 最小 PATH），故 node/guard/PATH 作为
-/// 显式入参交给平台实现，服务定义不假设 ambient 环境。
+/// 守卫是 `#!/usr/bin/env node` 脚本，而服务管理器/spawn 的 ambient PATH 经常不含壳解析出的
+/// Node（nvm/fnm/volta、GUI 最小 PATH），故 node/guard/PATH 作为显式入参交给平台实现，服务定义不假设 ambient 环境。
 #[derive(Clone, Debug)]
 pub struct LaunchSpec {
     /// Node 可执行绝对路径。
@@ -258,9 +254,8 @@ pub struct LaunchSpec {
 
 impl LaunchSpec {
     /// 由运行期契约 + 已定位守卫组装（PATH 与状态根取单一事实源）。构造即规范化：
-    /// 四个路径字段全部过 [`external_path`]（壳路径经 [`self_exe`]）——归一必须发生在这里
-    /// 而不是各平台实现里，一条 verbatim 前缀漏过去，该路径在那个平台上就永久拉不起来。
-    /// 返回 `Result`：壳自身路径取不到时必须报错，不得退化成空路径写进服务定义。
+    /// 四个路径字段全部过 [`external_path`]（壳路径经 [`self_exe`]）—— 归一必须发生在这里而不是各平台实现里，
+    /// 一条 verbatim 前缀漏过去该路径就永久拉不起来。返回 `Result`：壳自身路径取不到时必须报错，不得退化成空路径。
     pub fn from_runtime(
         rt: &crate::runtime_contract::NodeRuntime,
         guard: std::path::PathBuf,
@@ -275,8 +270,7 @@ impl LaunchSpec {
     }
 
     /// 服务定义应执行的**稳定入口**：壳自身 + --run-guard。
-    ///
-    /// 不变量（门禁锁定）：三平台服务定义**不得**出现 spec.node / spec.guard。
+    /// 不变量：三平台服务定义**不得**出现 spec.node / spec.guard。
     pub fn service_command(&self) -> (&std::path::Path, &'static [&'static str]) {
         (self.shell.as_path(), &["--run-guard"])
     }
@@ -284,8 +278,8 @@ impl LaunchSpec {
 
 /// 把稳定入口组装成一行**服务定义命令**（值内部自带引号）。
 ///
-/// systemd 的 `ExecStart`、launchd 的 `ProgramArguments`、schtasks 的 `/TR`
-///   三处对引号/数组的要求不同，但「命令 = 壳 + --run-guard」这一事实必须单源。
+/// systemd 的 `ExecStart`、launchd 的 `ProgramArguments`、schtasks 的 `/TR` 三处对引号/数组的要求不同，
+/// 但「命令 = 壳 + --run-guard」这一事实必须单源。
 pub fn service_exec_line(shell: &std::path::Path, args: &[&str]) -> String {
     let mut s = format!("\"{}\"", shell.display());
     for a in args {
@@ -297,8 +291,7 @@ pub fn service_exec_line(shell: &std::path::Path, args: &[&str]) -> String {
 
 /// 以守卫身份运行：`--run-guard` 解析出 node/guard 后调用。
 /// Unix 用 `execvp` 替换当前进程（systemd/launchd 直接追踪真实 node）；
-/// Windows 分离启动不等待（计划任务实例即结束，保活由看护任务按端口负责）。
-/// 平台分支只允许在本层（门禁 G1）。
+/// Windows 分离启动不等待（计划任务实例即结束，保活由看护任务按端口负责）。平台分支只允许在本层。
 #[cfg(unix)]
 pub fn exec_guard(spec: &LaunchSpec) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
@@ -344,9 +337,7 @@ pub fn exec_guard(spec: &LaunchSpec) -> Result<(), String> {
     Ok(())
 }
 
-/// 平台契约。
-///
-/// **不变量 P1**：每个能力要么实现，要么显式 `Unsupported`（见 [`service`]）。
+/// 平台契约。不变量：每个能力要么实现，要么显式 `Unsupported`（见 [`service`]）。
 pub trait Platform: Send + Sync {
     /// 平台标识（`linux` / `macos` / `windows` / `unsupported`）。
     fn name(&self) -> &'static str;
@@ -366,15 +357,12 @@ pub trait Platform: Send + Sync {
     fn node_artifact(&self, version: &str) -> Option<NodeArtifact>;
 
     /// 该目录是否位于本地固定盘（Windows 需排除网络盘/可移动盘）。
-    /// 为什么必须问平台：`Path::is_file()` / `canonicalize()` 在断开的映射盘或 UNC 路径上
-    ///   会触网并阻塞数十秒，而调用点在引导的关键路径上；判定本身（`GetDriveTypeW`）不触网。
-    /// Unix 恒为 true。
+    /// `Path::is_file()` / `canonicalize()` 在断开的映射盘或 UNC 路径上会触网并阻塞数十秒，而调用点在引导的关键路径上；
+    /// 判定本身（`GetDriveTypeW`）不触网。Unix 恒为 true。
     fn is_local_fixed_dir(&self, dir: &std::path::Path) -> bool;
 
-    /// **Node 可执行文件的已知落点**（按优先级；含版本管理器布局）。
-    ///
-    /// 供环境探测枚举候选。业务层只消费这个列表，不关心它是 `Program Files`
-    /// 还是 `/opt/homebrew` —— 那正是平台知识。
+    /// **Node 可执行文件的已知落点**（按优先级；含版本管理器布局）。供环境探测枚举候选。
+    /// 业务层只消费这个列表，不关心它是 `Program Files` 还是 `/opt/homebrew` —— 那正是平台知识。
     fn node_candidate_paths(&self) -> Vec<std::path::PathBuf>;
 
     /// 内核可执行文件的平台额外候选（PATH 之外），`pkg` 为内核包名（Windows 包内路径用）。
@@ -383,10 +371,9 @@ pub trait Platform: Send + Sync {
     /// macOS: `/opt/homebrew/bin`、`/usr/local/bin`；Linux: 空（PATH 与 ~/.local/bin 已覆盖）。
     fn core_extra_candidates(&self, names: &[&str], pkg: Option<&str>) -> Vec<std::path::PathBuf>;
 
-    /// 给定 npm 全局 prefix，返回内核在该 prefix 下的候选 bin 路径（P2「安装后记录位置」用）。
+    /// 给定 npm 全局 prefix，返回内核在该 prefix 下的候选 bin 路径（安装后记录位置用）。
     /// 默认（Unix）`<prefix>/bin/<name>`；Windows 覆写为垫片直接在 prefix 下（`<prefix>\<name>.cmd`）加包内真实脚本。
-    /// 为什么需要：内核装在 npm 全局 prefix（nvm/volta/fnm/自定义）里，「装完立刻回读确切位置
-    ///   并写入 core.json」必须跨平台推导，不能在业务层写平台分支（门禁 G1）。
+    /// 内核装在 npm 全局 prefix（nvm/volta/fnm/自定义）里，「装完立刻回读确切位置并写入 core.json」必须跨平台推导，不能在业务层写平台分支。
     fn core_bin_candidates_in_prefix(
         &self,
         prefix: &std::path::Path,
@@ -418,26 +405,20 @@ pub trait Platform: Send + Sync {
 
     /// 安装 Node：用户级、零权限。三平台统一：官方归档解到 `<状态根>/node` 再原子替换
     /// （Linux/macOS `tar --strip-components=1`；Windows 走 zip 解包路径）。
-    /// 为什么不再提权：系统级安装需要 UAC/pkexec/sudo，容器/WSL/SSH 常无可用提权代理，
-    ///   而用户级解包在任何权限下都能成功。提权只与壳自更新有关，由各平台自身通道完成。
+    /// 不提权是因为系统级安装需要 UAC/pkexec/sudo，容器/WSL/SSH 常无可用提权代理，而用户级解包在任何权限下都能成功。
+    /// 提权只与壳自更新有关，由各平台自身通道完成。
     fn install_node(&self, file: &std::path::Path) -> Result<std::path::PathBuf, String>;
 
-    /// 是否存在可用的**提权通道**（用于「不可自更新」的提前判定）。
-    ///
-    /// **不主动执行提权**，只探测命令存在性。
+    /// 是否存在可用的**提权通道**（用于「不可自更新」的提前判定）。**不主动执行提权**，只探测命令存在性。
     fn has_privilege_channel(&self) -> bool;
 
-    // 可执行文件名的平台差异（P2/G1）。为什么进 trait：此前以 cfg!() 宏形式散落在
-    //   env.rs / core.rs / domain/coreloc.rs，而门禁 G1 只拦 `#[cfg(` 属性、看不见 cfg!() 宏，
-    //   平台分支因此绕过门禁扩散到业务层；进 trait 后由各平台文件实现，与 G1 意图一致。
+    // 可执行文件名的平台差异进 trait：由各平台文件实现，业务层不得再出现 cfg!() 宏。
 
     /// Node 可执行**文件名**（Windows `node.exe` / 其余 `node`）。
     fn node_exe_name(&self) -> &'static str;
 
     /// npm 可执行**文件名**（Windows `npm.cmd` / 其余 `npm`）。
-    ///
-    /// 与内核侧 `platform/os/exec-path.js::npmBin()` 是**同一事实的两端**：
-    ///   Windows 上 npm 是 `.cmd`，Node 的 spawn 不做 PATHEXT 解析（P1-C 已修）。
+    /// 与内核侧 `platform/os/exec-path.js::npmBin()` 是**同一事实的两端**：Windows 上 npm 是 `.cmd`，Node 的 spawn 不做 PATHEXT 解析。
     fn npm_exe_name(&self) -> &'static str;
 
     /// 内核可执行文件的**候选名**（Windows 含 `.exe`/`.cmd` 垫片）。
@@ -445,12 +426,11 @@ pub trait Platform: Send + Sync {
 
     /// 该路径能否作为 `Command::new(prog)` 的程序被直接拉起（不经任何 shell）。
     /// Windows 的 CreateProcessW 只执行可执行程序：`.cmd`/`.bat` 与无扩展名的 `npm` 存在但拉不起来
-    ///   （ERROR_BAD_EXE_FORMAT）。运行期契约承诺「program 可直接 spawn」，判据必须在这里给出，
-    ///   否则探针与消费者会走两条不同的 spawn 路径而分叉。
+    /// （ERROR_BAD_EXE_FORMAT）。运行期契约承诺「program 可直接 spawn」，判据必须在这里给出，否则会分叉。
     fn is_directly_spawnable(&self, prog: &std::path::Path) -> bool;
 }
 
-// 平台实现的选择：本文件是全仓唯一出现平台分支的地方（门禁 G1）。
+// 平台实现的选择：本文件是全仓唯一出现平台分支的地方。
 // 每个平台一个独立文件：加平台 = 加文件 + 加一行 re-export，不碰既有代码；
 // 未知平台显式落到 `unsupported`，而不是编译失败或静默成功。
 
@@ -485,7 +465,6 @@ pub fn service() -> &'static dyn service::ServiceControl {
 }
 
 // （`name()` 自由函数已移除：经 `current().name()` 使用 trait 方法即可。）
-
 /// 当前平台能力声明。
 pub fn capabilities() -> Capabilities {
     current().capabilities()

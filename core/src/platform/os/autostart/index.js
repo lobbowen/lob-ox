@@ -1,8 +1,9 @@
 'use strict';
 
-// 平台化开机自启（三端同一 setAutostart(on) / status()）—— 门面。机制：Linux systemd --user enable/disable + linger
-//   + XDG autostart；macOS launchctl bootstrap/bootout；Windows schtasks ONLOGON。外部命令一律经 platform/util/exec，
-//   能力缺失返回明确错误绝不静默成功。内核绝不写/删 plist：壳启动会重建自己的定义并 bootstrap，unlink 表现为关闭不生效。
+// 平台化开机自启（三端同一 setAutostart(on) / status()）—— 门面。机制：Linux systemd --user
+//   enable/disable + linger + XDG autostart；macOS launchctl bootstrap/bootout；Windows schtasks ONLOGON。
+//   外部命令一律经 platform/util/exec，能力缺失返回明确错误绝不静默成功。
+//   内核绝不写/删守卫 plist：壳启动会重建自己的定义并 bootstrap，unlink 表现为关闭不生效。
 
 const os = require('node:os');
 const path = require('node:path');
@@ -26,8 +27,7 @@ function daemonCommand() {
   return path.join(os.homedir(), '.local', 'bin', exe);
 }
 
-/** GUI 壳可执行路径（Windows watchdog 拉起面板用）。壳由 launcher 安装器部署，位置随安装
- *  方式而异：按 env 覆盖到常见安装位置解析。 */
+/** GUI 壳可执行路径（Windows watchdog 拉起面板用）。壳位置随安装方式而异，按 env 覆盖与常见安装位置解析。 */
 function guiCommand() {
   const hit = resolveExecutable('dsh-supervisor-gui', { envVar: 'DSH_SHELL_EXE' });
   if (hit) return hit;

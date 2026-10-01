@@ -1,4 +1,4 @@
-/** polling.ts 单元测试：事件增量去重 + in-flight 守卫 + 游标防污染/失败退避（UI 条 6）。
+/** polling.ts 单元测试：事件增量去重 + in-flight 守卫 + 游标防污染/失败退避。
  *  vi.stubGlobal 注入 fetch 验证 refreshEvents 合并去重与并发守卫；退避/心跳自排用 vi.useFakeTimers()（断言取宽窗口，避免与微任务节奏打架）。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { supervisorStore } from "./polling";

@@ -2,8 +2,7 @@
 
 const srcpath = require('../../platform/util/srcpath');
 
-// 内核自更新状态 / 管家自身版本检查门面。
-// 导出形态 { methods }，方法经 this 协作。
+// 内核自更新状态 / 管家自身版本检查门面。导出形态 { methods }，方法经 this 协作。
 const fs = require('node:fs');
 const path = require('node:path');
 const ex = require('../../platform/util/exec');
@@ -33,8 +32,8 @@ function depsOf(host) {
 
 module.exports = {
   methods: {
-    // ---- 内核更新（单写入者契约）：内核 npm 包的唯一写入者是桌面壳；
-    // 守卫只保留只读的 guardSelfUpdateStatus，接口 /self-update/apply|restart-guard 返回 410。
+        // 内核更新（单写入者契约）：内核 npm 包的唯一写入者是桌面壳；守卫只保留只读的 guardSelfUpdateStatus，
+        //   接口 /self-update/apply|restart-guard 返回 410。
 
     /** 内核 npm 子包名：corePackageName 可为显式常量或含 {os}/{arch} 占位的模板。 */
     guardCorePkg() {
@@ -44,9 +43,10 @@ module.exports = {
       return String(raw).replace(/{os}/g, matrix.osTag()).replace(/{arch}/g, matrix.current().arch) || null;
     },
 
-    /** 内核更新状态（只读，本方法不写任何东西；实际安装由桌面壳 kernel_update_apply 执行）。
-     *  查内核子包在发布通道（RELEASE-CHANNEL-CONTRACT：rollback -> canary -> latest，
-     *  latest 缺失才回落最高）的版本，与本机 guardVersion 比较。 */
+        /**
+     * 内核更新状态（只读，本方法不写任何东西；实际安装由桌面壳 kernel_update_apply 执行）。查内核子包在发布通道
+     * （rollback -> canary -> latest，latest 缺失才回落最高）的版本，与本机 guardVersion 比较。
+     */
     async guardSelfUpdateStatus() {
       const d = depsOf(this);
       const pkg = d.guardCorePkg();
@@ -68,27 +68,27 @@ module.exports = {
       } catch (e) { return { ok: false, error: e.message }; }
     },
 
-    /** 读磁盘上运行位的自报版本：spawn --version，解析版本行（异步：20s 上限的同步 exec
-     *  在 HTTP 路径上会冻结守卫整条事件循环，判据不变）。
-     *  条件是 updatable（sea-binary 或 launcher）：launcher 的 bin 入口同样可执行，
-     *  若只认 sea-binary 则发布态永远读不到磁盘实况，updatePending 恒 false。
-     *  source-shell 不支持：其 --version 报的是开发目录版本，与 npm 安装无关。 */
+        /**
+     * 读磁盘上运行位的自报版本：spawn --version，解析版本行（异步：20s 上限的同步 exec 在 HTTP 路径上会冻结守卫
+     * 整条事件循环）。条件是 updatable（sea-binary 或 launcher）：launcher 的 bin 入口同样可执行，若只认 sea-binary
+     * 则发布态永远读不到磁盘实况，updatePending 恒 false。source-shell 的 --version 报的是开发目录版本，与 npm 安装无关。
+     */
     async _readBinarySelfVersion() {
       const dep = deploy.detect();
       if (!dep.updatable || !dep.runningTarget) return null;
       try {
         const out = await ex.runOutAsync(dep.runningTarget, ['--version'], { timeoutMs: 20000 });
-        // 字符类必须是 [^\s]：写成 [^s]（字母 s）会在版本串含 s 时截断，
-        //   且不排除 \n 会跨行吞字符，污染 verified 判定。
+                // 字符类必须是 [^\s]：写成 [^s]（字母 s）会在版本串含 s 时截断，且不排除 \n 会跨行吞字符，污染 verified 判定。
         const m = /dsh-supervisor v([^\s]+)/.exec(out);
         return m ? m[1] : null;
       } catch { return null; }
     },
 
     // 管家自身版本检查（与 DSH 更新解耦）：本地仓库 git 视角，配了远程才 fetch 比对。
-    /** VCS 根：从包根上溯找最近的外层 .git（排除自身嵌套仓——嵌套仓 HEAD 与外层仓脱节，
-     *  会导致 UI 版本/commit 失真）；找不到时回退包根。
-     *  包根必须用 srcpath.resolvePackageRoot()（按 package.json 上溯），不能靠 __dirname 相对层数。 */
+        /**
+     * VCS 根：从包根上溯找最近的外层 .git（排除自身嵌套仓 —— 嵌套仓 HEAD 与外层仓脱节，会导致 UI 版本/commit 失真）；
+     * 找不到时回退包根。包根必须用 srcpath.resolvePackageRoot()（按 package.json 上溯），不能靠 __dirname 相对层数。
+     */
     _vcsRoot() {
       const dir = srcpath.resolvePackageRoot() || path.resolve(__dirname, '..');
       const innerGit = path.join(dir, '.git');
@@ -113,14 +113,14 @@ module.exports = {
       const commit = (rawCommit || '').trim() || null;
       let upstream = 'local';
       if ((rawUp || '').trim()) upstream = 'git-repo';
-      // version = 进程运行版本（启动时固化，打包态为编译期常量）。
-      // 磁盘实况版本（runningVersion vs diskVersion 的 updatePending 判定）在 async guardVersionCheck。
+            // version = 进程运行版本（启动时固化，打包态为编译期常量）。磁盘实况版本的 updatePending 判定在 async guardVersionCheck。
       return { version: d.guardVersion(), runningVersion: d.guardVersion(), commit, updateAvailable: false, upstream, latest: d.guardVersion() };
     },
 
-    /** 完整版本检查（async）：本地 commit + 远端 fetch 比对。
-     *  git fetch 是网络 I/O，绝不能同步执行（会冻结事件循环，守卫假死且无法自愈）；
-     *  fetch 失败/超时只降级为「本地视图」，不抛错。 */
+        /**
+     * 完整版本检查（async）：本地 commit + 远端 fetch 比对。git fetch 是网络 I/O，绝不能同步执行（会冻结事件循环，
+     * 守卫假死且无法自愈）；fetch 失败/超时只降级为「本地视图」，不抛错。
+     */
     async guardVersionCheck() {
       const d = depsOf(this);
       const base = await d.guardVersionLocal();

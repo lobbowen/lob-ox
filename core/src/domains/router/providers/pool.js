@@ -1,8 +1,8 @@
 'use strict';
 
-// 生命周期引擎纯决策（PROXY-LIFECYCLE-STANDARD L-A，与 PROXY-ISOLATION-STANDARD 平级）：期望集 = {在用}+{预热}，反代域进程动作唯一决策源。
-// 槽位预算是引擎常量（在用 1 + 预热 1）不是配置；扩槽须修订标准重新裁决，不留暗参数；预热参选按 registeredAt 登记顺序、
-// 槽位 sticky；IO（启停/对账）由 restart.js/proxy.js 编排，本文件零 require 进程/IO 模块。
+// 生命周期引擎纯决策：期望集 = {在用}+{预热}，反代域进程动作唯一决策源。
+// 槽位预算是引擎常量（在用 1 + 预热 1）不是配置；预热参选按 registeredAt 登记顺序、槽位 sticky；
+// IO（启停/对账）由 restart.js/proxy.js 编排，本文件零 require 进程/IO 模块。
 
 const ACTIVE_SLOTS = 1;
 /** 预热槽预算（引擎常量）。存活进程集恒等于期望集：|期望集| <= ACTIVE_SLOTS + PREWARM_SLOTS。 */

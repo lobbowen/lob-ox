@@ -2,8 +2,7 @@
 
 const platform = require('../../platform/os/index');
 
-// 环境状态门面（壳写 runtime.json；EnvCatalog 声明式探测）。
-// 导出形态 { methods }，方法经 this 协作。
+// 环境状态门面（壳写 runtime.json；EnvCatalog 声明式探测）。导出形态 { methods }，方法经 this 协作。
 const fs = require('node:fs');
 const { EnvCatalog } = require('../../platform/service/env-catalog');
 const runtimeContract = require('../../platform/contract/runtime');
@@ -20,20 +19,19 @@ async function envCatalogSummary(that) {
 
 module.exports = {
   methods: {
-    // 异步：全部子进程探测（EnvCatalog/契约回读）走异步口径——本方法挂在 /env/status 上，
-    //   同步 execFileSync 会把守卫事件循环冻结在探测超时上（心跳/自愈停摆，B1-6 收口）。
+        // 异步：全部子进程探测（EnvCatalog/契约回读）走异步口径 —— 本方法挂在 /env/status 上，同步 execFileSync 会把
+        //   守卫事件循环冻结在探测超时上（心跳/自愈停摆）。
     async envStatus() {
-      // runtime 契约唯一读取口 = platform/contract/runtime；不得在此手写
-      //   dirname(stateFile) + 'runtime.json'：与契约真实落点（<产品状态根>/supervisor）
-      //   不必然同源，状态根一挪就静默读空。
+            // runtime 契约唯一读取口 = platform/contract/runtime；不得在此手写 dirname(stateFile) + 'runtime.json' ——
+            //   与契约真实落点（<产品状态根>/supervisor）不必然同源，状态根一挪就静默读空。
       const c = runtimeContract.read() || {};
       const cat = await new EnvCatalog(this.config).probeAsync();
       const en = this.nativeManager && typeof this.nativeManager.checkEnvironment === 'function'
         ? await this.nativeManager.checkEnvironment() : null;
       return {
         node: { detected: cat.node.detail || null, runtime: c.nodeVersion || null, path: c.nodePath || null },
-        // npm 与 node 同构三段：detected = 本机实跑版本；runtime = 壳实跑后投放的版本
-        //   （null 表示壳未回读，不得拿 node 版本或占位文案顶上）；path = 契约解析到的可执行。
+                // npm 与 node 同构三段：detected = 本机实跑版本；runtime = 壳实跑后投放的版本（null 表示壳未回读，不得拿 node
+                //   版本或占位文案顶上）；path = 契约解析到的可执行。
         npm: { detected: cat.npm.detail || null, runtime: c.npmVersion || null, path: c.npmPath || null },
         git: { detected: cat.git.detail || null },
         installedAt: c.installedAt || null,
@@ -44,7 +42,7 @@ module.exports = {
         catalog: (await envCatalogSummary(this)),
         // 平台能力矩阵：三平台静态档位 x 实际工具探测；前端据此做能力感知呈现与降级提示。
         capabilities: (() => { try { return platform.capabilities(); } catch { return null; } })(),
-        // 沙箱资源预算总览（W2 governor）：占用/预算/可容纳实例数；非沙箱平台或未装配时为 null。
+                // 沙箱资源预算总览（governor）：占用/预算/可容纳实例数；非沙箱平台或未装配时为 null。
         sandboxBudget: (() => {
           try {
             return this.instances && typeof this.instances.budgetSnapshot === 'function'

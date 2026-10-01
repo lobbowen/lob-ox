@@ -1,10 +1,10 @@
 'use strict';
 
-// 统一的「包发布/安装/更新」平台能力，归 platform/，与 platform/contract、platform/os 同层（消费者横跨 root/daemon/instance）。
+// 统一的「包发布/安装/更新」平台能力，归 platform/，与 platform/contract、platform/os 同层。
 // 本文件是薄门面，只做组合与导出，不含算法/IO：
 //   registry-ref.js 镜像基址的定义与传输单口、release.js 选版（纯）、policies.js 纯策略、
-//   registry-config.js 两份镜像文件的载入与落盘（契约只读、选择文档只由内核写）、registry.js 探测与选源（IO）、
-//   version-check.js 目标版本查询（IO）、install.js npm 安装执行 + 端口健康验证（IO）。
+//   registry-config.js 两份镜像文件的载入与落盘（契约只读、选择文档只由内核写）、
+//   registry.js 探测与选源（IO）、version-check.js 目标版本查询（IO）、install.js npm 安装执行 + 端口健康验证（IO）。
 
 const policies = require('./policies');
 const release = require('./release');
@@ -36,7 +36,7 @@ class DistributionManager {
     // 灰度事实：组装根注入「本机配置 canary:true / DSH_CANARY=1」。
     this.canary = opts.canary === true;
     this.selectedRegistry = null; // { origin, ordered, source, manual, checkedAt, latencyMs, probes }
-    // 注意：必须同时记「刚载入」时刻，否则首次 _reloadContractIfStale 会把 undefined 当成「从未载入」。
+    // 必须同时记「刚载入」时刻，否则首次 _reloadContractIfStale 会把 undefined 当成「从未载入」。
     registryConfig.loadRegistryConfig(this);
     this._contractLoadedAt = Date.now();
   }
@@ -70,14 +70,14 @@ module.exports = {
   DistributionManager,
   semverCompare,
   VERSION_RE,
-  // 选版算法（release.js 唯一实现）+ 包归属判定 + rollback 防降级下限常量（RC-7）
+  // 选版算法（release.js 唯一实现）+ 包归属判定 + rollback 防降级下限常量
   pickReleaseVersion: release.pickReleaseVersion,
   isOurReleasePackage: release.isOurReleasePackage,
   OUR_RELEASE_SCOPE: release.OUR_RELEASE_SCOPE,
   ROLLBACK_FLOOR_VERSION: release.ROLLBACK_FLOOR_VERSION,
   ROLLBACK_MAX_AGE_DAYS: release.ROLLBACK_MAX_AGE_DAYS,
-  // 在途 npm 中止出口（D-10）：句柄登记在 install.js 的模块级集合（跨实例、覆盖全部调用路径），
-  // 故门面按静态导出而非实例方法——挂实例会漏掉直接 require('./install') 的调用方。
+  // 在途 npm 中止出口：句柄登记在 install.js 的模块级集合（跨实例、覆盖全部调用路径），
+// 故门面按静态导出而非实例方法——挂实例会漏掉直接 require('./install') 的调用方。
   killInflightNpm: install.killInflightNpm,
   inflightNpmCount: install.inflightNpmCount,
 };

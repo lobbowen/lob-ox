@@ -13,8 +13,7 @@ const { isPrivateIpv4 } = require('./identity');
 
 // CSRF 深化校验：Host 必须存在且主机属回环/RFC1918 私有网段信任集；带 Origin 时还须主机一致、端口同源。
 //   Host 闸防 DNS-rebinding（evil.com 解析到 127.0.0.1 时浏览器带 Host: evil.com，被拒）。
-//   CORS 只挡读取不挡 CSRF 副作用，故必须独立做 Origin 闸；若只查回环，开启局域网访问后
-//   写操作会全 403（见 isLocalOrLanHost）。
+//   CORS 只挡读取不挡 CSRF 副作用，故必须独立做 Origin 闸（只查回环会让局域网访问下的写操作全 403）。
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
 /** 是否为本机回环主机名（含 IPv6 方括号形态）。 */
@@ -65,7 +64,7 @@ function originAllowed(req, apiPort) {
   }
 
   // 闸 2：Origin（哪些页面能驱动本 API）。现代浏览器对 POST（含 form 提交）一律发 Origin，
-  //   缺 Origin 只可能来自非浏览器客户端，不构成浏览器 CSRF 面；该语义由测试钉死。
+  //   缺 Origin 只可能来自非浏览器客户端，不构成浏览器 CSRF 面。
   const o = req.headers.origin;
   if (!o) return true; // curl / CLI / 同源 GET 无 Origin
   try {

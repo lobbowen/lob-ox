@@ -1,7 +1,7 @@
 'use strict';
 
-// 域：原生 DSH（app/native）—— 升级编排（先停后装、健康验证、失败回滚）。
-// 纯编排：只经 host-first 调用 NativeManager 的原子操作，不自持 IO。
+// 域：原生 DSH —— 升级编排（先停后装、健康验证、失败回滚）。纯编排：只经 host-first 调用 NativeManager 的
+//   原子操作，不自持 IO。
 
 const policies = require('./policies');
 
@@ -21,7 +21,6 @@ function doneLastStep(host, task) {
   if (st) host.tasks.stepState(task.id, steps.indexOf(st), 'done');
 }
 
-/** 每次升级入口清零。 */
 function beginUpgradeState(host, requestedVersion) {
   host.upgradeState = 'installing';
   host.upgradeStartedAt = new Date().toISOString();
@@ -192,8 +191,8 @@ async function rollbackAfterFailure(host) {
     if (host.events) host.events.append('upgrade_rollback_failed', {});
     if (host.hooks.notify) host.hooks.notify('DSH 升级失败', '回滚也失败，请立即人工检查 npm 全局目录');
     if (taskId && host.tasks) host.tasks.fail(taskId, '回滚也失败：' + host.upgradeError, { meta: { rolledBack: false, rollbackFailed: true } });
-    // hold 释放统一收敛到 handleUpgradeFailure 尾部，本函数不 resume；
-    //   否则「回滚失败 -> 调用方提前 return -> 释放点分裂、_activeTaskId 泄漏」。
+        // hold 释放统一收敛到 handleUpgradeFailure 尾部，本函数不 resume；否则「回滚失败 -> 调用方提前 return ->
+        //   释放点分裂、_activeTaskId 泄漏」。
     return { ok: false };
   }
   log(host, '回滚完成。');

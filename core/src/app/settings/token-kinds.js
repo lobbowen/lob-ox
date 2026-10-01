@@ -1,8 +1,8 @@
 'use strict';
 
-// app/settings/token-kinds.js —— 令牌分类/恢复文件名/源推断的业务声明（DS-G4 反转法唯一声明处）：platform 令牌组件只留注册接口（kinds/pool），值须与 platform 同名字面量逐字一致。
-// require 即注入：须在 assembly/compose.js 构造 DshTokenService 前 require 本模块，Node 模块缓存保证只注入一次；未注入时 kind 注册表为空、无推断映射。
-// 纪律：只做数据声明 + 注入调用，只 require 被注入的 platform 模块，绝不反向依赖域/编排对象；TOKEN_FILE_NAME 全仓仅此一处声明，由 assembly/compose/core.js 直接取用。
+// 令牌分类/恢复文件名/源推断的业务声明：platform 令牌组件只留注册接口（kinds/pool），值须与 platform 同名字面量逐字一致。
+//   require 即注入：须在 assembly/compose.js 构造 DshTokenService 前 require 本模块，模块缓存保证只注入一次；未注入时
+//   kind 注册表为空、无推断映射。纪律：只做数据声明 + 注入调用，绝不反向依赖域/编排对象；TOKEN_FILE_NAME 全仓仅此一处。
 
 const kinds = require('../../platform/service/token/kinds');
 const pool = require('../../platform/service/token/pool');

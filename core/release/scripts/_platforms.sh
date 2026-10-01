@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # 内核平台矩阵。
 #
-# 为什么单独成文件：平台清单此前散落在三处（build-launcher / publish-core / release-core），
-# 且 GitHub workflow 里还有一份硬编码矩阵。四处不同步就会产出「少一个平台」的发布。
-# 现统一从 `package.json#npmPublish.packages` 读取 —— 它本来就是 npm scope 子包的权威声明。
+# 平台清单单源 = `package.json#npmPublish.packages`（它本就是 npm scope 子包的权威声明）；
+#   不得在脚本或 workflow 里另存硬编码矩阵 —— 四处不同步就会产出「少一个平台」的发布。
 #
 # 输出（每行一条，空格分隔，不含包名——包名可由 scope + os + arch 推出）：
 #   <osTag> <plat> <arch>

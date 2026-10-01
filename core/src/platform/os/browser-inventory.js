@@ -1,19 +1,16 @@
 'use strict';
 
 // 系统浏览器探测层：只回答「这台机器装了哪些浏览器、默认是哪个、每条结论是从哪个系统事实读来的」，
-//   不 launch、不猜命令、不在查不到时替用户挑一个试试（选路与执行在 ./browser.js，那是外部打开唯一出口）。
-//
-// 为什么必须有这一层：旧实现只问「默认浏览器是谁」，且只问一句（Win7 起被系统忽略的 StartMenuInternet
-//   默认值），问不到就退到系统 shell 冒开 —— 真机结果就是「面板说交出去了，屏幕上什么都没有」。
-//   所以本层的硬要求是：多源并集 + 每条来源都留痕。probed 会原样抵达面板，下次真机不用读代码就能定性。
+//   不 launch、不猜命令、不在查不到时替用户挑一个试试（选路与执行在 ./browser.js）。
+// 硬要求：多源并集 + 每条来源都留痕（probed 原样抵达面板）。
 
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const exec = require('../util/exec');
 const { isExecutableFile } = require('./exec-path');
-// 注册表解析原语的唯一实现住在 ./registry.js：本层不复制一份 reg.exe 排版解析。浏览器探测与出网条件
-//   问的是同一张注册表，两处各写一遍必然分叉（一边认 REG_EXPAND_SZ、另一边不认就是静默漏检）。
+// 注册表解析原语的唯一实现住在 ./registry.js：浏览器探测与出网条件问的是同一张注册表，
+//   两处各写一遍必然分叉。
 const registry = require('./registry');
 const { expandEnvVars, safeRegKeyPart, regValue, regSubkeys, regValueTargets } = registry;
 
@@ -57,8 +54,7 @@ function parseExecLine(line) {
 }
 
 /** 注册表 open\command 命令行 -> 可执行文件路径（纯函数；带引号与裸 .exe 两种形态）。
- *  未加引号时路径本身也可以带空格（注册表里的 REG_EXPAND_SZ 常这么写），所以取「第一个 .exe 截止处」，
- *  而不是首个空白 token —— 后者会把 `C:\Program Files (x86)\...\msedge.exe -- "%1"` 读成 `C:\Program`。 */
+ *  未加引号时路径本身也可以带空格（REG_EXPAND_SZ 常这么写），故取「第一个 .exe 截止处」而非首个空白 token。 */
 function exeFromCmdLine(cmdLine) {
   const s = String(cmdLine || '');
   let m = s.match(/^\s*"([^"]+\.exe)"/i);
@@ -82,10 +78,10 @@ function winExeOfProgId(runner, note, progId, env) {
   return null;
 }
 
-/** win32 探测：五条文档化来源取并集，任一条失败都不影响其余，全部留痕进 probed。
+/** win32 探测：五条文档化来源取并集，任一条失败不影响其余，全部留痕进 probed。
  *  - UserChoice：Win10/11 上「用户选的 https 浏览器」的实际归属；
- *  - scheme-association：HKCU/HKLM Classes\https 的 ProgID 与其 open\command，即系统真正把地址交给谁；
- *  - StartMenuInternet 子键：浏览器目录（其**默认值**自 Win7 起被系统忽略，故只当目录用，不再当默认值读）；
+ *  - scheme-association：HKCU/HKLM Classes\https 的 ProgID 与其 open\command；
+ *  - StartMenuInternet 子键：浏览器目录（其默认值自 Win7 起被系统忽略，故只当目录用）；
  *  - RegisteredApplications：应用名 -> 能力路径 -> 该应用声明的 https ProgID；
  *  - App Paths：per-user 安装的浏览器也登记在这里（HKCU 先于 HKLM）。
  *  @param {{runOut:Function, env:object, canExec:Function}} d
@@ -98,8 +94,7 @@ function probeWin(d) {
   const keyOf = (exe) => String(exe || '').toLowerCase().replace(/[\\/]/g, '\\');
   const push = (exe, how) => {
     const full = expandEnvVars(exe, env).trim();
-    // 来源报了但不是本体路径（例如 App Paths 的默认值按规范写的是安装目录）：留痕而不入册，
-    //   否则真机上「明明注册过却没探到」就成了无从解释的黑箱。
+    // 来源报了但不是本体路径（如 App Paths 的默认值写的是安装目录）：留痕而不入册。
     if (!/\.exe$/i.test(full)) { note(how, '来源给出的不是 exe 路径: ' + full); return null; }
     const k = keyOf(full);
     const hit = found.get(k);
@@ -119,8 +114,8 @@ function probeWin(d) {
   };
   let defaultId = null;
   let defaultSource = null;
-  // 默认项的来源有高低：用户自己选的（UserChoice）> 系统对 https 协议的关联 > 穷举唯一解。
-  // 低优先级的来源晚到也不得翻案，否则「默认浏览器」又变成探测顺序的副产品。
+  // 默认项来源有高低：用户自己选的（UserChoice）> 系统对 https 协议的关联 > 穷举唯一解；
+  // 低优先级来源晚到也不得翻案。
   const DEF_RANK = { userchoice: 1, 'scheme-association': 2, 'only-installed': 9 };
   let defRank = 99;
   const setDefault = (item, how) => {
@@ -128,16 +123,13 @@ function probeWin(d) {
     if (item && r < defRank) { defRank = r; defaultId = item.id; defaultSource = how; }
   };
 
-  // 注册表里 open\command 的两处固有变形：reg.exe 不展开 %VAR%，值本身是命令行而非路径。
-  //   任何一条来源取到的值都必须过这道手，否则「探到了却认不出」会以空清单的形式复现本轮的缺陷。
+  // reg.exe 不展开 %VAR%，且值本身是命令行而非路径：任何来源取到的值都必须过这道手。
   const cmdToExe = (raw) => (raw ? exeFromCmdLine(expandEnvVars(raw, env)) : null);
 
   const uc = regValue(runOut, note, 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice', 'ProgId');
   if (uc) addProgId(uc, 'userchoice');
-  // https 协议关联本体（HKCU 的 per-user 覆盖先于 HKLM）：默认值是处理该协议的 ProgID，其
-  //   shell\open\command 就是资源管理器实际执行的命令行 —— 这是「系统会把这条地址交给谁」最接近
-  //   事实的一条只读证据，也是「把地址丢给系统 shell 冒开」那条老路真正借的东西，只是后者从不把结局报回来。
-  //   UserChoice 读不到（组策略收紧、部分新版）时，它是唯一还能定出默认项的来源。
+  // https 协议关联（HKCU 的 per-user 覆盖先于 HKLM）：默认值是处理该协议的 ProgID，其
+  //   shell\open\command 即系统实际执行的命令行。UserChoice 读不到时它是唯一还能定出默认项的来源。
   for (const root of ['HKCU\\Software\\Classes', 'HKLM\\Software\\Classes']) {
     const pid = regValue(runOut, note, root + '\\https');
     if (pid) addProgId(pid, 'scheme-association');
@@ -145,8 +137,7 @@ function probeWin(d) {
     if (exe) setDefault(push(exe, 'scheme-association'), 'scheme-association');
   }
   // StartMenuInternet 的子键名就是 ProgID。它的 open\command 既写在目录键下（文档化位置），
-  //   也常只在 Classes\<ProgID> 下有一份（per-user 安装、部分发行版），两处都认才叫枚举；
-  //   只查一处等于把第二类装机形态整个漏掉，而它正是本轮第二台机器上「装了却探不到」的形状。
+  //   也常只在 Classes\<ProgID> 下有一份（per-user 安装），两处都认才叫枚举。
   for (const name of regSubkeys(runOut, note, 'HKLM\\SOFTWARE\\Clients\\StartMenuInternet')) {
     addProgId(name, 'startmenu-catalog');
     const exe = cmdToExe(regValue(runOut, note, 'HKLM\\SOFTWARE\\Clients\\StartMenuInternet\\' + name + '\\shell\\open\\command'))
@@ -175,15 +166,14 @@ function probeWin(d) {
     // UserChoice 是唯一能说明「用户自己选了谁」的来源。
     if (how === 'userchoice') setDefault(item, 'userchoice');
   }
-  // 只装了一个浏览器时，它必然就是 https 的归宿 —— 这不是猜默认值，是穷举后的唯一解。
+  // 只装了一个浏览器时它必然就是 https 的归宿：穷举后的唯一解。
   if (found.size === 1) setDefault([...found.values()][0], 'only-installed');
   return { browsers: [...found.values()], defaultId, defaultSource, probed: notes };
 }
 
-/** macOS 探测脚本：`urlsForApplicationsToOpenURL`（macOS 12+，Apple 文档化为「可打开该 URL 的全部应用，最佳匹配在前」）
- *  给清单，`URLForApplicationToOpenURL` 给默认；前者不可用（旧系统/权限拦截）时只交得出默认那一条，
- *  即回落「只问默认是谁」的老路——但清单为空与「探不到」在 probed 里必须区分得开。
- *  输出每行 `bin<TAB>bundleId<TAB>default`，由宿主侧拼成条目 —— 探测能力位不在 JS 侧猜 App 名。 */
+/** macOS 探测脚本：`urlsForApplicationsToOpenURL`（macOS 12+，最佳匹配在前）给清单，
+ *  `URLForApplicationToOpenURL` 给默认；前者不可用时只交得出默认那一条（清单为空与探不到在 probed 里区分）。
+ *  输出每行 `bin<TAB>bundleId<TAB>default`。 */
 const MAC_JXA_LIST = [
   "ObjC.import('Foundation');",
   "var ws=$.NSWorkspace.sharedWorkspace;",
@@ -201,8 +191,7 @@ const MAC_JXA_LIST = [
   "if(!b.isNil()){exe=ObjC.unwrap(b.executablePath)||'';bid=ObjC.unwrap(b.bundleIdentifier)||'';}",
   "out.push((exe||p)+'\\t'+bid+'\\t'+(p&&def&&p===def?1:0));}",
   "}",
-  // 末句必须是裸表达式：osascript 取的是最后一条**语句**的值，if/else 语句不产结果，
-  //   写在分支里会让整段查询输出空字符串（表现为「系统未报任何可用应用」）。
+  // 末句必须是裸表达式：osascript 取最后一条语句的值，if/else 不产结果，写在分支里会输出空字符串。
   "out.join('\\n');",
 ].join('');
 
@@ -232,8 +221,7 @@ function probeMac(d) {
   return { browsers: [...found.values()], defaultId, defaultSource, probed: notes };
 }
 
-/** linux 探测拼出的恒是 POSIX 路径：用宿主 path.join 在 win 宿主（同一份测试四处跑）会产出反斜杠形态，
- *  导致探测结果随跑测试的机器变化。darwin 侧浏览器.js 同源问题用 path.posix 已有先例。 */
+/** linux 探测拼出的恒是 POSIX 路径：用宿主 path.join 会产出反斜杠形态，与宿主平台无关。 */
 const PJ = path.posix.join;
 
 /** linux 的 .desktop 目录：XDG 规范目录 + flatpak/snap 的导出目录（后两者是实现约定而非规范条款，来源字段会区分）。 */
@@ -283,8 +271,7 @@ function browserFromDesktop(text, kind, file) {
   };
 }
 
-/** linux 的 bin -> 绝对可执行路径 | null。裸名按 PATH 逐个目录试（':' 拆，与宿主分隔符无关：
- *  候选恒来自 .desktop，本就是 POSIX 语义）。exec-path 的 inPath 用宿主 delimiter，跨宿主测试会漂移，故不借它。 */
+/** linux 的 bin -> 绝对可执行路径 | null。裸名按 PATH 逐个目录试（':' 拆：候选恒来自 .desktop，本就是 POSIX 语义）。 */
 function resolveLinuxBin(bin, canExec, env) {
   const b = String(bin || '').trim();
   if (!b) return null;
@@ -393,8 +380,8 @@ function mimeAppsDefault(text) {
   return null;
 }
 
-/** 一平台的探测分派：平台事实只在这里出现一次，且每条来源都进 probed。
- *  canExec（文件在且可执行）默认落到 exec-path 的实测实现，测试侧整体替换。 */
+/** 一平台的探测分派：平台事实只在这里出现一次，每条来源都进 probed。
+ *  canExec（文件在且可执行）默认落到 exec-path 的实测实现。 */
 function probe(platform, d) {
   const pl = platform || process.platform;
   const dd = Object.assign({}, d, { canExec: d.canExec || ((p) => isExecutableFile(p, pl)) });
@@ -442,7 +429,7 @@ function invalidate(platform) {
 module.exports = {
   inventory, invalidate, probe, probeWin, probeMac, probeLinux,
   engineOf, tokenizeExec, parseExecLine, exeFromCmdLine,
-  // 注册表原语住在 ./registry.js（单一实现），此处原样转出：既有门禁与消费方的取用口不变。
+  // 注册表原语住在 ./registry.js（单一实现），此处原样转出。
   regValueOf: registry.regValueOf, expandEnvVars, safeRegKeyPart, regKeyFull: registry.regKeyFull,
   regValue, regSubkeys, regValueTargets,
   browserFromDesktop, desktopDirs, resolveLinuxBin, mimeAppsDefault, linuxDefaultFromMimeApps,

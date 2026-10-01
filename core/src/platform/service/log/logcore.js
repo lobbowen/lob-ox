@@ -9,10 +9,9 @@ const Events = require('./events');
 const { createLogger, Rotator } = require('./log');
 const { EventHub, EventReader } = require('./hub');
 
-// DS-G4 装配注入（反转法）：业务源名单唯一声明在 app/assembly/log-sources.js，platform 零域名词。
-// platform 不得出边到 app（DS-G2）：守卫进程（compose）在构造 LogCore 前 require 该模块做全量汇聚注入；
-// 域 daemon 进程只自注自己那一个源（domains 依赖 app 属上行，DS-3 禁止）。
-// 未注入时 EventHub 退化为「仅本地源」，聚合面变窄但进程内日志不受影响。
+// 装配注入（反转法）：业务源名单唯一声明在 app/assembly/log-sources.js，platform 零域名词。
+// platform 不得出边到 app：守卫进程（compose）在构造 LogCore 前 require 该模块做全量汇聚注入；
+// 域 daemon 进程只自注自己那一个源（domains 依赖 app 属上行，反向依赖禁止）；未注入时 EventHub 退化为「仅本地源」，聚合面变窄但进程内日志不受影响。
 
 let _instance = null;
 let _process = null;
@@ -36,7 +35,7 @@ class LogCore {
     // 守卫侧 EventHub 汇聚（guard 事件 push 零延迟 + daemon ctl 拉尾）；非守卫进程 hub=null。
     if (o.enableHub === true && o.stateDir) {
       try {
-        // 构造期断言（RC5.3）：守卫事件文件与聚合流文件必须不同，否则
+        // 构造期断言：守卫事件文件与聚合流文件必须不同，否则
         // events.append 与 pushGuard、writer.appendRaw 相互触发形成无界递归。
         const aggFile = path.join(path.resolve(o.stateDir), 'events', (o.aggBase || 'state') + '.aggregated.events.log');
         const eventFileAbs = path.resolve(o.eventFile);
@@ -63,8 +62,8 @@ class LogCore {
     } else {
       this.hub = null;
     }
-    // 统一读路径（空对象模式）：hub 不可用时用 EventReader 适配本地事件流，使消费方
-    // （/events、/logs 各流、/metrics）永远只有一条读路径，无需 if(hub) else 双语义分支。
+    // 统一读路径（空对象模式）：hub 不可用时用 EventReader 适配本地事件流，使消费方（/events、
+    // /logs 各流、/metrics）永远只有一条读路径，无需 if(hub) else 双语义分支。
     this.reader = this.hub || new EventReader(this.events);
   }
 
@@ -74,7 +73,7 @@ class LogCore {
 }
 
 // 进程入口初始化一次，同 process 幂等、异 process 抛错（防误用换身份）。
-// process 只要求非空字符串（DS-G4：platform 不枚举业务进程名，具体名字由 app/ 注入）。
+// process 只要求非空字符串（platform 不枚举业务进程名，具体名字由 app/ 注入）。
 function init(opts) {
   const p = (opts && opts.process) || null;
   if (typeof p !== 'string' || !p.trim()) throw new Error('LogCore.init 需要 process（非空字符串）');
@@ -87,7 +86,7 @@ function init(opts) {
   return _instance;
 }
 
-// 当前进程唯一 LogCore。未 init 时给惰性默认（不写盘）并告警，防测试误用。
+// 当前进程唯一 LogCore。未 init 时给惰性默认（不写盘）并告警，防误用。
 function get() {
   if (_instance) return _instance;
   console.warn('[logcore] get() 在 init() 前调用——返回惰性默认(不落盘)；入口请先 LogCore.init()');

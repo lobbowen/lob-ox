@@ -1,8 +1,8 @@
 'use strict';
 
-// 插件域门面（组合根 + 导出）。域内单向分层：model/policies（纯）-> targets/cli/store（叶子 IO）-> layers（写队列）-> jobs
-// -> restart -> ops/updater（编排）-> index；jobs 对 ops 零出边、store.listInstalled 收 targets 入参以消除反向边。组合手法：构造期创建 jobs/layers，其余经 ctx 显式传入。
-// 门面保留同名可覆盖转发方法（resolveTargets/installedOn/_runCli/_setBundleEnabledInner/_scrubPluginLayersInner 等）：既有测试以实例属性桩替换这些名字，改名即断。
+// 插件域门面（组合根 + 导出）。域内单向分层：model/policies（纯）-> targets/cli/store（叶子 IO）-> layers（写队列）
+// -> jobs -> restart -> ops/updater（编排）-> index；组合手法：构造期创建 jobs/layers，其余经 ctx 显式传入。
+// 门面保留同名可覆盖转发方法（resolveTargets/installedOn/_runCli 等）：这些名字是外部可覆盖面，改名即断。
 
 const { PROTECTED } = require('./model');
 const store = require('./store');
@@ -24,8 +24,8 @@ class PluginManager {
     this.dshPort = opts.dshPort;
     this.instances = opts.instances || null;   // InstanceManager（实例目标数据源）
     this.onNativeRestart = opts.onNativeRestart || null; // 原生 DSH 重启回调（supervisor 注入）
-    // INV-S1 退出门谓词（守卫注入 host._exitIntended，E-3 单源）。
-    //   本域注入裸 InstanceManager，门不在域方法上 —— 变更生效路径必须自查，防退出中拉起实例。
+    // 退出门谓词（守卫注入 host._exitIntended 单源）。本域注入裸 InstanceManager，门不在域方法上 ——
+    //   变更生效路径必须自查，防退出中拉起实例。
     this.exitIntended = typeof opts.exitIntended === 'function' ? opts.exitIntended : () => false;
     this.logger = opts.logger || console;
     this.events = opts.events || null;

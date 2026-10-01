@@ -1,40 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 外部打开底座 —— 单文件合一（同步半部 X-8 / X-12 + 异步半部 X-10 / X-13 / X-14）
-//
-// 本文件由 test/external-open-plan-test.js（581 行 / 76 站）与 test/external-open-exec-test.js
-//   （591 行 / 60 站）合并而来。TEST-AUDIT-5 裁定：同步/异步拆两个文件的理由是「尾部 then 时序
-//   成为隐性依赖」这一**测试工程理由**，不是架构界线。合并同时按该裁定压缩「为了覆盖而覆盖」的站点：
-//   4+4 平台矩阵、6 条内部解析原语、engineOf 枚举逐字、22 条 probe 注入夹具采样、
-//   openPlan 11->4 / isolatedPlan 10->4 / diagnostics 3->1、两处字段集精确值断言（FKEYS/KEYS10）、
-//   7 个 errno 逐字、plan 与 exec 之间 4 条 pick/stale/diagnostics 重复。
-//
-// ## 锁定不变量（判据未丢，只是采样收敛）
-//   X-8  外部打开底座的分工：调度器形态、声明面、探测层多源并集与留痕、分发依据
-//        （偏好 > 系统默认 > 唯一候选 > 候选次序，穷举只此一处）、隔离/非隔离计划
-//   X-12 环境表单与浏览器偏好的归属（判据单点、装配期注入、快照读路径零写盘）
-//   X-10 openBrowser 三档结果语义（confirmed / handedOff / ok:false）+ 退出码证据闸
-//        + 两种意图（普通打开 / 隔离登录）共用同一出口与同一词汇 + 反指纹档
-//   X-13 出网条件维度（冷档案可行性真值表、L0 三态分档、维度台账、代理读数）
-//   X-14 证据字段与快照留痕的出口收口
-//
-// ## 四条真机事故（判据一处不删）
-//   ① reg.exe 打印展开后的完整根名，按简写前缀比 => StartMenuInternet 枚举**静默交空**
-//   ② Win7 起系统忽略 StartMenuInternet 默认值，旧实现当默认项读 => UserChoice 被系统忽略
-//   ③ 多候选且系统说不出默认 => 旧实现 no-launcher => 面板「点了一键登录什么都没弹」
-//   ④ 中文 Windows 被弹出法语窗口（反指纹档曾随机化界面语言）
-//
-// ## 覆盖缺口（E-2 制度化登记，随执行半部一并保留）
-//   1. 探测夹具与 spawn/observe 全是注入的假件：证明「读数->清单->分发->分档」的纯逻辑，
-//      不证明真机注册表/LaunchServices/XDG 读数形态，也不证明浏览器窗口出现。
-//   2. 观测上界（OPEN_OBSERVE_MS）由假时钟推进，真机冷启动/慢解析下是否够用未证明；
-//      CI 上曾出现同一份代码两种档位（宿主负载漂移），故所有结局都吃注入的 observe。
-//   3. 偏好写入口（app/settings/browser.js）的**落盘行为**不在本文件跑：真实读写由 api-contract 的
-//      EF/PR 两组覆盖；此处只钉 checkPreference 纯函数判据与装配期注入。
-//   4. 隔离档的图形态（窗口是否真出现）不可判：Safari 无隔离方言时降级为调度器并入既有窗口。
-// ---------------------------------------------------------------------------
+// 外部打开底座（同步半部 X-8/X-12 + 异步半部 X-10/X-13/X-14）：
+//   X-8 分发依据（偏好 > 系统默认 > 唯一候选 > 候选次序，穷举只此一处）· X-10 openBrowser 三档结果
+//   （confirmed / handedOff / ok:false）· X-12 表单与偏好归属 · X-13 出网维度台账 · X-14 证据字段出口收口。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -58,14 +27,8 @@ const det = br.detector;
 // 本组钉「分层是否还在」：探测层只回答系统里有什么，表单把本机实况收一张表并定出这次交给谁，
 // 执行层只按计划 spawn 一次并如实回报拿到什么证据。任何一层越界都会让真机症状重新变成不可定性。
 {
-  // 解析原语只有一个实现处、分发依据住在环境表单：判「是不是同一处实现」与「执行层是否真的照它分发」，
-  //   不判某个名字是否还存在（存在性形状断言改名即红、产品等价）。
-  //   同源：browser.js 转出的 engineOf 就是探测层那个函数本身（第二份实现会在此分叉）；
-  //   居住地：选路只有 environment.pickLauncher 一处，browser.js 不自己选 —— 同一份清单与偏好在两边
-  //     必须得到同一条分发结论（how 与启动对象 bin 逐字一致）。第二份「等价实现」会在此分叉：
-  //     win32 空清单若再退 explorer.exe 冒开、或其他层按自己的次序挑人，下面每一例都会变红。
-  //     （原先此处写的是 `env.pickLauncher === det.pickLauncher`：探测层从不导出选路函数，
-  //       该子句恒假，且把「居住地」判成了「住在探测层」，与本条判据名字相反。）
+  // 解析原语只有一个实现处（browser.js 转出的 engineOf 就是探测层那个函数），分发依据住在环境表单：
+  //   选路只有 environment.pickLauncher 一处，同一份清单与偏好在两边必须得到同一条分发结论（bin 逐字一致）。
   const agreeOn = (inv, pref) => {
     const picked = env.pickLauncher(inv.platform || 'win32', inv, pref);
     const plan = br.openPlan('win32', u, { inventory: inv, preference: pref });
@@ -106,7 +69,6 @@ const det = br.detector;
     && det.engineOf('/Applications/Safari.app/Contents/MacOS/Safari') === 'other'
     && det.engineOf('snap') === 'other' && det.engineOf('xdg-open') === 'other', 'ok');
 
-  // 内部解析原语 6 条压成 2 条（原为逐边角例穷举，属内部形态）：win 侧三个 + posix/键名侧三个。
   check('X-8 win 侧解析：regValueOf 认 REG_SZ/REG_EXPAND_SZ（DWORD/无值=null）+ expandEnvVars 未知变量原样留着（宁可判不可用也不猜路径）+ exeFromCmdLine 引号/裸 exe/非 exe=null',
     det.regValueOf('    (默认)    REG_SZ    Google Chrome') === 'Google Chrome'
     && det.regValueOf('    (默认)    REG_EXPAND_SZ    %ProgramFiles%\\Mozilla Firefox\\firefox.exe') === '%ProgramFiles%\\Mozilla Firefox\\firefox.exe'
@@ -116,8 +78,8 @@ const det = br.detector;
     && det.exeFromCmdLine('"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" -- "%1"') === 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
     && det.exeFromCmdLine('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe -- "%1"') === 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
     && det.exeFromCmdLine('notepad') === null, 'ok');
-  // 事故① 判据：reg.exe 把根名展开后打印（问 HKLM 回 HKEY_LOCAL_MACHINE）。产品若按简写比前缀，
-  //   真机上每一行都匹配不上 => 整个 StartMenuInternet 枚举静默交出空清单。
+  // reg.exe 把根名展开后打印（问 HKLM 回 HKEY_LOCAL_MACHINE）：产品若按简写比前缀，
+  //   真机每行都匹配不上 => 整个 StartMenuInternet 枚举静默交出空清单。
   const subOf = (text) => det.regSubkeys(() => text, () => {}, 'HKLM\\SOFTWARE\\Clients\\StartMenuInternet');
   check('X-8 posix/键名侧解析 + 事故①：parseExecLine 去壳分词、safeRegKeyPart 拒 shell 活性字符（键名进 reg.exe 的 argv）、regSubkeys 只认完整根名（简写形态反向钉住）',
     JSON.stringify(det.parseExecLine('env DISPLAY=:0 brave-browser --ozone-platform=x11 %U')) === JSON.stringify({ bin: 'brave-browser', baseArgs: ['--ozone-platform=x11'] })
@@ -133,10 +95,7 @@ const det = br.detector;
   const UC_KEY = 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice';
   const SMI = 'HKLM\\SOFTWARE\\Clients\\StartMenuInternet';
   /** 假 reg.exe：只按探测层实际发出的 query 形态应答，认不出的形态一律 null（=读不到）。
-   *  两处必须照真机形状来，否则夹具与产品各自成立、判据空转：
-   *   1) 不带 /v 的查询里，子键行打印的是**展开后的完整根名**（`reg query HKLM\...` 回 `HKEY_LOCAL_MACHINE\...`），
-   *      而 fixture 里的键仍按简写登记（由 HIVE 映射展开）——事��① 才被判据钉住，而不是被夹具抹平；
-   *   2) values/named/subs 挂在返回的函数上，供逐例追加键值。 */
+   *  不带 /v 的查询里子键行打印的是**展开后的完整根名**，夹具键仍按简写登记（由 HIVE 映射展开）。 */
   function fakeReg(o) {
     const values = o.values || {}, named = o.named || {}, subs = o.subs || {};
     const HIVE = { HKLM: 'HKEY_LOCAL_MACHINE', HKCU: 'HKEY_CURRENT_USER', HKCR: 'HKEY_CLASSES_ROOT' };
@@ -177,9 +136,8 @@ const det = br.detector;
       JSON.stringify({ d: r.defaultId, s: r.defaultSource, n: r.browsers.length, probed: r.probed.length }));
   }
   {
-    // 事故②：旧实现把 StartMenuInternet 的**默认值**当「默认浏览器」读，而 Win7 起系统忽略该值 ——
-    //   读到它就以为定了默认，实际什么都没读到。事故③：此时多候选且系统说不出默认，旧实现给空对象 =>
-    //   整链报 no-launcher，用户看到的是「点了一键登录什么都没弹」。
+    // StartMenuInternet 的**默认值**在 Win7 起被系统忽略，读到它不等于定了默认；多候选且系统说不出默认时
+    //   必须真的开窗并把依据摊进证据，而不是报 no-launcher（用户症状：「点了一键登录什么都没弹」）。
     const runOut = fakeReg({ values: { [SMI]: 'MSEdge' }, subs: { [SMI]: ['MSEdge', 'Firefox'], [SMI + '\\MSEdge']: [], [SMI + '\\Firefox']: [] } });
     runOut.values['HKLM\\Software\\Classes\\MSEdge\\shell\\open\\command'] = 'C:\\Edge\\msedge.exe "%1"';
     runOut.values['HKLM\\Software\\Classes\\Firefox\\shell\\open\\command'] = 'C:\\FF\\firefox.exe "%1"';
@@ -389,10 +347,8 @@ const det = br.detector;
     defaultId: null, defaultSource: null, probed: [{ source: 'fixture', detail: '2 项' }],
   });
   const saved = { home: process.env.DSH_SUPERVISOR_HOME, bound: Object.assign({}, env.bind()) };
-  // 「能力矩阵未注入」这一态必须在本条里**显式造出来**，不能靠加载顺序碰运气：本文件上半部为取
-  //   capabilityProfile 已经 require 了 platform/os/index.js，装配期的 environment.bind({ capabilities })
-  //   随之生效（门面 → 表单的单向注入，见 index.js:97）。这里先摘掉它，测完再把真注入装回去 ——
-  //   否则「未绑定」这一档根本没被测过，测的只是「测试自己没注过」。
+  // 「能力矩阵未注入」这一态必须显式造出来，不能靠加载顺序碰运气：本文件上半部已 require
+  //   platform/os/index.js，装配期的 environment.bind({ capabilities }) 随之生效；这里先摘掉，测完装回去。
   env.bind({ capabilities: undefined });
   const f1 = env.form({ force: true, inventory: fixtureInv(), now: () => 111 });
   // 原 FKEYS「表单字段集精确值」断言按裁定删除（私有形状，加一个字段就红）；保留的是「结论必须带留痕」这条真判据。
@@ -453,10 +409,9 @@ const det = br.detector;
   env.invalidate();
 }
 
-// == B. 异步半部：X-10 openBrowser 三档结果语义 ================================
-// 为什么必须异步判定：ENOENT 只在子进程的 error 事件里出现，spawn 返回时一切「看起来正常」——
-//   旧形态同步 `return true` 等于把「命令没报错」当成「页面已打开」，正是面板显示成功而屏幕什么都
-//   没有的病根。本组用注入的 spawn/observe/binAvailable/desktopAvailable 做到宿主无关（CI 绝不真起浏览器）。
+// B. 异步半部：X-10 openBrowser 三档结果语义。
+//   ENOENT 只在子进程 error 事件里出现（spawn 返回时一切「看起来正常」），故必须异步判定；
+//   用注入的 spawn/observe/binAvailable/desktopAvailable 做到宿主无关。
 async function x10() {
   const U = 'http://127.0.0.1:28111/open?code=c1';
   const spawned = [];
@@ -474,7 +429,7 @@ async function x10() {
     return null;
   }
   // 每条用例都把探测清单钉成显式输入，并把「实际走了哪条形态」纳入判据：不钉就会去探宿主的真实浏览器，
-  //   用例名说「调度器」、实际跑的是直启浏览器（本轮 CI 才把它照红）。漂移本身是真缺陷。
+  //   用例名说「调度器」而实际跑的是直启浏览器。漂移本身是真缺陷。
   const B = (bin) => ({ id: String(bin).toLowerCase(), name: String(bin).split(/[\\/]/).pop(), engine: det.engineOf(bin), bin, sources: ['fixture'] });
   const IN = (list, defId, defSource) => ({ platform: 'fixture', browsers: list, defaultId: defId || null,
     defaultSource: defSource || null, probed: [{ source: 'fixture', detail: list.length + ' 项' }] });
@@ -483,8 +438,8 @@ async function x10() {
   const cases = [
     ['linux 调度器 0 退出 -> confirmed（0 即接收）', U, { platform: 'linux', inventory: NO_INV, observe: obs(EX_OK), spawn: okSpawn, binAvailable: () => true },
       (r) => r.ok === true && r.confirmed === true && r.handedOff === false, ['dispatcher', 'xdg-open']],
-    // 事故③ 判据（执行层）：真机形状 = 装了多个浏览器而系统说不出默认。旧实现在此判 no-launcher，
-    //   用户看到的症状是「点一键登录什么都没弹」。现在这一档必须真的开窗，且把依据摊进证据。
+    // 真机形状 = 装了多个浏览器而系统说不出默认：这一档必须真的开窗且把依据摊进证据，
+    //   而不是判 no-launcher（用户症状：「点一键登录什么都没弹」）。
     ['win32 多候选且系统说不出默认 = 按候选次序直启，依据留在证据里（不再 no-launcher 死路）', U,
       { platform: 'win32', inventory: IN([B(EDGE_WIN), B('C:\\FF\\firefox.exe')]), observe: obs(EX_OK), spawn: okSpawn, binAvailable: () => true },
       (r) => r.ok === true && r.evidence.via === 'browser' && r.evidence.bin === EDGE_WIN
@@ -551,7 +506,7 @@ async function x10() {
       { platform: 'freebsd', inventory: NO_INV, spawn: okSpawn, binAvailable: () => true, observe: obs(EX_OK) }, 'unsupported-platform'],
     ['linux 无图形会话', U, { platform: 'linux', inventory: NO_INV, spawn: okSpawn, binAvailable: () => true, desktopAvailable: () => false }, 'no-desktop-session'],
     ['启动命令不在 PATH', U, { platform: 'linux', inventory: NO_INV, spawn: okSpawn, binAvailable: () => false }, 'no-launcher'],
-    // Windows 真机的原始症状：读不到默认浏览器时旧形态退 explorer.exe 冒开（ok:true + 屏幕上什么都没有）。
+    // 读不到默认浏览器时不得退 explorer.exe 冒开（ok:true 而屏幕上什么都没有）。
     ['win32 探测清单为空 = 选不出启动对象（不再退 explorer.exe 冒开），留痕一起交出', U,
       { platform: 'win32', inventory: NO_INV, spawn: okSpawn, binAvailable: () => true, observe: obs(EX_OK) }, 'no-launcher'],
   ];
@@ -626,8 +581,8 @@ async function x10() {
       ia[0] === '--user-data-dir=/P'
       && ia.slice(1, 4).join(',') === '--no-first-run,--no-default-browser-check,--disable-session-crashed-bubble'
       && ia[ia.length - 1] === U && ia.length === 5, JSON.stringify(ia));
-    // 事故④ 判据：反指纹档相对宿主档只多改一项（TZ）。这里曾随机化界面语言 => 中文 Windows 被弹出过法语窗口。
-    //   判据不能钉「环境里没有 LANG」——runner 自己就带 LANG，那样只会误报；宿主若自带 TZ 会让差集为空，故先摘掉再比。
+    // 反指纹档相对宿主档只多改一项（TZ）；不得随机化界面语言（中文 Windows 已被弹出过法语窗口）。
+    //   判据不能钉「环境里没有 LANG」（runner 自带 LANG）；宿主自带 TZ 会让差集为空，故先摘掉再比。
     const savedTZ = process.env.TZ;
     delete process.env.TZ;
     const le = br.loginEnv(() => 0.5);
@@ -646,7 +601,7 @@ async function x10() {
       vocabOk(ld) === null && ld.ok === true && ld.confirmed === false && ld.handedOff === true
       && ld.evidence.isolated === false && ld.evidence.profile === null && ld.evidence.watch === false
       && ld.evidence.via === 'dispatcher' && isoOnExit === undefined, JSON.stringify(ld));
-    // 预检不过 = 零 spawn 且回收已分配目录（旧形态：登录绕开档位/会话判据，且失败即留孤儿目录）。
+    // 预检不过 = 零 spawn 且回收已分配目录（不得留孤儿目录）。
     spawned.length = 0; removed.length = 0;
     const ln = await br.openBrowser(U, { platform: 'linux', inventory: chromeInv, intent: 'isolated-login', spawn: okSpawn, egress: EG_OK,
       binAvailable: () => false, desktopAvailable: () => false, allocProfile: () => '/P', rmTree: (p, ms) => removed.push([p, ms]) });
@@ -821,11 +776,8 @@ async function x13() {
   eg.invalidate();
 }
 
-// == D. X-14 证据字段与快照留痕的出口收口 =====================================
-//   (1) 每次打开交出的 evidence/diagnostics 逐键要有读者；
-//   (2) 启动段只抄装配已算出的既成事实（原「SECTION_ORDER 成员名单」断言按裁定删除：内部簿记名单，
-//       注册契约由 X-13 的 registerSection 那条覆盖）；
-//   (3) 快照从单向写变成有读回口，且「没落过盘」与「读不出」必须分得开 —— 把后者说成前者会引着人去点刷新。
+// D. X-14 证据字段与快照留痕的出口收口：evidence/diagnostics 逐键要有读者；启动段只抄装配已算出的
+//   既成事实；快照有读回口，且「没落过盘」与「读不出」必须分得开。
 async function x14() {
   const prevHome = process.env.DSH_SUPERVISOR_HOME;
   process.env.DSH_SUPERVISOR_HOME = path.join(TMP, 'x14-state');

@@ -14,23 +14,16 @@ const config = require('./registry-config');
  *  一侧读一半、一侧读全就会两侧延迟不可比，「谁最快」的答案会分叉。 */
 const PROBE_MAX_BODY_BYTES = 8 * 1024 * 1024;
 
-/** 内核平台标签（用于展开契约的 pathTemplate）。平台知识收口到 platform/contract/matrix.js；
- *  ⚠️ 2026-10-01 更正：原注释称「matrix.npmTag 的抛错文案是既有对外契约，被 arch-validation 门禁断言」——
- *  该门禁已按用户决定整体拆除（移至 C:\work\_gate_backup），**抛错文案现已无任何断言**，只有
- *  test/four-platform-behavior-matrix-test.js 的 P-6 断言「已知 OS + 未知 arch 必须抛错」（不校验文案）。
- *  故此处不再构成"文案不得改动"的约束；若要恢复该约束，应写成对文案的**行为断言**。 */
+/** 内核平台标签（用于展开契约的 pathTemplate）。平台知识收口到 platform/contract/matrix.js。 */
 function platformTag() {
   return matrix.npmTag();
 }
 
 /** 探测单个 registry 的可达性 + 延迟（探测 URL 由契约决定，与壳同规格）。
- *  宿主不可产标 / 平台可产标但不在发布矩阵时，退化为 ping 规格（tag=null 交 resolveProbe
- *  守卫）：抛错穿透选源 Promise.all 违不变量 C2「契约不可用绝不阻断」，而探测恒 404 的
- *  包元数据会把全员判为不可达。platformTag() 本体一字不动（原由 arch-validation 钉死其抛错文案，
- *  该门禁已于 2026-10-01 拆除 ⇒ 现仅由 four-platform P-6 断言"必须抛错"）。
- *  传输走 ref.fetchRegistry —— 与取包元数据同一条路，所以「探测可达」与「取到字节」不可能再
- *  给出不同答案（跳转逐跳复验、状态码与字节上界都在那一处）。响应体读满而非只看状态码：
- *  壳的测速读到结尾，一侧读一半则两侧延迟不可比。 */
+ *  宿主不可产标 / 平台可产标但不在发布矩阵时退化为 ping 规格（tag=null 交 resolveProbe 守卫）：
+ *  抛错会穿透选源 Promise.all，而探测恒 404 的包元数据会把全员判为不可达。
+ *  传输走 ref.fetchRegistry，与取包元数据同一条路，故「探测可达」与「取到字节」不会给出不同答案。
+ *  响应体读满而非只看状态码：壳的测速读到结尾，一侧读一半则两侧延迟不可比。 */
 async function probeRegistry(state, origin) {
   const spec = (state.contract && state.contract.ok && state.contract.probe) || null;
   let tag = null;
@@ -48,8 +41,7 @@ async function probeRegistry(state, origin) {
   return { ok: !!r.ok, latencyMs: Date.now() - start, probe: target.kind, error: r.error || null };
 }
 
-/** 探测单个 origin 的可达性与延迟（供面板「测试」按钮与选源共用同一实现）。基址非法时
- *  如实回拒因（旧形状在这里回「非法 origin」，而它拒绝的正是壳目录里合法带路径的镜像）。 */
+/** 探测单个 origin 的可达性与延迟（供面板「测试」按钮与选源共用）。基址非法时如实回拒因。 */
 async function probeOrigin(state, origin) {
   const parsed = ref.parseRegistryBase(origin);
   if (!parsed.ok) return { origin: ref.normalizeBase(origin), ok: false, latencyMs: null, error: parsed.violation };
@@ -109,8 +101,7 @@ function orderFor(primary, origins, results) {
 /** 选源。返回 {origin, ordered, source, manual, probes}：origin=本次用的一个（全不可达时取候选首位
  *  并留下探测结论，交消费阶段顺延），ordered=消费阶段按序尝试的候选，probes=逐源结论（必须保留，
  *  「不可达」要能指名是哪个源、为什么）。source 取值 manual | shell-probe | probe | unreachable。
- *  manual 的语义从「短路一切探测、只用这一个」改为「置顶这一个，仍测速、仍回退」—— 旧语义下面板
- *  一旦固定成死源就再也拿不到任何诊断，且延迟列全空。 */
+ *  manual 语义是「置顶这一个，仍测速、仍回退」，否则固定成死源后拿不到任何诊断。 */
 async function selectRegistry(state, force) {
   // 契约与选择文档都要能重载：壳会在运行中重写 registry.json（catalog/probe/measurements），面板
   //   也会改 mode/手动源。内核进程若只看启动瞬间的状态，会出现「两侧选源不一致」与「手动设了不生效」。
@@ -161,8 +152,8 @@ async function registryOrigin(state, force) {
   return (sel && sel.origin) || null;
 }
 
-/** 镜像源信息（供 UI/API 展示）。响应只做加法：origin/candidates/probes 等既有键语义不变，
- *  新增 ordered（消费顺延序列）/ source（本次选择依据）/ registries（逐源形态与判定结论）。 */
+/** 镜像源信息（供 UI/API 展示）。origin/candidates/probes 既有键语义不变，另有 ordered（消费顺延序列）/
+ *  source（本次选择依据）/ registries（逐源形态与判定结论）。 */
 async function registryInfo(state) {
   config.reloadContractIfStale(state);
   const sel = await selectRegistry(state, false) || {};
@@ -200,11 +191,11 @@ async function registryInfo(state) {
   };
 }
 
-/** 保存全局镜像源配置（mode/手动源/候选）并立即重测。C-8 写入口闸：manualOrigin 与每条 origins 都过
+/** 保存全局镜像源配置（mode/手动源/候选）并立即重测。写入口闸：manualOrigin 与每条 origins 都过
  *  policies.registryOriginViolation（形态闸 + 私网主机闸，比探测端点严——探测端点反向豁免已配置源）；
- *  过不了的字面量不落盘，拒因经 error/errors 回传；
- *  auto 模式不预校验 manualOrigin（此刻不参与选源）。rc 是 registryConfig 的副本、全部校验通过才回写 state：
- *  若在原对象上先落 mode 再校验，被拒的「切 manual + 私网源」会造成内存/磁盘分叉且下次重测走旧手动源。 */
+ *  过不了的字面量不落盘，拒因经 error/errors 回传；auto 模式不预校验 manualOrigin（此刻不参与选源）。
+ *  rc 是 registryConfig 的副本、全部校验通过才回写 state：若在原对象上先落 mode 再校验，
+ *  被拒的「切 manual + 私网源」会造成内存/磁盘分叉且下次重测走旧手动源。 */
 async function setRegistryConfig(state, cfg) {
   const rc = { ...(state.registryConfig || {}) };
   let rejected = [];

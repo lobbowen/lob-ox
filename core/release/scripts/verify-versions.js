@@ -1,19 +1,16 @@
 'use strict';
 // 版本自洽校验（**内核**）。
 //
-// 双仓隔离：壳版本校验（Cargo.toml / tauri.conf.json / Cargo.lock 三处互锁）
-// 已迁回壳仓 scripts/verify-shell-versions.js —— 壳的版本属于壳自身，
-// 不应由内核仓脚本管理。本文件只校验内核单源。
+// 双仓隔离：壳版本校验（Cargo.toml / tauri.conf.json / Cargo.lock 三处互锁）在壳仓
+// scripts/verify-shell-versions.js —— 壳的版本属于壳自身。本文件只校验内核单源。
 const mode = process.argv[2] || '--core';
 const bad = [];
 function coreCheck() {
   const pkg = require('../../package.json');
   // 版本规范：内核 = **合法 SemVer**（三段数值 + 可选预发布/构建后缀）——
   //   0.1.1（正式）/ 0.1.1-BETA.1 / 0.1.1-RC.1 / 0.1.6-BETA.21-test1 均合法。
-  // 校验**委托产品内权威校验器**（src/shared/version.js:8 的 VERSION_RE），本文件不再自带实现。
-  //   复（本次修复）：这里原先内联一份更窄的正则（只认 -BETA.n / -RC.n），与产品校验器分裂——
-  //   于是「产品侧 semverCompare/VERSION_RE 认 0.1.6-BETA.21-test1，而本门禁不认」，
-  //   而本门禁在 CI 里真跑（ci-core.sh [0/5]）⇒ 四平台 build 全红、发布链整条 skipped。
+  // 校验**委托产品内权威校验器**（src/shared/version.js:8 的 VERSION_RE），本文件不自带实现：
+  //   内联更窄的正则（只认 -BETA.n / -RC.n）会与产品校验器分裂，拒掉合法版本，而本门禁在 CI 里真跑。
   //   委托后判定口径与产品同一份：**非法 SemVer（1.2 / abc / 1.02.3 / 1.0.0-）依旧判红**，
   //   放宽的只是「合法的预发布后缀形态」，不是「什么都收」。
   // 若 src/shared/version.js 缺失/不可 require，require 直接抛出 ⇒ 本脚本非零退出（判红而非静默放行）。

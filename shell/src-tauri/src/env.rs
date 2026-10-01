@@ -1,21 +1,19 @@
 //! 环境探测：Node 定位 / 版本 / 产品状态根。
-//! 本文件的子进程一律先经 `bounded::prepare`（CREATE_NO_WINDOW 的唯一封装点）——
-//!   release 下壳是 GUI 子系统，不带该标志时每次探测都会弹一个控制台窗口。
-//! 复用 prepare 而非 `bounded::run`：须保留 spawn 后轮询 try_wait 的非阻塞行为（Store 别名存根会挂起）。
+//! 本文件的子进程一律先经 `bounded::prepare`（CREATE_NO_WINDOW 的唯一封装点）：release 下壳是 GUI 子系统，
+//! 不带该标志时每次探测都会弹控制台窗口。复用 prepare 而非 `bounded::run`，以保留 spawn 后轮询 try_wait 的非阻塞行为。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-/// Node 版本探测的时间上限。
-///
-/// Windows 的 `WindowsApps\node.exe` 是 Store 应用执行别名存根，执行会挂起 —— 必须有界。
+/// Node 版本探测的时间上限。Windows 的 `WindowsApps\node.exe` 是 Store 应用执行别名存根，
+/// 执行会挂起 —— 必须有界。
 const NODE_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// 兼容包装 probe_system_node 的有界预算（真正执行在 nodeprobe 的分离线程里）。
 const NODE_PROBE_TOTAL_BUDGET: Duration = Duration::from_secs(20);
 
-/// Node 可执行名 —— 平台知识已下沉到 trait（P2/G1：原为 `cfg!()` 宏，门禁 G1 只拦 `#[cfg(` 属性，看不见它）。
+/// Node 可执行名（平台知识下沉到 platform trait）。
 pub fn node_exe() -> &'static str {
     crate::platform::current().node_exe_name()
 }
@@ -76,7 +74,7 @@ pub fn recorded_node_path() -> Option<PathBuf> {
 /// 这是「引导页不会因某个坏的可执行文件而永久卡住」的根本保证。
 pub fn node_version(node: &Path) -> Option<String> {
     use std::process::Stdio;
-    // 先建命令再显式 prepare：不加该标志时，GUI 子系统下的每次探测都会弹控制台窗口。
+    // 显式 prepare：不加该标志时，GUI 子系统下每次探测都会弹控制台窗口。
     let mut cmd = Command::new(node);
     cmd.arg("--version")
         .stdin(Stdio::null())
@@ -114,10 +112,9 @@ pub fn node_version(node: &Path) -> Option<String> {
     if s.is_empty() { None } else { Some(s) }
 }
 
-/// 系统 PATH 中的 Node：缺失返回 None。
-/// 必须**遍历全部候选**而非取第一个：PATH 靠前的可能是不可用存根，会掩盖后面真正可用的安装。
-/// 兼容入口：委托 nodeprobe 有界探测（分离线程 + 有界等待 + 结果缓存）；
-/// 保留本函数使所有既有调用点自动获得该保证，无需逐个改写。
+/// 系统 PATH 中的 Node：缺失返回 None。必须**遍历全部候选**而非取第一个：
+/// PATH 靠前的可能是不可用存根，会掩盖后面真正可用的安装。
+/// 委托 nodeprobe 有界探测（分离线程 + 有界等待 + 结果缓存），使既有调用点自动获得该保证。
 pub fn probe_system_node() -> Option<(PathBuf, String)> {
     crate::nodeprobe::resolve(NODE_PROBE_TOTAL_BUDGET)
 }
@@ -130,9 +127,8 @@ pub fn node_install_root() -> PathBuf {
 }
 
 /// **安装后** Node 可执行文件应出现的位置（平台判定，实现在 platform 层）。
-/// Windows 不得硬编码 `C:\Program Files`：真实路径随系统盘符与系统语言变化
-/// （中文系统是本地化目录名），也可能装在 `Program Files (x86)`；
-/// 一律经 `ProgramFiles` / `ProgramFiles(x86)` 环境变量推导（nodeprobe 同口径，两处必须一致）。
+/// Windows 不得硬编码 `C:\Program Files`：真实路径随系统盘符与系统语言变化（中文系统是本地化目录名），
+/// 也可能装在 `Program Files (x86)`；一律经 `ProgramFiles` / `ProgramFiles(x86)` 环境变量推导（nodeprobe 同口径）。
 pub fn known_install_node_path() -> Option<PathBuf> {
     let p = crate::platform::current().node_bin_after_install();
     if p.is_file() {
@@ -142,13 +138,12 @@ pub fn known_install_node_path() -> Option<PathBuf> {
     }
 }
 
-/// 产品状态根 schema（与内核 src/platform/state-root.js 的 SCHEMA 握手；门禁锁定）。
+/// 产品状态根 schema（与内核 src/platform/state-root.js 的 SCHEMA 握手）。
 pub const STATE_ROOT_SCHEMA: u32 = 1;
 
 /// 产品状态根（**独立于 DSH 的 ~/.dsh**）：`DSH_SUPERVISOR_HOME` 覆盖，否则平台默认。
-///
-/// 为什么独立：本产品**管控** DSH，把状态放在被管控对象的 ~/.dsh 下是概念错位 ——
-///   DSH 卸载/清理/迁移数据目录会把我们的 config/state/ports/logs 一并带走。
+/// 必须独立：本产品**管控** DSH，放在被管控对象的 ~/.dsh 下会被 DSH 的卸载/清理/迁移一并带走
+/// （config/state/ports/logs）。
 pub fn state_root() -> PathBuf {
     if let Ok(v) = std::env::var("DSH_SUPERVISOR_HOME") {
         if !v.trim().is_empty() {
@@ -169,9 +164,7 @@ pub fn shell_dir() -> PathBuf {
 }
 
 /// 前向自愈迁移：把旧位置（DSH 数据目录下）的条目并入产品状态根，不覆盖已存在文件。
-/// 在壳启动早期调用一次；失败不阻断（下次启动再试）。退役依据：状态根独立自 v1.1.2 随壳发布，而本函数
-/// 每次 setup 都跑 —— 装机升级过一次即已迁移完成、此后是 no-op。可删条件 = 活跃装机最低版本 >= 1.1.2；
-/// 收口时同步改 K-8（它把 `pub fn migrate_legacy` 钉为状态根契约成员）与 main.rs 的调用点。
+/// 在壳启动早期调用一次；失败不阻断（下次启动再试）；迁移完成后为 no-op。
 pub fn migrate_legacy() {
     let home = home();
     let root = state_root();
@@ -197,18 +190,17 @@ pub fn migrate_legacy() {
 }
 
 /// 读取并解析守卫配置 <产品状态根>/supervisor/config.json（**壳读内核配置的唯一解析入口**）。
-/// 契约 ARCHITECTURE-CONTRACT-phase0：一律真 JSON 解析，禁止字符串扫描——
-/// 空白的格式微调即会让扫描失效（apiPort/closeAction 等字段都从这里取）。
+/// 一律真 JSON 解析，禁止字符串扫描 —— 空白格式微调即会让扫描失效
+/// （apiPort/closeAction 等字段都从这里取）。
 fn config_json() -> Option<serde_json::Value> {
     std::fs::read_to_string(supervisor_dir().join("config.json"))
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
 }
 
-/// 守卫本地 API 基址：**与就绪判据同一个端口源**。优先 ports.json 的实际登记（契约 D3 的
-/// 权威），其次 config.json 的 apiPort（用户可改），最后才落回默认常量。只认期望值会把面板
-/// 导航到一个没人监听的端口 —— 守卫因占用顺延过端口时必然失配，而就绪侧早已改读实际值，
-/// 导航侧不许留着第二套答案。
+/// 守卫本地 API 基址：**与就绪判据同一个端口源**。优先 ports.json 的实际登记，其次 config.json 的
+/// apiPort（用户可改），最后才落回默认常量。只认期望值会把面板导航到一个没人监听的端口 ——
+/// 守卫因占用顺延过端口时必然失配，而就绪侧早已改读实际值，导航侧不许留着第二套答案。
 pub fn api_base_url() -> String {
     // 默认端口只允许 DEFAULT_API_PORT 这一个事实源（本函数与 api_port 的回退共用它）。
     let default_port = DEFAULT_API_PORT;
@@ -242,7 +234,7 @@ pub fn close_action() -> String {
 }
 
 /// 守卫 API 的**默认端口**（单一事实源；api_base_url 与 api_port 的回退共用本常量）。
-/// 门禁 A-3（本文件 tests）锁定「全文件只允许一个默认端口字面量」。
+/// 全文件只允许一个默认端口字面量。
 pub const DEFAULT_API_PORT: u16 = 36360;
 
 /// 壳可用性探测用守卫端口（与 api_base_url 同源解析）。
@@ -258,8 +250,7 @@ pub fn api_port() -> u16 {
 
 /// 内核持久化的**实际** API 端口（ports.json 的 supervisor-api 记录）。
 /// 必须读实际值：内核在 EADDRINUSE 时会顺延端口并持久化，只认 config.json 的期望值会让壳
-///   永远等一个没人监听的端口，表现为「守卫启动失败」——即使守卫已健康运行。
-/// 同 role 有多条时取 `createdAt` 最新的一条：登记表以端口号为键，旧记录只在 release 真生效时才消失。
+/// 永远等一个没人监听的端口。同 role 有多条时取 `createdAt` 最新的一条（登记表以端口号为键）。
 pub fn discovered_api_port() -> Option<u16> {
     let s = std::fs::read_to_string(supervisor_dir().join("ports.json")).ok()?;
     let v: serde_json::Value = serde_json::from_str(&s).ok()?;
@@ -294,7 +285,7 @@ pub fn home() -> PathBuf {
 mod tests {
     use super::*;
 
-    /// A-3（行为）：默认端口常量确实等于契约里的高位段起始，且 url 由它派生。
+    /// 默认端口常量等于契约里的高位段起始，且 url 由它派生。
     #[test]
     fn a3_default_port_constant_value_and_url_derivation() {
         assert_eq!(DEFAULT_API_PORT, 3636 * 10, "A-3 FAIL 默认端口常量值被改动");

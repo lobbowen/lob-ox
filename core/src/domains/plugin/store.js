@@ -3,8 +3,8 @@
 const http = require('node:http');
 
 // 插件域只读持久化 / 已装清单视图：profile/版本/manifest/home 补丁层/overlay 的只读读取，
-// inventory 为运行态 HTTP RPC，listInstalled 聚合多目标（targets 由调用方解析后传入，本文件不
-// require targets、不反向依赖 ops）。写路径（原子写+串行队列+scrub）在 layers.js，编排在 jobs.js/ops.js。
+// inventory 为运行态 HTTP RPC，listInstalled 聚合多目标（targets 由调用方解析后传入，本文件不反向依赖 ops/targets）。
+// 写路径（原子写+串行队列+scrub）在 layers.js，编排在 jobs.js/ops.js。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -117,7 +117,7 @@ async function listInstalled(ctx, targets) {
     }
   }
   // enabled 计算：任一目标启用即视为启用。生效面 = bundles 加载层 + home 补丁层
-  // 禁用行（DSH_HOME/cordis.patch.yml，热载）+ 原生 legacy overlay（迁移期兼容）。
+  // 禁用行（DSH_HOME/cordis.patch.yml，热载）+ 原生 legacy overlay。
   const overlayIds = new Set(ctx.overlayEntries().map((e) => e.id));
   const homePatchDisabledIds = (t) => {
     const hp = readHomePatch(t);

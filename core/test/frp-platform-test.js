@@ -27,9 +27,8 @@ for (const [p, a, wantTag, wantExe] of cases) {
 check('freebsd 拒绝（无官方产物）', frpPlatformTag('freebsd', 'x64') === null, '');
 check('ia32 拒绝（产品不支持 32 位）', frpPlatformTag('linux', 'ia32') === null, '');
 
-// downloadUrls：三源镜像（ghfast/gh-proxy/官方直连）URL 主体必须**原样**携带平台资产名。
-// 2026-10-12 瘦身（THIN-1-12）：旧判据把版本号（v0.61.1 / frp_0.61.1_…）写死，产品升版本即误红
-//   （外部行为不变）→ 改用合成资产名验证原样透传；并补 urls.length 以免空数组让 every() 恒真。
+// downloadUrls：三源镜像（ghfast/gh-proxy/官方直连）URL 主体必须**原样**携带平台资产名
+//   （把版本号写死会随产品升版误红）；另需断 urls.length，否则空数组会让 every() 恒真。
 const asset = 'frp_9.9.9_' + frpPlatformTag('linux', 'x64').tag + '.tar.gz';
 const urls = downloadUrls(asset);
 check('URL 原样携带平台资产名（三源）', urls.length === 3 && urls.every((u) => u.indexOf(asset) >= 0), urls.join(' | '));

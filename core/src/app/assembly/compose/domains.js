@@ -1,8 +1,7 @@
 'use strict';
 
-// app/assembly/compose/domains.js —— 组装第二步：各业务域/基础设施域构造 + 固定端口登记。
-// 域实现不在本文件；此处只负责构造顺序与 deps 注入。
-// 持久化文件一律按 stateFile 派生：测试用自定义 stateFile 即天然隔离，不污染生产记录。
+// 组装第二步：各业务域/基础设施域构造 + 固定端口登记。域实现不在本文件，此处只负责构造顺序与 deps 注入。
+// 持久化文件一律按 stateFile 派生：自定义 stateFile 即天然隔离，不污染生产记录。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -21,10 +20,9 @@ const ports = require('../../../platform/service/ports').shared;
 
 function composeDomains(host) {
     const swDir = path.dirname(host.config.stateFile);
-    // 端口账本必须在 RouterService 构造**之前**指向 stateFile 派生的文件：注册表是进程级单例、
-    //   「最后一个 configureFile 生效」，而构造期会按持久化 apiPort 补登记（router/index.js:46-48）。
-    //   晚配置会把这批登记写进当时仍生效的旧账（默认状态根 / 上一段文件），活动账本反而丢段。
-    //   同纪律见 router/daemon.js:48（ensurePorts 先于构造）。
+        // 端口账本必须在 RouterService 构造之前指向 stateFile 派生的文件：注册表是进程级单例、最后一个 configureFile
+        //   生效，而构造期会按持久化 apiPort 补登记（router/index.js:46-48）；晚配置会把这批登记写进旧账、活动账本丢段。
+        //   同纪律见 router/daemon.js:48（ensurePorts 先于构造）。
     try { ports.configureFile(path.join(path.dirname(host.config.stateFile), 'ports.json')); } catch (e) { host.logger.warn && host.logger.warn('ports configure: ' + e.message); }
     host.router = new RouterService({
       config: host.config,
@@ -49,7 +47,7 @@ function composeDomains(host) {
       dshBin: host.config.command && host.config.command[1] ? host.config.command[1] : 'dsh',
     });
     host.instances.load();
-    // 历史 instances.json 里的 main 记录：元数据迁入 dsh-main.json（守卫核心存储）后剔除。
+        // 旧 instances.json 里的 main 记录：元数据迁入 dsh-main.json（守卫核心存储）后剔除。
     host._migrateMainRecord();
     // 管家声明目录：记录受管对象的应然 + 所有权；当前是影子目录，不驱动任何循环。
     try {
@@ -65,20 +63,19 @@ function composeDomains(host) {
       if (host.managedObjects && typeof host.managedObjects.registerAdapter === 'function') {
         host.managedObjects.registerAdapter('router-daemon', { supervise: () => host._daemonSuperviseOnce('router'), tickEvery: 6, derivePhase: true });
         host.managedObjects.registerAdapter('lan-daemon', { supervise: () => host._daemonSuperviseOnce('lan'), tickEvery: 6, derivePhase: true });
-        // main(dsh) adapter：heartbeat 把 main 实然写入目录（lastObserved），不驱动；
-        // supervise 内做影子对比（纯计算+日志），实然与 tick 同源（monitor.probe -> lastProbeOk）。
+                // main(dsh) adapter：heartbeat 把 main 实然写入目录（lastObserved），不驱动；supervise 内做影子对比
+                //   （纯计算+日志），实然与 tick 同源（monitor.probe -> lastProbeOk）。
         host.managedObjects.registerAdapter('dsh', { supervise: () => host._dshSuperviseOnce(), tickEvery: 1 });
-        // sandbox-instance adapter：heartbeat 逐实例监督（InstanceManager.supervise 单实例收敛 +
-        // 目录应然/相位同步）；域业务（CRUD/安装/装配/systemd/持久化）仍在 InstanceManager。
+                // sandbox-instance adapter：heartbeat 逐实例监督（InstanceManager.supervise 单实例收敛 + 目录应然/相位同步）；
+                //   域业务（CRUD/安装/装配/systemd/持久化）仍在 InstanceManager。
         host.managedObjects.registerAdapter('sandbox-instance', { supervise: (entry) => host._sandboxSuperviseOnce(entry), tickEvery: 1 });
       }
-      // B2-6e：governor 全花名册 decide 与监督同源、每心跳拍恰好一次（拍末钩子），
-      // 不再随逐实例 supervise 拍执行——N 个 RUNNING 实例把 decide 乘法放大的 O(N^2) 消失。
+            // governor 全花名册 decide 与监督同源，每心跳拍恰好一次（拍末钩子），不随逐实例 supervise 拍执行；
+            //   否则 N 个 RUNNING 实例会把 decide 乘法放大成 O(N^2)。
       if (host.managedObjects) host.managedObjects.onBeatDone = () => host.instances.governSweep();
     } catch (e) { host.logger && host.logger.warn && host.logger.warn('managed registry init: ' + (e && e.message)); }
-    // relay 在 daemon 模式唯一由独立 lan-daemon 承载，守卫只在非 daemon 经 get lan() 惰性创建
-    //   本地实例；两种模式同写 ports.json（B2-5 单源），漏网 new 不再分裂出第二本账，
-    //   但本地/daemon 双载体仍会互相抢 relay 绑定，故按模式收敛创建点。
+        // relay 在 daemon 模式唯一由独立 lan-daemon 承载，守卫只在非 daemon 经 get lan() 惰性创建本地实例；两种模式同写
+        //   ports.json，但本地/daemon 双载体仍会互相抢 relay 绑定，故按模式收敛创建点。
     host._lan = null;
     host.pluginMarket = new PluginMarket({
       stateFile: host.config.stateFile,
@@ -91,8 +88,7 @@ function composeDomains(host) {
       overlayFile: path.join(path.dirname(host.config.stateFile), 'plugin-states.patch.yml'),
       dshPort: host.config.targetPort,
       instances: host.instances,
-      // INV-S1 退出门谓词注入（E-3 单源）——插件变更生效重启路径
-      //   持有裸 InstanceManager，必须同受退出意图约束。
+            // 退出门谓词注入：插件变更生效重启路径持有裸 InstanceManager，必须同受退出意图约束。
       exitIntended: () => host._exitIntended(),
       tasks: host.tasks,
       logger: host.logger,
@@ -133,8 +129,8 @@ function composeDomains(host) {
         notify: (t, b) => host.notify(t, b),
       },
     });
-    // 概念清分：原生 DSH 是主干，软件本体由 NativeManager 独立管理（/native/* + /lifecycle/dsh/*）；
-    // 沙箱实例由 InstanceManager 管理（/instances/*）。原生不挂进沙箱实例出口，不注入任何句柄/委托。
+        // 概念清分：原生 DSH 由 NativeManager 独立管理（/native/* + /lifecycle/dsh/*），沙箱实例由 InstanceManager
+        //   管理（/instances/*）。原生不挂进沙箱实例出口，不注入任何句柄/委托。
     // 系统级端口登记：固定端口统一注册，冲突启动即 fail-fast，杜绝各子系统各管各的端口。
     host._registerFixedPorts();
 }

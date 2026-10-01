@@ -4,8 +4,7 @@ const spawnOS = require('../../platform/os/spawn');
 const pidlook = require('../../platform/os/pidlookup');
 
 // 壳版本检测 / 壳重启（有 IO/进程副作用），与纯状态账本 journal.js 分离。
-// 硬约束：绝不触碰内核既有更新机制；此处只做版本检测（不安装），
-// 重启只是把控制权交回壳的门 0（壳自更新）。
+// 硬约束：绝不触碰内核自身更新机制；重启只是把控制权交回壳的门 0（壳自更新）。
 
 const { identity } = require('./journal');
 // 纯解析/谓词取自 core.js（顶层依赖），避免重启流程反向依赖看护模块。
@@ -16,7 +15,7 @@ const { semverCompare } = require('../../shared/version');
 /** 壳发布清单包：壳产物按平台分包但版本始终一致，查此包即得最新壳版本，无需在本机判断平台。 */
 const SHELL_RELEASE_PKG = '@dsh-sup/shell-release';
 
-/** 检测壳是否有新版本（npm registry + 镜像回退）。内核不是壳的更新源，只检测不安装。
+/** 检测壳是否有新版本（npm registry + 镜像回退）；只检测不安装（见文件头硬约束）。
  *  dist: DistributionManager；返回 { ok, installed, latest, updateAvailable, error? }。 */
 async function checkUpdate(dist, opts) {
   const id = identity();
@@ -39,14 +38,13 @@ async function checkUpdate(dist, opts) {
 }
 /** 重启桌面壳以应用壳更新：壳自更新发生在壳启动时（门 0），故「用上新版本」= 让壳重启一次。
  *  必须等旧壳真正退出再拉起（壳装了 single-instance，旧实例在则新实例只唤起旧窗口后自行退出）；
- *  SIGTERM -> 有界等待 -> 必要时 SIGKILL -> 再等待，都不成功则明确失败不静默。
- *  返回 { ok, restarted?, killed?, pid?, error? }。 */
+ *  SIGTERM -> 有界等待 -> 必要时 SIGKILL -> 再等待，都不成功则明确失败不静默。返回 { ok, restarted?, killed?, pid?, error? }。 */
 async function restartShell(opts) {
   const o = opts || {};
   // 经统一封装异步 spawn（固定 windowsHide:true）：detached 壳否则会新开 Windows 控制台窗口。
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // 进程匹配名可配置（自定义安装名），并让测试注入不存在的名字，避免误杀本机真实壳进程。
+  // 进程匹配名可配置（自定义安装名）。
   const pattern = o.procPattern || 'dsh-supervisor-gui';
   let procs = [];
   try { procs = pidlook.pgrepList(pattern) || []; } catch { procs = []; }
@@ -88,9 +86,8 @@ async function restartShell(opts) {
   }
 
   // 拉起新壳（门 0 在其启动时执行：检测 -> 下载 -> 验签 -> 安装 -> 重启进新版）。
-  // 必须监听 'error' 且不能以 spawn 返回即报成功：Node 对不存在的可执行文件不抛同步错，
-  // 只异步发 'error'；无监听会逃逸为 uncaughtException（守卫对频繁未捕获异常会自杀），
-  // 且 watchdog 收到 ok:true 会假成功、清 missingSince，形成每 90s 一拍的慢速重启风暴。
+  // 必须监听 'error' 且不能以 spawn 返回即报成功：Node 对不存在的可执行文件不抛同步错，只异步发 'error'；
+  // 无监听会逃逸为 uncaughtException（守卫对频繁未捕获异常会自杀），且 watchdog 会因 ok:true 清 missingSince。
   try {
     const child = spawnOS.detachedIgnored(exe, [], { env: process.env });
     // 此刻已无法回滚「壳没起来」，只如实记事件让 watchdog/面板可见。

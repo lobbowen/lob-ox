@@ -80,9 +80,8 @@ async function uninstall(ctx, name, targetStr) {
       let res;
       try { res = await ctx._runCli(target, ['remove', name], { onLine: (l) => { jt.log.push(l); if (jt.log.length > 30) jt.log.shift(); } }); }
       catch (e) { res = { ok: false, error: (e && e.message) || String(e) }; }
-      // bundle 型插件清理：dsh plugin remove 只移除 dependencies，reconcile 对带
-      // dsh.bundle 声明的插件会保留在 dsh.profile.bundles，DSH 仍加载；故直接从
-      // profile 的 bundles 数组移除，确保卸载彻底生效。
+      // bundle 型插件清理：dsh plugin remove 只移除 dependencies，reconcile 对带 dsh.bundle 声明的插件
+      // 会保留在 dsh.profile.bundles，DSH 仍加载；故直接从 profile 的 bundles 数组移除，确保卸载彻底生效。
       let bundlesCleaned = false;
       try {
         bundlesCleaned = ctx._removeFromProfileBundles(target, name);
@@ -116,7 +115,7 @@ async function uninstall(ctx, name, targetStr) {
   return { ok: true, jobId: job.id, target: job.target };
 }
 
-/** 已装清单视图：解析 targets 后转交 store（store 不反向 require targets）。 */
+/** 已装清单视图（解析 targets 后转交 store）。 */
 async function listInstalled(ctx) {
   const r = ctx.resolveTargets('all');
   const targets = r.ok ? r.targets : [ctx._nativeTarget()];

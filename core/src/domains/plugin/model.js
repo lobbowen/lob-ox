@@ -3,8 +3,7 @@
 const path = require('node:path');
 
 // 插件域领域模型（纯，零 IO、零 this 协作）：内置保护名单 PROTECTED、作业记录形状与纯状态迁移
-// （createJobRecord/finishJobRecord/planJobCleanup/taskStateToJobState）、补丁行与包名归属判定、
-// home 补丁层路径推导。
+//（createJobRecord/finishJobRecord/planJobCleanup/taskStateToJobState）、补丁行与包名归属判定、home 补丁层路径推导。
 
 /** 内置组件：禁止卸载/禁用（bind 进 store/ops 的判定）。 */
 const PROTECTED = new Set(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']);
@@ -34,8 +33,8 @@ function planJobCleanup(ids, max = MAX_JOBS) {
 }
 
 /** TaskRegistry 状态映射为作业视图状态（succeeded/skipped->done；failed/canceled->failed）。
- *  同一映射另有两处实现（有意平行，不抽公共函数）：domains/instance/model.js 的 taskStateToView、domains/router/ops/apps-registry.js 内联三元。
- *  改动本映射语义必须三处同批（跨域半改会让同一状态在插件/实例/应用视图上给出不同结果）。 */
+ *  同一映射另有两处平行实现（domains/instance/model.js 的 taskStateToView、domains/router/ops/apps-registry.js 内联三元）：
+ *  改本映射语义必须三处同批，否则同一状态在插件/实例/应用视图上给出不同结果。 */
 function taskStateToJobState(s) {
   return (s === 'succeeded' || s === 'skipped') ? 'done'
     : (s === 'failed' || s === 'canceled') ? 'failed'

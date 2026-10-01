@@ -58,10 +58,9 @@ async function fetchNpmLatest(state, pkg, opts) {
 
   let candidates = [];
   if (o.authoritative) {
-    // 发布权威源解析：版本真相源 = 官方 npm registry。镜像同步有延迟，把「镜像未同步」
-    // 误判为「没有新版本」是真相源错误 —— 故只要候选里有官方源就只问它，取不到也**不**去镜像
-    // 顺延拿一个陈旧版本（RC-G8-a/b）。一条官方源都没有（企业内网代理形态）才退回列表首项，
-    // 并把实际使用的源如实回传，兜底不留暗账（RC-G8-c）。
+    // 发布权威源解析：版本真相源 = 官方 npm registry。镜像同步有延迟，把「镜像未同步」误判为
+// 「没有新版本」是真相源错误 —— 故候选里有官方源就只问它，取不到也不去镜像顺延拿陈旧版本。
+// 一条官方源都没有（企业内网代理形态）才退回列表首项，并把实际使用的源如实回传，兜底不留暗账。
     // registryOrigins 会保留形态非法的条目（供 UI 指名），消费侧必须自己滤掉。
     const list = registry.registryOrigins(state).filter((x) => ref.parseRegistryBase(x).ok);
     candidates = list.filter((x) => /registry\.npmjs\.org/.test(x));

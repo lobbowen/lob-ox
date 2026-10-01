@@ -1,6 +1,5 @@
 //! Linux 平台实现（systemd --user）。
-//!
-//! 本文件是 Linux 的**全部**平台知识 —— 其它任何文件都不应出现 `target_os = "linux"`（门禁 G1）。
+//! 本文件是 Linux 的**全部**平台知识 —— 其它任何文件都不应出现 `target_os = "linux"`。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -15,7 +14,7 @@ const INSTALL_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 
 /// Linux 可用提权通道（按优先级）。单一事实源，只由 `has_privilege_channel()` 使用。
 /// 提权唯一消费者是壳自更新（deb 落系统目录），探测与实际执行必须同源。
-/// Node 安装刻意不经过这里：它解到用户级状态目录，零权限（门禁 A-2）。
+/// Node 安装刻意不经过这里：它解到用户级状态目录，零权限。
 pub const PRIVILEGE_COMMANDS: [&str; 2] = ["pkexec", "sudo"];
 
 /// 在 PATH 中定位第一个可用的提权命令（不执行，只判存在性）。
@@ -51,8 +50,8 @@ impl Platform for Impl {
         Capabilities {
             platform: NAME,
             native_service: true, // systemd --user
-            // 声明与实测必须同源：改为调用同一个探测函数。
-            privilege_channel: self.has_privilege_channel(), // 仅壳自更新用；Node 安装已改为用户级、零权限
+            // 声明与实测必须同源：同一个探测函数。
+            privilege_channel: self.has_privilege_channel(), // 仅壳自更新用；Node 安装是用户级、零权限
             node_artifact: "tar.gz",
         }
     }
@@ -76,7 +75,7 @@ impl Platform for Impl {
         let tag = if arch == "arm64" { "linux-arm64" } else { "linux-x64" };
         Some(super::NodeArtifact {
             tag,
-            // 用 .tar.gz：gzip 普遍可用，不再依赖 xz（原 .tar.xz 在无 xz 的机器上必失败）。
+            // 用 .tar.gz：gzip 普遍可用；.tar.xz 在无 xz 的机器上必失败。
             file: format!("node-v{}-linux-{}.tar.gz", version, arch),
         })
     }
@@ -101,7 +100,7 @@ impl Platform for Impl {
     }
 
     fn node_bin_after_install(&self) -> PathBuf {
-        // 用户级安装落点（零权限）；不再指向 /usr/local（那需要 pkexec/sudo）。
+        // 用户级安装落点（零权限）；/usr/local 需要 pkexec/sudo。
         crate::env::node_install_root().join("bin").join("node")
     }
 
@@ -137,8 +136,7 @@ impl Platform for Impl {
     }
 
     fn is_local_fixed_dir(&self, _dir: &Path) -> bool {
-        // Unix：无「网络盘 / 可移动盘」概念上的 is_file() 触网风险，
-        // 本地文件系统调用不会因路径本身而阻塞数十秒。
+        // 无「网络盘 / 可移动盘」的 is_file() 触网风险，本地文件系统调用不会因路径本身阻塞数十秒。
         true
     }
 
@@ -147,7 +145,7 @@ impl Platform for Impl {
         find_privilege_command().is_some()
     }
 
-    // 可执行文件名的平台差异（P2/G1：原为平台层之外的 cfg!() 宏）
+    // 可执行文件名的平台差异。
     fn node_exe_name(&self) -> &'static str { "node" }
     fn npm_exe_name(&self) -> &'static str { "npm" }
     fn core_exe_names(&self) -> &'static [&'static str] { &["dsh-supervisor"] }
@@ -172,9 +170,8 @@ impl ServiceControl for Impl {
     /// 先算期望内容与磁盘比对，不存在则写入并首次启用、不同则只重写定义、一致则不触碰。
     fn ensure_defined(&self, spec: &LaunchSpec) -> Result<String, String> {
         let path = self.definition_path();
-        // 模板内嵌（不依赖外部 systemd/*.service 文件）。
-        // ExecStart 的可执行路径必须自带引号：systemd 对第一个参数按 shell-like 规则解析，
-        //   未加引号的空格会把含空格的家目录拆成两段；引号写在值内部，与给 Rust args 加引号不同。
+        // 模板内嵌（不依赖外部 systemd/*.service 文件）。ExecStart 的可执行路径必须自带引号：
+        // systemd 对第一个参数按 shell-like 规则解析，未加引号的空格会把含空格的家目录拆成两段。
         // ExecStart 只指向稳定入口 <壳> --run-guard；node/guard 不写进 unit，由 --run-guard 每次启动重新检测。
         let (shell, args) = spec.service_command();
         let exec_start = crate::platform::service_exec_line(shell, args);
@@ -201,8 +198,8 @@ impl ServiceControl for Impl {
             Command::new("systemctl").args(["--user", "daemon-reload"]),
             SVC_QUICK,
         );
-        // 自愈重写只换定义，绝不重放 enable/enable-linger：自启开关的唯一写者是内核面板（D5）。
-        //   在升级路径上重放 = 用户关掉自启后，任何一次模板演进都会把它偷偷打开。
+        // 自愈重写只换定义，绝不重放 enable/enable-linger：自启开关的唯一写者是内核面板。
+        // 在升级路径上重放 = 用户关掉自启后，任何一次模板演进都会把它偷偷打开。
         if is_update {
             return Ok(format!("已更新定义（自启位未改动） {}", path.display()));
         }
@@ -254,10 +251,10 @@ impl ServiceControl for Impl {
 
 #[cfg(test)]
 mod tests {
-    //! A-2 行为门禁：提权通道的探测只认 PATH 里真实存在的命令（不再做源码文本断言）。
+    //! 提权通道的探测只认 PATH 里真实存在的命令。
     use super::*;
 
-    /// A-2（行为）：find_privilege_command 只认 PATH 里**真实存在**的命令。
+    /// find_privilege_command 只认 PATH 里**真实存在**的命令。
     #[test]
     fn a2_find_privilege_command_respects_path() {
         // 空 PATH -> 必然 None（不依赖机器上是否真有 pkexec/sudo）

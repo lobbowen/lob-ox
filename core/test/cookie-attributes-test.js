@@ -1,19 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// Cookie 属性断言：/open 的 SameSite=Strict 与 LAN 门卫 cookie 的 SameSite=Lax
-//
-// 为什么单独一条：这两个属性此前**全仓零覆盖**（价值审计点出的真缺口）——
-//   · /open 的 Set-Cookie 由 src/api/domains/instances.js 拼出（'…; Path=/; HttpOnly; SameSite=Strict'），
-//     handleOpen 早已导出却**从没有测试驱动过**（原位的「批4 C-6」是零断言的悬空块）；
-//   · LAN 门卫 cookie 的 Lax 由 src/domains/relay/core.js 拼出，已有测试只覆盖**派生值算法**
-//     与「种了 cookie」，未断言属性。属性写错不改变「能不能访问」，而是改变**跨站是否携带** —— 安全面。
-//
-// 驱动方式：门卫那条是纯函数 tokenGateDecision(req, token, salt)；/open 那条的换 cookie 是模块内部
-//   IO 依赖（bootstrapDshCookie 要真回环），故经 require.cache 注入桩（本仓既有手法），注入失败
-//   **明确报 FAIL 而不是静默通过**（fail-closed）。
-// ---------------------------------------------------------------------------
+// Cookie 属性断言：/open 的 Set-Cookie 用 SameSite=Strict（src/api/domains/instances.js 拼出），
+//   LAN 门卫 cookie 用 SameSite=Lax（src/domains/relay/core.js）—— 属性写错不改变「能不能访问」，
+//   而改变**跨站是否携带**，属安全面。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -24,7 +14,7 @@ const check = (n, c, x) => {
   console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x !== undefined ? '  <- ' + x : ''));
 };
 
-// ── 1. LAN 门卫 cookie：SameSite=Lax + HttpOnly + Path=/ + 只存派生值 ──────────
+// 1. LAN 门卫 cookie：SameSite=Lax + HttpOnly + Path=/ + 只存派生值。
 {
   const core = require(path.join(ROOT, 'src', 'domains', 'relay', 'core.js'));
   if (typeof core.tokenGateDecision !== 'function') {
@@ -38,19 +28,19 @@ const check = (n, c, x) => {
       /(^|;\s*)Path=\//.test(ck) && /HttpOnly/.test(ck) && /SameSite=Lax/.test(ck), ck);
     check('门卫 cookie 只存派生 64hex 且不含令牌原文',
       /^dsh_lan_token=[0-9a-f]{64}(;|$)/.test(ck) && !ck.includes('lan-secret'), ck);
-    // 已持有效派生 cookie 时直接放行（同一条函数的两面）
+    // 已持有效派生 cookie 时直接放行。
     const okReq = { url: '/', headers: { cookie: 'dsh_lan_token=' + core.lanGateCookieValue('lan-secret', 'salt-A') } };
     check('门卫：持有效派生 cookie → 放行', core.tokenGateDecision(okReq, 'lan-secret', 'salt-A').ok === true);
   }
 }
 
-// ── 2. /open 的 Set-Cookie：SameSite=Strict + Location 用实例真实端口 ─────────
+// 2. /open 的 Set-Cookie：SameSite=Strict + Location 用实例真实端口。
 (async () => {
   const EXCH = path.join(ROOT, 'src', 'platform', 'service', 'token', 'exchange.js');
   const INST = path.join(ROOT, 'src', 'api', 'domains', 'instances.js');
   const seen = [];
   try {
-    // 注入：不真发回环请求，返回可识别的派生 cookie 值
+    // 注入：不真发回环请求，返回可识别的派生 cookie 值。
     require.cache[EXCH] = {
       id: EXCH, filename: EXCH, loaded: true,
       exports: {
@@ -71,7 +61,7 @@ const check = (n, c, x) => {
       const res = { writeHead: (s, h) => { head = { s, h }; }, end: () => {} };
       const ctx = {
         sup: { config: { apiPort: 3000 }, instances: { list: () => [{ id: 'sb1', port: 28222 }] } },
-        // url 由 req.url 自解析（网关 ctx 不含 url 键，见 handleOpen:43 注释）
+        // url 由 req.url 自解析（网关 ctx 不含 url 键）
         req: { url: '/open?code=' + code, headers: { host: '127.0.0.1:3000' } },
         res,
         identity: { loopback: true },

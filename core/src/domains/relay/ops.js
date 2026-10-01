@@ -36,7 +36,7 @@ class LanManager {
     this.instances = opts.instances; // InstanceManager：沙箱实例配置单一数据源
     this.configPath = opts.configPath || ''; // 端口回收按 configPath 精确匹配，防误杀其它配置的 lan-daemon
     this.mainOf = opts.mainOf || null; // 守卫核心服务的原生主干视图
-    // frp 托管经 ctor 注入（默认真实实现），单测可给假 frp。
+    // frp 托管经 ctor 注入（默认真实实现）。
     this.frp = opts.frp || new FrpManager({ dir: opts.stateDir, logger: this.logger, events: this.events });
     this.lanInstances = []; // [{ id, name, dshPort, wanPort, token, remoteMode }]（派生缓存）
     this._reconcileInFlight = null; // 对账单飞：避免 2s 节拍叠加串行 TCP 探测
@@ -162,7 +162,7 @@ class LanManager {
       .finally(() => { this._reconcileInFlight = null; });
     return this._reconcileInFlight;
   }
-  /** 对账主体（委托 ops/reconcile.js）；方法名不可改：单飞包装与门禁按此名调用。 */
+  /** 对账主体（委托 ops/reconcile.js）。 */
   async _reconcileOnce() { return reconcile.reconcileOnce(this); }
   targetReachable(inst) { return reconcile.targetReachable(inst); }
   _syncProxyQueued(inst) { return reconcile.syncProxyQueued(this, inst); }

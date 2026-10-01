@@ -1,19 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 四平台行为穷举门禁
-//
-//   把「跨平台正确性」从**等三个 runner** 变成**一次本地断言**：在 Linux 上即可穷举
-//   linux-x64 / darwin-arm64 / darwin-x64 / win-x64 的平台分派结果（matrix.js 与
-//   capabilityProfile() 都接受显式 platform/arch）。
-//   诚实边界：证明的是**逻辑**，不能证明平台原生行为（真 systemd/launchd/schtasks、真 MSW）——
-//   后者仍须由真实四平台 CI 裁决，两者互补。
-//   合并边界（本文件只留自己独有的风险面）：P-1/P-2/P-3 标签映射四组合穷举 ->
-//   platform-matrix-single-source-test.js（唯一平台事实校验点）；P-5 supportsProcessGroup 档位
-//   只此一处采样；P-5 shellSelfHeal -> shell-watchdog W4；P-5 外部打开档位 -> platform-layer-portability X-8。
-//   锁定不变量：P-5 关键档位取值 / P-6 运行时与矩阵同源（代表样本 + 未知 OS/未知 arch 抛错）/ P-7 guardCorePkg 模板。
-// ---------------------------------------------------------------------------
+// 四平台行为穷举：在 Linux 上一次本地断言穷尽 linux-x64 / darwin-arm64 / darwin-x64 / win-x64 的
+//   平台分派结果（matrix.js 与 capabilityProfile() 都接受显式 platform/arch）。证明的是**逻辑**，
+//   平台原生行为（真 systemd/launchd/schtasks）仍须真实四平台 CI 裁决。P-5 档位 / P-6 运行时与矩阵同源 / P-7 guardCorePkg 模板。
 
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
@@ -75,7 +65,7 @@ function underFake(platform, arch, body) {
 // -- P-6：运行时与矩阵一致（真实模块在伪造平台下的产出）--
 {
   const distPath = path.join(ROOT, 'src', 'platform', 'distribution', 'index.js');
-  // 夹具源码只写一次（三段子进程脚本原本逐字重复三遍）。
+  // 夹具源码只写一次。
   const tagSrc = (wrap) => [
     "const { DistributionManager } = require(" + JSON.stringify(distPath) + ");",
     "const d = Object.create(DistributionManager.prototype);",
@@ -84,8 +74,8 @@ function underFake(platform, arch, body) {
       : "process.stdout.write(String(d._platformTag()));",
   ].join(String.fromCharCode(10));
   const tag = (p, a, wrap) => underFake(p, a, tagSrc(wrap));
-  // 代表样本（**不再逐组合枚举**：同一张表的四组合取值由 platform-matrix-single-source 承担）：
-  //   win32/x64 捕「osTag 是 win 而不是 win32」，linux/arm64 捕 arch 段。
+  // 代表样本（四组合取值由 platform-matrix-single-source 承担）：win32/x64 捕「osTag 是 win 而不是 win32」，
+  //   linux/arm64 捕 arch 段。
   for (const [p, a, want] of [['win32', 'x64', 'win-x64'], ['linux', 'arm64', 'linux-arm64']]) {
     const out = tag(p, a);
     check('P-6 ' + p + '/' + a + ' _platformTag() == matrix.npmTag（运行时与矩阵同源）',
@@ -95,11 +85,8 @@ function underFake(platform, arch, body) {
   check('P-6 不支持的平台：_platformTag 抛错且文案含平台组合',
     bad.startsWith('ERR:') && /不支持的平台组合/.test(bad), bad.slice(0, 60));
 
-  //  已知 OS + **未知 arch** 是另一条分支（上面那条只测未知 OS）。
-  //  旧实现 `arch === 'arm64' ? 'arm64' : 'x64'` 把 ppc64le / s390x / ia32 静默当 x64 ->
-  //  轻则 404，重则**下载到架构不符的包**（比明确报错更糟）。
-  //  这条是 arch-validation-test.js 并入的**唯一**一条（其余 5 组映射 + 未知 OS 抛错 P-6 已覆盖，
-  //  该文件已随之删除）。只断言「抛错」，不匹配错误文案 —— 文案改词即红属实现耦合。
+  // 已知 OS + **未知 arch**：`arch === 'arm64' ? 'arm64' : 'x64'` 会把 ppc64le / s390x / ia32 静默当 x64
+  //   -> 轻则 404，重则下载到架构不符的包。只断言「抛错」，不匹配错误文案。
   const badArch = tag('linux', 'ppc64', true);
   check('P-6 已知 OS + 未知 arch（linux/ppc64）：_platformTag 抛错，不得回落 x64',
     badArch.startsWith('ERR:'), badArch.slice(0, 60));
@@ -107,13 +94,10 @@ function underFake(platform, arch, body) {
 
 // -- P-7：消费方契约 —— guardCorePkg 的 {os}/{arch} 替换 --
 {
-  //  步骤 7：app/settings/settings-view.js 已拆为多模块，guardCorePkg 落在
-  //   app/settings/versions.js（**不在** env.js）；且模块导出形态统一为 { methods } ——
-  //   desc.guardCorePkg 为 undefined，旧判据会以 "Property description must be an object"
-  //   在子进程中直接崩掉（3 个平台全 FAIL）。故读新模块 + 取 desc.methods.guardCorePkg。
+  // guardCorePkg 落在 app/settings/versions.js（**不在** env.js），且模块导出形态为 { methods }：
+  //   desc.guardCorePkg 为 undefined，必须读 desc.methods.guardCorePkg。
   const svPath = path.join(ROOT, 'src', 'app', 'settings', 'versions.js');
-  // 代表样本（原三平台逐字枚举已收成两条）：win32/x64 捕「{os} 是 win 而不是 win32」，
-  //   linux/x64 捕基线 —— 三个采样点是同一替换函数的重复采样（负价值），darwin 段无独立风险面。
+  // 代表样本：win32/x64 捕「{os} 是 win 而不是 win32」，linux/x64 捕基线（darwin 段无独立风险面）。
   for (const [p, a, want] of [
     ['linux', 'x64', '@dsh-sup/dsh-core-linux-x64'],
     ['win32', 'x64', '@dsh-sup/dsh-core-win-x64'],

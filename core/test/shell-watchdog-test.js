@@ -1,20 +1,13 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 桌面壳看护（domains/shell/watchdog.js）回归测试
-//
-// 背景：修复前 Linux/macOS **完全没有**壳自愈；Windows 的 watchdog 把壳检查嵌在
-//   `if (-not $up)` 内，「壳崩、守卫活」时整块跳过 —— 而那恰是唯一需要它的场景。
-// 本测试锁定新机制的四条边界：只在真缺失时动作 / 宽限 / 需图形会话 / 有界重试。
-//
-// 全部离线：不碰真实进程、不碰真实文件系统、不绑端口（注入 mock 与时钟）。
-// ---------------------------------------------------------------------------
+// 桌面壳看护（domains/shell/watchdog.js）回归：锁定新机制的四条边界 —— 只在真缺失时动作 / 宽限 /
+//   需图形会话 / 有界重试（修复前 Linux/macOS 完全没有壳自愈，Windows 把检查嵌在 `if (-not $up)` 内，
+//   而「壳崩、守卫活」恰是唯一需要它的场景）。全部离线：不碰真实进程/文件系统、不绑端口（注入 mock 与时钟）。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
-// 纯决策/谓词已下沉 core.js（域结构改造）；看护状态机仍在 watchdog.js。
-//    读取面必须随文件搬移同步更新，否则判据静默失去覆盖面（本仓已多次踩坑）。
+// 纯决策/谓词在 core.js，看护状态机在 watchdog.js；读取面必须随文件搬移同步更新，否则判据静默失去覆盖面。
 const { createShellWatchdog } = require(path.join(ROOT, 'src', 'domains', 'shell', 'watchdog'));
 const { decide, isShellProcess, HEADLESS_FLAGS } =
   require(path.join(ROOT, 'src', 'domains', 'shell', 'core'));
@@ -53,8 +46,7 @@ console.log('== W2 isShellProcess 过滤 ==');
     && isShellProcess({ cmdline: 'C:\\x\\dsh-supervisor-gui.exe' }) === true);
   check('W2-e 空 cmdline 不误判', isShellProcess({ cmdline: '' }) === false);
   // 无头模式清单必须与壳侧 main.rs「在 Tauri 初始化之前 exit」的分支一一对应：
-  // 漏一项 = 那个瞬时进程被当成「壳在运行」，看护短路成 alive，真壳永不回来。
-  // 枚举驱动覆盖全表，不再逐个具名重采样（避免「加一项就红」的名单锁）。
+  //   漏一项 = 那个瞬时进程被当成「壳在运行」，看护短路成 alive，真壳永不回来。
   check('W2-i 清单成员逐个被 isShellProcess 排除（枚举驱动，非计数）',
     Array.isArray(HEADLESS_FLAGS) && HEADLESS_FLAGS.length > 0
       && HEADLESS_FLAGS.every((f) => isShellProcess({ cmdline: 'dsh-supervisor-gui ' + f }) === false));
@@ -167,8 +159,7 @@ const mk = (opts) => {
       ['linux', 'darwin', 'win32', 'freebsd'].map((p) => p + '=' + P(p).shellSelfHeal).join(','));
   }
 
-  // -- W5 已移除跨仓读（identity.exe/lastSeenAt 的写入是壳仓自身契约）--
-  //   内核侧只验消费行为：W1-i 无 exe 不盲拉、W3-b 用 identity.exe 拉起、W3-f exe 空则跳过。
+  // -- W5：内核侧只验消费行为 —— W1-i 无 exe 不盲拉、W3-b 用 identity.exe 拉起、W3-f exe 空则跳过 --
 
   const failed = results.filter((r) => !r);
   console.log(String.fromCharCode(10) + '结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');

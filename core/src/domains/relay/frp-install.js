@@ -4,8 +4,7 @@ const zlib = require('node:zlib');
 
 // frp 安装：平台标签 / 镜像 URL / 下载 / sha256 完整性校验 / 纯 JS 解压（进程托管在 frp.js）。
 // 信任根：校验和直连官方 GitHub 取（frp_<ver>_checksums.txt），不经镜像前缀——只控制镜像的攻击者
-// 无法同时伪造校验和。取不到或不匹配期望校验和即拒绝安装（A2 fail-closed）：
-// frpc 是被本守卫长期托管执行的第三方二进制，宁失败也不装入未校验产物。
+// 无法同时伪造校验和。取不到或不匹配即拒绝安装：frpc 是被长期托管执行的第三方二进制。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -63,7 +62,7 @@ function download(url, report) {
 }
 
 /** 取官方校验表里的期望 sha256：直连官方主机，不经镜像（信任根见文件头）。
- *  返回 null = 取不到（离线/官方不可达/表内缺项），调用方按 A2 fail-closed 拒绝安装并记 warn。
+ *  返回 null = 取不到（离线/官方不可达/表内缺项），调用方拒绝安装并记 warn。
  *  结果按 asset 缓存在调用方传入的 cache（一次安装只需取一次）。 */
 async function expectedSha256({ asset, download: dl, report, logger, cache }) {
   const c = cache || {};
@@ -128,7 +127,7 @@ async function installFrpc(ctx, onProgress) {
   const asset = 'frp_' + FRP_VERSION + '_' + ctx.frpTag.tag + '.tar.gz';
   const urls = downloadUrls(asset);
   const expected = await expectedSha256({ asset, download: ctx.download, report, logger: ctx.logger, cache: ctx.sumCache });
-  // A2 fail-closed：取不到期望校验和（GitHub 直连不可达/校验表缺项）即拒绝安装，
+  // fail-closed：取不到期望校验和（GitHub 直连不可达/校验表缺项）即拒绝安装，
   //   绝不装入未校验二进制 —— 安装失败可重试，被投毒的 frpc 会长期驻留。
   if (!expected) {
     const msg = '无法从官方主机取得 ' + asset + ' 的 sha256，拒绝无完整性校验的安装（fail-closed，可稍后重试）';

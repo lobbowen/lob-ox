@@ -14,14 +14,13 @@ const ref = require('./registry-ref');
 const policies = require('./policies');
 const input = require('../util/input');
 
-/** 字符集白名单尺子取自 platform/util/input 单源，此处仅同名转发导出
- *  （npm-resolution 门禁直接断言 inst.PKG_NAME_RE，尺子只有一把）：
+/** 字符集白名单尺子取自 platform/util/input 单源，此处仅同名转发导出：
  *  pkg/version 会流入 argv 与 commandTemplate 的 {pkg}/{version} 替换，不进白名单就是注入面。 */
 const PKG_NAME_RE = input.PKG_NAME_RE;
 const BAD_ARGV_CHAR_RE = input.ARGV_UNSAFE_RE;
 const WIN_DRIVE_ABS_RE = input.WIN_ABS_PATH_RE;
 
-/** 在途 npm 安装句柄（D-10）。装/卸/升级全部经 runNpmInstall，故本集合就是「守卫内不可见的
+/** 在途 npm 安装句柄。装/卸/升级全部经 runNpmInstall，故本集合就是「守卫内不可见的
  *  外部写入者」清单。子进程 detached（自成进程组），守卫退出后不会随之消亡——关停必须先中止它们。 */
 const INFLIGHT_NPM = new Set();
 
@@ -46,7 +45,7 @@ function runNpmInstall(opts) {
   const o = opts || {};
   const action = (o.action === undefined || o.action === null) ? 'install' : String(o.action);
   // 结果形状只有一个：任何一条出口都带全 exitCode/timedOut/aborted，调用方无需分辨「字段缺席」
-  // 与「字段为假」—— 卸载的 K10 语义（保留 manifest、可重试）就靠这三位的确定性成立。
+// 与「字段为假」—— 卸载的可重试语义就靠这三位的确定性成立。
   const bad = (r) => ({ ok: false, error: null, output: [], exitCode: null, timedOut: false, aborted: false, ...r });
   const fail = (error) => Promise.resolve(bad({ error }));
   if (action !== 'install' && action !== 'uninstall') return fail('runNpmInstall: 未知 action（只接受 install/uninstall）: ' + action.slice(0, 40));
@@ -122,9 +121,8 @@ function runNpmInstall(opts) {
       return resolve(bad({ error: e.message }));
     }
     const out = [];
-    // 在途 npm 子进程必须可被守卫主动中止：detached 子进程在守卫退出/被 8s 强杀后仍会
-    //   继续跑，新守卫 boot 时旧 npm 仍在写 node_modules 与全局前缀 —— 无人等待、无人记账
-    //   的并发写入者，正是半成品安装的来源。关停路径经 killInflightNpm() 收口。
+    // 在途 npm 子进程必须可被守卫主动中止：detached 子进程在守卫退出后仍会继续写 node_modules
+//   与全局前缀，成为无人等待、无人记账的并发写入者。关停路径经 killInflightNpm() 收口。
     let settled = false;
     const finish = (r) => {
       if (settled) return;
@@ -135,10 +133,9 @@ function runNpmInstall(opts) {
     };
     const killTree = () => {
       if (!child || child.exitCode !== null) return;
-      // 必须走 platform/os/process 的整树终止（win 用 taskkill /T /F）：Windows 没有进程组
-      //   语义，负 pid 组信号只杀得到 npm.cmd 那层壳，真正写 node_modules/全局前缀的 node
-      //   孙进程照旧存活 —— 正是本条（D-10）要消灭的「无人记账的外部写入者」。
-      //   ownGroup:true —— 子进程以 detached 起，必为自身进程组组长（POSIX 组信号安全）。
+      // 必须走 platform/os/process 的整树终止（win 用 taskkill /T /F）：Windows 没有进程组语义，
+//   负 pid 组信号只杀得到 npm.cmd 那层壳，真正写 node_modules/全局前缀的 node 孙进程照旧存活。
+//   ownGroup:true —— 子进程以 detached 起，必为自身进程组组长（POSIX 组信号安全）。
       try { procOS.killTree(child.pid, 'SIGKILL', () => {}, { ownGroup: true }); } catch { /* 尽力而为 */ }
       try { child.kill('SIGKILL'); } catch { /* 已退出 */ }
     };
@@ -189,10 +186,8 @@ function portListening(host, port) {
   });
 }
 
-/** 健康验证器（统一端口 + systemd 单元 + 稳定期）。
- *
- *  DSH 进程可能先监听端口、随后因插件兼容崩溃，只探测端口会误判成功 ——
- *  必须同时检查 systemd 单元仍 active，并留稳定期防「延迟崩溃」。 */
+/** 健康验证器（统一端口 + systemd 单元 + 稳定期）。DSH 进程可能先监听端口、随后因插件兼容崩溃，
+ *  只探测端口会误判成功 —— 必须同时检查 systemd 单元仍 active，并留稳定期防「延迟崩溃」。 */
 async function waitPortHealthy(opts) {
   const o = opts || {};
   const host = o.host || '127.0.0.1';

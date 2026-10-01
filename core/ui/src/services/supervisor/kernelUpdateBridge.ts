@@ -1,6 +1,6 @@
 /** 面板 -> 桌面壳 内核更新消息桥（单写入者契约：内核安装/升级唯一写入者是桌面壳；面板在壳内容 iframe 内，
- *  Tauri IPC 只注入主帧，故经 postMessage 请壳代执行；协议版本与来源校验在壳侧 bridge.rs，两侧常量由门禁锁定，SW-1/SW-8）。
- *  进度帧可多次且非终结；等待上界以首帧 maxWaitMs 为唯一时间事实源（壳侧契约 K6/K7，面板不自估）。 */
+ *  Tauri IPC 只注入主帧，故经 postMessage 请壳代执行；协议版本与来源校验在壳侧 bridge.rs，两侧常量互锁）。
+ *  进度帧可多次且非终结；等待上界以首帧 maxWaitMs 为唯一时间事实源（壳侧契约，面板不自估）。 */
 
 /** 协议版本：任何语义变更必须递增；须与壳 src/bridge.rs 的常量一致。 */
 export const BRIDGE_PROTOCOL_VERSION = 1;
@@ -26,7 +26,7 @@ export type KernelUpdateProgress = {
   progress?: number | null;
 };
 
-/** 等待上界兜底值：壳未在首帧给出 maxWaitMs 时（旧版壳）用这个，新壳经契约下发真实值。
+/** 等待上界兜底值：壳未在首帧给出 maxWaitMs 时用这个，新壳经契约下发真实值。
  *  必须明显大于壳的总预算（17 分钟）：否则面板按钮先于壳完成而解禁、用户重试，
  *  会变成两个进程并发写同一个 npm 全局前缀。 */
 const FALLBACK_MAX_WAIT_MS = 20 * 60 * 1000;
@@ -95,7 +95,7 @@ export function requestKernelUpdate(onProgress?: (p: KernelUpdateProgress) => vo
     window.addEventListener("message", onMessage);
     try {
       // 壳主帧 origin 是 Tauri 自定义协议（tauri://localhost 等），面板无从预知，故请求用 '*'；
-      // 壳侧以 ev.source === 内容 iframe + 回环 origin 校验来源（K2）。
+      // 壳侧以 ev.source === 内容 iframe + 回环 origin 校验来源。
       window.parent.postMessage({ v: BRIDGE_PROTOCOL_VERSION, type: REQUEST, requestId }, "*");
     } catch (e) {
       finish({ ok: false, error: String(e) });

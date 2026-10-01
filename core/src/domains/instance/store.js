@@ -1,7 +1,7 @@
 'use strict';
 
 // 持久化：instances.json 原子读写（内容未变不写盘）+ 端口登记全量对账 + 沙箱目录创建。
-// 唯一持有 instances 活数组：外部经 index 的 getter 取同一引用，替换须经 replace() 原地改写，
+// 唯一持有 instances 活数组：外部经 index 的 getter 取同一引用，替换须原地改写，
 // 绝不换数组对象（app/state/store.js 等 20+ 处持引用直读/splice）。
 
 const fs = require('node:fs');
@@ -50,8 +50,7 @@ class InstanceStore {
     return this.instances;
   }
 
-  /** 清历史遗留的未声明 state 字段。只在内存删、本方法不写盘；下次 save() 全量序列化自然落地，故幂等。
-   *  state.version：内核/测试/壳仓零消费者，版本显示走 readInstalledVersion 实时读盘，已从记录形状声明中移除。 */
+  /** 清遗留的未声明 state 字段（只在内存删，本方法不写盘；save() 全量序列化自然落地，故幂等）。 */
   _stripLegacyStateKeys(inst) {
     if (inst.state && Object.prototype.hasOwnProperty.call(inst.state, 'version')) delete inst.state.version;
   }
@@ -89,10 +88,9 @@ class InstanceStore {
     }
   }
 
-  /** 端口登记派生同步：真源是 instances.json 内存数组（用户配置值），registry 的 inst:* 记录只是派生投影，
-   *  把配置端口纳入全局冲突视图（防动态分配段撞实例端口）。全量对账：内存有而 registry 缺则 registerUser，
-   *  registry 有 inst:* 而内存无该实例则 unregister；端口变更时先卸旧登记再按新端口注册，
-   *  否则旧 inst:* 记录因「该 id 仍存在」永久泄漏。 */
+  /** 端口登记派生同步：真源是内存数组（用户配置值），registry 的 inst:* 记录只是派生投影，
+   *  把配置端口纳入全局冲突视图。全量对账：内存有而 registry 缺则 registerUser，反之 unregister；
+   *  端口变更时先卸旧登记再按新端口注册，否则旧 inst:* 记录因「该 id 仍存在」永久泄漏。 */
   syncPorts() {
     for (const inst of this.instances) {
       const id = String(inst.id || '');

@@ -1,17 +1,15 @@
 'use strict';
 
 // DSH 浏览器会话桥（IO 层）：按需从令牌池取 dshToken，换取 dsh-auth-* cookie，注入 HTTP/WS；
-// 上游 401/403 时清 cookie 自愈。TK-4：令牌池是唯一存储，本模块只保留派生 cookie 与在途 Promise，
+// 上游 401/403 时清 cookie 自愈。令牌池是唯一存储，本模块只保留派生 cookie 与在途 Promise，
 // 不复制令牌真值（dshToken 初值仅为旧调用方兼容路径，真值一律经 dshTokenOf 按需读）。
 
 const { cookieByName } = require('./core');
 // 换取 dsh-auth cookie 的协议实现只在 platform/service/token/exchange 一份。
 const { bootstrapDshCookie } = require('../../platform/service/token/exchange');
 
-/** 构造会话桥。
- *  opts: targetHost/targetPort（回环 DSH 目标）、id/logger/events（诊断与事件）、
- *  dshTokenOf（令牌按需读取函数，TK-4）、dshToken（启动令牌初值，兼容旧调用方）。
- */
+/** 构造会话桥。opts: targetHost/targetPort（回环 DSH 目标）、id/logger/events（诊断与事件）、
+ *  dshTokenOf（令牌按需读取函数）、dshToken（启动令牌初值，兼容旧调用方）。 */
 function createSession(opts) {
   const o = opts || {};
   const targetHost = o.targetHost;
@@ -74,7 +72,7 @@ function createSession(opts) {
     return pr;
   }
 
-  /** 令牌变化时重置并重新换取 cookie（TK-4：值始终由 dshTokenOf() 按需读取）。 */
+  /** 令牌变化时重置并重新换取 cookie（值始终由 dshTokenOf() 按需读取）。 */
   function refreshDshSession() {
     const dshToken = dshTokenOf() || '';
     bootstrapEpoch += 1; // 换代：在途的旧代换取结果作废

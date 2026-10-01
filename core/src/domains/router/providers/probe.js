@@ -2,7 +2,7 @@
 
 // 实例运行时探活与进程治理（IO 模块）：spawn、健康探活、生命周期监控、npm 包缓存、实例配额探测。
 // 一律经 provider 显式入参，不持有实例/域状态。
-// 进程载体（拉起/归属判定/终止）唯一走 platform/os/carrier（PROXY-ISOLATION-STANDARD L1）。
+// 进程载体（拉起/归属判定/终止）唯一走 platform/os/carrier。
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -85,7 +85,7 @@ async function spawnInstance(provider, inst) {
   if (rpReg.ok) Object.assign(envVars, rpReg.env);
   else if (launch.registry && provider.logger) provider.logger.warn('[proxy-instance] 契约 registry 非法（' + rpReg.violation + '），改用 npx 默认源');
   // 实例 stdout/stderr 全量落盘 + 关键词行落事件（stateDir 由 Provider 注入）。
-  // 落盘必须走 Rotator：首建即 0600（实例日志含启动令牌 URL/环境变量派生行），且超阈值轮转防无界增长。
+  // 落盘必须走 Rotator：首建即 0600（日志含启动令牌 URL/环境变量派生行），且超阈值轮转防无界增长。
   const logFilter = /error|streaming|idle|timeout|ECONN|abort|socket|finish|truncat/i;
   const baseDir = provider.stateDir || stateRoot.supervisorDir();
   let logWriter = null;
@@ -103,8 +103,8 @@ async function spawnInstance(provider, inst) {
       if (provider.logger && provider.logger.warn) provider.logger.warn('[proxy-instance] ' + src + ': ' + l.slice(0, 400));
     }
   };
-  // 身份锚点（隔离标准 L2 的衍生物）：包名 + '--port' 须同时出现在载体进程与其
-  //   子孙监听者的 cmdline，配合 run.pid 判归属——防 PID 复用误杀，三平台同语义。
+  // 身份锚点：包名 + '--port' 须同时出现在载体进程与其子孙监听者的 cmdline，配合 run.pid
+  //   判归属——防 PID 复用误杀，三平台同语义。
   const anchors = [];
   if (app.pkg) anchors.push(String(app.pkg));
   anchors.push('--port ' + port);
@@ -186,8 +186,8 @@ async function monitorLifecycle(provider) {
       inst.pid = null; inst.healthy = false; inst._monitorFails = 0; inst.status = INSTANCE_STATES.COLD;
       continue;
     }
-    // 端口占住判定走载体身份引擎（标准 L1）：锚点命中才算我方进程；监听者查不到
-    //   （探测工具缺失）不改判，交给下方 HTTP 探活（连续 3 次不健康即 kill 重拉），避免误杀。
+    // 端口占住判定走载体身份引擎：锚点命中才算我方进程；监听者查不到（探测工具缺失）不改判，
+    //   交给下方 HTTP 探活（连续 3 次不健康即 kill 重拉），避免误杀。
     if (inst.pidFile && inst.launchAnchors && inst.launchAnchors.length) {
       const st = carrier.probe({ port: inst.port, pidFile: inst.pidFile, anchors: inst.launchAnchors });
       if (st.state === 'foreign') {

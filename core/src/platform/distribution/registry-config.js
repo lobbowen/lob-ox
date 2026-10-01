@@ -3,10 +3,8 @@
 // 镜像配置的载入与持久化（IO）。这里定的规则是**所有权**：哪份文件由谁写，就只由谁写。
 //   <产品状态根>/supervisor/registry.json         壳有，内核只读（契约：镜像目录 + 探测规格 + 测速证据）
 //   <产品状态根>/supervisor/registry-choice.json  内核有，唯一写者（选择：mode / 手动源 / 用户候选）
-// 拆成两份之前，两者同居 registry.json：内核每次保存都要「读回原文、只覆盖自己那三键」来避免抹掉壳字段，
-// 而壳为了避免反向抹掉内核的 manual 意图干脆在检测到 mode=manual 时**不再更新整份契约** —— 于是用户在
-// 面板固定过一次源之后，镜像目录与探测规格就永久停在那一刻，壳升级也不会刷新。两个写者一份文件，
-// 谁都没有干净的解法，只能互相让步；拆开之后两边各写各的，两个让步一起删掉。
+// 两个写者一份文件必然互相让步（内核保存要读回原文避免抹掉壳字段，壳检测到 mode=manual 就不再更新契约），
+// 故按写者拆开，各写各的。
 // 与 registry.js（探测与选源）分开：那里回答「本次用哪个源」，这里只管读与写。
 
 const fs = require('node:fs');
@@ -22,7 +20,7 @@ const CONTRACT_TTL_MS = 60 * 1000;
 const CHOICE_SCHEMA = 1;
 
 /** 读内核自己的选择文档。区分「没有」（首次运行，需要迁移）与「有但读不动」（不据此迁移，
- *  免得把一个损坏的文件当成升级前现场，把旧契约里的字段再灌一遍）。 */
+ *  免得把损坏文件当成升级前现场）。 */
 function readChoiceDoc(file) {
   if (!file) return { status: 'absent', doc: null };
   let raw;
@@ -35,8 +33,8 @@ function readChoiceDoc(file) {
 }
 
 /** 载入镜像配置：先读壳契约（只读），再读内核选择文档；两者都缺时按默认值起步。
- *  候选列表优先级见 policies.effectiveOrigins（用户显式候选 > 契约目录 > 兜底）。
- *  契约不可用时不阻断：记录 reason 供诊断，选择路径自动回退（不变量 C2）。 */
+ *  候选列表优先级�?policies.effectiveOrigins（用户显式候�?> 契约目录 > 兜底）。
+ *  契约不可用时不阻断：记录 reason 供诊断，选择路径自动回退�?*/
 function loadRegistryConfig(state) {
   state.contract = registryContract.read(state.registryFile);
   if (!state.contract.ok) {
@@ -60,8 +58,7 @@ function loadRegistryConfig(state) {
     state.registryConfig = policies.rebuildRegistryConfig(choice.doc);
     return;
   }
-  // 首次运行（或从旧版升级上来的第一次）：旧契约里带着内核当年写进去的 manual 意图，迁一次并落盘，
-  // 之后契约里那些字段就不再被读过 —— 壳升到 schema3 会把它们删掉。
+  // 契约里 v2 及更早的 manual 意图只作一次性迁移输入，迁一次并落盘，之后不再读。
   const legacy = state.contract.ok ? state.contract.legacyChoice : null;
   state.registryConfig = policies.rebuildRegistryConfig(legacy || null);
   if (legacy) {
@@ -85,8 +82,7 @@ function reloadContractIfStale(state) {
   state._contractLoadedAt = now;
 }
 
-/** 落盘内核的选择文档。**契约文件不在本函数的写面内**（它由壳拥有）：一旦这里出现契约路径，
- *  两个写者的老问题就会回来，所以本文件对 registryFile 只做读。 */
+/** 落盘内核的选择文档。契约文件由壳拥有，不在本函数的写面内：本文件对 registryFile 只做读。 */
 function saveRegistryConfig(state) {
   if (!state.choiceFile) return; // 只读挂载（如反代 daemon）：没有写路径可言
   const rc = state.registryConfig || {};

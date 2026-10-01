@@ -10,7 +10,7 @@ const { isTrustedSource, tokenGateDecision, backoffGate, upstreamPath, POLYFILL_
 const { createSession } = require('./session');
 const { createTunnelHandler } = require('./tunnel');
 
-/** HTML polyfill 注入的全量缓冲上限（D-5）：超上限放弃注入按流透传，绝不无界缓冲。
+/** HTML polyfill 注入的全量缓冲上限：超上限放弃注入按流透传，绝不无界缓冲。
  *  取 2MB：DSH 壳文档远小于此；上限只兜异常上游，同时把并发最坏情形钉在可算的内存量级。 */
 const HTML_INJECT_MAX_BYTES = 2 * 1024 * 1024;
 
@@ -133,7 +133,7 @@ function handleUpstream(ur, res, clientReqPath, onStatus, logger) {
 }
 
 /** 创建局域网反向代理（回环目标 targetHost:targetPort），返回 http.Server（附 setToken/hasToken/setDshToken/status）。
- *  opts: token 门卫令牌（remoteToken；空 = 不设门卫恒放行）；dshTokenOf DSH 启动令牌按需读取函数（TK-4），
+ *  opts: token 门卫令牌（remoteToken；空 = 不设门卫恒放行）；dshTokenOf DSH 启动令牌按需读取函数，
  *  dshToken 仅为旧调用方的初值；id/logger/events。 */
 function createRelay(targetHost, targetPort, opts) {
   const o = opts || {};
@@ -173,7 +173,7 @@ function createRelay(targetHost, targetPort, opts) {
         return res.end('尝试过于频繁，请稍后再试');
       }
       if (gate.redirect !== undefined) {
-        // C-4：no-store，防带凭证的响应被缓存。
+        // no-store，防带凭证的响应被缓存。
         res.writeHead(302, { Location: gate.redirect, 'Set-Cookie': gate.cookie, 'Cache-Control': 'no-store' });
         return res.end();
       }
@@ -239,5 +239,4 @@ function createRelay(targetHost, targetPort, opts) {
   return server;
 }
 
-// handleUpstream/HTML_INJECT_MAX_BYTES 为 D-5 测试缝（回归直接注入假上游，不启真服务/真端口）。
 module.exports = { createRelay, handleUpstream, HTML_INJECT_MAX_BYTES };

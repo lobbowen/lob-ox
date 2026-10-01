@@ -11,7 +11,7 @@ const stateMachine = require('./state-machine');
 // 执行边界复校与 api 形态闸共用同一纯函数（单一事实源）。
 const execPath = require('../../platform/os/exec-path');
 function createLifecycle(deps) {
-  // resstats/machineFacts 为 W2 行为测试注入缝（显式注入，不 patch 模块导出）。
+  // resstats/machineFacts 为注入缝。
   const { store, service, logger, events, tokens, tasks, systemdDir, systemdTemplatePath, hooks, instancesRoot, resstats, machineFacts } = deps;
   const isSandboxSupported = deps.isSandboxSupported;
   // 状态转移副作用集合（落盘/发事件/令牌）：取用点现读 deps，避免快照漂移。
@@ -20,8 +20,8 @@ function createLifecycle(deps) {
   // 只存当拍瞬时事实；迟滞基准另取 state.allocation（跨重启保持）。
   const runtime = new Map();
   const machineFactsNow = () => (typeof machineFacts === 'function' ? machineFacts() : governor.machineFacts());
-  /** 准备 systemd 用户目录，并将历史遗留模板改名让位（模板阻挡 systemd-run transient 单元；改名等效阻断且绝不删数据）。
-   *  W3：仅单元档执行——portable 档无此目录可准备，且在 win/mac 不留结构残留。 */
+  /** 准备 systemd 用户目录，并将遗留模板改名让位（模板阻挡 systemd-run transient 单元；改名等效阻断且绝不删数据）。
+   *  仅单元档执行——portable 档无此目录可准备，且在 win/mac 不留结构残留。 */
   function _prepareSystemd() {
     if (!service.supportsUnits) return true;
     try {
@@ -56,7 +56,7 @@ function createLifecycle(deps) {
     }
   }
   /** 用 systemd 启动实例；绝不抛（抛会打挂 tick 循环），失败返回 {ok,error} 交调用方退避。
-   *  opts.manual：本次拉起来自用户显式动作（开新失败链，见 B2-6d 清计数处）。 */
+   *  opts.manual：本次拉起来自用户显式动作（开新失败链）。 */
   function _systemdStart(inst, opts) {
     try {
       const cmdArr = sandbox.effectiveCommand(instancesRoot, deps.dshBin, inst);
@@ -78,9 +78,9 @@ function createLifecycle(deps) {
         logger.warn && logger.warn('[' + inst.id + '] ' + msg);
         return { ok: false, error: msg };
       }
-      // 端口预校验（B2-5 或然侧）：注册表是跨进程共享事实源（lan-daemon 的 relay 绑定同在
-      // ports.json），配置端口被他人登记时立即显式 PORT_TAKEN:<by>。静默端口的 TCP 探测
-      // 看不见「已登记未监听」，放任下去只会在 systemd 起舱后以 bind 失败暴露，面板无从定位。
+      // 端口预校验：注册表是跨进程共享事实源（lan-daemon 的 relay 绑定同在 ports.json），配置端口
+      // 被他人登记时立即显式 PORT_TAKEN:<by>。静默端口的 TCP 探测看不见「已登记未监听」，
+      // 放任下去只会在 systemd 起舱后以 bind 失败暴露，面板无从定位。
       const takenBy = ports.recordOf(inst.port);
       if (takenBy && takenBy.owner !== 'inst:' + inst.id) {
         const msg = 'PORT_TAKEN:' + (takenBy.owner || takenBy.role);
@@ -110,9 +110,8 @@ function createLifecycle(deps) {
       inst.state.phase = 'STARTING';
       inst.state.startAt = Date.now();
       inst.state.lastError = null;
-      // B2-6d：手动拉起开新失败链。attempts>20 后 restart() 即回 FAILED 且清零只靠
-      //   稳定 RUNNING>5min，fail() 承诺的「由用户手动重试」被计数封死；手动动作在此
-      //   一次性作废旧链，自动退避计数仍只在监督拍累加（不带 opts 的调用方）。
+      // 手动拉起开新失败链：attempts>20 后 restart() 即回 FAILED 且清零只靠稳定 RUNNING>5min，
+      //   手动动作在此一次性作废旧链；自动退避计数仍只在监督拍累加（不带 opts 的调用方）。
       if (opts && opts.manual) {
         inst.state.restartCount = 0;
         inst.state.backoffLevel = 0;
@@ -139,7 +138,7 @@ function createLifecycle(deps) {
     if (inst.domain === 'sandbox') {
       const fromUpgrade = !!(opts && opts.fromUpgrade);
       if (!fromUpgrade && tasks && tasks.isBusy('instance', id)) return { ok: true, installing: true, already: true };
-      // 准入控制（W2）：分摊薄后跌破单实例下限时显式拒绝，绝不静默放行超卖；BACKOFF 重试不旁路，
+      // 准入控制：分摊薄后跌破单实例下限时显式拒绝，绝不静默放行超卖；BACKOFF 重试不旁路，
       // 被拒后按 restart() 计数走到「重试超限 FAILED」，失败可见可查。
       if (!fromUpgrade) {
         const adm = governor.admission(store.instances, inst.id, machineFactsNow().totalMemBytes);
@@ -148,8 +147,7 @@ function createLifecycle(deps) {
           return { ok: false, error: adm.error };
         }
       }
-      // 运行意图不设第二落点（B2-1）：自动拉起只认 guardian，用户启停就是动作本身；
-      //  被拒的 start（作业在飞、预算已满）不留任何状态，重试语义由准入拒绝本身表达。
+      // 被拒的 start（作业在飞、预算已满）不留任何状态，重试语义由准入拒绝本身表达。
       store.ensureDirs(inst);
       const dshEntry = sandbox.dshEntry(instancesRoot, inst);
       if (!fs.existsSync(dshEntry)) {
@@ -211,9 +209,8 @@ function createLifecycle(deps) {
     }
     return roster;
   }
-  /** 控制面采样拍（每实例）：runtime 观测回填，供守卫单拍 governSweep 消费（B2-6e）。
-   *  全花名册 decide 已移出——旧形态每 RUNNING 实例的监督拍各跑一遍 O(N) 决策，
-   *  N 实例即 N 倍放大；决策/下发/处置的周期驱动与 heartbeat 同源、每拍恰一次。 */
+  /** 控制面采样拍（每实例）：runtime 观测回填，供守卫单拍 governSweep 消费。
+   *  全花名册 decide 不在此处——决策/下发/处置由 heartbeat 同源驱动、每拍恰一次。 */
   function _governTick(inst, st) {
     for (const key of Array.from(runtime.keys())) {
       if (!store.instances.some((i) => i.id === key)) runtime.delete(key); // 实例已删：观测随葬
@@ -268,8 +265,8 @@ function createLifecycle(deps) {
       };
       if (entry.changed) {
         target.state.allocation = entry.alloc;
-        // W3 运行期动态下发：单元活着才推（set-property 即时生效）；provider 无 setLimits = 无内核强制，
-        // 如实跳过：展示值已更新、下次启动按新值生效，下发失败不走任何降级分支。
+        // 运行期动态下发：单元活着才推（set-property 即时生效）；provider 无 setLimits = 无内核强制，
+        // 如实跳过：展示值已更新、下次启动按新值生效。
         if (typeof service.setLimits === 'function' && target.state && target.state.phase === 'RUNNING') {
           try { service.setLimits('dsh-web@' + entry.id, entry.alloc); }
           catch (e) { logger.warn && logger.warn('[' + entry.id + '] setLimits 下发异常: ' + (e && e.message)); }
@@ -282,14 +279,14 @@ function createLifecycle(deps) {
       if (events) events.append('inst_resource_violation', { id: target.id, name: target.name, kind: v.kind, actual: v.actual, target: v.target });
       logger.warn && logger.warn('[' + target.id + '] ' + reason);
       try {
-        // 经 Provider 动词：cgroup 档即内核拆舱；portable 档按端口/run.pid 锚点整树终止（W3）。
+        // 经 Provider 动词：cgroup 档即内核拆舱；portable 档按端口/run.pid 锚点整树终止。
         service.stopUnit('dsh-web@' + target.id, Object.assign({ timeoutMs: 20000 }, sandbox.launchCtx(instancesRoot, deps.dshBin, target)));
       } catch (e) {
         logger.warn && logger.warn('[' + target.id + '] 违规停单元异常: ' + (e && e.message));
       }
       stateMachine.restart(stateDeps(), target, reason); // 复用既有退避链：BACKOFF，重试超限 -> FAILED
     }
-    store.save(); // 下发/处置改写的 allocation/usage 随本拍落盘（旧实现借道 supervise 尾 save，现自成一体）
+    store.save(); // 下发/处置改写的 allocation/usage 随本拍落盘
     return { ok: true, entries: plan.entries.length };
   }
   /** 单实例监督拍：整体 try/catch，单实例异常绝不拖垮心跳循环。 */

@@ -86,10 +86,8 @@ const check = (name, cond, extra) => { results.push({ name, ok: !!cond, extra })
     check('远程控制可访问（relay 转发成功）', body.includes('ok'), body.slice(0, 50));
   }
 
-  // 5. 停止实例 -> reconcile「暂停 relay、保留注册」：目标恢复后同 wanPort 自动重接，绝不端口重建竞争。
-  //    判据取公开可观测事实（注册保留 + 旧 wanPort 不再转发），不读私有 _lanServers（改实现名即红而产品没坏）。
-  // 2026-10-01 修复：原此处 `mockOk.kill('SIGTERM');` **被吞进上一行的 `//` 注释里** ⇒ mock 从未被杀，
-  //   于是紧接着的「目标停止后代理暂停」判据不可能成立（本条测试是结构性必红）。已把调用提回独立一行。
+  // 5. 停止实例 -> reconcile「暂停 relay、保留注册」：目标恢复后同 wanPort 自动重接，不端口重建竞争。
+  //    判据取公开可观测事实（注册保留 + 旧 wanPort 不再转发），不读私有 _lanServers。
   mockOk.kill('SIGTERM');
   await new Promise((r) => setTimeout(r, 800));
   await lan.reconcile(); // async（内部 TCP 可达判定），需等待其完成后再断言 relay 状态

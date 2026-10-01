@@ -14,7 +14,7 @@ const PROXY_APPS = {
     modelPath: '/v1/models',
     upstream: 'https://api.commandcode.ai',
     // 实例环境契约：keyEnv 是密钥注入的唯一 env 名（绝不进 cmdline）；app.env/超时等一律不注入，
-    // 跑上游完全默认配置（作者设计值）——自我干预（如 CC_IDLE_TIMEOUT_MS=0）曾导致回归，保持纯净注入。
+    // 跑上游完全默认配置（作者设计值）。
     keyEnv: 'CC_API_KEY',
     repo: 'thaolaptrinh/commandcode-api-proxy',
     // 自动更新：最新版本从 npm registry 查（同一 package 名）。空则跳过版本检查。

@@ -94,9 +94,8 @@ function createOps(deps) {
     if (idx < 0) return { ok: false, error: '供应商不存在' };
     const removed = state.providers.splice(idx, 1)[0];
     endpoint.stopProviderServer(id); // 删除即停用：关闭其独立端点
-    // 删除路径必须 force 停实例：不带 force 时，账号被 selected/activeAccount 指向则只置
-    // _stopPendingUntilIdle 就返回；provider 摘除后该标记不可达、补刀无从触发，
-    // 持用户 API Key 的反代进程永不被回收。
+    // 删除路径必须 force 停实例：不带 force 时账号被 selected/activeAccount 指向则只置
+    // _stopPendingUntilIdle 就返回，provider 摘除后该标记不可达，反代进程永不被回收。
     if (removed.supports('instanceLifecycle')) { for (const i of removed.instances || []) { try { removed.stopInstance(i, true); } catch {} } }
     // 端口登记级联释放（「删除对象即释放端口」契约）：否则 owner 永久累积、池最终耗尽。
     try { releaseProviderPorts(removed, ports); } catch (e) { if (logger && logger.warn) logger.warn('release provider ports ' + id + ': ' + (e && e.message)); }
@@ -123,7 +122,7 @@ function createOps(deps) {
     scheduler.stop();
     stopAllInstances(); // 服务停止 = 实例一并停止（防孤儿进程残留占用动态端口段）
     for (const id of Object.keys(state.providerServers)) endpoint.stopProviderServer(id); // 供应商独立端点一并关闭
-    // 用量账本改节流落盘后，停服前强制 flush，未到点的账不丢。
+    // 账本节流落盘：停服前强制 flush，未到点的账不丢。
     try { if (d.usage && typeof d.usage.flush === 'function') d.usage.flush(); } catch (e) { logger.warn && logger.warn('usage flush: ' + ((e && e.message) || e)); }
     if (events) events.append('router_stopped', {});
     return { ok: true };
@@ -142,7 +141,7 @@ function createOps(deps) {
     return { ok: true };
   }
 
-  /** 停止全部反代实例进程（测试收尾 / 守卫优雅退出用）。 */
+  /** 停止全部反代实例进程（守护进程优雅退出用）。 */
   function stopAllInstances() {
     // force=true：服务停服/优雅退出，无视在用/在途仲裁强制停。
     for (const p of state.providers) {

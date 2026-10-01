@@ -50,7 +50,7 @@ function ensureLimit(acc) {
   return acc.limit;
 }
 
-/** limit 纯只读预览：与 ensureLimit 同逻辑同形状，但不赋值、不写盘——只读视图（views.listProviders）唯一入口，视图内禁写副作用。 */
+/** limit 纯只读预览：与 ensureLimit 同形状但不赋值、不写盘——只读视图唯一入口，视图内禁写副作用。 */
 function previewLimit(acc) {
   if (!acc) return null;
   if (acc.limit && acc.limit.kind) return acc.limit;

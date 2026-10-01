@@ -1,8 +1,7 @@
 'use strict';
 
 // 转发门面（组合 + 导出），不承载业务逻辑：组合 handlers/parse + handlers/forward +
-// store/usage + model/inflight；createForwardCore(deps) 显式注入依赖，装配边界唯一，
-// 不调用 this.<index方法>。
+// store/usage + model/inflight；依赖全部经 createForwardCore(deps) 显式注入。
 
 const { keyFingerprint, maskKey } = require('./providers/base');
 const parse = require('./handlers/parse');

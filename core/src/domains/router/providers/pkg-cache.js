@@ -1,7 +1,7 @@
 'use strict';
 
-// npm 包缓存定位与预取（IO 叶子）。缓存根目录是平台事实，经 npx-forms#npxCacheDir 单源取得
-// （CP-1）；本模块只做缓存 bin 定位/失效清理/npx 预下载，绝不自行拼 ~/.npm/_npx。
+// npm 包缓存定位与预取（IO 叶子）。缓存根目录是平台事实，经 npx-forms#npxCacheDir 单源取得；
+// 本模块只做缓存 bin 定位/失效清理/npx 预下载，绝不自行拼 ~/.npm/_npx。
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -69,8 +69,8 @@ async function ensurePkgCached(provider, app) {
   try {
     const regOrigin = provider.dist ? await provider.dist.registryOrigin(false).catch(() => null) : null;
     const env = Object.assign({}, process.env);
-    // 注入走 registry-ref 单口：非法基址一律不写键（npx 会用自身默认源），
-    // 成败以下方缓存复检为准，别让一个畸形地址伪装成「下载失败」。
+    // 注入走 registry-ref 单口：非法基址一律不写键（npx 用自身默认源），
+    // 成败以下方缓存复检为准，不让畸形地址伪装成「下载失败」。
     const rp = registryRef.registryEnvPair(regOrigin);
     if (rp.ok) Object.assign(env, rp.env);
     const launcher = npxLauncher();

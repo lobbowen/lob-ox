@@ -1,13 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// app state/config 持久化的 **fail-closed 拒写**纪律（createDesired / createMainStore / lan-panel）
-// 三个写口共用同一条不变量：**读不到或解析不了既存配置时一律拒绝写回并保留原字节**。
-//   A1a  config.json 半截 / 根为数组 / EISDIR -> false + 原字节保留（旧行为 catch{} 后以 {} 覆盖 ⇒ 全键蒸发）
-//   A1b  dsh-main.json 损坏 -> 拒绝默认值覆盖写（=令牌静默清零 -> 零认证降级）；显式重设是唯一解锁
-//   B2-4 legacy 键清理由别名字典驱动；lan-panel 写口归一为单源（state.persistConfigPatch）
-// ---------------------------------------------------------------------------
+// app state/config 持久化的 **fail-closed 拒写**纪律（createDesired / createMainStore / lan-panel 三个写口）：
+//   读不到或解析不了既存配置时一律拒绝写回并保留原字节 —— config.json 半截/根为数组/EISDIR、
+//   dsh-main.json 损坏（默认值覆盖 = 令牌静默清零 -> 零认证降级，显式重设是唯一解锁）。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -24,8 +20,6 @@ const { createDesired } = require(path.join(ROOT, 'src', 'app', 'state', 'desire
 const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main-store.js'));
 
 // config.json 读/解析失败 -> **拒绝写回**（fail-closed）且原字节保留；仅 ENOENT（首启）照常写入。
-//   旧行为 catch{} 后以 cur={} 覆盖 -> 全键静默蒸发。
-// ---------------------------------------------------------------------------
 {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), 'a1-config-'));
   const cf = path.join(t, 'config.json');
@@ -51,7 +45,7 @@ const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main
   check('A1a 故障解除后可正常再写',
     d.persistConfigPatch({ apiPort: 7 }) === true && JSON.parse(fs.readFileSync(cf, 'utf8')).apiPort === 7, 'ok');
 
-  // -- B2-4：legacy 键清理由别名字典驱动（与 domain-config 声明同源，不再硬编码键名）--
+  // -- B2-4：legacy 键清理由别名字典驱动（与 domain-config 声明同源，不硬编码键名）--
   fs.rmSync(cf);
   fs.writeFileSync(cf, JSON.stringify({ switcherAutoStart: true }));
   d.persistConfigPatch({ apiPort: 6001 });
@@ -59,10 +53,8 @@ const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main
     JSON.parse(fs.readFileSync(cf, 'utf8')).switcherAutoStart === true, 'ok');
 }
 
-// ---------------------------------------------------------------------------
 // dsh-main.json 损坏 -> 读回默认值但标记 corrupt，后续**不带显式 remoteToken 的写回一律拒绝**
 //   （默认值覆盖 = 令牌静默清零 -> 零认证降级）；显式重设令牌是唯一解锁路径。
-// ---------------------------------------------------------------------------
 {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), 'a1-main-'));
   const sf = path.join(t, 'state.json');
@@ -77,7 +69,6 @@ const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main
   check('A1b 首启写入正常；corrupt 态**拒绝默认值覆盖写**（原字节保留）',
     first === 'TK-1' && fs.readFileSync(mf, 'utf8') === '{"guardian":true,"remoteToken":"TK-SECRET"', fs.readFileSync(mf, 'utf8').slice(0, 24));
   const meta = ms.readDshMain();
-  // 原先的 warn 中文文案正则已删：判据留「读回降级为默认值」这一硬信号（默认值写回即零认证降级）。
   check('A1b 读回降级为默认值（remoteToken 清空）且不写回盘',
     meta.remoteToken === '', JSON.stringify(meta).slice(0, 120));
   ms.writeDshMain({ remoteToken: 'TK-RESET' });
@@ -87,11 +78,8 @@ const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main
   check('A1b 解锁后普通写恢复', JSON.parse(fs.readFileSync(mf, 'utf8')).guardian === true, 'ok');
 }
 
-// ---------------------------------------------------------------------------
-// B2-4 lan-panel 写口归一：setLanPanel 不再自拼 read-merge-write，
-//   与 access.js 同口径 = state.persistConfigPatch（唯一入口）+ verifyPersisted（写后读回）。
-//   判红点：配置损坏时经单源 fail-closed **原字节保留**且如实回 ok:false。
-// ---------------------------------------------------------------------------
+// B2-4 lan-panel 写口归一：setLanPanel 不自拼 read-merge-write，与 access.js 同口径走
+//   state.persistConfigPatch（唯一入口）+ verifyPersisted（写后读回）；配置损坏时原字节保留且回 ok:false。
 {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), 'b24-lanpanel-'));
   const cf = path.join(t, 'config.json');
@@ -110,7 +98,6 @@ const { createMainStore } = require(path.join(ROOT, 'src', 'app', 'state', 'main
       events: { append() {} }, state, api: { close() {} }, _apiRebind() {},
     });
   };
-  // -- lan-panel 快乐路径站已删：它与 A1a「首启照常写入」是同一写口纪律的第二次采样。--
   {
     fs.writeFileSync(cf, '{"apiAccessKey":"SECRET","swit'); // 半截 JSON
     const r = mk().setLanPanel(false);

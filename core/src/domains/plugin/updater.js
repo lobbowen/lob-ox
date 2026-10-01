@@ -8,8 +8,7 @@ const { specType, isUpdateAvailable } = require('./policies');
 
 /** 目标版本 + 取不到时的原因（checkUpdates/update 共用一处，两处的负缓存口径必须一致）。
  *  只在取到时写缓存：把「registry 不可达」写进去，等于负缓存 _updTTL 之久、此后一律显示「无更新」。
- *  选版单源在 dist.fetchNpmLatest（latest 优先，缺失/非法才回落 versions 最高；取 registry 全量
- *  最高会把他人杂 tag 当候选），本层不再判通道。 */
+ *  选版单源在 dist.fetchNpmLatest（latest 优先，缺失/非法才回落 versions 最高；取 registry 全量最高会把他人的杂 tag 当候选），本层不再判通道。 */
 async function latestCached(ctx, name, force) {
   const c = ctx._updCache[name];
   if (c && !force && (Date.now() - c.at) < ctx._updTTL) return { latest: c.latest, error: null };
@@ -26,8 +25,7 @@ async function latestCached(ctx, name, force) {
   return { latest, error };
 }
 
-/** 检测快照：立即返回已知结论，registry 往返一律在后台跑（与 /plugins/market 同一口径）。
- *  挂在 HTTP 请求上等 N 个插件的往返，等于让面板 15s 计时先放弃而服务端继续跑 —— 用户见失败、结论却是好的。
+/** 检测快照：立即返回已知结论，registry 往返一律在后台跑（同 market.getIndex：挂到请求上等会让面板 15s 计时先放弃）。
  *  失败不做静默重试：快照里的 error 逐插件带上原因，面板据此区分「取不到」与「已是最新」。 */
 function checkUpdates(ctx, force) {
   if (!ctx._updSnapshot || force) _requestCheck(ctx, force);

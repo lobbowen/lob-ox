@@ -1,21 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 远程控制（wan）安全闸：**唯一事实源 + 唯一写入口**，设置面无绕道
-//
-// 缺陷（被测对象：src/app/domain-actions/lan.js::createLanActions 写入口）：公网（wan）安全闸
-//   历史上只在 setFrp 一处执行 -> 旧设置面 patchDshMain 同样能开 frpEnabled 却无闸
-//   -> **可绕过令牌闸开公网暴露**。三态化收口后：唯一写入口 setRemoteMode（lan 同闸口），
-//   wan 前置闸 = core.validateWanAccess；patchDshMain 白名单只剩 guardian，绕道物理消失；
-//   frpc 执行边界（syncFrpc）再复判一次。另有 B1-2：mode/token 曾被缺省归成 'off'/清除
-//   -> 漏字段请求 = 静默关远程控制/清凭据。
-//
-// 锁定不变量：W-a 无令牌开 wan -> 自动分配合规令牌且与模式**同一次落盘** · W-b 无令牌开 lan 同样分配 ·
-//   W-c 弱令牌写入口即拒、零落盘、同补丁其它字段不改 · W-d 合规令牌已设 -> 放行且不回写 ·
-//   W-e off 是安全方向（不过闸、不分配、与现值同则不落盘）· W-f 缺 mode/非法 mode/缺 token 一律拒 ·
-//   W-g 空串仍是显式清除 · W-h TK-5 事件载荷零令牌明文。
-// ---------------------------------------------------------------------------
+// 远程控制（wan）安全闸：**唯一事实源 + 唯一写入口**，设置面无绕道 —— 公网闸曾只在 setFrp 一处执行，
+//   旧设置面 patchDshMain 能开 frpEnabled 却不过闸（可绕过令牌闸开公网暴露）；三态化后唯一写入口是
+//   setRemoteMode（lan 同闸口），wan 前置闸 = core.validateWanAccess，patchDshMain 白名单只剩 guardian，frpc 执行边界再复判一次。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -98,7 +86,7 @@ function mk(meta0) {
     && off2.ok === true && f2.written.length === 1 && f2.written[0].remoteToken === undefined,
     JSON.stringify({ r: off, w: f.written, w2: f2.written }));
 }
-// B1-2：mode/token 必须显式给出——缺省曾被归成 'off'/清除，漏字段请求=静默关远程控制/清凭据。
+// B1-2：mode/token 必须显式给出 —— 漏字段请求不得被缺省成 'off'/清除（静默关远程控制/清凭据）。
 {
   const f = mk();
   const noMode = f.actions.setRemoteMode('main');

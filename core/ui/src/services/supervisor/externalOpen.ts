@@ -1,9 +1,9 @@
 /** 面板侧「把地址交给系统浏览器」的唯一入口（结果如何呈现的唯一出口在 openExternal.tsx）。
  *
- *  为什么面板还要选路：面板由内核自己托管，故「页面来源是否回环」等价于「看面板的浏览器与内核是否
- *  同一台机器」。同一台机器时打开动作**必须**由内核执行 —— 桌面壳的 webview 丢弃 window.open 与
- *  target=_blank（旧形态表现为按钮毫无反应），且只有内核能给出三档证据。不同机器时（局域网/公网访问者）
- *  内核无法打开访客自己的浏览器，只剩访客浏览器的原生新标签。
+ *  选路判据：面板由内核自己托管，故「页面来源是否回环」等价于「看面板的浏览器与内核是否同一台机器」。
+ *  同一台机器时打开动作**必须**由内核执行 —— 桌面壳的 webview 丢弃 window.open 与 target=_blank，
+ *  且只有内核能给出三档证据。不同机器时（局域网/公网访问者）内核无法打开访客自己的浏览器，
+ *  只剩访客浏览器的原生新标签。
  *  两条路的结局一律归一成 OpenExternalResult，界面上不存在第二种说法。
  */
 import { supervisorApi } from "./client";
@@ -42,9 +42,9 @@ export async function handOffFromPanel(url: string): Promise<OpenExternalResult>
 export type OpenTier = "confirmed" | "handed-off" | "failed";
 
 /** 启动形态 + 探测留痕摊成一行小字：三档里 handedOff 与 failed 的区别只在证据强弱，用户需要知道自己点了什么
- *  才知道该不该信这句结论 —— 内核把 bin/via/ownsWindow/exit 一并交出，此前它在响应体里躺着没人看。
+ *  才知道该不该信这句结论 —— 内核把 bin/via/ownsWindow/exit 一并交出，界面必须读出来。
  *  diagnostics 是探测层留痕的行内摘要（默认项从哪条系统事实读出、本机探到哪些候选）：
- *  「点了没弹出来」这一类报障，只有带着这一行才谈得上定性，否则界面永远只剩一句「再点一次」。 */
+ *  「点了没弹出来」这一类报障，只有带着这一行才谈得上定性。 */
 export function evidenceDetail(ev?: OpenExternalResult["evidence"]): string | null {
   if (!ev || typeof ev !== "object") return null;
   const exe = typeof ev.bin === "string" ? ev.bin.split(/[\\/]/).pop() : null;
@@ -53,7 +53,7 @@ export function evidenceDetail(ev?: OpenExternalResult["evidence"]): string | nu
   else if (ev.via === "none") bits.push("未定出启动对象");
   if (ev.via) bits.push(ev.via);
   // 引擎是「能不能开隔离窗」的直接线索（chromium/firefox 有隔离方言，webkit 与打包器包装没有）：
-  //   白窗口报障只有摊出引擎才谈得上分「换浏览器」还是「配代理」，内核交出而界面不读等于没交。
+  //   白窗口报障只有摊出引擎才谈得上分「换浏览器」还是「配代理」。
   if (ev.engine) bits.push("引擎 " + ev.engine);
   if (ev.ownsWindow === false) bits.push("退出码不作证据");
   if (ev.watch === true) bits.push("关掉该窗口即取消本次登录");
@@ -118,21 +118,19 @@ export function loginUrlOf(s?: { url?: string | null; authUrl?: string | null } 
 
 /** 结果分档（纯函数）：三档语义在此唯一一次映射为界面档位。
  *  判据取 ok/confirmed，不取 message/error 文本 —— 文案可变，档位是契约。
- *  reveal = 这一档要不要把证据行摊到屏幕上，与服务层的分档同处判定：组件只做渲染，
- *  「白窗口现场该看见什么」这种取舍写在组件里就没法在 CI 里判红。 */
+ *  reveal = 这一档要不要把证据行摊到屏幕上；与服务层的分档同处判定，组件只做渲染。 */
 export function classifyOpenResult(r?: OpenExternalResult | null): {
   tier: OpenTier; url: string | null; title: string; detail: string | null; reveal: boolean;
 } {
   const url = typeof r?.url === "string" && r?.url ? r.url : null;
   const detail = evidenceDetail(r?.evidence);
-  // confirmed 档一般不必摊细节（证据已经说完了），隔离登录意图例外：真机那句「弹了但是白窗口」
-  //   最可能就落在 confirmed —— 屏幕上没有「交给谁 / 什么引擎 / 出网判定」这一行，取证只剩玄学。
+  // confirmed 档一般不必摊细节（证据已经说完了），隔离登录意图例外：白窗口最可能就落在 confirmed ——
+  //   屏幕上没有「交给谁 / 什么引擎 / 出网判定」这一行，取证只剩玄学。
   //   判据用 via/egress 而不是意图参数：egress 非空即「这一拍真的判过冷档案出网」，降档那条也算。
   const ev = r?.evidence;
   const isolateIntent = !!ev && (ev.via === "isolated" || !!ev.egress);
   // 内核给出 message 的非确认档（如冷档案降档：已在既有窗口打开 + 该怎么收尾）必须上屏。
-  //   confirmed 档把 message 当标题，另两档标题是固定的契约句，故 message 并进细节行 ——
-  //   丢掉它就等于「内核解释了原因，界面上却只剩一句没拿到证据」。
+  //   confirmed 档把 message 当标题，另两档标题是固定的契约句，故 message 并进细节行。
   const msg = typeof r?.message === "string" && r.message ? r.message : null;
   const withMsg = [msg, detail].filter(Boolean).join(" | ") || null;
   if (!r || r.ok !== true) {

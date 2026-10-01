@@ -1,9 +1,8 @@
 'use strict';
 
 // 切换控制器：S1 选号（policies/switch.pickAccount）与 S2 失败反应（policies/failure.decideFailure）
-// 两个纯策略的编排层——只施加副作用（markInUse/cursor/事件/持久化/provider.effect），决定「重试/透传」。
-// 信号语义（credits/window/banned/transient/none）判定归 provider.classifyResponse。
-// 硬契约：绝不跨供应商 failover——每个供应商只在自己的账号池内选号。
+// 的编排层，只施加副作用（markInUse/cursor/事件/持久化/provider.effect）并决定「重试/透传」；信号语义
+// 判定归 provider.classifyResponse。硬契约：绝不跨供应商 failover——每个供应商只在自己的账号池内选号。
 
 const { pickAccount } = require('./policies/switch');
 const { decideFailure } = require('./policies/failure');

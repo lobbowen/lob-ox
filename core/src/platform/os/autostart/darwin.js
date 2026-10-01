@@ -1,8 +1,8 @@
 'use strict';
 
 // macOS 自启策略：launchctl enable/disable + bootstrap/bootout。
-// 守卫 plist 的所有权矩阵见 autostart/index.js —— 本文件绝不写/删守卫 plist：enable/disable 会持久化
-// 进 launchd 覆盖库，这才是「关闭自启」真正生效的机制；删文件则会被壳下次启动重建并 bootstrap。
+// 守卫 plist 的归属见 autostart/index.js：本文件绝不写/删它 —— enable/disable 会持久化进 launchd
+// 覆盖库，这才是「关闭自启」真正生效的机制；删文件会被壳下次启动重建并 bootstrap。
 // GUI（桌面壳）的 LaunchAgent 归内核所有，其 plist 由本文件创建/删除。
 
 const fs = require('node:fs');

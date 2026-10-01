@@ -1,9 +1,8 @@
 'use strict';
 
 // 插件域补丁层写 / 串行队列 / 残留 scrub（有状态写服务）。
-// 插件行「只增/只删 disabled 行」的读改写；卸载残留 scrub；启用与 scrub 共用同一条串行队列，
-// 防并发 read->write 丢失更新；写盘用 tmp+rename+0600 原子写。
-// 队列纪律：单次异常不得永久毒化队列；续链吞 rejection，返回给调用方的 run 保留 rejection 并如实记日志。
+// 插件行「只增/只删 disabled 行」的读改写；卸载残留 scrub；启用与 scrub 共用同一条串行队列，防并发 read->write 丢失更新。
+// 队列纪律：单次异常不得永久毒化队列；续链吞 rejection，返回给调用方的 run 保留 rejection 并如实记日志；写盘用 tmp+rename+0600。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -14,7 +13,7 @@ const { isProtectedName, isOwnRow, isOwnDisabled, targetHomePatchPath } = requir
 function createLayers({ overlayFile, logger }) {
   let queue = Promise.resolve();
 
-  /** 补丁层写唯一入队点：链尾吞 rejection 仅用于续链，返回给调用方的 run 保留 rejection。 */
+  /** 补丁层写唯一入队点（队列纪律见文件头）。 */
   const enqueue = (tag, fn) => {
     const run = queue.then(fn);
     queue = run.catch(() => {});
@@ -35,7 +34,7 @@ function createLayers({ overlayFile, logger }) {
     profile.dsh = profile.dsh || {};
     profile.dsh.profile = profile.dsh.profile || {};
     profile.dsh.profile.bundles = nextBundles;
-    // 原子写(tmp+rename+0600)：裸 writeFileSync 在并发/中断下可能撕裂 package.json，且默认 umask 可能世界可读。
+    // 原子写：裸 writeFileSync 在并发/中断下可能撕裂 package.json，且默认 umask 可能世界可读。
     writeAtomic(profilePath, JSON.stringify(profile, null, 2) + '\n', { mode: 0o600 });
     return true;
   };
@@ -59,7 +58,7 @@ function createLayers({ overlayFile, logger }) {
     const log = (m) => { try { if (typeof onLog === 'function') onLog(m); } catch {} };
     const findings = { cleaned: [], warnings: [] };
     try {
-      // 1) home 补丁层（本域管理，JSON）：移除指向该插件的行
+      // home 补丁层（本域管理，JSON）：移除指向该插件的行
       const hp = readHomePatch(target);
       if (hp.ok) {
         const before = hp.entries.length;
@@ -78,7 +77,7 @@ function createLayers({ overlayFile, logger }) {
         findings.warnings.push(hp.error);
         log(hp.error);
       }
-      // 2) 原生 overlay（旧机制，兼容迁移期清理）
+      // 原生 overlay（legacy 兼容清理）
       if (target.kind === 'native') {
         const shortName = name.split('/').pop();
         const before = ctx.overlayEntries();
@@ -89,7 +88,7 @@ function createLayers({ overlayFile, logger }) {
           log('已清理原生 overlay 残留');
         }
       }
-      // 3) profile 补丁层（用户面）：纯 JSON 自动清理；YAML 检测报告
+      // profile 补丁层（用户面）：纯 JSON 自动清理；YAML 检测报告
       {
         const file = path.join(target.profileDir, 'cordis.patch.yml');
         let raw = null;
@@ -160,9 +159,8 @@ function createLayers({ overlayFile, logger }) {
         continue;
       }
       let changed = false;
-      // 补丁行只增/只删本插件的 disabled 行，绝不整删本插件 id 的所有行——
-      // home 补丁层可能含 insert/include 型或用户手写的非 disabled 行，
-      // 一刀切 filter 会静默丢弃这些行。
+      // 补丁行只增/只删本插件的 disabled 行，绝不整删本插件 id 的所有行：home 补丁层可能含 insert/include 型
+      // 或用户手写的非 disabled 行，一刀切 filter 会静默丢弃这些行。
       if (!on) {
         // 禁用：既有行统一置 disabled（保留行身份/其它字段），缺失则追加 disabled 行
         const before = JSON.stringify(hp.entries);
@@ -179,7 +177,7 @@ function createLayers({ overlayFile, logger }) {
         changed = JSON.stringify(next) !== before;
         if (changed) writeHomePatch(target, next);
         else notes.push('本未禁用，无变更');
-        // 兼容迁移：顺带清 legacy overlay 禁用行（旧机制残留，形态为 {id} / {id:include:<n>}，无 disabled 标志）
+        // 顺带清 legacy overlay 禁用行（形态为 {id} / {id:include:<n>}，无 disabled 标志）
         if (target.kind === 'native') {
           const ovBefore = ctx.overlayEntries();
           const ovJson = JSON.stringify(ovBefore);

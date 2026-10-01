@@ -1,8 +1,8 @@
 'use strict';
 
-// app/facade/router.js —— router 域只读门面（写动作 setRouterRunning 在 app/domain-actions/router.js）。
-// 只读白名单（不得引入写动词）：routerDaemonActive / routerStatusView / routerProviders / routerStatus / routerDomainSummary，
-//   另含只读访问器 routerApi。导出 { methods }，方法经按 host 缓存的惰性 deps（WeakMap）取事实，唯一的 this 在 depsOf(this)。
+// router 域只读门面（写动作 setRouterRunning 在 app/domain-actions/router.js）。只读白名单：routerDaemonActive /
+//   routerStatusView / routerProviders / routerStatus / routerDomainSummary，另含只读访问器 routerApi。导出 { methods }，
+//   方法经按 host 缓存的惰性 deps（WeakMap）取事实。
 
 const DEPS = new WeakMap();
 function depsOf(host) {
@@ -31,10 +31,9 @@ module.exports = { methods: {
 
   routerDaemonActive() {
     const d = depsOf(this);
-    // 仅当本守卫期望 daemon 运行（routerAutostart）且管理锁在手且 ctl 端口监听者为
-    // router-daemon 时，才视为 daemon 监督模式（routerApi/门面/ctl 生效）。
-    // 绝不因全局 ctl 端口被占就把任意 Supervisor 实例（含测试内嵌实例）误判为监督模式——
-    // 否则测试 api 调用会经 ctl 打到线上 daemon。
+        // 仅当本守卫期望 daemon 运行（routerAutostart）且管理锁在手且 ctl 端口监听者为 router-daemon 时，才视为 daemon
+                //   监督模式（routerApi/门面/ctl 生效）。绝不因全局 ctl 端口被占就把任意 Supervisor 实例误判为监督模式，
+                //   否则内嵌实例的 api 调用会经 ctl 打到线上 daemon。
     try {
       const cfg = d.config();
       if (!cfg || cfg.routerAutostart !== true) return false;
@@ -102,10 +101,9 @@ module.exports = { methods: {
     }
   },
 
-  // router 控制通道门面：守卫 API/视图统一从这里取。
-  // 本方法在此文件以保证对 ctl 的依赖单向（ctl/facades 不调本文件的 routerDaemonActive）。
-  // daemon 在跑则转发 ctl（POST /ctl {method,args}）——写即 daemon 生效、读即 daemon 最新；
-  // daemon 未跑则走守卫本地实例（内嵌回退路径）。
+    // router 控制通道门面：守卫 API/视图统一从这里取。本方法在此文件以保证对 ctl 的依赖单向（ctl/facades 不调本文件的
+    //   routerDaemonActive）。daemon 在跑则转发 ctl（POST /ctl {method,args}）—— 写即 daemon 生效、读即 daemon 最新；
+    //   daemon 未跑则走守卫本地实例（内嵌回退路径）。
   routerApi() {
     const d = depsOf(this);
     if (d.routerDaemonActive()) {

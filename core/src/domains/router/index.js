@@ -1,6 +1,6 @@
 'use strict';
 
-// 智能路由底座（RouterService）：薄门面，只做组合与委托，零业务逻辑（DF-1 <=150）。
+// 智能路由底座（RouterService）：薄门面，只做组合与委托，零业务逻辑。
 // 业务下沉 store/ops/endpoint/views/scheduler + forward-core/router-ops 显式工厂。
 
 const { DirectProvider } = require('./providers/direct');
@@ -29,7 +29,7 @@ class RouterService {
     this.tasks = opts.tasks || null;
     this.providerFile = opts.providerFile;
     this.usageTotalsFile = opts.usageTotalsFile || null;
-    if (opts && opts.portsFile) ports.configureFile(opts.portsFile); // 端口注册表隔离（测试注入独立文件）
+    if (opts && opts.portsFile) ports.configureFile(opts.portsFile); // 端口注册表隔离（独立文件）
 
     const state = ops.createState();
     this._state = state;
@@ -43,8 +43,8 @@ class RouterService {
       createInstance: (i) => ProxyInstance.fromJSON(i), apps: PROXY_APPS,
       logger: this.logger, events: this.events, dist: this.dist, onPersist: () => this._save(), config: this.config,
     }));
-    for (const p of state.providers) { // 恢复持久化 apiPort 登记（owner=providerApi:<id>；防重复分配）：写口必须 allocateMark（ports/pool.js:198-205，无池守卫）
-      if (p.apiPort) { try { if (!ports.isRegistered(p.apiPort)) ports.allocateMark(p.apiPort, 'providerApi', 'providerApi:' + p.id); } catch {} } // 该号取自 providerApi 池，registerUser 会被动态保留池守卫拒绝（pool.js:113-114）⇒ 旧写口静默丢
+    for (const p of state.providers) { // 恢复持久化 apiPort 登记（owner=providerApi:<id>，防重复分配）：写口须 allocateMark（ports/pool.js:198-205）
+      if (p.apiPort) { try { if (!ports.isRegistered(p.apiPort)) ports.allocateMark(p.apiPort, 'providerApi', 'providerApi:' + p.id); } catch {} } // 该号取自 providerApi 池，registerUser 会被池守卫拒绝（pool.js:113-114）
     }
     this.switcher = new SwitchEngine({ logger: this.logger, events: this.events, onPersist: () => this._save() });
 

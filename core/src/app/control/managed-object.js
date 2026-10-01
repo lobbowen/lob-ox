@@ -1,7 +1,6 @@
 'use strict';
 
-// app/control/managed-object.js —— 受管对象目录的纯模型（词表 + entry + 所有权）。
-// 零 IO、零 this，可独立单测。PHASES 的字面量唯一源必须在 registry.js（其导出面 re-export 本模块）。
+// 受管对象目录的纯模型（词表 + entry + 所有权）。零 IO、零 this，可独立单测；PHASES 的字面量唯一源必须在 registry.js。
 
 /** desired 唯一取值（用户意图）。与 guardian（自动拉起策略）是两个正交轴。 */
 const DESIRED = ['running', 'stopped'];
@@ -37,9 +36,8 @@ function createEntry(o) {
     name: String(o.name || o.id),
     // desired 两域共用字段名但语义不同：域 A=用户意图；域 B=「当前业务是否需要它」的条件
     desired: (o.desired === 'stopped') ? 'stopped' : 'running',
-    // guardian 开关的权威在域记录本身（dsh-main.json / inst.guardian），消费者全部直读源；
-    //  目录曾在域 A entry 上物化该字段但零读者（B2-2 收口）。createEntry 永不物化 guardian 键
-    //  = 老库残留的天然一次性清理口（load 经本函数重建即消失），无需迁移脚本。
+        // guardian 开关的权威在域记录本身（dsh-main.json / inst.guardian），消费者全部直读源；createEntry 永不物化
+        //   guardian 键，load 经本函数重建即清理老库残留。
     ownership: normalizeOwnership(o.ownership),
     // 初始 stopped；业务不得直接改，由 heartbeat 调谐循环写入
     phase: 'stopped',

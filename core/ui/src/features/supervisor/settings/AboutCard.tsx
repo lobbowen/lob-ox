@@ -142,7 +142,7 @@ export function AboutCard() {
     }, { refresh: false });
   };
 
-  // 内核更新唯一写入者 = 桌面壳：面板不能调内核端点安装（/self-update/apply 已下架 = 410），
+  // 内核更新唯一写入者 = 桌面壳：面板不调内核端点安装，
   // 必须经消息桥请壳执行 kernel_update_apply（壳装内核 + 由所有者重启守卫）。
   const applyCoreUpdate = async () => {
     if (!hasShellHost()) { toast.error("内核更新由桌面壳执行：请在桌面壳面板中操作。"); return; }
@@ -231,7 +231,7 @@ export function AboutCard() {
             ) : null}
           </span>
         </div>
-        {/* 内核更新进行中：壳中继的逐源/心跳进度（B4b）。progress 为 null = 该步无可测分母，
+        {/* 内核更新进行中：壳中继的逐源/心跳进度。progress 为 null = 该步无可测分母，
             此时只显示文字，不画假百分比。 */}
         {coreProg ? (
           <div className="flex flex-wrap items-center gap-2 text-xs leading-relaxed text-muted-foreground">
@@ -245,7 +245,7 @@ export function AboutCard() {
         <p className="border-t border-border/60 pt-3 text-xs leading-relaxed text-muted-foreground">
           {PRODUCT_DESC}
         </p>
-        {/* A4 断点修复：更新日志入口（后端 /changelog 与 /guard/changelog 此前无任何 UI 接线） */}
+        {/* 更新日志入口：后端 /changelog 与 /guard/changelog */}
         <div className="flex items-center gap-2 border-t border-border/60 pt-3">
           <Button size="chip" variant="outline" onClick={() => void openLog("dsh")}>
             DSH 更新日志

@@ -1,7 +1,6 @@
-//! macOS 平台实现（LaunchAgent + launchctl，门禁 G1 要求平台知识集中于此）。
-//!
-//! launchctl 子命令语义（易错，固定于此）：bootstrap 载入（RunAtLoad 立即启动、
-//! KeepAlive 崩溃重启）；bootout 卸载；kickstart -k 重启；stop 用 bootout 会移除任务。
+//! macOS 平台实现（LaunchAgent + launchctl；平台知识集中于此）。
+//! launchctl 子命令语义（易错，固定于此）：bootstrap 载入（RunAtLoad 立即启动、KeepAlive 崩溃重启）；
+//! bootout 卸载；kickstart -k 重启；stop 用 bootout 会移除任务。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -42,7 +41,7 @@ impl Platform for Impl {
         Capabilities {
             platform: NAME,
             native_service: true, // launchd
-            privilege_channel: true, // 仅壳自更新用；Node 安装已改为用户级、零权限
+            privilege_channel: true, // 仅壳自更新用；Node 安装是用户级、零权限
             node_artifact: "tar.gz",
         }
     }
@@ -91,7 +90,7 @@ impl Platform for Impl {
     }
 
     fn node_bin_after_install(&self) -> PathBuf {
-        // 用户级安装落点（零权限）；不再指向 /usr/local（那需要管理员）。
+        // 用户级安装落点（零权限）；/usr/local 需要管理员。
         crate::env::node_install_root().join("bin").join("node")
     }
 
@@ -136,8 +135,7 @@ impl Platform for Impl {
     }
 
     fn is_local_fixed_dir(&self, _dir: &Path) -> bool {
-        // Unix：无「网络盘 / 可移动盘」概念上的 is_file() 触网风险，
-        // 本地文件系统调用不会因路径本身而阻塞数十秒。
+        // 无「网络盘 / 可移动盘」的 is_file() 触网风险，本地文件系统调用不会因路径本身阻塞数十秒。
         true
     }
 
@@ -146,7 +144,7 @@ impl Platform for Impl {
         true
     }
 
-    // 可执行文件名的平台差异（P2/G1：原为平台层之外的 cfg!() 宏）
+    // 可执行文件名的平台差异。
     fn node_exe_name(&self) -> &'static str { "node" }
     fn npm_exe_name(&self) -> &'static str { "npm" }
     fn core_exe_names(&self) -> &'static [&'static str] { &["dsh-supervisor"] }
@@ -172,8 +170,8 @@ impl ServiceControl for Impl {
         let path = self.definition_path();
         // 日志落在产品状态根（独立于 DSH 的 ~/.dsh）。
         let log = crate::env::supervisor_dir().join("log").join("guard-stdio.log");
-        // plist 是 XML：路径嵌入前必须转义 &、<、>（家目录可含它们，未转义则
-        //   bootstrap 报含糊 syntax error、自启静默失效）。& 必须最先替换，否则二次转义。
+        // plist 是 XML：路径嵌入前必须转义 &、<、>（未转义则 bootstrap 报含糊 syntax error、自启静默失效）。
+        // & 必须最先替换，否则二次转义。
         let xml_escape = |s: &str| -> String {
             s.replace('&', "&amp;")
                 .replace('<', "&lt;")
@@ -212,9 +210,8 @@ impl ServiceControl for Impl {
             let off = format!("launchctl bootout gui/$(id -u)/{}", GUARD_LABEL);
             crate::bounded::run_lossy(Command::new("sh").args(["-c", &off]), SVC_QUICK);
         }
-        // bootstrap 会因 RunAtLoad 立即启动；KeepAlive 负责崩溃重启。
-        // plist 路径经 "$1" 传入而不是拼进脚本：用户名/路径里出现 `$`、反引号或引号时，
-        // 拼串形态会被 shell 二次解释（bootstrap 打到错误目标，且是静默的）。
+        // bootstrap 会因 RunAtLoad 立即启动；KeepAlive 负责崩溃重启。plist 路径经 "$1" 传入而非拼进脚本：
+        // 用户名/路径里出现 `$`、反引号或引号时，拼串形态会被 shell 二次解释（静默打到错误目标）。
         let p = path.display().to_string();
         let out = crate::bounded::run(
             Command::new("sh").args(["-c", BOOTSTRAP_SCRIPT, "sh", p.as_str()]),

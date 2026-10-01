@@ -1,18 +1,19 @@
 'use strict';
 
-// 游离对象自检（orphan-scan）—— 低频（~60s）自检，只写日志 + orphan_audit 事件
-// （同指纹 10min 抑制），绝不强杀/释放（异主隔离红线）。
-// 实现主体 orphanAudit(deps) 只经惰性取值函数取用宿主事实；唯一调用方是 audit/collaborator.js 工厂。
+// 游离对象自检（orphan-scan）：低频（~60s）自检，只写日志 + orphan_audit 事件（同指纹 10min 抑制），
+//   绝不强杀/释放（异主隔离红线）。唯一调用方是 audit/collaborator.js 工厂。
+// orphanAudit(deps) 只经惰性取值函数取用宿主事实。
 
 const ports = require('../../platform/service/ports').shared;
 
 /** 惰性取值：fn 不是函数时回退 dflt（host 兼容外壳与协作方工厂共用同一条实现）。 */
 function call(fn, dflt) { return typeof fn === 'function' ? fn() : dflt; }
 
-/** 游离对象自检实现（deps：getConfig/getLogger/getEvents/getInstances/getManagedObjects/
- *  getCtl/getDaemons/getStopping + getLastKey/setLastKey/getLastAt/setLastAt）。
- *  扫描维度：daemon 在监听但本守卫既无期望也无管理锁（异主/残留）；
- *  端口登记 owner=inst:* 而实例已不存在；目录项期望 running/starting 但观测长期失联（幽灵登记）。 */
+/**
+ * 游离对象自检实现（deps：getConfig/getLogger/getEvents/getInstances/getManagedObjects/getCtl/getDaemons/
+ * getStopping + getLastKey/setLastKey/getLastAt/setLastAt）。扫描维度：daemon 在监听但本守卫既无期望也无管理锁；
+ * 端口登记 owner=inst:* 而实例已不存在；目录项期望 running/starting 但观测长期失联（幽灵登记）。
+ */
 function orphanAudit(deps) {
   const g = deps || {};
   if (call(g.getStopping, false)) return;
@@ -20,8 +21,8 @@ function orphanAudit(deps) {
   const reg = call(g.getManagedObjects, null);
   const issues = [];
   try {
-    // want = 「本守卫是否有意让它活着」，只取持久化/结构性判据本身；目录 entry 的 desired 是它的
-    //   派生镜像（specs 每拍由同一源重推），读镜像会把「镜像未及更新」误判成游离。
+        // want = 「本守卫是否有意让它活着」，只取持久化/结构性判据本身；目录 entry 的 desired 是它的派生镜像（specs
+        //   每拍由同一源重推），读镜像会把「镜像未及更新」误判成游离。
     const daemons = [
       { kind: 'router-daemon', port: g.getCtl().routerPort(), active: () => g.getDaemons().routerActive(), managed: () => g.getDaemons().managed(), want: () => g.getConfig().routerAutostart === true },
       { kind: 'lan-daemon', port: g.getCtl().lanPort(), active: () => g.getDaemons().lanActive(), managed: () => g.getDaemons().lanManaged(), want: () => g.getDaemons().enabled() },

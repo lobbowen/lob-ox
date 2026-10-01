@@ -211,8 +211,8 @@ export function OverviewPage() {
                 <Button disabled={!running} onClick={() => void openWeb()} size="sm" variant="outline" className="hidden md:inline-flex">
                   <ExternalLink className="size-4" />DSH Web
                 </Button>
-                {/* D3-A 定案：主 DSH 由守卫统一自 spawn（始终守护拉起），无「进程守护」开关；
-                    运行操作统一白底 outline（卸载 DSH 为唯一高危实色按钮） */}
+                {/* 主 DSH 由守卫统一自 spawn（始终守护拉起）；运行操作统一白底 outline
+                    （卸载 DSH 为唯一高危实色按钮） */}
                 <Button disabled={busy === "dsh"} onClick={() => void (running ? stopDsh() : toggleDsh())} size="sm" variant="outline">
                   {running ? <><Power className="size-4 text-status-error" />停止 DSH</> : <><Rocket className="size-4 text-primary" />启动 DSH</>}
                 </Button>
@@ -226,7 +226,7 @@ export function OverviewPage() {
             ) : null}
             {installed && !nBusy ? (
               <>
-                {/* 守护后无分割线(用户定稿)——守护与危险操作直接相邻 */}
+                {/* 守护与危险操作直接相邻，中间无分割线 */}
                 <Button className="hidden h-[30px] md:inline-flex" disabled={busy === "uni"} onClick={() => void uninstallDsh()} size="sm" variant="destructive">
                   <Trash2 className="size-4" />卸载 DSH
                 </Button>

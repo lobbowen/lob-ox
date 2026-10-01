@@ -1,8 +1,8 @@
 'use strict';
 
-// portable LaunchProvider：三平台共用下限实现，无状态——实例身份 = 端口反查 + cmdline 锚点校验（与 monitor.probeInstance 同源锚）。
-// run.pid 只作「STARTING 未监听窗口」的停止兜底：守卫重启后进程句柄必丢，盘上 pid 须配 cmdline 复核才防得住 PID 复用；
-// 动词与 systemd Provider 同形（调用方不按 provider 分支）；isUnitActive 三态（查询未完成 != 不活跃）；setLimits 恒 false 是档位声明非失败。
+// portable LaunchProvider：三平台共用下限实现，无状态 —— 实例身份 = 端口反查 + cmdline 锚点校验。
+// run.pid 只作「STARTING 未监听窗口」的停止兜底：守卫重启后进程句柄必丢，盘上 pid 须配 cmdline
+// 复核才防得住 PID 复用。动词与 systemd Provider 同形；isUnitActive 三态；setLimits 恒 false 是档位声明非失败。
 
 const fs = require('node:fs');
 const pidlookup = require('./pidlookup');
@@ -41,9 +41,8 @@ const pidFileOf = (o) => (o && o.pidFile) || null;
 const anchorsOf = (o) => (Array.isArray(o && o.anchors) ? o.anchors : []);
 
 /** 找「我们的」存活实例进程：{pid, ownGroup} 或 null。
- *  run.pid 命中的进程必由本 Provider detached 拉起（自成进程组）-> ownGroup=true 可组信号整树终止；
- *  仅端口锚点命中的监听进程来路不明（pidfile 丢失/手动实例）-> ownGroup=false 只发单进程信号：
- *  对外来 pid 做 kill(-pid) 会误杀无关进程组。 */
+ *  run.pid 命中的进程必由本 Provider detached 拉起 -> ownGroup=true 可组信号整树终止；
+ *  仅端口锚点命中的监听进程来路不明 -> ownGroup=false 只发单进程信号（kill(-pid) 会误杀无关进程组）。 */
 function findOurs(o) {
   const anchors = anchorsOf(o);
   const fp = readPidFile(pidFileOf(o));
@@ -70,9 +69,8 @@ const portable = {
   daemonReload() { return true; },
   resetFailed() { return true; },
 
-  /** 拉起：spawn(detached)——POSIX 自成进程组（kill(-pid) 语义的前提）、win32 windowsHide +
-   *  CREATE_NEW_PROCESS_GROUP（NO-CONSOLE-WINDOW 纪律收口在 platform/os/spawn.js）。
-   *  调用方传来的 props（cgroup 语义）在此如实忽略：本档无内核强制可施加。
+  /** 拉起：spawn(detached) —— POSIX 自成进程组（kill(-pid) 语义的前提）、win32 windowsHide +
+   *  CREATE_NEW_PROCESS_GROUP。调用方传来的 props（cgroup 语义）在此忽略：本档无内核强制可施加。
    *  @param {{cmd:string[], env?:object, workingDir?:string, pidFile?:string, port?:number, anchors?:string[]}} o */
   startTransient(o) {
     const opts = o || {};
@@ -82,8 +80,8 @@ const portable = {
       cwd: opts.workingDir || undefined,
       env: Object.assign({}, process.env, opts.env || {}),
     });
-    // 无监听器的 'error' 事件会在 EventEmitter 约定下二次抛出打挂守卫：spawn 异步失败
-    // （ENOENT/EPERM 于 pid 已分配后才到）在此吞掉，由监督拍按「端口 30s 未监听」判启动失败退避——与 systemd 档运行时失败同语义。
+    // 无监听器的 'error' 事件会在 EventEmitter 约定下二次抛出打挂守卫：spawn 异步失败（ENOENT/EPERM
+    // 于 pid 已分配后才到）在此吞掉，由监督拍按「端口 30s 未监听」判启动失败退避。
     child.on('error', () => {});
     if (!child.pid) {
       try { child.kill(); } catch { /* 未起成 */ }
@@ -120,8 +118,7 @@ const portable = {
   },
 
   /** 活跃判定（三态）：port 与 pidFile 都缺 = 无从查询 -> null，删除保护路径不得把它当「已停止」。
-   *  anchors 为空时降级为「端口有监听即活跃」（monitor.probeInstance 同口径，该调用方本就以此判在线）；
-   *  杀进程（stopUnit）仍要求锚点命中 —— 判定可宽，动手必严。
+   *  anchors 为空时降级为「端口有监听即活跃」；杀进程（stopUnit）仍要求锚点命中 —— 判定可宽，动手必严。
    *  存活 pid 的 cmdline 读不到 = 分不清「他人复用」与「查询失败」-> null。 */
   isUnitActive(unit, o) {
     const opts = o || {};
@@ -137,7 +134,7 @@ const portable = {
       if (port) {
         const q = pidlookup.findListeningPid(port);
         if (q !== null) return true;
-        // pidlookup 把「查询失败」与「无监听」折成同一个 null（接口只回 pid）：
+        // pidlookup 把「查询失败」与「无监听」折成同一个 null（接口只回 pid）。
         // 只有持肯定证据才报 false —— pidfile 存在且进程已判死；否则报未知。
         if (fp !== null) return false;
         return null;
@@ -167,5 +164,5 @@ const portable = {
 };
 
 // findOurs/matchesAnchors 是公开出口：全仓「我们拉起的外部进程」归属判定只此一处实现
-//   （受管进程载体 carrier.js 与监督守卫共用；业务域一律经门面，不得自带 kill/-pgid 判定）。
+//   （carrier.js 与监督守卫共用；业务域不得自带 kill/-pgid 判定）。
 module.exports = { portable, findOurs, matchesAnchors, _test: { readPidFile, matchesAnchors, findOurs } };

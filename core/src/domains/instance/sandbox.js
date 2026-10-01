@@ -53,8 +53,8 @@ function effectiveCommand(rootDir, dshBin, inst) {
   return dshCli.withoutAutoOpen(defaultCommand(dshBin, inst));
 }
 /** systemd transient 单元属性（业务约束以「属性」表达，域层不拼 systemd 参数；平台只翻译语义、不决定数额）。
- *  alloc 的 MemoryMax/MemoryHigh/CPUQuota 由 governor 按机器预算与活跃实例数推导——用户填额已废止，
- *  静态数字既会超卖也闲置；MemoryHigh 是真内核节流软顶（回收先于 OOM），仅在推导出时下发。 */
+ *  alloc 的 MemoryMax/MemoryHigh/CPUQuota 由 governor 按机器预算与活跃实例数推导——静态数字既会超卖也闲置；
+ *  MemoryHigh 是真内核节流软顶（回收先于 OOM），仅在推导出时下发。 */
 function unitProps(inst, alloc) {
   const props = [
     'KillMode=process',
@@ -94,7 +94,7 @@ function sandboxEnv(rootDir, inst) {
 
 /** 平台能力判决（实时求值）：判据 = capabilities.sandboxLaunch（三平台恒真：Linux 有 systemd-run 走 cgroup 硬档，
  *  其余落 portable provider；执行档位另看 sandboxEnforcement）。
- *  override 非空则显式覆写（仅供测试/嵌入方）；否则实时问 platform/os capabilities()，其负结果有 60s TTL，不会每次 spawn 探测。 */
+ *  override 非空则显式覆写；否则实时问 platform/os capabilities()，其负结果有 60s TTL，不会每次 spawn 探测。 */
 function supported(override) {
   if (override !== undefined && override !== null) return override === true;
   try {

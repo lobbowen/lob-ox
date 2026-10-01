@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 阶段 1「所有权归一」契约回归（ARCHITECTURE-CONTRACT-phase0）：
-//   INV-X1 守卫内核不得 systemctl stop/restart 自己所属单元 · INV-S1 stopping/stopped 期间抑制
-//   一切自动拉起 · INV-S2 退出唯一入口 shutdownAll · INV-S4 会话态唯一读取口 sessionState()。
-// 自包含：构造最小 Supervisor（TMP stateFile，不 start 定时器），不触碰生产文件。
+// 阶段 1「所有权归一」契约回归：INV-X1 守卫内核不得 systemctl stop/restart 自己所属单元 ·
+//   INV-S1 stopping/stopped 期间抑制一切自动拉起 · INV-S2 退出唯一入口 shutdownAll ·
+//   INV-S4 会话态唯一读取口 sessionState()。自包含：最小 Supervisor（TMP stateFile，不 start 定时器）。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -140,15 +139,14 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     check('P3-D stopping 期间 daemon supervise 短路（INV-S1 全域）', dr && dr.ok === false && daemonTouched === false, JSON.stringify(dr));
   }
 
-  // -- 8) 阶段 4 的事件读适配器（P4-C/D/E）已迁入 loghub-test.js（与 EventHub 同源语义）--
 
-  // -- 9) P2：B1 能力元数据执法 + ST-1 启停写口 --
+  // -- 9) P2：能力元数据 + ST-1 启停写口 --
   console.log('== P2 B1 能力执法 ==');
   {
     const { LifecycleManager } = require(path.join(ROOT, 'src', 'app', 'control', 'manager'));
     const { registerAll } = require(path.join(ROOT, 'src', 'app', 'control', 'adapters'));
     let emb = 0, writes = 0; // 本文件自备的「内嵌 router 被直调」与「写口被调」计数
-    // 三个夹具唯一差异是 supervisor 写口，故抽一个装配工厂（原先逐字三份）。
+    // 三个夹具唯一差异是 supervisor 写口，故抽一个装配工厂。
     const mkMgr = (supOver) => {
       const m = new LifecycleManager({});
       registerAll(m, {

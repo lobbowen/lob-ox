@@ -1,7 +1,6 @@
 //! 运行期启动契约（Runtime Launch Contract）- 壳写、内核读（schema 2）：「Node 在每个运行时用哪一个」的单一事实源。
-//! 此前这条事实被四处独立推导（nodeprobe 写 runtime.json、npm install、systemd ExecStart 靠 shebang、spawn_daemon 走 ambient PATH），
-//! 而交互 shell 的 PATH 含 nvm 目录、systemd/GUI 的 PATH 不含 —— 「内核装得上却永远拉不起来」。
-//! 所有权在壳（装壳时机器上没有内核，壳必须先解析环境）；本文件是壳侧唯一读写入口，并保留内核 env-catalog 已读的旧键（nodePath/nodeVersion/minNode）。
+//! 所有权在壳（装壳时机器上没有内核，壳必须先解析环境）；本文件是壳侧唯一读写入口，
+//! 并保留内核 env-catalog 已读的旧键（nodePath/nodeVersion/minNode）。
 
 use std::path::{Path, PathBuf};
 
@@ -29,8 +28,8 @@ pub struct NodeRuntime {
 }
 
 impl NodeRuntime {
-    /// 播报用的 npm 版本号。缺失时如实说「未回读」，**绝不**回落到 Node 版本 ——
-    ///   拿 Node 版本当 npm 版本念出去正是这条链的根因；旧壳写的契约没有这个键，读回即为 None。
+    /// 播报用的 npm 版本号。缺失时如实说「未回读」，**绝不**回落到 Node 版本；
+    /// 契约里没有该键时读回即为 None。
     pub fn npm_version_label(&self) -> String {
         self.npm_version.clone().unwrap_or_else(|| "版本未回读".into())
     }
@@ -42,8 +41,8 @@ pub fn path() -> PathBuf {
 }
 
 /// npm 的候选**垫片**路径（按优先级）。与 `probe_npm` 共用，错误文案因此不可能与实际查找脱节。
-/// 去重按「已出现即跳过」而不是 `Vec::dedup()`：本平台首选名（Windows 的 `npm.cmd`）在
-///   候选表里未必与同名的固定项相邻，`dedup()` 只消相邻重复，会让同一条路径在文案里出现两次。
+/// 去重按「已出现即跳过」而不是 `Vec::dedup()`：本平台首选名（Windows 的 `npm.cmd`）在候选表里
+/// 未必与同名的固定项相邻，`dedup()` 只消相邻重复，会让同一条路径在文案里出现两次。
 pub fn npm_shim_candidates(bin_dir: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = Vec::new();
     for name in [
@@ -70,9 +69,8 @@ pub fn npm_cli_js(bin_dir: &Path) -> PathBuf {
 }
 
 /// 解析 npm 可执行（工具链契约的一部分）。返回 (program, prefix_args)：program 可直接 spawn；
-/// npm 仅有包内 JS（或垫片在本平台根本拉不起来）时 program=node、prefix=[npm-cli.js]。
-/// 找不到返回 None，绝不伪造路径；给出的 program 会被 Command::new 直接执行，故必须过
-/// is_directly_spawnable：探针与消费者共用同一条 spawn 路径（Windows CreateProcessW 不认 .cmd/.bat/sh 脚本）。
+/// npm 仅有包内 JS（或垫片在本平台根本拉不起来）时 program=node、prefix=[npm-cli.js]。找不到返回 None，绝不伪造路径。
+/// 给出的 program 会被 Command::new 直接执行，故必须过 is_directly_spawnable（Windows CreateProcessW 不认 .cmd/.bat/sh）。
 pub fn probe_npm(node: &Path, bin_dir: &Path) -> Option<(PathBuf, Vec<String>)> {
     let plat = crate::platform::current();
     for p in npm_shim_candidates(bin_dir) {
@@ -94,9 +92,8 @@ pub fn npm_unspawnable_hint() -> &'static str {
 }
 
 /// 由 Node 路径 + 版本推导 npm 路径与 bin 目录（npm 与 node 同目录）。
-/// npm 缺失返回 None（环境不就绪，由壳安装/修复，绝不伪造）。
-/// 只做路径解析、不执行 npm：本函数服务启动路径（ensure），在那里执行外部进程一旦挂住就是不可恢复的停顿；
-/// 代价是 npm_version 只能留 None（不猜版本号）。
+/// npm 缺失返回 None（环境不就绪，由壳安装/修复，绝不伪造）。只做路径解析、不执行 npm：
+/// 本函数服务启动路径（ensure），在那里执行外部进程一旦挂住就是不可恢复的停顿；代价是 npm_version 只能留 None。
 pub fn derive(node: &Path, version: &str) -> Option<NodeRuntime> {
     let node_bin_dir = node.parent()?.to_path_buf();
     let (npm, npm_prefix) = probe_npm(node, &node_bin_dir)?;
@@ -143,9 +140,8 @@ pub struct NpmUsable {
 }
 
 /// 解析并真实执行 npm（--version）- 「文件存在」不等于「可用」。
-/// 不变量 T-1b：npmOk 只有在本函数返回 Ok 时才可为 true；否则 0 字节/损坏/被拦截的 npm
-///   会让「环境已就绪」成为假象，随后 npm install 必失败。
-/// 失败必须带出原因（Err 文案）：归档解残缺、垫片拉不起来、npm 执行报错三类处置完全不同，不得合成一句「npm 缺失」。
+/// 不变量：npmOk 只有在本函数返回 Ok 时才可为 true；否则 0 字节/损坏/被拦截的 npm
+/// 会让「环境已就绪」成为假象。失败必须带出原因：归档解残缺、垫片拉不起来、npm 执行报错三类处置完全不同。
 pub fn probe_npm_usable(node: &Path, bin_dir: &Path) -> Result<NpmUsable, String> {
     let (path, args) = match probe_npm(node, bin_dir) {
         Some(x) => x,
@@ -160,9 +156,8 @@ pub fn probe_npm_usable(node: &Path, bin_dir: &Path) -> Result<NpmUsable, String
 const NPM_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 
 /// 执行 `<prog> <args…> <tail…>` 并取首个非空行（npm 在 Windows 可能先吐空行）；失败原因如实返回。
-/// 关键不变量（T-10）：探针与消费者必须是同一条 spawn 路径。若探针经 `cmd /C` 包装、消费者
-///   直接拉起同一个 .cmd，就形成「探针能跑、真装必挂」的不对称；平台知识已由
-///   Platform::is_directly_spawnable 在选择程序时收口（G1），本函数因此不需要平台分支。
+/// 关键不变量：探针与消费者必须是同一条 spawn 路径 —— 探针经 `cmd /C` 包装、消费者直接拉起同一个 .cmd
+/// 会形成「探针能跑、真装必挂」的不对称；平台知识已由 Platform::is_directly_spawnable 收口，本函数无平台分支。
 pub fn run_npm_line(prog: &Path, args: &[String], tail: &[&str]) -> Result<String, String> {
     let mut cmd = std::process::Command::new(prog);
     cmd.args(args).args(tail);
@@ -270,8 +265,8 @@ pub fn write(rt: &NodeRuntime) {
     let body = serde_json::to_string_pretty(&meta(rt)).unwrap_or_default();
     let tmp = p.with_extension("json.tmp");
     if std::fs::write(&tmp, body + "\n").is_ok() {
-        // 契约不含机密（只有路径），且目录已是 0700 —— 不再做平台权限分支
-        // （顶层模块保持平台无关；G1 门禁禁止 platform/ 之外的平台分支）。
+        // 契约不含机密（只有路径），且目录已是 0700 —— 不做平台权限分支
+        // （顶层模块保持平台无关）。
         let _ = std::fs::rename(&tmp, &p);
     } else {
         let _ = std::fs::remove_file(&tmp);
@@ -327,8 +322,7 @@ pub fn env_path(node_bin_dir: &Path) -> String {
 
 #[cfg(test)]
 mod toolchain_tests {
-    //! Toolchain contract behavior gate: environment ready means both node AND npm truly exist;
-    //!   when missing must honestly return None, never fabricate a path.
+    //! 环境就绪意味着 node 与 npm 都真实存在；缺失时如实返回 None，绝不伪造路径。
     use super::*;
 
     fn tmp(tag: &str) -> PathBuf {
@@ -339,9 +333,8 @@ mod toolchain_tests {
     }
 
     /// 本平台**可直接 spawn** 的垫片候选名（Windows 为 `npm.exe`，其余为 `npm`）。
-    ///
-    /// 夹具必须按平台事实构造：写死 `npm` 或 `npm.cmd` 会让同一条断言在另一个平台
-    ///   表达相反的含义（Linux 上 `npm.cmd` 是合法候选，Windows 上它拉不起来）。
+    /// 夹具必须按平台事实构造：写死 `npm` 或 `npm.cmd` 会让同一条断言在另一个平台表达相反的含义
+    /// （Linux 上 `npm.cmd` 是合法候选，Windows 上它拉不起来）。
     fn spawnable_shim_name() -> String {
         let name = npm_shim_candidates(Path::new("."))
             .into_iter()
@@ -381,9 +374,8 @@ mod toolchain_tests {
     }
 
     /// 契约的硬不变量：`probe_npm` 给出的程序**永远**能被 `Command::new` 直接拉起。
-    /// 三种布局（只垫片 / 垫片+包内 JS / 只包内 JS）逐一过一遍判据。
-    /// node 夹具用本平台真实文件名：以 node 承载 npm-cli.js 时，那个 node 路径会被交出去，
-    ///   写成裸 `node` 就等于在 Windows 上断言一个不存在于生产形态的名字。
+    /// 三种布局（只垫片 / 垫片+包内 JS / 只包内 JS）逐一过一遍判据。node 夹具用本平台真实文件名：
+    /// 以 node 承载 npm-cli.js 时那个 node 路径会被交出去，裸 `node` 在 Windows 上不是生产形态的名字。
     #[test]
     fn probe_npm_result_is_always_directly_spawnable() {
         let layouts = ["shim", "shim+cli", "cli"];
@@ -434,7 +426,7 @@ mod toolchain_tests {
 
     #[test]
     fn probe_npm_usable_rejects_non_executable() {
-        // 不变量 T-1b：文件存在 != 可用。空/不可执行的 npm 必须判为不可用。
+        // 不变量：文件存在 != 可用。空/不可执行的 npm 必须判为不可用。
         let d = tmp("usable");
         let node = d.join("node");
         std::fs::write(&node, b"").unwrap();

@@ -1,7 +1,7 @@
 'use strict';
 
 // 反代应用注册表与更新（IO）。deps 注入；更新 job 状态收敛于本工厂闭包（jobs）。
-// npx 缓存清理统一走 providers/pkg-cache（缓存目录是平台事实，硬编码 ~/.npm/_npx 在 Windows 恒空转）。
+// npx 缓存清理统一走 providers/pkg-cache（缓存目录是平台事实）。
 const { PROXY_APPS } = require('../proxy-apps');
 const { invalidatePkgCache } = require('../providers/pkg-cache');
 const { semverCompare } = require('../../../shared/version');

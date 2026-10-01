@@ -18,8 +18,8 @@ class EventHub {
   // daemonLogs/ctlPorts 按装配短键索引；logger 可选。
   constructor(opts) {
     this.stateDir = opts.stateDir;
-    // 聚合流/水位按 aggBase 派生唯一名：同一 stateDir 下多守卫（测试 TMP）共写同一
-    // aggregated 文件会让 hub 自己制造多写者、seq 互踩。
+    // 聚合流/水位按 aggBase 派生唯一名：同一 stateDir 下多守卫共写同一 aggregated 文件
+    // 会让 hub 自己制造多写者、seq 互踩。
     this.aggBase = opts.aggBase || 'state';
     this.guardEvents = opts.guardEvents || null;
     this.guardLogFile = opts.guardLogFile || null;
@@ -71,7 +71,7 @@ class EventHub {
 
   _saveWatermark() { saveWatermark(this.aggDir, this.watermarkFile, this.watermark, this.logger); }
 
-  // 转写事件到聚合流，返回最后成功写入的源 seq；写失败不推进水位（RC5.2 契约）。
+  // 转写事件到聚合流，返回最后成功写入的源 seq；写失败不推进水位。
   _ingest(source, list) {
     let lastOkSeq = null;
     for (const e of list) {
@@ -101,7 +101,7 @@ class EventHub {
   // 推模式：守卫 Events.append 已同步调此，守卫事件零延迟入聚合流。
   pushGuard(rec) {
     if (!rec || typeof rec.seq !== 'number') return;
-    // hub 来源标记：防御聚合流文件被误配为守卫事件文件时的递归（RC5.3 纵深防御之一）
+    // hub 来源标记：防御聚合流文件被误配为守卫事件文件时的递归。
     if (rec.source === 'guard-hub') return;
     const out = {
       ts: rec.ts || undefined,
@@ -221,7 +221,7 @@ module.exports = {
   EventHub, EventReader, tailFile,
   isInternalEvent: sources.isInternalEvent,
   ctlCall,
-  // DS-G4 装配注入接口（app/assembly/log-sources.js 消费）
+  // 装配注入接口（app/assembly/log-sources.js 消费）
   registerSource: sources.registerSource,
   registerSources: sources.registerSources,
   setSources: sources.setSources,

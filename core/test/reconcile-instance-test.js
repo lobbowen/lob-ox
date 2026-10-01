@@ -1,22 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 实例对账（reconcile）契约测试（PROXY-LIFECYCLE-STANDARD W1 形态）：
-// 验证生命周期引擎（pool.js 期望集 + restart.js 执行面）的不变量：
-//  R1 期望集恒为「在用1+预热1」：可用账号按 registeredAt 登记顺序取前 2，存活进程数=|期望集|；
-//    非期望集（等待区）零进程且端口随之归零（LC 核心-3）；对账幂等不重复 spawn
-//  R2 在用归属与 sticky：selectedAccountKeyId 提为在用；预热槽 sticky 留任；
-//    退位者走停止仲裁回收，下一拍其端口释放；|期望集| <= 2
-//  R3 绝不为不可用账号（ready+满额/冻结）保活实例——旧预热-回收死循环的回归防线
-//  R4 状态事件表：冻结即即时回收（进程+端口零宽限，_onStatusTransition 钩子），
-//    恢复回池（reconcileNow），满额账号不被拉起
-//  R5 usage 纯派生：in-use=activeAccount 指向；warming=实例在跑非在用；idle=其余
-//  R6 序列化守卫：ready+满额矛盾落盘前自我归位 frozen（不再产生预热燃料）
-//  R11 重启幸存者一律弃用重拉（禁 adopt：幸存进程 stdio 归属已死 daemon -> EPIPE 楔死，/health 探针盲区），同端口全新实例无幽灵不漂移
-//  R12 停服台账：stopInstance 后 waitAllStopped 确认子进程已死（含忽略 SIGTERM 的进程，SIGKILL 兜底）——防停服孤儿化
-//  R13 上游超时实例级自愈：restartInstance upstream-timeout kill 旧进程并同端口重拉（账号切换自愈闭环）
-//  R14 锁收敛（A）：锁只对可用账号有意义——冻结/封号即清锁；serialize 与加载不落死锁；不可用账号拒锁
-// 自包含：mock 反代本地 spawn，不触碰真实 commandcode/外部服务。
+// 实例对账（reconcile）契约（PROXY-LIFECYCLE-STANDARD W1 形态），验证生命周期引擎（pool.js 期望集 +
+//   restart.js 执行面）：R1 期望集恒为「在用1+预热1」且对账幂等 · R2 sticky 与退位回收 · R3 绝不为不可用
+//   账号保活 · R4 冻结即时回收/恢复回池 · R6 ready+满额矛盾落盘前归位 frozen · R11 重启幸存者弃用重拉 · R12 停服台账 · R14 锁收敛。
 
 const http = require('node:http');
 const path = require('node:path');
@@ -70,8 +57,7 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     return acc;
   };
 
-  // 公共夹具：原先 12 个块各自复制一遍「Provider 构造 + activated 开关」样板（审计点名的重复 fixture），
-  // 抽到一处，行为同构。activated 显式可关：R5 需要在断言「未跑实例 → idle」之前保持未激活。
+  // 公共夹具：Provider 构造 + activated 开关（activated 显式可关：R5 需在断言「未跑实例 → idle」前保持未激活）。
   const mkProv = (id, appOverride, activated) => {
     const p = new ProxyProvider({ id, name: id.toUpperCase(), kind: 'proxy', proxyAppId: 'vm', app: appOverride || app, logger: log, events: null, dist: null, onPersist: () => {} });
     p.activated = activated !== false;
@@ -108,8 +94,6 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     const B = await addAcc(p, 'sk-b2', 20, 'ready', null, 2000);
     const C = await addAcc(p, 'sk-b3', 30, 'ready', null, 3000);
     await p.reconcileInstances(); // 在用 A + 预热 B（sticky 记录进 _prewarmKeyId）
-    // R2a（`p._prewarmKeyId === B.keyId`，直读私有 sticky 字段）已删：私有字段形态锁；
-    // 其真保护（预热槽 sticky 留任）由紧随的 R2b 在**期望集结果面**（desired = C,B 而非 C,A）覆盖。
     p.selectedAccountKeyId = C.keyId; // 用户显式切换：C 提为在用
     const r = await p.reconcileInstances();
     check('R2b selected 提为在用，预热 sticky 留任（期望集 = C,B 而非 C,A）',
@@ -173,21 +157,14 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     // 实例在跑但非在用 -> warming
     p.activated = true;
     const sr = await p.startInstance(p.instanceOf(a));
-    // R5d（'实例可启动（测试前提）'）已删：显式夹具前置断言 —— 它失败时 R5e/R5f/R5g 必然连锁判红，
-    // 零独立风险，只占一条站点。
     await new Promise((res) => setTimeout(res, 600));
     check('R5e 实例在跑非在用 → warming', p.usageOf(a) === 'warming', p.usageOf(a) + ' pid=' + (p.instanceOf(a) && p.instanceOf(a).pid));
     p.markInUse(a.keyId);
     check('R5f 在用（activeAccount）→ in-use（实例运行态让位）', p.usageOf(a) === 'in-use', p.usageOf(a));
-    // R5g（`ser.usage === undefined && ser.validity === undefined`，序列化字段白名单）已删：
-    // 锁的是内部落盘 schema 的键集合 —— for 循环再新增一个派生字段即判红而产品行为没坏。
     if (p.instanceOf(a) && p.instanceOf(a).pid) p.stopInstance(p.instanceOf(a));
     await new Promise((res) => setTimeout(res, 400));
   }
 
-  // R6（一致性守卫：ready+满额 serialize 归位 frozen，3 条断言）整块已删：
-  // 与本批 #15 router-test.js「一致性守卫：满额 ready 账号落盘归位 frozen」同判据（三处之一），
-  // 按审计口径保留 router-test 侧一处，避免同一风险在两文件各测一遍。
 
   // R7 孤儿收敛：discard 时请求在途 -> 孤儿实例 reconcile 后回收（不再永久泄漏）
   {
@@ -265,10 +242,8 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     await new Promise((res) => setTimeout(res, 400));
   }
 
-  // R11 重启幸存者一律弃用重拉：幸存进程 stdio 归属已死 daemon，
-  // 首个请求写日志即 EPIPE 楔死（实测 677630：CPU 110% 旋转、completion 全挂而 /health 秒回——健康探针
-  // 检测不到该类病态，故【健康与否不再作为复用判据】）。断言：绑定端口幸存者被 SIGKILL、同端口全新实例、
-  // 无幽灵进程、端口绑定不漂移。R11a 健康幸存者；R11b 不健康（/health 500）幸存者。
+  // R11 重启幸存者一律弃用重拉（禁 adopt）：幸存进程 stdio 归属已死 daemon，首个请求写日志即 EPIPE 楔死，
+  //   而 /health 秒回 ⇒ 健康与否不再作为复用判据。断言：绑定端口幸存者被 SIGKILL、同端口全新实例、无幽灵、端口不漂移。
   {
     const app2 = Object.assign({}, app, { pkg: 'verproxy' }); // 带 cmdline 可匹配标记（幸存判定前提）
     const pidlook = require(path.join(ROOT, 'src', 'platform', 'os', 'pidlookup'));
@@ -339,11 +314,8 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     const pid = inst.pid;
     await new Promise((res) => setTimeout(res, 600));
     p.stopInstance(inst); // SIGTERM -> 被 stub 忽略
-    // Windows 无 POSIX 信号语义：stub 的 process.on('SIGTERM') handler 根本不生效，
-    // carrier L1 的终止经 killTree 落为 `taskkill /T /F`（强杀，等价 SIGKILL）——进程必死。
-    // 但 taskkill 是**异步** spawn（platform/os/process.js），落刀有几十~几百 ms 窗口，
-    // 紧跟 stopInstance 判 isAlive 会输在时序上。故在升级 SIGKILL 预算（ESCALATE_MS=1500）
-    // 之前给 1200ms 有界等待：窗口内死亡只可能来自第一刀 taskkill，判据不空转。
+    // Windows 无 POSIX 信号语义：carrier L1 的终止经 killTree 落为 `taskkill /T /F`（等价 SIGKILL），
+    //   而它是**异步** spawn，落刀有几十~几百 ms 窗口 ⇒ 在升级 SIGKILL 预算前给 1200ms 有界等待，判据不空转。
     const winNoSig = process.platform === 'win32';
     if (winNoSig) {
       const deadline = Date.now() + 1200;
@@ -353,12 +325,8 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     }
     check('R12c stopInstance 后进程处理（POSIX：仍在=TERM 被忽略；Windows：taskkill 强杀在升级预算内杀净=无 SIGTERM 语义可抗）',
       winNoSig ? !pidlook.isAlive(pid) : pidlook.isAlive(pid), 'alive=' + pidlook.isAlive(pid));
-    // R12d（`p._terminatingPids.has(pid)`）与 R12f（`!p._terminatingPids.size`）已删：
-    // 两条都直读私有停服台账 —— 内部记账是否同步，已被 R12e（waitAllStopped 后进程真死或
-    // 已投递 SIGKILL）与 R12g（端口真释放）在**外部后果面**覆盖；台账泄漏会让 waitAllStopped 超时。
-    // zombie（已退出未回收）判据必须走平台原语：Linux 读 /proc、macOS 看 ps 的 state 列、win32 无此形态。
-    // 本文件原先自己只读 /proc，非 Linux 恒得 'GONE' —— macOS 上「SIGKILL 已投递、仅待父进程回收」
-    // 就被判成活孤儿，这是 R12e 在 darwin-arm64 runner 上的真实红因。
+    // zombie（已退出未回收）判据必须走平台原语：Linux 读 /proc、macOS 看 ps 的 state 列、win32 无此形态 ——
+    //   只读 /proc 会让 macOS 上「SIGKILL 已投递、仅待父进程回收」被判成活孤儿。
     const deadOrZombie = (one) => !pidlook.isAlive(one) || pidlook.isZombie(one);
     const why = (one) => 'alive=' + pidlook.isAlive(one) + ' zombie=' + pidlook.isZombie(one);
     const okW = await p.waitAllStopped(3000); // unref SIGKILL(1.5s) 或本方法超时兜底
@@ -412,8 +380,7 @@ process.on('SIGTERM', () => { killSpawnedSync(); process.exit(143); });
     await new Promise((res) => setTimeout(res, 500));
   }
 
-  // R14 锁收敛：可用账号才可锁；serialize 收敛（冻结账号的锁**不落盘**）在别处无覆盖，
-  //   其余同判据采样已在 router-test / p2p-router F1 两处保留。
+  // R14 锁收敛：可用账号才可锁；serialize 收敛（冻结账号的锁**不落盘**）在别处无覆盖。
   {
     const p = mkProv('p14');
     const key = 'sk-lk';

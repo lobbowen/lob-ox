@@ -55,7 +55,8 @@ function macFind(port) {
 }
 
 function winFind(port) {
-  // 数据源固定 netstat -ano 解析 LISTENING 行：PowerShell Get-NetTCPConnection 输出不确定，
+  // 数据源固定 netstat -ano 解析 LISTENING 行：PowerShell Get-NetTCPConnection 输出不确定。
+// relay 建连的可见滞后由 targetReachable（TCP 直连）解决。
   // 会让守卫端口占用判定在 win runner 偶发失效；relay 建连的可见滞后由 targetReachable（TCP 直连）解决。
   try {
     const out = ex.runOut('netstat', ['-ano'], { timeoutMs: 3000 });
@@ -135,7 +136,7 @@ function readCmdline(pid) {
   }
   if (isWindows) {
     const out = ex.runOut('wmic', ['process', 'where', 'ProcessId=' + pid, 'get', 'CommandLine', '/value'], { timeoutMs: 5000 });
-    // wmic 解析不中/空输出时不得提前 return，必须继续 PowerShell CIM 回退（否则回退永不可达，
+    // wmic 解析不中/空输出时不得提前 return，必须继续 PowerShell CIM 回退，否则回退永不可达。
     // isDshCmdline 恒 false，Windows 上既不能接管手动启动的 DSH 也不报错）。
     const viaWmic = parseWmicCommandLine(out);
     if (viaWmic) return viaWmic;

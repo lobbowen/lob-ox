@@ -1,6 +1,6 @@
 'use strict';
 
-// dsh-auth 派生令牌的换取（DshTokenService 契约1 的 exchange 策略）。
+// dsh-auth 派生令牌的换取。
 // 协议：GET /?token=<launchToken> 返回 303 与 Set-Cookie: dsh-auth-<hash>=<v1 前缀值>；生成侧是 DSH 进程，我方负责换取。
 // 本模块不缓存任何结果：dshCookie 缓存由调用方 relay 掌握，令牌值始终由令牌池按需提供。
 

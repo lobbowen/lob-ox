@@ -1,4 +1,4 @@
-/** client.ts 单元测试：错误归一化 / 请求超时 / 访问密钥携带 / 2xx 假成功判据（UI 条 5）。
+/** client.ts 单元测试：错误归一化 / 请求超时 / 访问密钥携带 / 2xx 假成功判据。
  *  不依赖真实后端：vi.stubGlobal 注入 fetch。 */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { failureFromResult, supervisorApi, setStoredAccessKey, LONG_TIMEOUT_MS } from "./client";
@@ -120,8 +120,8 @@ describe("B8 访问密钥携带与 401 语义", () => {
 });
 
 /** 2xx 响应体里的 { ok:false } 是「假成功」形态：http() 只看状态码（探测类端点 ok:false 属数据），
- *  判失败的责任在 failureFromResult，由共享动作 hook run() 消费
- *  （接线由内核侧 test/round8-fixes-test.js 的 UI 条 5 静态门禁锁定；vitest 环境为 node，无法挂载 React hook）。 */
+ *  判失败的责任在 failureFromResult，由共享动作 hook run() 消费。
+ *  （vitest 环境为 node，无法挂载 React hook，故这里只测纯判据。） */
 describe("UI 条 5 假成功判据 failureFromResult", () => {
   it("ok:false + error → 返回后端拒因", () => {
     expect(failureFromResult({ ok: false, error: "安全策略：仅允许公网地址" })).toBe("安全策略：仅允许公网地址");

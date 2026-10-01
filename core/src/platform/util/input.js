@@ -36,8 +36,7 @@ function argvViolation(arg) {
 /** 控制符（含 NUL 与换行）：出现在 argv 值里没有合法用途，且会让 spawn 直接抛错。 */
 const CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
-/** 绝对路径的形态判定（跨平台）。不用 path.isAbsolute —— 那会随宿主平台改变结论，
- *  Windows 专属分支在 Linux CI 上就永不被校验。 */
+/** 绝对路径的形态判定（跨平台）。不用 path.isAbsolute —— 结论会随宿主平台改变。 */
 function isAbsoluteForm(p) {
   const s = String(p == null ? '' : p);
   return s.charCodeAt(0) === 47 /* / */

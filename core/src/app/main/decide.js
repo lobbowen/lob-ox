@@ -1,13 +1,12 @@
 'use strict';
 
-// app/main/decide.js —— 主进程收敛的纯决策段（_mainStateSnapshot/_decideMainAction/_decideCrashRestart）。
-// 导出 { methods }，由 app/assembly/facets.js 装到 host；方法名与 { methods } 形态不可改。
-// _decideMainAction 必须零 this：shadow-decision-test 以 decide(base()) 形式裸调（this=undefined），
-// 故其内部经模块内纯函数 decideCrashRestart() 协作、绝不触碰 deps；其余事实经 depsOf(host) 惰性缓存取得。
+// 主进程收敛的纯决策段（_mainStateSnapshot/_decideMainAction/_decideCrashRestart）。导出 { methods }，由
+//   app/assembly/facets.js 装到 host；方法名与 { methods } 形态不可改。_decideMainAction 必须零 this
+//   （decide(base()) 形式的裸调，this=undefined），故内部经模块内纯函数 decideCrashRestart() 协作、绝不触碰 deps。
 const pidlook = require('../../platform/os/pidlookup');
 
-// STARTING 超时唯一判据：deadline 缺失（守卫从盘恢复、本字段不持久化）视为「未到期」，
-// 由 controller 首拍重derive宽限——真实 tick 与影子共用本函数，禁止第二份写法。
+// STARTING 超时唯一判据：deadline 缺失（守卫从盘恢复、本字段不持久化）视为「未到期」，由 controller 首拍
+//   重 derive 宽限 —— 真实 tick 与影子共用本函数，禁止第二份写法。
 function startDeadlinePassed(deadline, now) {
   return !!(deadline && now > deadline);
 }
@@ -42,8 +41,10 @@ function depsOf(host) {
   return d;
 }
 
-/** 崩溃类 restart 决策（模块内纯函数）：语义与 _beginRestart(countCrash=true) 一致。
- *  刻意留作模块局部：_decideMainAction 允许无 host 裸调用，不能经 deps。 */
+/**
+ * 崩溃类 restart 决策（模块内纯函数）：语义与 _beginRestart(countCrash=true) 一致。刻意留作模块局部：
+ * _decideMainAction 允许无 host 裸调用，不能经 deps。
+ */
 function decideCrashRestart(reason) {
   return { action: 'restart', reason, countCrash: true };
 }
@@ -70,8 +71,8 @@ module.exports = {
       startDeadlinePassed: startDeadlinePassed(d.mStartDeadline(), now),
       restartDue: d.mRestartAt() === null || now >= d.mRestartAt(),
       backoffDue: d.mBackoffUntil() === null || now >= d.mBackoffUntil(),
-      // `_shouldRun()` 有两个否决位，快照必须建模（crashHalted/sessionHalting），否则影子每拍
-      // 算出的应然与真实 tick 不一致，零 diff 门槛永久不可达。
+            // `_shouldRun()` 有两个否决位，快照必须建模（crashHalted/sessionHalting），否则影子每拍算出的应然与真实 tick
+            //   不一致，零 diff 门槛永久不可达。
       crashHalted: d.crashHalted() === true, // guardian=false 崩溃后停靠：等显式启动
       sessionHalting: d.session().halting() === true, // 退出流程中：抑制一切自动拉起
       crashWindowStart: d.mCrashWindowStart(),
@@ -80,9 +81,10 @@ module.exports = {
     };
   },
 
-  /** 纯决策：按现有 tick 语义计算「应然下一步」。action 词表：
-   *  none/start/stop/adopt/adoptObserved/enterRunning/restart/backoff。
-   *  只读快照，零副作用（影子与收敛复用同一决策源）。 */
+    /**
+   * 纯决策：按现有 tick 语义计算「应然下一步」。只读快照，零副作用（影子与收敛复用同一决策源）。
+   * action 词表：none/start/stop/adopt/adoptObserved/enterRunning/restart/backoff。
+   */
   _decideMainAction(s) {
     if (!s) return { action: 'none', reason: 'no-snapshot' };
     const targetAlive = s.childAlive || s.adoptedAlive;

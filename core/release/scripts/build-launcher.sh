@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # 内核统一发布物。
-# 背景：Node SEA 单文件二进制在 macOS 上注入后即段错误（最小 hello-world SEA 亦崩，
-# 与代码/codecache/codesign 无关 = Node SEA 在 mac 的上游缺陷，铁证）。为彻底消除平台差异，
-# 全平台统一发布「Node launcher」npm 包：esbuild bundle + node 启动脚本 + ui-react。
+# Node SEA 单文件二进制在 macOS 上注入后即段错误（上游缺陷），故全平台统一发布
+#   「Node launcher」npm 包：esbuild bundle + node 启动脚本 + ui-react。
 # 产物（dist/launcher/）：
 #   dsh-supervisor-<ver>-<platform>-<arch>/
 #     +-- bin/dsh-supervisor        # node shebang 启动脚本（require ./core.cjs）
@@ -16,17 +15,15 @@
 #
 # 为什么 --all-platforms 是「一次构建 + 派生四份」而非「构建四次」：
 #   launcher 是**纯 JS 产物**——内核依赖数为 0、产物中 .node 文件数为 0，平台差异**仅**体现在
-#   npm 的 os/cpu 元数据与目录名。实测同一 bundle 在 linux/win32/darwin 三种覆盖下 sha256 完全一致。
-#   故正确做法是构建一次再派生元数据包装：既省时，也从**构造上保证**四平台代码同源
-#   （历史上曾因三平台在不同时间点各自构建，导致同版本 mac/win 与 linux 代码不一致）。
+#   npm 的 os/cpu 元数据与目录名。故构建一次再派生元数据包装，既省时，
+#   也从**构造上保证**四平台代码同源。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 # 硬标准：**任何平台构建都必须经 GitHub CI**，本地不得产生发布产物。
-#   守卫放在参数解析之前、覆盖全部调用形态：此前只有 `--all-platforms` 分支带守卫，
-#   单平台路径无守卫，等于这条旁路只封了一半（规范禁止本机跑 build:launcher，脚本却不拦）。
-#   CI 的 test job 需要四平台产物供 T6-d/T6-e 断言，故 CI 内照常放行。
+#   守卫放在参数解析之前、覆盖全部调用形态（含单平台路径）；
+#   CI 的 test job 需要四平台产物，故 CI 内照常放行。
 if [ "${GITHUB_ACTIONS:-}" != 'true' ]; then
   echo '拒绝：launcher 构建只允许在 GitHub CI 内运行（GITHUB_ACTIONS=true）。' >&2
   echo '  硬标准：所有平台构建与发布必须经 GitHub CI 完成；本地不得产生发布产物。' >&2
@@ -70,9 +67,8 @@ bash "$ROOT/release/scripts/build-ui.sh"
 [ -f "$ROOT/ui-react/supervisor.html" ] || { echo "错误：UI 镜像缺失"; exit 1; }
 
 echo "[2/6] esbuild 打包 bin → core.cjs…（平台无关：仅 --platform=node + 版本注入）"
-# B23/B26：
 #  1) 版本形态硬校验后才进 --define 插值 —— 防含引号/空格/$ 的 version 破坏参数或注入 shell。
-#  2) npx 浮动拉包 = 同 commit 不同天构建结果可能不同（esbuild 新 release 悄悄换默认行为）。
+#  2) npx 浮动拉包 = 同 commit 不同天构建结果可能不同（esbuild 新 release 会换默认行为）。
 #     固版：默认锁一个已验证版本，DSH_ESBUILD_VERSION 显式覆盖；构建后复跑 --version 对账，
 #     不一致即失败（npx 拉不到固版会自行报错，不会静默回退别的版本）。
 case "$VER" in
@@ -169,9 +165,8 @@ if ! printf "%s" "$UI_BODY" | grep -q "<div id=\"root\">"; then
 fi
 echo "  UI 服务断言 OK"
 kill "$SMOKE_PID" 2>/dev/null || true
-# 必须**等进程真正退出**再删目录：
-#   kill 是异步的；刚启动的 daemon 及其子进程可能仍在写 $SMOKE_HOME，
-#   此时 rm -rf 会因遍历期间目录被新建文件而报 "Directory not empty" 并以非零退出；
+# 必须**等进程真正退出**再删目录：kill 是异步的，刚启动的 daemon 及其子进程可能仍在写
+#   $SMOKE_HOME，此时 rm -rf 会因遍历期间目录被新建文件而报 "Directory not empty" 并以非零退出，
 #   在 set -e 下直接中止整个构建（冒烟断言其实已通过，却报发布失败）。
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   kill -0 "$SMOKE_PID" 2>/dev/null || break

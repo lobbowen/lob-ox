@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// 伪内核：CI 启动链冒烟的**被拉起对象**，与真实内核同语义（按实际端口绑定 + 持久化 ports.json + 回 /healthz）。
-// 用途是把「壳的判据链」与「内核是否就绪」解耦：本文件被复制成 <pkg>/bin/dsh-supervisor 使用，
-// 由 build job 的 H3 与 install-smoke 的 H10 共用，避免同一夹具两份维护。
+// 伪内核：CI 启动链与安装冒烟的**被拉起对象**，与真实内核同语义（按实际端口绑定 + 持久化
+// ports.json + 回 /healthz）；壳的判据链因此与「内核是否真的就绪」解耦。本文件被复制成
+// <pkg>/bin/dsh-supervisor 使用，两处冒烟共用同一份夹具。
 const http = require('http'), fs = require('fs'), path = require('path');
 const dir = path.join(process.env.DSH_SUPERVISOR_HOME, 'supervisor');
 let port = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8')).apiPort;

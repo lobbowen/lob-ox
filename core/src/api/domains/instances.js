@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const { bootstrapDshCookie } = require('../../platform/service/token/exchange');
 
 // open-web 一次性授权码表（键=码，值={ id, exp }，仅内存）。DSH 令牌绝不进 URL：URL 原样进
-// spawn argv，同机任意进程 ps 即可读到会话令牌（TK-G6）。浏览器只拿限时单次码回 /open 换 cookie。
+// spawn argv，同机任意进程 ps 即可读到会话令牌。浏览器只拿限时单次码回 /open 换 cookie。
 const OPEN_WEB_CODES = new Map();
 const OPEN_WEB_CODE_TTL_MS = 30000;
 
@@ -71,8 +71,7 @@ function handleOpen(ctx) {
 
 // command 原样经 startTransient 交给 systemd-run，任意二进制即「以守卫身份执行任意命令」，故本闸 fail-closed = 结构校验 + 入口白名单，路径存在性不作为放行依据。
 // 允许两形态：A [node, <绝对路径的 DSH 入口>, ...参数]（相对入口按沙箱可写的 data 目录解析，故必须绝对）；B [<DSH 入口>, ...参数]；
-// command 缺失/[] = 沙箱默认命令（域内 effectiveCommand 生成），不经本闸；非法一律 400 { ok:false, error }。
-// 已知残留：basename 判据可被「把脚本命名为 dsh*.js」绕过，由执行前 realpath 归属复校兜底（domains/instance/lifecycle.js 共用 exec-path.commandEntryViolation）。
+// command 缺失/[] = 沙箱默认命令（域内 effectiveCommand 生成），不经本闸；非法一律 400 { ok:false, error }。已知残留：basename 判据可被「命名为 dsh*.js」绕过，由执行前 realpath 复校兜底（exec-path.commandEntryViolation）。
 function commandShapeError(command, dshBin) {
   if (command === undefined || command === null) return null;
   if (!Array.isArray(command)) return 'command 必须为参数数组';
@@ -86,7 +85,7 @@ function commandShapeError(command, dshBin) {
   }
   // 白名单：只认 node / dsh 系列（大小写不敏感以兼容 Windows；两种分隔符都切，不依赖宿主平台）。
   const NODE_HEAD = new Set(['node', 'node.exe']);
-  // command[0] 的 dsh 族维持现行为（含 Windows 的 dsh.exe / npm 垫片 dsh.cmd/.ps1）。
+  // command[0] 的 dsh 族（含 Windows 的 dsh.exe / npm 垫片 dsh.cmd/.ps1）。
   const DSH_HEAD = new Set(['dsh', 'dsh.exe', 'dsh.js', 'dsh-supervisor', 'dsh-supervisor.js', 'dsh.cmd', 'dsh.ps1']);
   // command[1] 是 node 的脚本参数（.js 等），故不收 .exe/.cmd 形态。
   const DSH_ENTRY = new Set(['dsh', 'dsh.js', 'dsh-supervisor', 'dsh-supervisor.js']);
@@ -143,10 +142,9 @@ function handle(ctx) {
       const decorate = (it) => {
         const tok = tokOf(it.id);
         const out = Object.assign({}, it);
-        // 远程控制令牌的边界：默认剔除，只留 tokenSet 布尔（main 视图含 remoteToken 供 LanManager
-        // mainOf 进程内消费，沙箱记录同字段）。回环来源例外交出明文：本机面板要能查看/修改已分配的
-        // 令牌，才能把「开启远程控制时自动补齐的凭据」闭环——判据与下方 authUrl 同一条（identity.loopback，
-        // socket 层现取）。LAN/公网访客仍只见布尔，放宽的是呈现形态而非可达面。
+        // 远程控制令牌的边界：默认剔除，只留 tokenSet 布尔（main 视图含 remoteToken 供 LanManager mainOf 进程内消费）。
+        // 回环来源例外交出明文：本机面板要能查看/修改已分配的令牌，才能把「开启远程控制时自动补齐的凭据」闭环——
+        // 判据与下方 authUrl 同一条（identity.loopback，socket 层现取）。LAN/公网访客仍只见布尔，放宽的是呈现形态而非可达面。
         const loopback = identity.loopback;
         out.tokenSet = !!String(it.remoteToken || '').trim();
         if (!loopback) delete out.remoteToken;
@@ -194,13 +192,13 @@ function handle(ctx) {
           // 域动作的 {ok:false} 一律映射为非 2xx：恒 200 会让面板显示「已删除/已停止/已启动」而实际未生效。
           if (act === 'remove' && j.id) { const r = sup.instances.removeInstance(j.id); return send(r && r.ok ? 200 : 400, r); }
           if (act === 'update' && j.id) { const r = sup.instances.updateInstance(j.id, j); return send(r && r.ok ? 200 : 400, r); }
-          // 面板「启动/重试」= 用户显式动作：opts.manual 开新失败链（B2-6d，退避计数清零归监督拍累加）。
+          // 面板「启动/重试」= 用户显式动作：opts.manual 开新失败链（退避计数清零归监督拍累加）。
           if (act === 'start' && j.id) return Promise.resolve(sup.instances.startInstance(j.id, { manual: true }))
             .then((r) => send(r && r.ok ? 200 : 400, r))
             .catch((e) => send(500, { ok: false, error: e.message }));
           if (act === 'stop' && j.id) { const r = sup.instances.stopInstance(j.id); return send(r && r.ok ? 200 : 400, r); }
           // 用系统默认浏览器打开实例 Web（Tauri/WebView 内 window.open 被拦）。
-          // TK-G6：URL 只带一次性授权码，令牌本身不得进 spawn argv。
+          // URL 只带一次性授权码，令牌本身不得进 spawn argv。
           if (act === 'open-web' && j.id) {
             try {
               const it = (j.id === 'main' && sup.dshMainView && typeof sup.dshMainView === 'function')
@@ -212,8 +210,7 @@ function handle(ctx) {
               const code = issueOpenWebCode(j.id);
               const url = 'http://127.0.0.1:' + sup.config.apiPort + '/open?code=' + code;
               // 三档结果（confirmed / handedOff / ok:false）原样透传：面板据此区分「已在浏览器打开」
-              // 与「只是把地址交了出去」，并把 url 呈现为可复制文本 —— 旧实现把 spawn 未抛错当成功，
-              // 屏幕上什么都没有却显示成功。
+              // 与「只是把地址交了出去」，并把 url 呈现为可复制文本。
               return Promise.resolve(openInSystemBrowser(url)).then((r) => {
                 if (!r.ok) dropOpenWebCode(code);
                 return send(r.ok ? 200 : 500, r);
@@ -232,10 +229,10 @@ function handle(ctx) {
       });
       return;
     }
-  // 域内未匹配(方法/子路径)：全局兜底语义(与单文件时代一致)
+  // 域内未匹配(方法/子路径)：全局兜底语义
   if (req.method === 'GET' || req.method === 'POST') return send(404, { error: 'not found', path: pathname });
   return send(405, { error: 'method not allowed' });
 }
 
-// handleOpen 一并导出：源码正则证明不了「令牌不进 URL」，须能真实驱动 /open 并看 Set-Cookie。
+// handleOpen 一并导出：便于直接驱动 /open 并检查 Set-Cookie。
 module.exports = { owns, handle, handleOpen, issueOpenWebCode, consumeOpenWebCode };

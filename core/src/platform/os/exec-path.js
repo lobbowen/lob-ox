@@ -22,9 +22,8 @@ function candidateNames(base, platform) {
   return [...new Set(names)];
 }
 
-/** 必须校验执行位：POSIX 上 0644 普通文件（半截安装、误拷贝）不可作候选返回，否则 spawn 以 EACCES
- *  失败且污染上层「已安装」判定；win32 无执行位语义，维持 isFile。
- *  platform 可注入：宿主与注入平台不一致时按注入侧走，保证纯函数测试可穷举。 */
+/** 必须校验执行位：POSIX 上 0644 普通文件不可作候选返回（否则 spawn 以 EACCES 失败并污染上层
+ *  「已安装」判定）；win32 无执行位语义，维持 isFile。platform 可注入，按注入侧走。 */
 function isExecutableFile(p, platform) {
   try {
     if (!fs.statSync(p).isFile()) return false;
@@ -43,8 +42,7 @@ function firstExecutable(dir, base, platform) {
   return null;
 }
 
-/** 标准安装目录（按优先级；跨平台）。platform/env 可注入：宿主与注入平台不一致时按注入侧解析，
- *  纯函数测试可穷举。 */
+/** 标准安装目录（按优先级；跨平台）。platform/env 可注入，按注入侧解析。 */
 function standardDirs(platform, home, env) {
   const pl = platform || process.platform;
   const h = home || os.homedir();
@@ -53,7 +51,7 @@ function standardDirs(platform, home, env) {
   if (pl === 'win32') {
     if (e.APPDATA) dirs.push(path.join(e.APPDATA, 'npm'));
     if (e.LOCALAPPDATA) dirs.push(path.join(e.LOCALAPPDATA, 'Programs', 'dsh-supervisor'));
-    dirs.push(path.join(h, '.local', 'bin')); // 兼容旧布局（未必存在，解析时按可执行文件过滤）
+    dirs.push(path.join(h, '.local', 'bin')); // 未必存在，解析时按可执行文件过滤
   } else {
     dirs.push(path.join(h, '.local', 'bin'));
     dirs.push(path.join(h, '.npm-global', 'bin'));
@@ -98,8 +96,8 @@ function resolveExecutable(base, opts) {
   return null;
 }
 
-/** 解析 npx 的可执行路径（跨平台）。Windows 实际可执行是 npx.cmd：Node 的 spawn/execFile 不做
- *  PATHEXT 解析，裸 npx 一律 ENOENT；解析失败仍返回 npx.cmd（失败留给调用方，不把 null 传进 spawn）。platform 可注入便于纯函数测试。 */
+/** 解析 npx 的可执行路径。Windows 实际可执行是 npx.cmd：Node 的 spawn/execFile 不做 PATHEXT 解析，
+ *  裸 npx 一律 ENOENT；解析失败仍返回 npx.cmd（失败留给调用方，不把 null 传进 spawn）。 */
 function npxBin(opts) {
   const o = opts || {};
   const pl = o.platform || process.platform;
@@ -112,8 +110,8 @@ function npxBin(opts) {
   return 'npx.cmd';
 }
 
-/** 解析 npm 的可执行路径（跨平台），全仓唯一解析入口。Windows 实际可执行是 npm.cmd：spawn/execFileSync
- *  不做 PATHEXT 解析，裸 npm 一律 ENOENT，故 Windows 走 PATHEXT（优先 .cmd）、其余平台直接用 npm；解析失败返回可执行名而非 null，沿用调用方既有错误路径。platform 可注入。 */
+/** 解析 npm 的可执行路径，全仓唯一解析入口。Windows 实际可执行是 npm.cmd：spawn/execFileSync 不做
+ *  PATHEXT 解析，故 Windows 走 PATHEXT（优先 .cmd）、其余平台直接用 npm；解析失败返回可执行名而非 null。 */
 function npmBin(opts) {
   const o = opts || {};
   const pl = o.platform || process.platform;
@@ -123,8 +121,7 @@ function npmBin(opts) {
     env.APPDATA ? path.join(env.APPDATA, 'npm') : null,
   ].filter(Boolean) });
   if (resolved) return resolved;
-  // 解析不到时仍返回 npm.cmd：Windows 上裸 npm 可执行概率近零，npm.cmd 至少 PATH 生效时能被
-  // cmd.exe 找到（把失败留给调用方的错误处理）。
+  // 解析不到时仍返回 npm.cmd：Windows 上裸 npm 可执行概率近零，npm.cmd 至少 PATH 生效时能被执行器找到。
   return 'npm.cmd';
 }
 
@@ -134,10 +131,10 @@ function dshJsIn(prefix) {
   return path.join(prefix, 'node_modules', ...DSH_PKG, 'lib', 'bin.js');
 }
 
-/** 解析原生 DSH 的可执行入口（跨平台，优先包内 JS）。不得按裸逻辑名 'dsh' 判已安装：node 不做 PATH
- *  解析、Windows 裸 dsh 无扩展名。顺序：DSH_BIN -> PATH（Windows 走 PATHEXT）-> 标准落点 ->
- *  <npmRoot>/node_modules/@deepseek-ai/dsh/lib/bin.js。返回 { runtime, bin, isJs, launcher }：命中包内 JS 用当前 node 执行，
- *  只命中垫片则反查同前缀包内 JS；都没有返回 null（调用方如实报「未安装」，绝不猜）。 */
+/** 解析原生 DSH 的可执行入口（优先包内 JS）。不得按裸逻辑名 'dsh' 判已安装：node 不做 PATH 解析、
+ *  Windows 裸 dsh 无扩展名。顺序：DSH_BIN -> PATH（Windows 走 PATHEXT）-> 标准落点 ->
+ *  <npmRoot>/node_modules/@deepseek-ai/dsh/lib/bin.js。返回 { runtime, bin, isJs, launcher }：
+ *  命中包内 JS 用当前 node 执行，只命中垫片则反查同前缀包内 JS；都没有返回 null。 */
 function resolveDsh(opts) {
   const o = opts || {};
   const pl = o.platform || process.platform;
@@ -165,8 +162,8 @@ function resolveDsh(opts) {
 }
 
 /** 内核已知的 DSH 入口位置（单一事实源：复用 resolveDsh()/dshJsIn()，供 api 形态闸与启动期复校共用）。
- *  返回可能不存在的候选绝对路径，调用方按需 realpath（不存在者自动跳过）。
- *  调用方不得自行硬编码包路径子串判「官方包内入口」——第二份事实源可被伪包内路径（/tmp/... 前缀）绕过。
+ *  返回可能不存在的候选绝对路径，调用方按需 realpath。调用方不得自行硬编码包路径子串判「官方包内
+ *  入口」——第二份事实源可被伪包内路径绕过。
  *  @param {{platform?:string, env?:object, npmRoot?:string, dshBin?:string}} [opts] @returns {string[]} */
 function knownDshEntries(opts) {
   const o = opts || {};
@@ -184,10 +181,12 @@ function knownDshEntries(opts) {
   return [...new Set(out.filter((x) => typeof x === 'string' && x))];
 }
 
-/** 启动命令「入口归属」校验（纯函数：api 形态闸与启动期复校共用，避免第二份）。inst.command 是用户可填自由 argv、
- *  原样交给 systemd-run，basename 白名单可被「把脚本命名为 dsh*.js」绕过，故保守即拒绝（误放行=执行任意代码）。
- *  判据：[node,<entry>,...] 取 entry=cmdArr[1] 否则 cmdArr[0]；裸名放行交 PATH 解析（内核默认命令正是此形态，不得误拒），requireAbsoluteEntry（api 闸）下 node 打头的裸名亦拒；
- *  相对路径拒（按沙箱内可写的 workingDir 解析）；绝对路径须 allowEntry 放行或 realpath（root/file 两侧均 realpath，防安装根内软链指向 /tmp）后精确等于 files 之一/位于 roots 下，realpath 失败即拒（fail-closed，防「先提交、后由外部创建」绕过）。@returns {string|null} 违规原因；null=通过 */
+/** 启动命令「入口归属」校验（纯函数：api 形态闸与启动期复校共用）。inst.command 是用户可填自由 argv、
+ *  原样交给 systemd-run，basename 白名单可被「把脚本命名为 dsh*.js」绕过，故保守即拒绝。
+ *  判据：[node,<entry>,...] 取 entry=cmdArr[1] 否则 cmdArr[0]；裸名放行交 PATH 解析（内核默认命令正是
+ *  此形态），requireAbsoluteEntry（api 闸）下 node 打头的裸名亦拒；相对路径拒（按沙箱内可写的 workingDir
+ *  解析）；绝对路径须 allowEntry 放行，或两侧 realpath 后精确等于 files 之一/位于 roots 下，
+ *  realpath 失败即拒（fail-closed，防「先提交、后由外部创建」绕过）。@returns {string|null} 违规原因；null=通过 */
 function commandEntryViolation(cmdArr, opts) {
   const o = opts || {};
   const rp = o.realpath || ((p) => fs.realpathSync(p));

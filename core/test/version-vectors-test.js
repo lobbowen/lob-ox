@@ -1,12 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 版本语义**共享测试向量**回归：壳（Rust）与内核（JS）各自实现版本校验/比较，跨语言无法共享
-// 代码，故共享**行为规格**本仓 shared/version-vectors.json（实测分歧：`1.0.0+`、`1.0.0+!!!`、
-// `1.0.0+あ` 壳判合法、内核旧实现判非法）。两仓不互相读源码——跨仓一致性属契约产物问题。
-// 本测试：V1 逐条断言内核实现（VERSION_RE / semverCompare）符合向量。
-// ---------------------------------------------------------------------------
+// 版本语义**共享测试向量**回归：壳（Rust）与内核（JS）各自实现版本校验/比较，跨语言无法共享代码，
+//   故共享行为规格本仓 shared/version-vectors.json（跨语言分歧样本：`1.0.0+`、`1.0.0+!!!`、`1.0.0+あ`）。
+//   本测试逐条断言内核实现（VERSION_RE / semverCompare）符合向量；两仓不互相读源码。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -37,8 +34,6 @@ console.log('== V1 版本向量（内核实现）==');
   }
 }
 
-// （历史分歧向量 `1.0.0+` 等 4 条已整段删除：它们逐字存在于 shared/version-vectors.json 的
-//   versionValidation，上面的 V1 循环已经断言过，原 V3 块是纯重复采样。）
 
 const failed = results.filter((r) => !r);
 console.log(String.fromCharCode(10) + '结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');

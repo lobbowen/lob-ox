@@ -43,7 +43,7 @@ function resolve(relPath) {
   return fs.existsSync(p) ? p : null;
 }
 
-/** 诊断用：所有候选根及其成立情况（供 --self-check 与门禁输出）。 */
+/** 诊断用：所有候选根及其成立情况（供 --self-check 输出）。 */
 function describe() {
   return {
     resolved: resolveSrcRoot(),

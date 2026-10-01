@@ -1,22 +1,10 @@
 #!/usr/bin/env node
 'use strict';
 
-// 卸载类测试：本脚本含插件卸载（PluginManager.uninstall）场景，涉及卸载类操作，
-// 已纳入 npm test（CI）自动测试链执行；测试结论只能由 CI 裁决，本地不单独复跑
-// （如需排查，可显式执行 node test/plugin-change-restart-test.js 或 npm run test:plugin-change-restart）。
 
-// 插件管理双机制（原生宿主 x 沙箱实例）核心行为测试：
-//  - 卸载：官方 CLI + bundles 清理 + 跨层残留（home 补丁层/原生 overlay/profile 补丁层）清理
-//    + 运行中实例自动重启；job 级核算（部分失败 -> failed）
-//  - 停用/启用：官方补丁层机制（$DSH_HOME/cordis.patch.yml）热载面，不动 bundles（防 reconcile 击穿），
-//    无需重启；启用顺带清理 legacy overlay
-//  - 更新：检测（registry 最高版 vs 已装版）+ 执行（update/add）+ 重启生效；本地/git 型拒绝
-//  - registry 取不到版本：报「取不到 + 原因」而不是静默无更新，且失败结论不落进检测缓存
-//  - 检测读端点「立即回快照 + 后台跑」（Q 组）：面板 15s 计时不去等 N 个插件的 registry 往返
-//  - 补丁层写队列纪律（R 组，原 test/plugin-write-queue-resilience-test.js 并入：同域宿主）：
-//    一次写盘异常**不得毒化**串行队列（Q 组为同域，非同一事实）
-// 全部用桩（stub CLI/instances/registry），profile 目录用真实临时目录验证文件级行为。
-// 断言只落外部行为：日志措辞正则与内部事件名（改词即红、产品等价）已按审计裁定删除。
+// 插件管理双机制（原生宿主 x 沙箱实例）核心行为：卸载（官方 CLI + bundles + 跨层残留清理 + 运行中实例自动重启，
+//   job 级核算）· 停用/启用（官方补丁层 $DSH_HOME/cordis.patch.yml 热载，不动 bundles，无需重启）·
+//   更新（registry 最高版 vs 已装版 + 重启生效，本地/git 型拒绝）· 取不到版本要报「取不到 + 原因」· 检测「立即回快照 + 后台跑」。
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -140,7 +128,7 @@ const homePatchFile = (profileDir) => path.join(path.dirname(path.dirname(profil
     const { pm, instances } = makePM({ running: false, pnpmResult: true });
     const r = await pm.uninstall('@x/p', 'inst-a');
     const job = await waitJob(pm, r.jobId, 3000);
-    // 「job done」与紧随其后的语义断言合成一条：只留语义那条会在 job 根本没跑完时**空转通过**。
+    // job 语义断言必须在「job done」之后：只留语义会在 job 根本没跑完时空转通过。
     check('B1 卸载 job done 且未运行的实例不重启',
       job.state === 'done' && !instances.calls.includes('stop:inst-a') && !instances.calls.includes('start:inst-a'),
       job.state + ' ' + instances.calls.join(','));
@@ -163,7 +151,7 @@ const homePatchFile = (profileDir) => path.join(path.dirname(path.dirname(profil
     pm._removeFromProfileBundles = () => false;
     const r = await pm.uninstall('@x/p', 'inst-a');
     const job = await waitJob(pm, r.jobId, 3000);
-    // job failed（真信号）与「失败不重启」合成一条：只留后者时，job 没跑起来也会假绿。
+    // job failed（真信号）与「失败不重启」同判：只留后者时 job 没跑起来也会假绿。
     check('D1 硬失败 job failed 且不重启',
       job.state === 'failed' && !instances.calls.includes('stop:inst-a'),
       job.state + ' ' + instances.calls.join(','));
@@ -176,7 +164,6 @@ const homePatchFile = (profileDir) => path.join(path.dirname(path.dirname(profil
     const job = await waitJob(pm, r.jobId, 3000);
     check('E1/E2 原生卸载 job done，且原生走 supervisor 重启回调恰好一次',
       job.state === 'done' && nativeRestartCalls === 1, job.state + ' calls=' + nativeRestartCalls);
-    // 原 E3「未直接操作 systemd」已删：E2 的「回调恰好 1 次」已蕴含没走别的重启路，且它判的桩字符串从不出现。
   }
   // -- F0. 行保留回归：禁用/启用不得误删补丁层中的非 disabled 用户行/insert 行--
   {
@@ -364,7 +351,6 @@ const homePatchFile = (profileDir) => path.join(path.dirname(path.dirname(profil
     check('Q1 registry 未回时读端点已返回（旧形态会卡到这里被面板 15s 判失败）',
       dt < 100 && first.refreshing === true && first.checkedAt === 0 && (first.plugins || []).length === 0,
       dt + 'ms ' + JSON.stringify({ r: first.refreshing, c: first.checkedAt }));
-    // 原 Q2（`_updInFlight !== null` 内部字段形状）已删：同一风险的行为证据在 Q1（第二次立即返回）与 Q3。
     release();
     await settleInFlight(pm);
     const done = await pm.checkUpdates();
@@ -374,18 +360,14 @@ const homePatchFile = (profileDir) => path.join(path.dirname(path.dirname(profil
       JSON.stringify({ r: done.refreshing, n: (done.plugins || []).length }));
   }
 
-  // -- R. 补丁层写队列：一次写盘异常**不得毒化**队列（原 test/plugin-write-queue-resilience-test.js 并入）--
-  //   失效模式 g：入队若无 catch，一次 EACCES/EIO/ENOSPC 后队列永久 rejected ⇒ 本进程剩余生命周期内
-  //   每次 enable/disable 写盘**根本不发生**，卸载 scrub 静默跳过而 uninstall 照常「报成功」，全程无日志。
-  //   Q 组同域但测的不是这个事实。判据全落行为面（公共 setBundleEnabled / _scrubPluginLayers 的
-  //   ok·顺序 + 内层执行次数），不读私有队列字段。
+  // -- R. 补丁层写队列：一次写盘异常**不得毒化**队列 --
+  //   入队若无 catch，一次 EACCES/EIO/ENOSPC 后队列永久 rejected ⇒ 之后每次 enable/disable 写盘根本不发生。
   {
     const logs = [];
     const wq = new PluginManager({ logger: { error: (m) => logs.push(String(m)), warn() {}, info() {} }, dist: null, tasks: null });
     let inner = 0;
     wq._setBundleEnabledInner = () => { inner++; if (inner === 1) throw new Error('boom-write-fail'); return { ok: true, n: inner }; };
-    //  逐调用 try/catch：旧实现在此抛 rejection（队列已中毒）。若不接住，进程会直接崩掉、只留一个
-    //   非零退出码而没有可读的 FAIL 行 —— 回归要「清楚地失败」，不能只是崩。
+    //  逐调用 try/catch：队列中毒后这里会抛 rejection，不接住进程会直接崩掉、只留退出码而没有可读的 FAIL 行。
     const call = async (fn) => { try { return await fn(); } catch (e) { return { __rejected: true, error: (e && e.message) || String(e) }; } };
 
     const r1 = await call(() => wq.setBundleEnabled('p1', false, 'native'));

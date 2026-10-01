@@ -1,8 +1,7 @@
 'use strict';
 
-// app/main/health-gate.js —— 崩溃窗口/退避记账（_bumpCrashWindow）与假死判定（_applyHealthCheck）。
-// 导出 { methods }，由 app/assembly/facets.js 装到 host；方法名与 { methods } 形态不可改。
-// 事实经 depsOf(host) 惰性缓存取得。
+// 崩溃窗口/退避记账（_bumpCrashWindow）与假死判定（_applyHealthCheck）。导出 { methods }，由 app/assembly/facets.js
+//   装到 host；方法名与 { methods } 形态不可改。事实经 depsOf(host) 惰性缓存取得。
 const guardian = require('../../shared/guardian');
 
 const DEPS = new WeakMap();
@@ -57,9 +56,10 @@ module.exports = {
     }
   },
 
-  /** 假死识别（健康维度）：进程/端口在但 HTTP 连续 failThreshold 次不健康才判故障重启；单次抖动不清零（failStreak 单调累积至阈值或恢复）。
-   *  httpProbeEnabled=false 时 healthOk 恒为 true（monitor.probe 已退化），此处天然不触发。
-   *  只记账 + 返回决策，不直接调 main.beginRestart（避免 health-gate -> process 反向边）；执行由收敛器 controller 承担。 */
+    /**
+   * 假死识别（健康维度）：进程/端口在但 HTTP 连续 failThreshold 次不健康才判故障重启；单次抖动不清零（failStreak
+   * 单调累积至阈值或恢复）。httpProbeEnabled=false 时 healthOk 恒为 true。只记账 + 返回决策，不直接调 main.beginRestart。
+   */
   _applyHealthCheck(healthOk) {
     const d = depsOf(this);
     if (healthOk) {

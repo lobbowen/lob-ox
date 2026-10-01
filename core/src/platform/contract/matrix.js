@@ -2,8 +2,7 @@
 
 // 平台矩阵：跨平台知识的唯一合法位置。process.platform / process.arch 只允许出现在
 // src/platform/**，业务域必须经本模块或平台层能力取平台事实，不得自建 os/arch 映射表。
-// SUPPORTED 与 package.json#npmPublish.packages 逐项一致，由 platform-matrix-single-source-test
-// 与 cross-platform-architecture-gate-test 两道门禁守住。
+// SUPPORTED 与 package.json#npmPublish.packages 逐项一致。
 
 /** 受支持平台组合（顺序即发布顺序）。platform/arch 为 Node 取值；osTag 为 npm 包名 os 段；
  *  npmTag 为子包尾段 <osTag>-<arch>。 */
@@ -33,7 +32,7 @@ function current(platform, arch) {
   return { platform: p, arch: a, osTag: OS_TAG[p] || null, npmTag: npmTag(p, a) };
 }
 
-/** <osTag>-<arch>；不支持时抛错。注意：错误文案是既有对外契约（测试断言其内容），不得改动。 */
+/** <osTag>-<arch>；不支持时抛错。错误文案是对外契约，不得改动。 */
 function npmTag(platform, arch) {
   const p = platform || process.platform;
   const a = arch || process.arch;

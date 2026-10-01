@@ -154,8 +154,8 @@ function handle(ctx) {
       return;
     }
 
-    // 内核更新单写入者 = 壳：本域只保留只读状态查询；安装/重启守卫归壳，写端点已下架。
-    //   下架用 410 Gone + 稳定错误码（而非 404），让旧客户端得到可诊断的迁移结论。
+    // 内核更新单写入者 = 壳：本域只保留只读状态查询；安装/重启守卫归壳。
+    //   写端点返回 410 Gone + 稳定错误码（而非 404），让旧客户端得到可诊断的迁移结论。
     if (req.method === 'GET' && pathname === '/self-update/status') {
       if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
       Promise.resolve(sup.guardSelfUpdateStatus()).then((r) => send(r.ok ? 200 : 400, r));
@@ -192,11 +192,9 @@ function handle(ctx) {
       // Node LTS 本地判定（偶数主版本~LTS；6h 缓存，无远端查询，见 supervisor.nodeLtsStatus）
       return sup.nodeLtsStatus().then((r) => send(200, r)).catch((e) => send(500, { ok: false, error: e.message }));
     }
-    // 环境表单（外部打开链路的底座，只读）：本机装了哪些浏览器、系统说不出默认时的候选次序、
-    //   有没有图形会话、用户选过谁、运行时与出网条件、每条结论来自哪条系统事实。面板的「环境」区块
-    //   与打开失败的定档依据同源取 here —— 真机报障时这一份就是证据，不必回内核机器读注册表。
-    // ?force=1 = 人主动刷新：走异步 refresh 把维度台账里到期的探针补齐（含出网条件与运行时），
-    //   并把这一拍落进快照；常态轮询只读同步表单（台账最近一拍），读路径绝不起子进程、绝不写盘。
+    // 环境表单（外部打开链路的底座，只读）：本机装了哪些浏览器、系统说不出默认时的候选次序、有没有图形会话、
+    //   用户选过谁、运行时与出网条件、每条结论来自哪条系统事实；面板「环境」区块与打开失败的定档依据同源取此。
+    // ?force=1 = 人主动刷新：走异步 refresh 补齐到期探针（含出网条件与运行时）并落快照；常态轮询只读台账最近一拍的同步表单，读路径绝不起子进程、绝不写盘。
     if (req.method === 'GET' && pathname === '/env/environment') {
       if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       const force = /[?&]force=1/.test(String(req.url || ''));
@@ -211,11 +209,9 @@ function handle(ctx) {
       if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       return send(200, environment.lastSnapshot());
     }
-    // 面板请内核把地址交给**内核所在机器**的系统浏览器（桌面壳的 webview 丢弃 window.open 与
-    //   target=_blank，壳内面板唯一可行的代开方就是同机的内核）。三档结果原样回传，本域不解释结局；
-    //   出口由网关经 ctx 交来（唯一实现处是 platform/os/browser），本域只是边界。
-    // 回环限定：远程访问者的浏览器不在这台机器上，让它驱动本机弹窗既无用（open-web 的一次性码地址
-    //   本就只在回环可达）又白送一个「在服务器上开浏览器」的动作面；面板据同一判据改走自己的 window.open。
+    // 面板请内核把地址交给**内核所在机器**的系统浏览器（桌面壳 webview 丢弃 window.open 与 target=_blank，
+    //   壳内面板唯一可行的代开方就是同机内核）。出口由网关经 ctx 交来（唯一实现处 platform/os/browser），三档结果原样回传。
+    // 回环限定：远程访问者的浏览器不在这台机器上，驱动本机弹窗既无用（open-web 一次性码地址只在回环可达）又白送动作面。
     if (req.method === 'POST' && pathname === '/env/open-url') {
       if (!identity.loopback) { req.resume(); return send(403, { ok: false, error: '仅内核所在机器可请内核调起浏览器，请复制或自行打开该地址' }); }
       if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }

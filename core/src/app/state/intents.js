@@ -1,9 +1,8 @@
 'use strict';
 
-// 显式意图登记簿（IntentLedger）：一次性语义（consume 即清除，同意图重复 register 覆盖），
-// 无时间窗、不因拍数流逝失效。词表 INTENTS 新增动作必须显式扩展。
-// 定位：瞬态加速器，非恢复依据。「是否应运行」的持久权威是 desired（managed-objects.json），
-// 守卫重启后由 desired 无条件拉起；本登记簿内存态重启即空，禁止靠它解锁首次拉起。
+// 显式意图登记簿（IntentLedger）：一次性语义（consume 即清除，同意图重复 register 覆盖），无时间窗、不因拍数流逝失效。
+//   定位：瞬态加速器，非恢复依据。「是否应运行」的持久权威是 desired（managed-objects.json），守卫重启后由 desired
+//   无条件拉起；本登记簿内存态重启即空，禁止靠它解锁首次拉起。词表 INTENTS 新增动作必须显式扩展。
 
 const INTENTS = ['start', 'restart', 'upgrade-resume'];
 
@@ -25,7 +24,7 @@ class IntentLedger {
     return p;
   }
 
-  /** 仅测试/守卫 shutdown 用。 */
+    /** 仅守卫 shutdown 用。 */
   clear() {
     this._pending.clear();
   }

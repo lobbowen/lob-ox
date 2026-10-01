@@ -2,11 +2,8 @@
 'use strict';
 
 // 统一受管进程生命周期核心（src/infra/proc/daemon-lifecycle.js）回归：
-//  - ensureRunning：身份接管 / 首启 spawn / latch barrier
-//  - replace 换代：停旧->等死->等端口释放->才启新（同一 ctl 端口，绝不双代并存）
-//  - superviseOnce：死透才重拉；残留先 TERM
-//  - stop：TERM->等死->等端口释放->清身份
-// 自包含：真实 spawn 本机 fixture（fake-ctl-daemon.js），不触碰真实 daemon/守卫。
+//   ensureRunning 身份接管/首启 spawn/latch barrier · replace 换代（停旧->等死->等端口释放->才启新，
+//   同一 ctl 端口绝不双代并存）· superviseOnce 死透才重拉 · stop。自包含：真 spawn fixture，不碰真实 daemon。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -42,7 +39,7 @@ const waitCtl = async (ms = 8000) => { const t0 = Date.now(); while (Date.now() 
   let dl = mk();
   let r1 = dl.ensureRunning();
   check('首启 → mode=started + pid 写入身份', r1.mode === 'started' && !!r1.pid && dl.expectedPid() === r1.pid, JSON.stringify(r1));
-  await waitCtl(); // 夹具就绪等待（原「ctl 就绪」/「fake daemon 应答自身 pid」两条前提自证站点已删，见报告 §3）
+  await waitCtl(); // 夹具就绪等待
   await sleep(300);
   const pid1 = dl.expectedPid();
 
@@ -132,9 +129,7 @@ const waitCtl = async (ms = 8000) => { const t0 = Date.now(); while (Date.now() 
   process.exit(failed.length ? 1 : 0);
 })().catch((e) => { console.error('ERR', e); process.exit(1); });
 
-// -- D-12：管理锁 = 原子取锁 + 持有者存活检测 + 只删自己的锁 --
-// 旧实现三处不成立：writeFileSync 直接覆盖（后写者静默抢锁）、pid 从不回读（崩溃残留恒授权）、
-// unlinkSync 无条件删（可删掉别的守卫刚重建的锁）。范式出处：bin/dsh-supervisor 的守卫单实例锁。
+// -- D-12：管理锁 = 原子取锁（'wx'）+ 持有者存活检测 + 只删自己的锁 --
 {
   const idMod = require(path.join(ROOT, 'src', 'app', 'daemons', 'identity.js'));
   const { acquireLock, releaseLock, lockPid, pidAlive } = idMod._lockPrimitives;
@@ -152,32 +147,30 @@ const waitCtl = async (ms = 8000) => { const t0 = Date.now(); while (Date.now() 
 
   // 他主且存活：绝不能抢
   writeRaw(String(process.ppid || 1));
-  const ppid = lockPid(lock); // 前提（原「父进程 pid 可解析且存活」自证站点已删，真判据为下方他主不抢锁）
+  const ppid = lockPid(lock); // 前提
   check('D-12 他主存活 -> 取锁失败且不覆盖内容',
     acquireLock(lock) === false && lockPid(lock) === ppid, 'holder=' + lockPid(lock));
   check('D-12 释放他人锁 -> no-op（只删自己的）',
     (releaseLock(lock), fs.existsSync(lock) && lockPid(lock) === ppid), 'kept=' + lockPid(lock));
-  // 原第三条「他主存活时即使目录/权限正常也不覆盖内容」与上面两条同为「他主存活不抢锁」的同义表述，已删。
   fs.rmSync(lock, { force: true });
 
   // 真-死 pid：起一个即刻退出的子进程，用它的 pid 模拟崩溃残留
   const { spawnSync } = require('node:child_process');
   const r = spawnSync(process.execPath, ['-e', '']);
-  const dead = r && r.pid; // 前提（原「取到已退出的 pid」自证站点已删，真判据见下方 deadRecovered）
+  const dead = r && r.pid; // 前提
   writeRaw(String(dead));
   const deadRecovered = acquireLock(lock) === true && lockPid(lock) === process.pid;
   releaseLock(lock);
 
-  // 内容不可解析（旧格式/半写）与「持有者已死」同属残留自愈机制：合成一条（同一风险两面）
+  // 内容不可解析（旧格式/半写）与「持有者已死」同属残留自愈机制。
   fs.rmSync(lock, { force: true });
   writeRaw('not-a-pid');
   check('D-12 残留自愈：持有者已死 / 锁内容不可解析 -> 均清锁重试成功并改成本 pid',
     deadRecovered && lockPid(lock) === null && acquireLock(lock) === true && lockPid(lock) === process.pid, 'ok');
   releaseLock(lock);
 
-  // 反向（判据有牙）：旧缺陷形态必被识破。
-  //   期望方向：父目录存在而锁不存在时 'wx' 首次创建必成功（本块首条正例已断言）；
-  //   真正的失败路径是「父目录都不存在」——ENOENT != EEXIST，取锁必须判 false 且不留任何半成品。
+  // 反向：父目录存在而锁不存在时 'wx' 首次创建必成功；真正的失败路径是「父目录都不存在」——
+  //   ENOENT != EEXIST，取锁必须判 false 且不留任何半成品。
   check('D-12 反向：路径为 null -> 安全返回 false（不触碰 fs）',
     acquireLock(null) === false, 'null 路径安全');
   const ghostDir = path.join(TMP, 'd12-no-such-dir');
@@ -189,12 +182,10 @@ const waitCtl = async (ms = 8000) => { const t0 = Date.now(); while (Date.now() 
     ghostAcquire === false && !fs.existsSync(ghost) && !fs.existsSync(ghostDir), 'false/absent');
 }
 
-// -- B1-5：判活三态（alive/dead/unknown）——「探测异常」不得被折叠成任何一侧 --
-// 旧实现把非 EPERM 的 kill 异常当死（fail-open 面）：锁主进程仍在但探测抖动时，
-// 守卫会误删他主锁 / 误认领死 pid。三态源 probeAlive 与布尔门面 isAlive 分离。
+// -- B1-5：判活三态（alive/dead/unknown）—— 探测异常不得被折叠成任何一侧 --
+//   非 EPERM 的 kill 异常当死会误删他主锁/误认领死 pid；三态源 probeAlive 与布尔门面 isAlive 分离。
 {
   const pidlook = require(path.join(ROOT, 'src', 'platform', 'os', 'pidlookup'));
-  // 原「probeAlive 具名导出（typeof 形状）」半句是形状锁（改名即红而产品没坏），已删。
   check('B1-5 非正整数 pid 一律 dead（不触碰 kill）',
     pidlook.probeAlive(0) === 'dead' && pidlook.probeAlive(-1) === 'dead' &&
     pidlook.probeAlive(NaN) === 'dead' && pidlook.probeAlive(1.5) === 'dead', 'dead');
@@ -220,9 +211,8 @@ const waitCtl = async (ms = 8000) => { const t0 = Date.now(); while (Date.now() 
     pidlook.isAlive(process.pid) === true && pidlook.probeAlive(process.pid) === 'alive', 'alive');
 }
 
-// -- M8：域 A 的真实守护计数链路（原 test/lifecycle-mirror-test.js 的 M8+M8b 并入）——
-//   崩溃收敛（countCrash:true）发 restart_triggered 且 restartCount +1；计划内重启（manual）
-//   发事件但不计数。本文件原无 Supervisor 级夹具，故按需补 require 并自建最小 cfg（不 start 定时器）。
+// -- M8：守护计数链路 —— 崩溃收敛（countCrash:true）发 restart_triggered 且 restartCount +1；
+//   计划内重启（manual）发事件但不计数（最小 cfg，不 start 定时器）。
 {
   const { Supervisor } = require(path.join(ROOT, 'src', 'supervisor'));
   const { registerAll } = require(path.join(ROOT, 'src', 'app', 'control', 'adapters'));

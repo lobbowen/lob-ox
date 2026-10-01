@@ -1,12 +1,12 @@
 'use strict';
 
 // ctl dispatcher —— daemon 的 127.0.0.1 回环控制通道（L0 平台层，不含域知识）：router/lan 各自向下注入本域
-// 白名单（ROUTER_CTL_METHODS / LAN_CTL_METHODS），避免跨域反向依赖（DS-2）。安全面不可削弱：allowMethods 必填且
-// fail-closed（缺省/空数组拒绝启动，绝不回退"放行全部"，PG-5）、`_` 前缀内部方法永不可达、仅绑回环、POST /ctl 过来源闸防 CSRF。
+// 白名单（ROUTER_CTL_METHODS / LAN_CTL_METHODS），避免跨域反向依赖。安全面不可削弱：allowMethods 必填且
+// fail-closed（缺省/空数组拒绝启动，绝不回退"放行全部"）、`_` 前缀内部方法永不可达、仅绑回环、POST /ctl 过来源闸防 CSRF。
 
 const http = require('node:http');
 
-/** 白名单闸的唯一判据；导出以便单测直接断言"未登记/内部方法不可达"（PG-5），无需起真实 HTTP server。 */
+/** 白名单闸的唯一判据；导出以便直接断言「未登记/内部方法不可达」。 */
 const isMethodAllowed = (allowMethods, method) =>
   Array.isArray(allowMethods) && typeof method === 'string' && allowMethods.includes(method);
 

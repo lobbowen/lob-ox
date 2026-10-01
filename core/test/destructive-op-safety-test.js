@@ -1,27 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 破坏性操作防误伤门禁—— 源于一次**真实事故**
-//
-// ## 事故
-//   做凭据门禁的**注入验证**时，先注入了「移除 DSH_CRED_DIR」以破坏夹具模式；
-//   测试脚本随后的 `cred.sh put` 便**回落到真机库根**执行，把 16B 测试串
-//   写进 kernel-advgyxqamf.pat，**覆盖了 93B 真令牌**（不可恢复）。
-//   又因迁移时旧路径是符号链接，覆盖立即生效、无第二份副本。
-//
-// ## 教训（可推广的规律）
-//   1) 任何**破坏性**子命令都必须对「真机」默认拒绝，而不是默默执行；
-//   2) 测试夹具必须与真机**结构隔离**，且隔离失效时要**失败**而不是降级；
-//   3) 覆盖前必须留旧值备份，使操作**可逆**；
-//   4) 注入验证本身要选**非破坏性**的注入点。
-//
-// ## 锁定不变量
-//   W-1  cred.sh 的 put 在真机库上默认拒绝（需显式确认）
-//   W-2  真机库上未带确认执行 put -> exit 2 且**文件字节不变**
-//   W-3  写入前会备份旧值（.bak-<时间戳>）
-//   W-4  夹具模式（DSH_CRED_DIR）仍可正常写入
-// ---------------------------------------------------------------------------
+// 破坏性操作防误伤：任何**破坏性**子命令必须对真机库默认拒绝（而不是默默执行）、测试夹具必须与
+//   真机结构隔离且隔离失效时**失败**而非降级、覆盖前留旧值备份使操作可逆。
+//   W-1 真机库上 put 默认拒绝 · W-2 未带确认 -> exit 2 且文件字节不变 · W-3 写前备份 .bak-<时间戳> · W-4 夹具模式仍可写。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -40,10 +22,7 @@ const check = (n, c, x) => {
 const sha = (p) => { try { return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex').slice(0, 16); } catch { return null; } };
 
 // -- W-1/W-2/W-3：真机库保护（用 DSH_REAL_HOME 把「真机库」指向临时目录）--
-//  关键设计：**不依赖真机库的状态，也不复制/改写脚本**。
-//   cred.sh 的「真机库」= dsh_real_home()/develop/.credentials；
-//   _npm-auth.sh 支持 DSH_REAL_HOME 覆盖。
-//   故设 DSH_REAL_HOME=<tmp> 即可在任意宿主确定性验证真机保护，且**完全不动真实凭据**。
+//   cred.sh 的真机库 = dsh_real_home()/develop/.credentials，_npm-auth.sh 支持 DSH_REAL_HOME 覆盖。
 {
   const T = fs.mkdtempSync(path.join(os.tmpdir(), 'realsim-'));
   fs.chmodSync(T, 0o700);
@@ -97,7 +76,6 @@ const sha = (p) => { try { return crypto.createHash('sha256').update(fs.readFile
 }
 {
   //  夹具模式（DSH_CRED_DIR）必须仍可写入：真机保护不得误伤测试隔离路径（W-4）。
-  //  这里只判「写入生效 + 覆盖前留备份」的行为面，不再重跑一遍 W-2/W-3 同判据。
   const T = fs.mkdtempSync(path.join(os.tmpdir(), 'wbak-'));
   const kf = path.join(T, 'a.pat');
   fs.writeFileSync(kf, 'old-value', { mode: 0o600 });

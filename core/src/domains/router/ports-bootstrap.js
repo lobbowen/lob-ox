@@ -19,7 +19,7 @@ function ensurePorts({ swDir, logger }) {
     const oldP = path.join(swDir, 'ports.json');
     const newP = path.join(swDir, 'ports-router.json');
     portsShared.migrateByOwnerPrefix(oldP, newP, OWNER_PREFIXES);
-    // 从 providers.json 重建 proxy/providerApi 段绑定（覆盖迁移期因覆盖而丢失的记录；幂等合并）
+    // 从 providers.json 重建 proxy/providerApi 段绑定（幂等合并，补回迁移期缺失的记录）
     const provFile = path.join(swDir, 'providers.json');
     if (fs.existsSync(provFile)) {
       const provs = JSON.parse(fs.readFileSync(provFile, 'utf8'));

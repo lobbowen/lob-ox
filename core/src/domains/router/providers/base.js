@@ -1,9 +1,8 @@
 'use strict';
 
-// 供应商基座：抽象契约 + 账号池 + 检测应用。
+// 供应商基座：抽象契约 + 账号池 + 检测应用；纯策略在 model.js / policies/*，落盘经 store.js。
 // 状态前置原则：添加账号必须启动检测（拿配额），检测结果与运行中共用同一状态机：
 //   受限则 frozen + limit + recovery，正常则 ready；一账号一实例（按 key 去重）。
-// 纯策略在 model.js / policies/*，落盘经 store.js；本文件只做契约与账号池编排。
 
 require('../port-segments'); // 本域端口段/独立池申报（require 即注入）
 const { keyFingerprint, maskKey, accountModel, serializeProvider, PROVIDER_PRESETS } = require('./model');
@@ -48,9 +47,8 @@ class ProviderBase {
   async detectAccount(acc) {
     throw new Error('detectAccount must be implemented by subclass');
   }
-  // 能力契约声明（PG-1）：process-pool 能力面由 providers/process-pool.js 的 mixin 实现并
-  // 并入 supports 词表——契约在能力方声明，基座不携带实现不了的抛错占位；
-  // 调用方一律以 supports(cap) 守卫。
+  // 能力契约声明：process-pool 能力面由 providers/process-pool.js 的 mixin 实现并
+  // 并入 supports 词表——契约在能力方声明；调用方一律以 supports(cap) 守卫。
   /** 本 provider 是否具备某项能力；缺省为无 process 能力（最保守）。 */
   supports(_cap) { return false; }
 
@@ -86,8 +84,8 @@ class ProviderBase {
     const idx = this.accounts.findIndex((a) => a.keyId === keyId);
     if (idx < 0) return { ok: false, error: '账号不存在' };
     const acc = this.accounts[idx];
-    // 实例/端口清理属 process-pool 能力方（钩子由 process-pool.js 的 mixin ctor 装配）：
-    // 经钩子执行以打破 base 到池的 this 反向边（DG-4）。
+    // 实例/端口清理属 process-pool 能力方（钩子由 process-pool.js 的 mixin ctor 装配），
+    // 经钩子执行以打破 base 到池的 this 反向边。
     if (this._hooks && typeof this._hooks.onDiscardAccount === 'function') {
       try { this._hooks.onDiscardAccount(acc); } catch {}
     }
@@ -131,7 +129,7 @@ class ProviderBase {
   // 冻结/恢复策略（policies/freeze.js）
   _setStatus(acc, status, nextResetAt, error, autoRecover) { return freeze.setStatus(acc, status, nextResetAt, error, autoRecover, this); }
   _ensureLimit(acc) { return freeze.ensureLimit(acc); }
-  /** limit 纯只读预览（不赋值、不写盘）：只读视图唯一入口。写版 _ensureLimit 保留（门禁/测试消费）。 */
+  /** limit 纯只读预览（不赋值、不写盘）：只读视图唯一入口。 */
   _previewLimit(acc) { return freeze.previewLimit(acc); }
   _setLimit(acc, kind, reason, recovery) { return freeze.setLimit(acc, kind, reason, recovery, this); }
   _freezeLimited(acc, cause, reason, recovery) { return freeze.freezeLimited(acc, cause, reason, recovery, this); }

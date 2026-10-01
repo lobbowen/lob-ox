@@ -1,7 +1,8 @@
 'use strict';
 
-// router 域持久化（providers.json）。写权单闸（PG-7）：本类唯一判定「此刻能否落盘」= 服务级写开关与文件级健康（loadedOk）之并，save 自查 canPersist()、调用方不各自判断；落盘走 platform/util/fs 的 writeAtomic 单源；用量账本唯一实现在 store/usage.js#UsageLedger（闸以谓词注入）。
-// provider 反序列化为纯映射，工厂经 deps 注入（store 不 require providers）；stateDir 由注入的 config.stateFile 派生，provider 落盘/落日志必须用它，不得各自 os.homedir()。
+// router 域持久化（providers.json）。写权单闸：唯一判定「此刻能否落盘」= 服务级写开关 并 文件级健康
+// （loadedOk），save 自查 canPersist()、调用方不各自判断；落盘走 platform/util/fs 的 writeAtomic。
+// provider 反序列化为纯映射（工厂经 deps 注入）；stateDir 由注入的 config.stateFile 派生，落盘/落日志必须用它。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -62,7 +63,7 @@ class RouterStore {
   }
 }
 
-/** provider JSON 快照转为 provider 对象（纯映射，工厂/依赖全经 deps 注入，便于独立单测）。 */
+/** provider JSON 快照转为 provider 对象（纯映射，工厂/依赖全经 deps 注入）。 */
 function deserializeProvider(p, deps) {
   const d = deps || {};
   const stateDir = (d.config && d.config.stateFile) ? path.dirname(d.config.stateFile) : null;
@@ -93,7 +94,7 @@ function deserializeProvider(p, deps) {
   }
   // 统一恢复持久化锁定（直连/反代共用；反代旧数据 selectedProxyKeyId 兼容迁移）
   prov.selectedAccountKeyId = p.selectedAccountKeyId || p.selectedProxyKeyId || null;
-  // 统一状态机恢复：activeAccount/usage 等旧数据缺失字段安全降级，账号字段逐项恢复、绝不丢弃。
+  // 状态机恢复：activeAccount/usage 等缺失字段安全降级，账号字段逐项恢复、绝不丢弃。
   const restoredActiveId = p.activeAccountKeyId || null;
   prov.accounts = (p.accounts || []).map((a) => {
     const acc = {

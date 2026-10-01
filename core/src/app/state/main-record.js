@@ -7,9 +7,8 @@ function createMainRecord(deps) {
   const reg = () => (typeof g.getManagedObjects === 'function' ? g.getManagedObjects() : null);
   const logger = () => (typeof g.getLogger === 'function' ? g.getLogger() : null);
   let fallback = null;
-  //  目录未就绪期（构造窗口/init 异常）对这些字段的直写会落在 fallback 对象上，entry 一旦出现
-  //  就成了没人再读的孤儿稿——崩溃计数静默丢失（审计 #26）。故 fallback 期写值先记 here，
-  //  storeOf 见到真 entry 时一次性回填；目录侧非缺省值（盘上真实数据）优先，草稿只补缺。
+    // 目录未就绪期（构造窗口/init 异常）对这些字段的直写会落在 fallback 对象上，entry 一旦出现就成了没人再读的孤儿稿
+    //   —— 崩溃计数静默丢失。故 fallback 期写值先记 here，storeOf 见到真 entry 时一次性回填；目录侧非缺省值优先，草稿只补缺。
   const DEFAULTS = { restartCount: 0, backoffLevel: 0, backoffUntil: null, crashWindowStart: null, crashWindowRestarts: 0 };
   const buffered = new Map();
 
@@ -25,7 +24,7 @@ function createMainRecord(deps) {
     if (!fallback) {
       fallback = {
         kind: 'dsh', id: 'main', name: '主实例',
-        // 不带 guardian（B2-2/B2-3）：目录 entry 形态已无该键，守护开关权威在 dsh-main.json。
+                // 不带 guardian：目录 entry 形态已无该键，守护开关权威在 dsh-main.json。
         desired: 'running',
         ownership: { ports: [], rootPath: null, unit: null, daemonScript: null, processMode: 'spawn', meta: null },
         phase: 'stopped', lastObserved: null,

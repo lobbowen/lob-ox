@@ -1,14 +1,11 @@
 'use strict';
 
-// 镜像契约读取器（壳写、内核只读）：契约文件 <产品状态根>/supervisor/registry.json；所有权在壳。
-// 本文件只判定「这份文档的形状对不对」，不判定「某个镜像源能不能用」—— 后者只在
-// distribution/registry-ref.js 定义一次。读取器里再写一把 scheme 正则就会出现「契约收下、消费判非法」
-// 的两套答案：schema2 时代带 path 的华为云/腾讯云源正是在这里被收下、又在探测处判死。
-// schema 演进：v1 mode/origins/manualOrigin；v2 增 catalog/selected/probe；v3 按「谁写哪份」拆开 ——
-//   catalog/probe/measurements 留在契约（壳有），mode/manualOrigin 与选择结果搬到内核自持的
-//   registry-choice.json（内核有）。v2 里那几个字段仍解析，但只作为 legacyChoice 交给
-//   registry-config 做一次性迁移，之后选择字段不再从契约取。
-// 不变量：契约缺失/损坏时返回 { ok:false, reason }，调用方回退最小兜底，绝不启动失败。
+// 镜像契约读取器（壳写、内核只读）：契约文件 <产品状态根>/supervisor/registry.json。
+// 只判定文档形状，不判定镜像源是否可用 —— 后者只在 distribution/registry-ref.js 定义一次，
+// 两处重复判定会出现「契约收下、消费判非法」的两套答案。
+// schema 3：catalog/probe/measurements 在契约；mode/manualOrigin 与选择结果在内核自持的
+//   registry-choice.json，旧字段仅作 legacyChoice 供一次性迁移，不再从契约取选择字段。
+// 不变量：契约缺失/损坏返回 { ok:false, reason }，调用方回退兜底，绝不启动失败。
 
 const fs = require('node:fs');
 
@@ -27,8 +24,7 @@ function normText(x) {
   return typeof x === 'string' ? x.trim() : '';
 }
 
-/** 源列表的**形状**清洗：只要求是非空字符串并去重（保序）。是否算「一个合法镜像」由消费侧的
- *  registry-ref 判定 —— 读取侧不猜，非法条目才能带着原样到达面板的逐源结论里。 */
+/** 源列表的形状清洗：非空字符串并去重（保序）；是否算合法镜像由消费侧 registry-ref 判定。 */
 function shapeStrings(v) {
   if (!Array.isArray(v)) return [];
   const out = [];
@@ -39,8 +35,8 @@ function shapeStrings(v) {
   return out;
 }
 
-/** 探测规格的形状校验：kind 是字符串才认，timeoutMs 有界（两侧超时不同会把「介于两者之间」的源
- *  判成一侧可达一侧不可达）。形状不对就当没有，调用方回退 /-/ping。 */
+/** 探测规格形状校验；形状不对返回 null，调用方回退 /-/ping。timeoutMs 夹在 1s–20s
+ *  （两侧超时不同会把「介于两者之间」的源判成一侧可达一侧不可达）。 */
 function shapeProbe(v) {
   if (!v || typeof v !== 'object' || typeof v.kind !== 'string') return null;
   return {
@@ -51,8 +47,8 @@ function shapeProbe(v) {
   };
 }
 
-/** v3 的测速证据：壳本轮对目录里各源的实际结论。只校验形状（origin 是字符串、checkedAt 是正数），
- *  可达/延迟/拒因原样带上，由选源侧决定信多少（过期不用、缺源自己补测）。 */
+/** 测速证据：壳本轮对目录里各源的实际结论。只校验形状（origin 为字符串、checkedAt 为正数），
+ *  可达/延迟/拒因原样带上，由选源侧决定信多少。 */
 function shapeMeasurements(v) {
   if (!Array.isArray(v)) return [];
   const out = [];
@@ -95,14 +91,13 @@ function read(file) {
     return Object.assign({}, empty, { reason: REASON.SCHEMA_NEWER, schema, writtenBy });
   }
 
-  // v2/v3 用 catalog；v1 只有 origins。两者都接受以实现平滑升级。
+  // v2/v3 用 catalog，v1 用 origins，两者都接受。
   const catalog = shapeStrings(schema >= 2 ? doc.catalog : doc.origins);
   if (!catalog.length) {
     return Object.assign({}, empty, { reason: REASON.EMPTY_CATALOG, schema, writtenBy });
   }
 
-  // v3 的测速证据在契约里；v2 只有一个 selected 结论，折算成同样形状交给选源侧（形状适配属于
-  // schema 演进，留在这里；「能不能采用」的判定不在这里）。
+  // v3 测速证据在契约里；v2 只有单个 selected，折算成同形状交给选源侧。
   const measurements = schema >= 3
     ? shapeMeasurements(doc.measurements)
     : shapeMeasurements(doc.selected && doc.selected.origin ? [{
@@ -112,8 +107,7 @@ function read(file) {
       checkedAt: doc.selected.checkedAt,
     }] : null);
 
-  // v2 及更早：内核曾经把选择字段写进这份契约，壳也曾经读过 mode=manual 来避免覆盖。升级后这些
-  // 字段一律只作一次性迁移输入，不再参与常态选源。
+  // v2 及更早的选择字段只作一次性迁移输入（legacyChoice），不参与常态选源。
   const legacyMode = normText(doc.mode) === 'manual' ? 'manual' : null;
   const legacyManual = normText(doc.manualOrigin);
   const legacyChoice = schema < 3 && (legacyMode || legacyManual)

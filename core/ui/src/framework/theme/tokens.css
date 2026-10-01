@@ -30,7 +30,7 @@
   --popover-foreground: #0f1115;
   --primary: #4176e6;
   --primary-foreground: #ffffff;
-  /* 主按钮立体渐变（原版规范：渐变底 + 内高光；令牌化定义，页面不自造） */
+  /* 主按钮立体渐变（渐变底 + 内高光；令牌化定义，页面不自造） */
   --primary-btn-grad: linear-gradient(180deg, #3d5ef0 0%, #2f54eb 100%);
   --primary-btn-grad-hover: linear-gradient(180deg, #4f7bf0 0%, #2f54eb 100%);
   --primary-btn-shadow: 0 1px 2px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.22);

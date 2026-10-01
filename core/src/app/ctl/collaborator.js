@@ -1,8 +1,8 @@
 'use strict';
 
 // ctl 协作方工厂：组合 ctl 客户端与 ctl 门面工厂。
-// 公开键与 assembly/collaborators.js 的 THIN_SPEC.ctl 逐字一致：call / lanCall / lanPort / routerPort / routerFacade。
-// deps 一律惰性 getter（装配期 host 未就绪）。
+// 公开键与 assembly/collaborators.js 的 THIN_SPEC.ctl 逐字一致：call / lanCall / lanPort / routerPort / routerFacade；
+//   deps 一律惰性 getter（装配期 host 未就绪）。
 
 const { createCtlClient } = require('./client');
 const { createRouterCtlFacade } = require('./facades');

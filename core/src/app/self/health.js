@@ -1,7 +1,6 @@
 'use strict';
 
-// 健康地基：/healthz /readyz。
-// healthz=进程活着；readyz=守卫已完成初始化且未在停机。
+// 健康地基：/healthz（进程活着）/readyz（守卫已完成初始化且未在停机）。
 
 const { Lifecycle } = require('./lifecycle');
 

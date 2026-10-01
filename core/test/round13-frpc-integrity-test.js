@@ -1,18 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 第十三轮续：frpc 下载必须校验完整性
-//
-// 缺陷：frpc 经两个第三方代理前缀 + 最多 5 跳重定向下载，却只校验 HTTP 200 与 gzip/tar 可解析，
-// 随即 chmod 0755 落盘并 detached 执行（同仓 selfUpdate 安装路径强制校验 sha256，两处实现分叉）
-// —— 镜像或链路被投毒即在用户机上写盘执行任意二进制，无检测信号。
-// 修法（信任根）：校验和从**官方 GitHub 主机直连**取得（frp_<ver>_checksums.txt），不经镜像前缀
-// ——只控制镜像的攻击者无法同时伪造校验和；语义由「取不到降级放行」翻转为 **fail-closed**。
-//
-// 门禁（行为级：桩掉网络层，断言拒绝/放行语义）
-//   A 校验和不匹配 -> install 失败且**不落盘**；B 匹配 -> 成功；C 取不到校验和 -> 拒绝且不落盘
-// ---------------------------------------------------------------------------
+// frpc 下载必须校验完整性：它经两个第三方代理前缀 + 最多 5 跳重定向下载，却只校验 HTTP 200 与 gzip/tar 可解析，
+//   随即 chmod 0755 落盘并 detached 执行（镜像或链路被投毒即在用户机上写盘执行任意二进制）。
+//   信任根：校验和从**官方 GitHub 主机直连**取得（frp_<ver>_checksums.txt），不经镜像前缀；A 不匹配 -> 失败且不落盘 · B 匹配 -> 成功 · C 取不到 -> 拒绝且不落盘。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -62,9 +53,8 @@ function makeTarGz(frpcBody) {
       dir: path.join(TMP, 's-' + Math.random().toString(36).slice(2)),
       logger: { warn() {}, info() {}, error() {} },
     });
-    //  复（P1）：覆盖 frpTag 后**必须同步重算 binPath**（构造函数按真实平台算，Windows 上是 frpc.exe）。
-    //   不同步重算会在 Windows 上出现「解包写 bin/frpc、断言看 bin/frpc.exe」——
-    //   那是**测试夹具的缺陷**（产品侧两者同源）；修法：与构造函数同一表达式重算。
+    // 覆盖 frpTag 后**必须同步重算 binPath**（构造函数按真实平台算，Windows 上是 frpc.exe），
+    //   否则夹具会在 Windows 上出现「解包写 bin/frpc、断言看 bin/frpc.exe」的自身缺陷。
     mgr.frpTag = { os: 'linux', arch: 'amd64', tag: 'linux_amd64', exe: false };
     mgr.binPath = path.join(mgr.binDir, mgr.frpTag.exe ? 'frpc.exe' : 'frpc');
     mgr._sumCache = {};

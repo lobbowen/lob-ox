@@ -2,7 +2,7 @@
 
 // 重启重拉 + 实例对账编排（IO，provider 经显式入参，零 this 跨文件）。
 // 对账 = 生命周期引擎期望集（pool.js）的执行面：拉起缺口 + 回收非期望实例，一律走停止仲裁
-// （在途 drain 补刀），无闲置宽限。restartInstance 主体（在途延后/退避/停进程）留在池 mixin——被源码门禁钉住位置。
+// （在途 drain 补刀），无闲置宽限。restartInstance 主体留在池 mixin。
 
 const { INSTANCE_STATES } = require('../model');
 const ports = require('../../../platform/service/ports').shared;
@@ -53,7 +53,7 @@ async function runReconcile(provider, allowStop) {
   for (const acc of list) {
     const inst = provider.instanceOf(acc);
     if (!inst || inst.pid || inst.startingPromise) continue; // 已在跑/启动中跳过（幂等）
-    if (inst.status === INSTANCE_STATES.DEAD && !inst.pid) inst.status = INSTANCE_STATES.COLD; // 残留态收敛（LC 核心-2）
+    if (inst.status === INSTANCE_STATES.DEAD && !inst.pid) inst.status = INSTANCE_STATES.COLD; // 残留态收敛
     try {
       const r = await provider.startInstance(inst);
       if (r && r.ok) {
@@ -69,7 +69,7 @@ async function runReconcile(provider, allowStop) {
   if (!allowStop) return out;
   for (const inst of (provider.instances || []).slice()) {
     if (!inst.pid) {
-      // 零进程记录：在用账号可留绑定端口待拉起；非期望集即等待区，端口必须一并归零（LC 核心-3）
+      // 零进程记录：在用账号可留绑定端口待拉起；非期望集即等待区，端口必须一并归零
       if (!desiredIds.has(inst.keyId) && inst.port) {
         try { ports.unregister('proxy:' + inst.keyId); } catch {}
         inst.port = null; inst.status = INSTANCE_STATES.COLD; inst.healthy = false;
@@ -83,7 +83,7 @@ async function runReconcile(provider, allowStop) {
     if (acc && desiredIds.has(acc.keyId)) continue;
     provider.stopInstance(inst); // 走仲裁：有在途标记待停（drain 补刀），无在途立即终止
     out.stopped.push(acc ? acc.keyId : 'orphan:' + inst.keyId);
-    if (!acc) { // 残余孤儿（旧版本落盘/钩子前崩溃）：端口随之释放，记录不保留
+    if (!acc) { // 残余孤儿：端口随之释放，记录不保留
       provider.instances = (provider.instances || []).filter((i) => i !== inst);
       try { ports.unregister('proxy:' + inst.keyId); } catch {}
       inst.port = null;

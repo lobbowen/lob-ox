@@ -3,8 +3,8 @@
 const stateRoot = require('../../platform/service/state-root');
 
 // 壳更新账本 / 状态机 / 健康上报（纯状态 + 本地 JSON 读写，不 spawn 进程、不查网），与版本检测/壳重启（restart.js）分离。
-// 内核不是壳的更新源（壳直连 npm CDN 自更新），只读壳身份与更新账本、汇总状态供面板/CLI 查询；内核 Restart=always 常驻，是壳更新坏掉时唯一能救回的角色。
-// 硬约束：绝不触碰内核既有更新机制 —— 只读壳产物/版本，不调用 runNpmInstall、不写内核版本状态；无预取、无缓存、无回退，只有 pending->confirmed 状态机。
+// 内核不承担壳的更新（壳直连 npm CDN 自更新）：只读壳身份与更新账本、汇总状态供面板/CLI 查询。
+// 硬约束：绝不触碰内核自身更新机制 —— 只读壳产物/版本，不调用 runNpmInstall、不写内核版本状态；只有 pending->confirmed 状态机。
 
 const fs = require('node:fs');
 const path = require('node:path');

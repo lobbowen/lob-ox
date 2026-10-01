@@ -1,28 +1,8 @@
 'use strict';
 
-// 远程控制 relay（createRelay）行为测试 —— 单一归属文件：
-//   场景 1/2：DSH 浏览器会话桥。新版 DSH（0.1.2+）对根 URL 强制浏览器会话认证（401），
-//             relay 需持 DSH 启动令牌向回环 DSH 换取签名 cookie（dsh-auth-*）并注入转发请求，
-//             LAN 客户端才可访问；客户端自带同名 cookie 时不重复换取。
-//   场景 3：LAN 门卫（?token= → 派生 cookie、原文不可当会话、失败退避）。
-//   场景 4：转发面（状态/响应体/上游响应头透传；Origin/Referer/Host 呈现为回环权威）。
-//
-// 2026-10-12 瘦身（THIN-1-12）：
-//   - 原「场景 3 门卫四连」是同一判据的**第三份拷贝**（另见 defects-batch-f-test.js 的单测），
-//     此处合并成一份完整集成判据，并补齐原先只有 core-test 才有的三条独有保护：凭据响应
-//     `Cache-Control: no-store`、门卫令牌不得随 path 泄进上游、同 IP 失败退避阶梯。
-//   - 原「场景 4 setDshToken 热更新」名为覆盖实为**零断言**（对旧 relay 调用后无断言、随后又
-//     新建 relay），已整段删除；该链路当前无覆盖。
-//   - 原「HTML 注入 randomUUID polyfill」断言响应体出现字面串（改注入方式即红）属形态锁，已删。
-//
-// 2026-10-13 拆入（原 test/defects-batch-f-test.js 整文件解散）：
-//   该文件是「缺陷批次 F」编号的产物，架构里没有任何对应物，且内部含 ≥12 条负价值断言
-//   （同谓词枚举铺量、不可达入参自证、内部中文文案逐字锁、精确簿记常量、跨文件重复采样）。
-//   按能力域拆入所有者文件后删除本文件。本文件是中继反代域（relay/core + router 反代读取面）的
-//   所有者，故接收：projectRemoteView / upstreamPath / backoffGate / remoteTokenStrength /
-//   lanGateCookieValue 轮换 / readUpstreamBody（后三者见场景 7/8）。
-//   拆入时的取舍：内联中文 reason 不再逐字锁（只锁因的条数、顺序与关键因包含关系）；
-//   accessUrl 精确串保留（它是**外部可观测**——二维码里就是这一串）。
+// 远程控制 relay（createRelay）行为测试：DSH 浏览器会话桥（新版 DSH 对根 URL 强制会话认证，relay 需持
+//   启动令牌向回环换取签名 cookie（dsh-auth-*）并注入转发请求，客户端自带同名 cookie 时不重复换取）·
+//   LAN 门卫（?token= → 派生 cookie、原文不可当会话、失败退避）· 转发面（状态/响应体/上游头透传，Origin/Referer/Host 呈现为回环权威）。
 
 const http = require('node:http');
 const pathMod = require('node:path');
@@ -235,7 +215,6 @@ async function main() {
   }
 
   // -- 场景 6b：backoffGate —— 门卫失败退避的纯判定（计时与账本在 proxy 层）--
-  //   原件 5 例里有 3 例断言精确 waitMs（56000/60000）= 内部簿记常量精确值，已删：
   //   判据是「达阈值 → 非 null 的剩余窗口」与「超窗重置」，不是锁死 lockMs 的算法写法。
   console.log('== 场景6b backoffGate（失败退避判定）==');
   {
@@ -247,9 +226,7 @@ async function main() {
   }
 
   // -- 场景 7：令牌强度闸与门卫 cookie 派生（shared/credential + relay/core）--
-  //   remoteTokenStrength 被 relay/instance 两域 + app 编排层三处消费，wan 闸（validateWanAccess）
-  //   即在本域 core.js。原件 8 例含 null/undefined/纯空格（**不可达入参自证**）已删 3 例；
-  //   validateWanAccess 的 3 例与 remote-mode-wan-gate-test.js 的 W-c/W-f 同事实，整段删。
+  //   remoteTokenStrength 被 relay/instance 两域 + app 编排层三处消费，wan 闸（validateWanAccess）即在本域 core.js。
   console.log('== 场景7 令牌强度闸（wan 前置）与门卫 cookie 派生 ==');
   {
     const cred = require(pathMod.join(ROOT, 'src', 'shared', 'credential.js'));

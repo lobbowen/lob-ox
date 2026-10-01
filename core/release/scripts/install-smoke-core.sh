@@ -2,11 +2,11 @@
 # 内核「安装包冒烟」单一事实源：把已产出的 npm 子包真正 `npm i -g` 装成全局命令，
 # 只跑**装出来的那条命令**（不碰源码树），证明发布产物可自举。
 #
-# 不覆盖：应用内更新（self-update / upgrade 的落盘与应用）——那属壳仓安装程序冒烟；
-#   本脚本只验「装得进 -> 报对版本 -> self-check 过 -> 守卫起得来 -> healthz 应答 -> 端口登记唯一 -> 卸得干净」。
+# 范围：装得进 -> 报对版本 -> self-check 过 -> 守卫起得来 -> healthz 应答 -> 端口登记唯一 -> 卸得干净。
+#   不覆盖应用内更新（self-update / upgrade 的落盘与应用）——那属壳仓安装程序冒烟。
 #
-# 为什么单独存在：test/smoke.js 的 S13 从源码树起守卫，证明的是代码；本脚本装的是**产物**，
-#   覆盖的是「npm 打包 + bin shim + 依赖自足」这条只有安装后才成立的链路。二者共用同一 healthz 契约。
+# 与 test/smoke.js 的分工：后者从源码树起守卫，证明的是代码；本脚本只跑**装出来的那条命令**，
+#   覆盖「npm 打包 + bin shim + 依赖自足」这条只有安装后才成立的链路。二者共用同一 healthz 契约。
 #
 # 用法: install-smoke-core.sh --pkg <npm 包目录或 name@version spec> --ver <version>
 set -euo pipefail
@@ -39,7 +39,7 @@ CONFIG_PORT=45757
 TARGET_PORT=45758
 # command / healthUrl 是**业务键**，不在平台默认值里（它们由桌面壳装机时写进 config.json）。
 # 只写 apiPort 会让 daemon 在 normalize 处 fail-fast，报的还不是自己的错。
-# 被管目标用 test/mock-target.js 顶替（与 S13 同一夹具，不另造第二份）：判的是装出来的那条命令
+# 被管目标用 test/mock-target.js 顶替（与 test/smoke.js 共用同一夹具）：判的是装出来的那条命令
 # 能否起守卫、绑 API 端口、登记 ports.json，DSH 本体不随本子包发布。
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MOCK="$REPO_ROOT/test/mock-target.js"

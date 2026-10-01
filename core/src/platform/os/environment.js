@@ -1,22 +1,15 @@
 'use strict';
 
-// 环境表单（外部打开链路的最底层）：把「这台机器与本产品相关的实况」按**维度**收齐并常驻呈现 ——
-//   装了哪些浏览器、系统说不出哪个是默认、有没有图形会话、用户在本产品里选过谁、跑内核的这套
-//   运行时（node/npm/镜像源/全局前缀）到不到位、这台机器往外走不走得出去，每条结论是从哪条系统事实读来的。
-//   后续动作只从这张表分发（选路见 pickLauncher，执行见 ./browser.js）。
-//
-// 为什么要一张表而不是各动作各探各的：直启打开与登录隔离窗此前各自摸系统事实、各自解释结果，
-//   于是「面板说交出去了、屏幕上什么都没有」在真机上无从定性。表单收敛的是**事实与分发依据**，
-//   不是又一个调用口：动作层只问「这次该用谁」，不再问「系统里有什么」。
-// 为什么要维度化（schema 2）：同一件事此前有三份实现 —— 壳的 domain/probes.rs、内核的 EnvCatalog、
-//   本文件的浏览器单节。三份各自「探测 + 缓存 + 呈现」，面板上同一台机器就有三个就绪口径。
-//   维度台账收敛的是**账本形状**（每个维度一条 {at, source, state, data, probed}），不是采集实现：
-//   采集仍归各自的所有者，用 registerSection() 把**既有探针**挂进来（零第二份实现），
-//   本文件只负责按拍装配、失效与落盘。
-//   壳那一份采集结果经 ../contract/shell-report 以 `shell` 维进同一张表：一张表、按来源留痕，
-//   并排而不互相覆盖（两份实测不一致本身就是要看的证据，见该维度注册处的说明）。
-// 平台事实仍只写在 ./browser-inventory.js 与 ./egress.js 一处：本文件不查注册表、不跑 LaunchServices 脚本、
-//   不扫 XDG 目录、不自己摸网络，只做表单装配、选路次序与快照落盘（shell 维只读一个本地小文件）。
+// 环境表单（外部打开链路的最底层）：把「这台机器与本产品相关的实况」按维度收齐并常驻呈现 ——
+//   装了哪些浏览器、系统说不出哪个是默认、有没有图形会话、用户在本产品里选过谁、跑内核的运行时
+//   （node/npm/镜像源/全局前缀）到不到位、往外走不走得出去，每条结论从哪条系统事实读来。
+//   动作层只从这张表分发（选路见 pickLauncher，执行见 ./browser.js），不再自己摸系统事实。
+// 维度台账 schema 2：每个维度一条 {at, source, state, data, probed}。采集仍归各自的所有者，
+//   用 registerSection() 把既有探针挂进来；本文件只负责按拍装配、失效与落盘。
+//   壳的采集结果经 ../contract/shell-report 以 `shell` 维进同一张表，与内核的 runtime 维并排而不互相
+//   覆盖（两份实测不一致本身就是要看的证据）。
+// 平台事实只写在 ./browser-inventory.js 与 ./egress.js 一处：本文件不查注册表、不跑 LaunchServices、
+//   不扫 XDG、不自己摸网络，只做表单装配、选路次序与快照落盘。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -30,8 +23,7 @@ const egress = require('./egress');
 const shellReport = require('../contract/shell-report');
 const { engineOf } = detector;
 
-/** 快照 schema：落盘格式变更时递增，读侧据此判旧快照是否作废（不得按字段猜版本）。
- *  2 = 维度台账（sections）进快照：只有浏览器单节的快照撑不起「本机实况」这句话。 */
+/** 快照 schema：落盘格式变更时递增，读侧据此判旧快照是否作废（不得按字段猜版本）。 */
 const SCHEMA = 2;
 
 /** 快照文件名（落在本产品状态目录，与 config/state 同处）。 */
@@ -43,13 +35,12 @@ const FORM_TTL_MS = 60000;
 /** 维度默认复用窗口：出网条件与运行时探测都比「读一次文件」贵得多，按维度各自 ttlMs 覆盖。 */
 const SECTION_TTL_MS = 60000;
 
-/** 壳上报维度的复用窗口：读一次小文件近乎免费，取短窗口是为了「壳刚重探完，面板下一拍就能看到」。
- *  这里没有「等壳上报」的轮询，也没有超时判失败 —— 报告旧到什么程度由 data.ageMs 如实交出。 */
+/** 壳上报维度的复用窗口：读一次小文件近乎免费，短窗口便于「壳刚重探完，面板下一拍就能看到」；
+ *  没有「等壳上报」的轮询，报告旧到什么程度由 data.ageMs 如实交出。 */
 const SHELL_REPORT_TTL_MS = 10000;
 
 /** 装配期注入的取数口。platform 不得 require app/api（分层门禁 L-1），而「用户的偏好」住在内核配置里、
- *  「能力矩阵的实测覆写」住在 ./index.js 里，两者都只能由上层在组装时把 getter 绑进来。
- *  绑一次即全局生效，调用点不必层层传参 —— 漏传一处就是一条静默降级路（偏好被忽略、界面仍显示已选）。 */
+ *  「能力矩阵的实测覆写」住在 ./index.js 里，只能由上层在组装时把 getter 绑进来；绑一次即全局生效。 */
 let _sources = {};
 
 /** @param {{preference?:Function, capabilities?:Function}} sources 同名覆盖，未给的保持原状。 */
@@ -113,8 +104,7 @@ function normalizeInventory(inv, platform) {
 }
 
 /** 浏览器候选清单（探测层的原样视图 + 表单补上的判定字段）。
- *  @param {{force?:boolean, platform?:string, inventory?:object, resolveInventory?:Function, resolveDeps?:object}} [o]
- *    注入缝供行为测试：CI 机器不真查注册表，夹具与选路必须同源。 */
+ *  @param {{force?:boolean, platform?:string, inventory?:object, resolveInventory?:Function, resolveDeps?:object}} [o] */
 function browsers(o) {
   const ov = o || {};
   const pl = ov.platform || process.platform;
@@ -124,8 +114,7 @@ function browsers(o) {
   return normalizeInventory(resolve(pl, ov.resolveDeps || {}), pl);
 }
 
-/** 候选次序（纯函数）：引擎族是「裸 URL 直启的参数语义是否确定」的唯一分级依据 ——
- *  chromium / firefox 两族已知，other（Safari、打包器包装）连能否带地址直启都不确定。
+/** 候选次序（纯函数）：引擎族是「裸 URL 直启的参数语义是否确定」的唯一分级依据（other 即不确定）。
  *  同族按 id 字典序，保证同一台机器每次给出同一个答案，不随清单产出顺序漂移。 */
 const ENGINE_RANK = { chromium: 0, firefox: 1, other: 2 };
 function rankCandidates(list) {
@@ -143,12 +132,10 @@ function rankCandidates(list) {
 
 /** 分发依据（纯函数）：这次交给哪个浏览器。四层优先级，写在这里一次，动作层不再自己判：
  *  1) 用户在本产品里选过的偏好 —— 只在它仍是当前候选时作数；
- *  2) 系统自己说得出的默认项（认 defaultId 字段，来源名由探测层给，本层不认具体名字）；
- *  3) 穷举后的唯一候选（唯一解，不是选择）；
+ *  2) 系统自己说得出的默认项（认 defaultId 字段，来源名由探测层给）；
+ *  3) 穷举后的唯一候选；
  *  4) 候选多个而系统说不出默认：按候选次序取首个（how='candidate-rank'）并留痕。
- *  第 4 层是本轮的收口点：真机形状正是「装了多个浏览器但读不到用户选择」，旧实现在此返回空对象、
- *  整条链路报 no-launcher，用户看到的是「点一键登录什么都没弹」。
- *  偏好所指被卸载/不可执行时不静默换人：回落并在 stale 里如实标出，面板据此提示重选。
+ *  偏好所指被卸载/不可执行时不静默换人：回落并在 stale 里如实标出。
  *  @param {string} [platform]
  *  @param {object} inv 规整后的候选清单（normalizeInventory / browsers 的返回）
  *  @param {string|null} [preference] 显式传 null 表示「无偏好」；不传则取装配期绑定的偏好
@@ -171,14 +158,13 @@ function pickLauncher(platform, inv, preference) {
 
 // ---- 维度台账 ----
 // _sections：注册表（谁提供这一维）；_reads：每维最后一次读数（{at, source, state, data, error}）。
-// 分开两份是必需的：注册发生在装配期，读数发生在刷新期，而 form() 必须同步可读（选路当场要用）。
+// 分两份：注册发生在装配期，读数发生在刷新期，而 form() 必须同步可读（选路当场要用）。
 const _sections = new Map();
 const _reads = new Map();
 
 /** 面板与快照的固定呈现次序；未列出的注册维度追加在后面（不藏维度）。
- *  shell 紧跟 runtime：两维量的是同一批事实（本机 Node/npm/镜像源/前缀），只是采集者不同 ——
- *  并排放，两份实测不一致时一眼看得见，中间隔开就等于把矛盾拆成两个页面。
- *  startup 在最后：它是「这一拍本机跑过什么」的元信息，不参与任何分发判定，但排障时必须在一起。 */
+ *  shell 紧跟 runtime：两维量的是同一批事实（Node/npm/镜像源/前缀），只是采集者不同，并排放才能一眼
+ *  看见不一致。startup 在最后：它是元信息，不参与分发判定。 */
 const SECTION_ORDER = ['runtime', 'shell', 'dsh', 'browsers', 'session', 'egress', 'capabilities', 'preference', 'pick', 'startup'];
 
 /** 表单自己装配的同步维度：这些名字由本文件每拍现装，不接受外部注册（注册即两个口径）。 */
@@ -194,7 +180,7 @@ function registerSection(id, def) {
   if (SYNC_DIMS.includes(id)) throw new Error('维度 ' + id + ' 由表单每拍自装，不接注册');
   const d = { id, label: def.label || id, probe: def.probe, ttlMs: def.ttlMs === undefined ? SECTION_TTL_MS : def.ttlMs, source: def.source || 'registered' };
   _sections.set(id, d);
-  _reads.delete(id); // 换探针即作废旧读数：留着上一版数据冒充本机实况是最难查的假账
+  _reads.delete(id); // 换探针即作废旧读数
   return d;
 }
 
@@ -213,8 +199,8 @@ function sectionData(id) {
   return r ? r.data || null : null;
 }
 
-/** 出网条件维度的数据装配：代理读数 + 已判过的目标主机，全部三态原样交出（不把 null 折成 false）。
- *  代理地址的脱敏在 ../util/redact（入站边界的唯一一把尺），本维度只在装配时过一次。 */
+/** 出网条件维度的数据装配：代理读数 + 已判过的目标主机，三态原样交出（不把 null 折成 false）；
+ *  代理地址的脱敏走 ../util/redact，本维度只在装配时过一次。 */
 function proxyDataOf(p) {
   return p ? { state: p.state, server: maskProxyServer(p.server), pac: p.pac || null, source: p.source, cached: p.cached === true } : null;
 }
@@ -244,9 +230,9 @@ function egressData(proxyReading) {
   };
 }
 
-/** 内置维度：出网条件。注册在本文件加载时，因为它的采集口（./egress.js）就在同层；
- *  运行时与 DSH 两维不在这里注册 —— 它们的探针住在 app/service 层，由装配期挂进来（见 registerSection）。
- *  force 一路传到 L0：面板点「刷新」就是要重问系统一遍，复用 60s 前的代理读数等于没刷。 */
+/** 内置维度：出网条件。采集口（./egress.js）在同层，故在加载时注册；运行时与 DSH 两维的探针住在
+ *  app/service 层，由装配期挂进来（见 registerSection）。
+ *  force 一路传到 L0：面板点「刷新」就是要重问系统一遍。 */
 registerSection('egress', {
   label: '出网条件',
   source: 'self',
@@ -261,12 +247,10 @@ registerSection('egress', {
   },
 });
 
-/** 内置维度：桌面壳所见。注册在本文件加载时，因为它的采集口（../contract/shell-report）也在 platform 层。
- *  为什么与 runtime 并存而不是互相覆盖：壳与内核量的是同一批事实（Node/npm/镜像源/全局前缀），
- *    但**壳那一份是「装内核时真正用的那一套」**（它的 npm 探针真实执行过，见不变量 T-1b/T-10），
- *    内核这一份是「本进程现在解析到的」。两者不一致正是要排障的东西 —— 谁盖住谁都会把
- *    「探针的 npm 与装内核的 npm 不是同一个」这类缺陷重新藏起来。所以这里只如实并排，不裁决。
- *  壳未上报（内核独立跑、CLI、老版本壳）时本维度 available=false 并带原因，不是失败也不是空清单。 */
+/** 内置维度：桌面壳所见。采集口（../contract/shell-report）也在 platform 层，故在加载时注册。
+ *  与 runtime 并存而不互相覆盖：壳那份是「装内核时真正用的那一套」，内核这份是「本进程现在解析到的」，
+ *    两者不一致正是要排障的东西，故这里只如实并排、不裁决。
+ *  壳未上报（内核独立跑、CLI）时 available=false 并带原因，不是失败也不是空清单。 */
 registerSection('shell', {
   label: '桌面壳所见（Node/npm/镜像源/全局前缀）',
   source: 'shell',
@@ -299,8 +283,7 @@ function staleOf(id, now, force) {
 }
 
 /** 异步刷新：把所有（或 only 指定的）维度按拍补齐，再交一份表单。
- *  启动装配、面板 ?force=1、改偏好后各拍一次；HTTP 路径只走这条与同步 form()，
- *  同步 exec 冻结事件循环的老路（B1-6）不得再出现在本文件。
+ *  启动装配、面板 ?force=1、改偏好后各拍一次；HTTP 路径只走这条与同步 form()。
  *  @param {{only?:string[], force?:boolean, persist?:boolean, platform?:string, inventory?:object,
  *           resolveInventory?:Function, resolveDeps?:object, now?:Function}} [o]
  *  @returns {Promise<object>} form() 的产物 */
@@ -314,11 +297,11 @@ async function refresh(o) {
 }
 
 /** 当场判一次「这次隔离登录的冷档案能不能出内容」（异步、有界，是 coldProfileViable 唯一取数入口）。
- *  为什么由表单而不是动作层做：动作层要的是结论，不是又一次自己摸系统 —— 与 pickLauncher 同一分工。
- *  本函数**永不抛错**：判不出就是 viable:null（保持隔离档），出网探测绝不能变成用户可见的失败原因。
+ *  判据由表单给出，动作层只要结论（与 pickLauncher 同一分工）。
+ *  永不抛错：判不出即 viable:null（保持隔离档），出网探测不能变成用户可见的失败原因。
  *  @param {string} url 本次要打开的地址（取其主机名做判定对象）
  *  @param {{egress?:object, lookup?:Function, connect?:Function, force?:boolean, ttlMs?:number,
- *           timeoutMs?:number, now?:Function}} [o] `egress` 为注入缝：给定读数即不摸网（CI 与行为测试同源）
+ *           timeoutMs?:number, now?:Function}} [o] `egress` 为注入缝：给定读数即不摸网
  *  @returns {Promise<{host:string|null, viable:boolean|null, basis:string, detail:string, proxy:string, at:number|null}>} */
 async function checkEgress(url, o) {
   const ov = o || {};
@@ -340,16 +323,14 @@ async function checkEgress(url, o) {
   });
 }
 
-/** 冷档案隔离窗口的可行性判据（纯函数，与 pickLauncher 同族：分发依据只由表单决定，动作层不自判）。
- *  要判的事：一键登录开的是**独立 user-data-dir 的冷档案**，它没有扩展、没有 per-profile 配置、
- *  没有既有登录态。目标域直连不通时，这个窗口能不能出内容只取决于「机器上有没有一条系统级/环境级代理」：
- *    直连可达            -> 隔离档照开（没有理由砍）；
- *    直连不通 + 代理在    -> 隔离档照开（冷档案继承系统/环境代理，那正是它出网的路）；
- *    直连不通 + 代理明确没有 -> 冷档案必然空白：如实降为并入既有窗口（plain），并交出理由；
- *    任何一环判不出       -> 保持隔离（null）。判不出就砍能力是「用猜到的事实做决定」，同一种病。
- *  返回三态 viable + basis：basis 是给人看的结论码，进 evidence、进面板，绝不只留在日志里。
+/** 冷档案隔离窗口的可行性判据（纯函数，与 pickLauncher 同族：判据只由表单决定，动作层不自判）。
+ *  一键登录开的是独立 user-data-dir 的冷档案（无扩展、无 per-profile 配置、无既有登录态），目标域
+ *  直连不通时它能否出内容只取决于机器上有没有一条系统级/环境级代理：
+ *    直连可达 / 直连不通+代理在用 -> 隔离档照开（冷档案继承系统/环境代理）；直连不通+代理明确没有
+ *      -> 冷档案必然空白，降为并入既有窗口（plain）并交出理由；任何一环判不出 -> 保持隔离（null）。
+ *  返回三态 viable + basis：basis 是给人看的结论码，进 evidence 与面板。
  *  @param {object|null} eg egress 维度数据（egressData 的产物）；null=尚未探测
- *  @param {string|null} [host] 本次动作的目标主机；没有读数即无从判定
+ *  @param {string|null} [host] 本次动作的目标主机
  *  @returns {{viable:boolean|null, basis:string, detail:string}} */
 function coldProfileViable(eg, host) {
   if (!eg) return { viable: null, basis: 'egress-unprobed', detail: '出网条件尚未探测，隔离窗口按原档打开' };
@@ -387,10 +368,8 @@ function readSnapshot() {
   } catch { return null; }
 }
 
-/** 上一拍快照的读回口（只读留痕，**绝不参与任何分发判定**：分发只认当场同步装配的 form()）。
- *  存在的理由：快照落了盘却没有任何生产侧读者，就等于「留痕」只是单向写；真机排障要的正是
- *  「上一拍到底探到了什么」，而那可能已经在进程重启后拿不回来了。
- *  available=false 必须分得清是没写过还是读不出：把「读不出」说成「没写过」会引着人去刷新。
+/** 上一拍快照的读回口（只读留痕，绝不参与任何分发判定：分发只认当场同步装配的 form()）。
+ *  available=false 必须分得清没写过还是读不出 —— 把「读不出」说成「没写过」会引着人去刷新。
  *  @param {{now?:Function}} [o]
  *  @returns {{available:boolean,path:string,at:number|null,ageMs:number|null,reason:string,data:object|null}} */
 function lastSnapshot(o) {
@@ -407,13 +386,12 @@ function lastSnapshot(o) {
 
 let _formCache = null;
 
-/** 环境表单：一次装配出本机全部相关事实。
- *  **同步**是硬要求：选路与执行当场要读它（异步化会把「没探到」变成「等不到」，两者都得各写一套兜底）。
- *  异步维度（出网条件/运行时/DSH）只在此读台账里最近的一拍，从未刷新即 state='pending' —— 如实标未探，
- *  不拿空数据冒充本机实况。要补数据走 refresh()（启动一次 + 面板 ?force=1 + 改偏好后）。
+/** 环境表单：一次装配出本机全部相关事实。同步是硬要求 —— 选路与执行当场要读它。
+ *  异步维度（出网条件/运行时/DSH）只读台账里最近的一拍，从未刷新即 state='pending'，不拿空数据冒充实况；
+ *  要补数据走 refresh()（启动一次 + 面板 ?force=1 + 改偏好后）。
  *  @param {{force?:boolean, persist?:boolean, now?:Function, ttlMs?:number, platform?:string,
  *           inventory?:object, resolveInventory?:Function, resolveDeps?:object}} [o]
- *    persist=true 才落盘（读路径不写盘；面板刷新与启动装配各写一次即可）。
+ *    persist=true 才落盘（读路径不写盘）。
  *  @returns {object} schema/at/identity/paths/session/capabilities/preference/browsers/default/pick/probed/sections/snapshot */
 function form(o) {
   const ov = o || {};
@@ -478,8 +456,7 @@ function form(o) {
   }
   const egressRows = ((sections.egress || {}).data || {}).probed || [];
   for (const row of egressRows) probed.push({ section: 'egress', source: row.source, detail: row.detail });
-  // shell 维单独留一行结论：读侧只有 sections 而没有这条时，面板折叠处就等于「壳没报过」与「壳报了但
-  // 我们没读到」分不清。available 为假要指名是 never-written 还是读不出（后者得去查那个文件）。
+  // shell 维单独留一行结论：只有 sections 时，「壳没报过」与「壳报了但没读到」分不清。
   const sh = (sections.shell || {}).data;
   if (sh) {
     probed.push({
@@ -523,9 +500,8 @@ function form(o) {
   return Object.assign({ cached: false }, value);
 }
 
-/** 显式失效：改动偏好或装卸浏览器后调用。表单缓存与探测层清单一起作废，异步维度只**过期不删数**——
- *  下一拍 refresh 补新值，而面板在这一拍仍看得见上一次读数与其时间；把读数删成 pending 会让人误判
- *  「机器上的浏览器变了」，而那正是本次要探的事。出网读数同理：代理一改，旧判定当场作废。
+/** 显式失效：改动偏好或装卸浏览器后调用。表单缓存与探测层清单一起作废，异步维度只过期不删数 ——
+ *  下一拍 refresh 补新值，面板这一拍仍看得见上一次读数与其时间（删成 pending 会让人误判成机器变了）。
  *  @param {string} [platform] 探测层清单缓存的平台
  *  @param {string|string[]} [only] 只作废这些维度的读数（不传即全维度过期） */
 function invalidate(platform, only) {
@@ -540,8 +516,7 @@ function invalidate(platform, only) {
 }
 
 /** 偏好校验（纯函数）：空值=清除；非空必须是当前候选清单里的 id，其余一律拒写。
- *  判据住在表单而不住在写入口：它的依据就是这张表的候选面。写入口可以有很多个（面板、CLI、
- *  未来的导入），各自定义「什么算合法偏好」就会各自漂移 —— 与本轮「问一处答两处」同一种病。
+ *  判据住在表单而不住在写入口 —— 写入口可以有多个（面板、CLI），各自定义合法偏好就会各自漂移。
  *  @param {*} value 用户提交的原始值（非字符串按空处理，不猜）
  *  @param {object} form 当前环境表单
  *  @returns {{ok:boolean, id:string|null, browser:object|null, error?:string, candidates:object[]}} */

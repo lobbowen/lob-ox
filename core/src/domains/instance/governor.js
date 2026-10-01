@@ -1,6 +1,6 @@
 'use strict';
 
-// 资源预算策略（W1/W2）：用户填额废止后，systemd 属性值由「机器预算按活跃实例数等分 + 空闲余量突发」推导。
+// 资源预算策略：systemd 属性值由「机器预算按活跃实例数等分 + 空闲余量突发」推导。
 // decide/allocation/admission 为纯函数（入参 = 机器事实 + 花名册观测）；machineFacts/currentAllocation/budgetSnapshot 是本模块仅有的 IO 触点。
 
 const os = require('node:os');
@@ -23,7 +23,7 @@ const MAX_STEP = 0.25;
 const MEM_VIOLATION_TICKS = 3;
 const CPU_VIOLATION_TICKS = 5;
 
-/** 机器事实（唯一默认 IO 读取点）；测试经 opts.machineFacts 注入假值，行为裁决不依赖真机。 */
+/** 机器事实（唯一默认 IO 读取点）；事实可经 opts.machineFacts 注入。 */
 function machineFacts() {
   return { totalMemBytes: os.totalmem(), cpuCount: os.cpus().length };
 }
@@ -74,9 +74,9 @@ function hysteresis(target, prev) {
   return { value: v, changed: v !== prev };
 }
 
-/** 每拍决策（纯函数，W2 两段制的本体）。roster 条目 = { id, usageMb, cpuPct, since, prevAlloc, prevTicks }：
+/** 每拍决策（纯函数，两段制的本体）。roster 条目 = { id, usageMb, cpuPct, since, prevAlloc, prevTicks }：
  *  usageMb/cpuPct 为 null = 无观测证据：不参与突发、违规计数清零（无证据绝不判违规）；
- *  prevAlloc 取 state.allocation 字符串形态（跨守卫重启保持迟滞基准）。violation 触发即清零计数：处置动作在调用方，事件先于动作。 */
+ *  prevAlloc 取 state.allocation 字符串形态（跨守卫重启保持迟滞基准）。violation 触发即清零计数：处置在调用方，事件先于动作。 */
 function decide(opt) {
   const roster = (opt && opt.roster) || [];
   const totalMemMb = (opt.totalMemBytes || 0) / (1024 * 1024);
@@ -137,7 +137,7 @@ function decide(opt) {
 }
 
 /** 准入查询（纯）：即将活跃数（含本实例）摊薄后的预留跌破单实例下限即拒绝——
- *  限额废止后没有「用户填的额度」可超卖，下限是唯一不可退让线；绝不静默放行。 */
+ *  没有可超卖的「用户额度」，单实例下限是唯一不可退让线；绝不静默放行。 */
 function admission(instances, selfId, totalMemBytes) {
   const n = activeCount(instances, selfId);
   const budgetMb = (totalMemBytes || 0) * HEADROOM / (1024 * 1024);

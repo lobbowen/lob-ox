@@ -4,8 +4,8 @@
 
 use serde::Serialize;
 
-/// 壳的结构化错误。`hint` 是序列化字段（手工 `Serialize`），前端 `errText()` 依赖它显示可操作建议，
-/// 因此它必须真的进入 JSON：`#[serde(serialize_with)]` 并入输出，使 tag 结构体里多出 `hint: String` 键。
+/// 壳的结构化错误。`hint` 必须真的进入 JSON（手工 `Serialize` 并入输出），
+/// 前端 `errText()` 依赖它显示可操作建议。
 #[derive(Debug, Clone)]
 pub enum ShellError {
   /// 探测失败：**必须带阶段与耗时**（「卡住时看得见」）。
@@ -30,8 +30,8 @@ pub enum ShellError {
 }
 
 /// 手工 `Serialize`：派生字段 + `hint`（`hint()` 是方法，派生不会带上它）。
-/// 字段格式必须与原先逐字一致（`kind` kebab-case，字段名 snake_case），
-/// 否则前端读取 `e.stage`/`e.cause`/`e.elapsed_ms` 会失效。
+/// 字段格式固定为 `kind` kebab-case、字段名 snake_case，否则前端读取
+/// `e.stage`/`e.cause`/`e.elapsed_ms` 会失效。
 impl Serialize for ShellError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -81,7 +81,7 @@ impl Serialize for ShellError {
                 "platform": platform,
             }),
         };
-  // 这里就是「漏接线」的那一步：把可操作建议并入输出。
+  // 把可操作建议并入输出（hint 必须是序列化字段）。
         if let Some(o) = v.as_object_mut() {
             o.insert(
                 "hint".to_string(),
@@ -117,10 +117,8 @@ impl ShellError {
         }
     }
 
-  /// 后端给前端的**可操作建议**。
-  ///
-  /// 单独暴露（而非让前端拼字符串）—— 建议文案属于知识，应随 kind 一起演进，
-  /// 且三平台/多语言时只需改一处。
+  /// 后端给前端的**可操作建议**。单独暴露（而非让前端拼字符串）：
+  /// 建议文案属于知识，应随 kind 一起演进，且多语言时只需改一处。
     pub fn hint(&self) -> &'static str {
         match self {
             ShellError::Probe { .. } => "探测超时。可检查网络与代理设置后重试；诊断信息含失败阶段与耗时。",
@@ -134,7 +132,7 @@ impl ShellError {
     }
 }
 
-/// 便于既有 `Result<_, String>` 代码用 `?` 直接升级（渐进迁移）。
+/// 便于 `Result<_, String>` 代码用 `?` 直接升级。
 impl From<String> for ShellError {
     fn from(s: String) -> Self {
         ShellError::Ipc { cause: s }
@@ -149,8 +147,7 @@ impl From<&str> for ShellError {
     }
 }
 
-/// 兼容既有 `Result<T, String>` 签名：把结构化错误压平为**人类可读**字符串
-/// （含 kind 与建议），供暂时未迁移的调用点使用。
+/// 兼容 `Result<T, String>` 签名：把结构化错误压平为**人类可读**字符串（含 kind 与建议）。
 impl From<ShellError> for String {
     fn from(e: ShellError) -> Self {
         format!("{}（{}）：{}", e.kind_label(), e.hint(), e)
@@ -290,9 +287,7 @@ mod tests {
         }
     }
 
-  /// `hint` 必须真的进入 JSON：只断言 Rust 方法非空会漏掉本类缺陷 —— 方法在、前端也读 `e.hint`，
-  /// 但 `hint()` 从未被序列化，于是 `e.hint` 恒 undefined，「可尝试切换镜像源」这类建议永远到不了用户。
-  /// 故本测试断言序列化输出，并校验「JSON 里的值与方法返回一致」（防两处各写一份而漂移）。
+  /// `hint` 必须真的进入 JSON：断言序列化输出，并校验 JSON 里的值与方法返回一致（防两处漂移）。
     #[test]
     fn every_kind_serializes_a_hint() {
         let all = [
@@ -328,7 +323,7 @@ mod tests {
         }
     }
 
-  /// 手工 `Serialize` 不得改动原有字段名/值（前端已按它们读取）。
+  /// 手工 `Serialize` 不得改动字段名/值（前端已按它们读取）。
     #[test]
     fn serialization_keeps_original_field_names() {
         let p = serde_json::to_value(ShellError::probe("path-scan", "卡住", 999)).unwrap();

@@ -1,22 +1,19 @@
 #!/usr/bin/env node
 'use strict';
 
-// 守卫「令牌不得驱动生命周期」回归测试（改写自 adopt 令牌接管测试）。
-// 锁定：令牌缺失不得触发任何 phase 迁移/重启（运行时场景 + 反向对照）；且重构自
-// 源码文本断言改为纯运行时行为断言。
+// 守卫「令牌不得驱动生命周期」：令牌缺失/空置不得触发任何 phase 迁移或重启（正向 + 反向对照）。
 // 运行：node --require ./test/_preload.js test/adopt-token-reclaim-test.js
 
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
-// 端口统一取自 test/_ports.js（避开 OS ephemeral 与生产池，防跨文件撞号）
+// 端口取自 test/_ports.js（避开 OS ephemeral 与生产池）。
 const { safePort } = require(path.join(__dirname, '_ports'));
 
 const ROOT = path.join(__dirname, '..');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'sup-token-reclaim-'));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// 源码文本断言（符号清单/源码扫描）已按用户决定清理，本文件只保留运行时行为断言。
 
 let passed = 0;
 let failed = 0;
@@ -42,32 +39,23 @@ function buildSupervisor(overrides = {}) {
     supervisorLogFile: path.join(TMP, 'sup.log'),
     dshLogFile: path.join(TMP, 'dsh.log'),
     upgradeLogFile: path.join(TMP, 'upg.log'),
-    // 健康阈值拉高：本用例只关心「令牌 -> 迁移」，绝不让"端口无监听 -> 连续假死"
-    // 这条**正当**的进程健康路径混进来，否则断言会被无关重启污染（且会掩盖真正的失败）。
+    // 健康阈值拉高：本用例只关心「令牌 -> 迁移」，不让「端口无监听 -> 连续假死」这条
+    //   正当的进程健康路径混进来污染断言。
     failThreshold: 1000,
     ...overrides,
   };
   const cfgPath = path.join(TMP, 'cfg-' + Math.random().toString(36).slice(2) + '.json');
   fs.writeFileSync(cfgPath, JSON.stringify(cfg));
   const sup = new Supervisor(cfg, cfgPath);
-  // L3b（daemon 模式）：守卫无本地 relay 能力，get lan 恒为 null —— 让收敛尾部的
-  // this.lan.reconcile() 不真去建 relay（否则测试进程会写 ports.json / 起反代）。
-  // 这是测试隔离手段，不改变本用例关心的「令牌 -> phase」路径。
+  // daemon 模式下守卫无本地 relay 能力，get lan 恒为 null ⇒ 收敛尾部的 this.lan.reconcile()
+  //   不会真去建 relay（否则测试进程会写 ports.json / 起反代）。这是隔离手段，不影响本用例路径。
   sup.lanDaemonEnabled = () => true;
   return sup;
 }
 
-// （2026-10-01 已移除）原 `removedHits(src, symbols)`（源码命中符号清单）与
-//   `extractPhaseSwitch(src)`（括号配平抓 switch 块）两个助手 —— 它们只服务于已删除的
-//   源码文本断言，故一并删除。
 
 async function main() {
-  // （2026-10-01 已移除）原此处读取 probe.js / controller.js / shadow.js 的源码（supSrc/convSrc）
-  //   供文本断言使用，随那些断言一并删除 ⇒ 运行期不再读任何源码。
 
-  // 原「实例：原型上不存在 _maybeReclaimAdoptToken / 调用应抛 TypeError」三条断言（L85/L86/L87）已删：
-  // 它们是纯形态锁 —— 防的不是任何故障，而是"有人把同名方法加回来"；任何正当重构（换名、
-  // 复用该路径）都会判红而产品没坏。真保护（令牌状态绝不驱动进程生命周期）已由下方 A/B/C/D 四场景给出。
 
   console.log('== 运行时：令牌缺失不得触发 phase 迁移/重启 ==');
   {
@@ -77,19 +65,18 @@ async function main() {
     const stops = [];
     sup.stopProcess = (reason) => { stops.push(reason); };
 
-    // 场景 A：RUNNING + 被接管（adoptedPid 非空、无 child、令牌空置）。观察窗给到 1ms —— 旧逻辑下
-    //  必然已"超窗"，若错误路径还在就会立刻重建。存活/死亡用**真实事实**表达（isAlive =
-    //  process.kill(pid,0)）：存活 = 本进程 pid，死亡 = 远超 pid_max 的 pid；无需伪造判定。
+    // 场景 A：RUNNING + 被接管（adoptedPid 非空、无 child、令牌空置），观察窗只给 1ms。
+    //   存活/死亡用真实事实表达（isAlive = process.kill(pid,0)），不伪造判定。
     const ALIVE_PID = process.pid;
-    const DEAD_PID = 4000000; // 远超 Linux pid_max（默认 4194304 上限内亦不存在的低位值）
-    const realGuardian = sup.state.guardian; // 级 2：guardian 迁入 state 协作方
+    const DEAD_PID = 4000000; // 远超 Linux pid_max（默认上限内亦不存在的低位值）
+    const realGuardian = sup.state.guardian;
 
     sup.phase = 'RUNNING';
     sup.adopted = true;
     sup.observedOnly = false;
     sup.adoptedPid = process.pid; // 用存活的本进程 pid，避免把"进程真死了"的重启混进来
     sup.child = null;
-    await sleep(20); // 远超旧观察窗，确保不是"还没到窗口"
+    await sleep(20); // 远超观察窗，确保不是"还没到窗口"
     const phaseA0 = sup._mPhase();
     await sup._dshConverge();
     check('A: 令牌空置且被接管，phase 不迁移（无重建）', restarts.length === 0 && sup._mPhase() === phaseA0, JSON.stringify({ restarts, phaseA0, now: sup._mPhase() }));
@@ -104,8 +91,8 @@ async function main() {
     await sup._dshConverge();
     check('B: 自 spawn 且令牌空置，不触发重建', restarts.length === 0, JSON.stringify(restarts));
 
-    // 场景 C（反向对照）：被接管 pid 也"活着"，令牌空置，仍不得重启。
-    // 这样即便有实现试图用"令牌缺失 + 接管进程不可达"合成重启，也绕不过去。
+    // 场景 C（反向对照）：被接管 pid 也"活着"、令牌空置，仍不得重启 —— 合不出「令牌缺失 +
+    //   接管进程不可达」合成的重启。
     sup.phase = 'RUNNING';
     sup.adopted = true;
     sup.adoptedPid = ALIVE_PID;
@@ -115,10 +102,9 @@ async function main() {
     check('C: 接管进程存活 + 令牌空置，不触发重建', restarts.length === 0, JSON.stringify(restarts));
     check('C: phase 仍为 RUNNING', sup._mPhase() === 'RUNNING', sup._mPhase());
 
-    // 场景 D（反向对照）：接管 pid 不可达 + 守护开启 —— 即便走到"进程失联"，重启原因也
-    // 必须是 adopted_exit（进程维度），绝不能是任何令牌维度。证明重启判据只认进程健康。
-    // 守护开关置 true 是必要条件：守卫语义下 guardian=false 时进程死亡本就只停不拉，
-    // 不置 true 会测出"无重启"，那是守护语义而非令牌语义，断言会失去区分度。
+    // 场景 D（反向对照）：接管 pid 不可达 + 守护开启 ⇒ 重启原因必须是 adopted_exit（进程维度），
+    //   绝不能是任何令牌维度。守护开关置 true 是必要条件：guardian=false 时进程死亡本就只停不拉，
+    //   测出"无重启"就没有区分度。
     sup.state.guardian = () => true;
     try {
       sup.phase = 'RUNNING';
@@ -129,28 +115,19 @@ async function main() {
       await sup._dshConverge();
       const reasons = restarts.map((r) => r.reason);
       check('D: 进程失联仅以进程维度触发重启（reason=adopted_exit，绝无令牌维度）', reasons.length === 1 && reasons[0] === 'adopted_exit', JSON.stringify(reasons));
-      // 原「D: 不存在任何令牌维度 reason」（`!reasons.some((x) => /token/i.test(x))`）已删：
-      // 它被上一条 **严格蕴含**（length===1 且唯一元素是 'adopted_exit'，不可能再匹配 /token/i）
-      // —— 零独立信息的同义反复。
     } finally { sup.state.guardian = realGuardian; }
   }
 
   console.log('== 阴影排除集：不再豁免任何令牌类 reason，但保留异步钩子豁免 ==');
   {
     const sup = buildSupervisor({});
-    // 原「令牌回收 reason 不再被排除」（`_shadowExcluded('adopt_token_reclaim') === false`）已删：
-    // 断言某个字符串常量不在排除集里 ＝ 锁常量，属形态锁（任何正当重构都会红而产品没坏）。
-    // 下面三条保留：它们验的是「排除机制本身没空转」（既排除该排除的、也放行该放行的）。
     check('升级钩子仍被排除（排除机制未空转）', sup._shadowExcluded('upgrade_hold') === true);
     check('假死仍被排除', sup._shadowExcluded('http_unhealthy') === true);
     check('普通迁移（如 start_timeout）不被排除', sup._shadowExcluded('start_timeout') === false);
   }
 
-  // -- D-11：接管必须有**归属凭据**，不得只凭 cmdline 相似 --
-  //   缺陷：两个守卫（线上守卫 + 测试/手工起的第二实例）看到同一个监听 pid，cmdline 特征都匹配，
-  //   于是双方都认领它，彼此 stop/kill 对方刚接管的 DSH（审计原述「疑似双管家互杀」）。
-  //   修法：与 daemon 侧 *-daemon.identity.json 同范式落 dsh-main.owner.json；凭据**只做否决**
-  //   （他主存活 -> 不接管），放行权威仍是 cmdline —— 陈旧凭据（pid 被内核复用）不得单独放行。
+  // -- D-11：接管必须有归属凭据（dsh-main.owner.json），不得只凭 cmdline 相似（否则双管家互杀）--
+  //   凭据**只做否决**：他主存活则不接管；陈旧凭据（pid 被内核复用）不得单独放行，放行权威仍是 cmdline。
   {
     const { spawn, spawnSync } = require('node:child_process');
     // 让 cmdline 判定在本进程上为真：command[1] 取测试自身命令行里的可辨识片段。
@@ -158,8 +135,6 @@ async function main() {
     const f = sup2._mainOwnerFile();
     check('D-11 凭据与 daemon 身份/锁文件同址（stateFile 目录）',
       f === path.join(TMP, 'dsh-main.owner.json'), f);
-    // 原 L183/L184（无凭据 -> read=null；无凭据 -> 回落 cmdline 可接管）是同一次「无凭据时放行」
-    // 的两个面，合 1 条。
     check('D-11 无凭据：read=null 且接管判定回落 cmdline（本进程形态可接管）',
       sup2._readMainOwner() === null && sup2._isManagedProcess(process.pid) === true,
       'read=' + String(sup2._readMainOwner()));
@@ -168,20 +143,18 @@ async function main() {
     const o = sup2._readMainOwner();
     check('D-11 写后读回 {guardPid=本守卫, dshPid, port}',
       !!o && o.dshPid === 4242 && o.guardPid === process.pid && o.port === 3080, JSON.stringify(o));
-    // E-1（原子写单源）：调用点不再自拼 tmp 名，旧判据（猜 `<file>.<pid>.tmp`）会退化成永真的空转。
-    //   改为枚举目录：该文件的任何派生 tmp（单源命名 <file>.tmp.<pid>.<ts>）都不得残留。
+    // 原子写单源：该文件的任何派生 tmp（<file>.tmp.<pid>.<ts>）都不得残留。
     const ownerStrays = fs.readdirSync(path.dirname(f))
       .filter((x) => x.startsWith(path.basename(f) + '.tmp'));
     check('D-11 原子写：不留 .tmp 残留（按派生名枚举，不依赖具体命名）',
       ownerStrays.length === 0, ownerStrays.join(',') || 'clean');
-    // 权限位是 POSIX 语义：Windows 的 chmod 只切换只读位（mode 恒 666），在此断言既不可能成立也无意义。
-    //   收口纪律由 writeAtomic 单源 + J-n 门禁保证；POSIX 上仍做真实行为断言（先例 install-id-test ID-3b）。
+    // 权限位是 POSIX 语义：Windows 的 chmod 只切换只读位（mode 恒 666），此处只做 POSIX 行为断言。
     if (process.platform !== 'win32') {
       check('D-11 落盘权限 0600', (fs.statSync(f).mode & 0o777) === 0o600,
         (fs.statSync(f).mode & 0o777).toString(8));
     } else console.log('SKIP D-11 权限位断言（Windows 无 POSIX mode；chmodSync 仅切换只读位）');
 
-    // 「另一个存活的守卫」：起一个真实子进程当它（跨平台；win 上 pid 1 是空闲进程，不能拿来代表存活）
+    // 「另一个存活的守卫」：起一个真实子进程当它（win 上 pid 1 是空闲进程，不能代表存活）。
     const other = spawn(process.execPath, ['-e', 'setTimeout(function () {}, 5000);'], { stdio: 'ignore' });
     try {
       fs.writeFileSync(f, JSON.stringify({ guardPid: other.pid, dshPid: process.pid, port: 3080, startedAt: 0 }));
@@ -189,12 +162,12 @@ async function main() {
         sup2._isManagedProcess(process.pid) === false, '已否决');
     } finally { try { other.kill('SIGKILL'); } catch {} }
 
-    // 陈旧凭据（原守卫已死）-> 不否决：接管链路不能被一次崩溃永久封死
+    // 陈旧凭据（原守卫已死）-> 不否决：接管链路不能被一次崩溃永久封死。
     const dead = spawnSync(process.execPath, ['-e', '']);
     fs.writeFileSync(f, JSON.stringify({ guardPid: dead.pid, dshPid: process.pid, port: 3080, startedAt: 0 }));
     check('D-11 反向：他主**已死**的凭据不否决接管（陈旧凭据不封死恢复）',
       dead.pid && sup2._isManagedProcess(process.pid) === true, 'guardPid=' + dead.pid);
-    // 自持凭据（自己的 pid）与「凭据指向别的 pid」都是**不否决**这一同向事实的两个采样，合 1 条。
+    // 自持凭据（本进程 pid）与凭据指向别的 pid 同属「不否决」。
     fs.writeFileSync(f, JSON.stringify({ guardPid: process.pid, dshPid: process.pid, port: 3080, startedAt: 0 }));
     const selfOk = sup2._isManagedProcess(process.pid) === true;
     fs.writeFileSync(f, JSON.stringify({ guardPid: 999998, dshPid: 999997, port: 3080, startedAt: 0 }));
@@ -203,13 +176,9 @@ async function main() {
     try { fs.unlinkSync(f); } catch {}
   }
 
-  // -- D-12：cmdline 兜底必须认「DSH 形态」，不得只认「命令行里出现过 dsh」 --
-  //   失效模式：_isManagedProcess 的兜底单靠 isDshCmdline（整条 cmd 的 /dsh/i 子串匹配）。
-  //   于是路径里含 dsh 的无关进程只要恰好监听 target 端口就被判成受管 DSH 并接管，
-  //   接管后守卫对它发 SIGTERM = 误杀无关进程。smoke 的端口占用用例在 runner 下被打死
-  //   即此路径（绝对 -r 把检出目录名写进了被测进程的 cmdline）。
-  //   双向对照：带 web 子命令、路径不含配置 bin 的真「手动标准安装」形态必须仍放行，
-  //   否则就是砍兼容能力来掩盖缺陷。
+  // -- D-12：cmdline 兜底必须认「DSH 形态」（带 web 子命令），不得只认「命令行里出现过 dsh」--
+  //   否则路径含 dsh 的无关进程只要占着 target 端口就被接管并 SIGTERM（误杀无关进程）。
+  //   反向：路径不含配置 bin 但带 web 子命令的真「手动标准安装」形态必须仍放行。
   {
     const { spawn } = require('node:child_process');
     const pidlook = require(path.join(ROOT, 'src', 'platform', 'os', 'pidlookup'));

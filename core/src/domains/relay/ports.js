@@ -1,7 +1,7 @@
 'use strict';
 
 // relay 端口槽位仲裁（IO 层）：把 platform 通用池的 claimSlot/回收/占用标记收口为具名函数，ops.js 只经本模块操作端口。
-// require 即申报 relay 段（域知识留在域内，DS-G4）。
+// require 即申报 relay 段（域知识留在域内）。
 
 require('./port-segments');
 const registry = require('../../platform/service/ports').shared;

@@ -1,14 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 卸载类离线夹具测试（NativeManager 状态探测 / 环境检查 / 清单记录 / 全量卸载清理）。
-//   夹具用临时 npm 全局根，不碰宿主环境；但 ops.uninstall 会真起 npm 子进程，
-//   且 bin 链接经 fs.symlinkSync 造（Windows 需特权或开发者模式），故未入 test/manifest.js 登记表。
-//   ⚠️ 2026-10-01：原先承载该排除表与入册前提的 test/test-chain-completeness-test.js 已随门禁
-//   整体拆除（移至 C:\work\_gate_backup）⇒ 排除决定现在只由本注释与 package.json 的
-//   _uninstallTests 说明承载，无门禁核对。
-//   本仓硬标准禁止在本机执行任何测试，CI 也不跑这条脚本，所以它不产生验收证据；
-//   链内的卸载行为面由 test/uninstall-timeout-behavior-test.js（npmBin 注入）承担。
+// 卸载类离线夹具测试（NativeManager 状态探测 / 环境检查 / 清单记录 / 全量卸载清理）：夹具用临时 npm 全局根，
+//   不碰宿主环境；ops.uninstall 会真起 npm 子进程且 bin 链接经 fs.symlinkSync 造（Windows 需特权）⇒
+//   未入 test/manifest.js 登记表，链内的卸载行为面由 test/uninstall-timeout-behavior-test.js（npmBin 注入）承担。
 
 const path = require('node:path');
 const fs = require('node:fs');

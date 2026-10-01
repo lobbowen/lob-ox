@@ -1,21 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// D-2 行为级门禁：systemd 模板「让位」不得删除任何已有文件
-//
-// 缺陷：`_prepareSystemd()` 旧实现用**固定名** aside = 模板 + '.disabled-by-dsh'，且先
-//   `rmSync(aside,{force:true})` 再 rename —— 用户/更早一次让位若已有同名文件，那行 rmSync
-//   会**静默删除**用户数据（概率低但不可逆）。
-// 修法：让位目标名带 epoch 时间戳（必要时加序号）-> 天然唯一 -> 无需先删。
-// 为何是行为级：源码字符串断言易被自己的注释骗过（本仓发生过两次），故**真实调用
-//   _prepareSystemd()**，造临时 systemd 目录 + 预置同名文件 + 待让位模板，断言：
-//   预置文件仍在且字节不变（旧实现失败之处）/ 原模板已移走 / 让位目标内容 == 原模板。
-//   注入验证：还原成「固定名 + 先 rmSync」-> 本测试 FAIL。
-// 注入方式：`_prepareSystemd` 会真调 systemctl --user reload，故必须替换 service Provider；
-//   但**不能**写 `service.daemonReload = ...`（test-safety-gate 门禁 A 禁止 patch require 绑定
-//   导出，曾因此真跑 npm uninstall），改用 require.cache 在加载实例模块**之前**装入假 service。
-// ---------------------------------------------------------------------------
+// systemd 模板「让位」不得删除任何已有文件：让位目标名带 epoch 时间戳（必要时加序号）-> 天然唯一 ->
+//   无需先 rmSync。行为级断言（真实调用 _prepareSystemd()）：预置同名文件仍在且字节不变 / 原模板已移走 /
+//   让位目标内容 == 原模板。注入方式：require.cache 在加载实例模块**之前**装入假 service（不 patch 模块导出）。
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -72,7 +60,7 @@ function scenario() {
   const systemdDir = fs.mkdtempSync(path.join(tmpRoot, 'user-'));
   const template = path.join(systemdDir, 'dsh-web@.service');
   fs.writeFileSync(template, '[Unit]\nDescription=legacy\n');
-  // 用户/历史遗留的**同名文件**（旧实现的 rmSync 目标）
+  // 用户/历史遗留的**同名文件**：让位绝不删它。
   const userFile = template + '.disabled-by-dsh';
   const userBody = 'USER-OWNED-CONTENT-DO-NOT-DELETE\n';
   fs.writeFileSync(userFile, userBody);

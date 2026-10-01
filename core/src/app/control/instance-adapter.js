@@ -1,7 +1,7 @@
 'use strict';
 
-// app/control/instance-adapter.js —— 沙箱实例监督适配（heartbeat 拍 -> 实例域 + 目录同步）。
-// 导出形态按 STEP7-INTERFACE-CONTRACT 统一为 { methods }；宿主绑定经按 host 缓存的惰性 deps，方法内不用 this。
+// 沙箱实例监督适配（heartbeat 拍 -> 实例域 + 目录同步）。导出形态统一为 { methods }；宿主绑定经按 host 缓存的
+//   惰性 deps，方法内不用 this。
 const DEPS = new WeakMap();
 function depsOf(host) {
   let d = DEPS.get(host);
@@ -23,14 +23,15 @@ function depsOf(host) {
 
 module.exports = {
   methods: {
-    /** 沙箱实例监督单拍：heartbeat 经 adapter 对每个沙箱实例跑 InstanceManager.supervise
-     *  （单实例状态机）并把目录项与实例域状态对齐（目录=真实视图，防 ghost/死登记）。
-     *  域业务 CRUD/安装/装配/systemd/持久化保留在 InstanceManager，本方法只做心跳驱动+目录同步；
-     *  返回 ok=实例当前在线（heartbeat 统一写目录 lastObserved）。 */
+        /**
+     * 沙箱实例监督单拍：heartbeat 经 adapter 对每个沙箱实例跑 InstanceManager.supervise（单实例状态机），并把目录项与
+     * 实例域状态对齐（目录=真实视图，防 ghost/死登记）。域业务 CRUD/安装/装配/systemd/持久化保留在 InstanceManager；
+     * 返回 ok=实例当前在线（heartbeat 统一写目录 lastObserved）。
+     */
     async _sandboxSuperviseOnce(entry) {
       const d = depsOf(this);
       if (d.stopping()) return { ok: false, error: 'guard stopping' };
-      // INV-S1/E-3：退出意图单源谓词（stopping 或 session halting）-> 沙箱不再监督收敛
+            // 退出意图单源谓词（stopping 或 session halting）-> 沙箱不再监督收敛
       if (d.exitIntended()) return { ok: false, error: 'exit intended' };
       if (entry && d.instances() && typeof d.instances().supervise === 'function') {
         try {
@@ -51,9 +52,10 @@ module.exports = {
       try { d.syncSandboxRegistryEntry(entry); } catch (e) { d.logger() && d.logger().warn && d.logger().warn('sandbox entry sync: ' + ((e && e.message) || e)); }
       return { ok: running, error: running ? null : '沙箱实例未运行' };
     },
-    /** 目录项 <- 实例域状态对齐（监督拍后调用）：实例已删 -> 注销（防死登记）；存在 -> 经
-     *  sandboxSpec 同步 name/guardian/ownership + phase 落目录词表。沙箱不申报 desired
-     *  （运行意图无第二落点，B2-1），观测路径因此不可能改写任何意图。 */
+        /**
+     * 目录项 <- 实例域状态对齐（监督拍后调用）：实例已删 -> 注销（防死登记）；存在 -> 经 sandboxSpec 同步 name/
+     * guardian/ownership + phase 落目录词表。沙箱不申报 desired（运行意图无第二落点），观测路径不改写任何意图。
+     */
     _syncSandboxRegistryEntry(entry) {
       const d = depsOf(this);
       if (!entry || !d.managedObjects() || !d.instances()) return;

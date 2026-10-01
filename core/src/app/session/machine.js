@@ -1,7 +1,6 @@
 'use strict';
 
-// 会话状态机（真 ctor 注入工厂）：自己持有会话态，可只 require 本模块 + 假 deps 断言。
-// deps 均为惰性取值函数（装配期 host.config/logger 尚未就绪）。
+// 会话状态机（真 ctor 注入工厂）：自己持有会话态；deps 均为惰性取值函数（装配期 host.config/logger 尚未就绪）。
 
 function createSession(deps) {
   const g = deps || {};
@@ -17,7 +16,9 @@ function createSession(deps) {
     if (events) { try { events.append('session_state', { from: prev, to: s }); } catch {} }
   }
 
-  /** 是否处于「退出中/已退出」——此期间一切自动拉起必须抑制（INV-S1）。 */
+    /**
+   * 是否处于「退出中/已退出」——此期间一切自动拉起必须抑制。
+   */
   function halting() { return state === 'stopping' || state === 'stopped'; }
 
   /** 契约：是否应运行 = desired==running && 非 halting && 非崩溃停靠。 */

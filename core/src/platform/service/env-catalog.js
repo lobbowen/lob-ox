@@ -105,8 +105,8 @@ function probeNodeAsync() {
 }
 
 /** npm 探测：只经统一启动形态解析口（契约优先，缺席退回 os/exec-path 的 PATHEXT 解析）。
- *  不得退回裸 'npm'（npm-resolution 门禁禁止）：Windows 上 npm 实为 npm.cmd，Node 不做
- *  PATHEXT 解析，裸名会把已装误报 missing。契约在场但指向文件跑不通同样如实报 missing。 */
+ *  不得退回裸 'npm'：Windows 上 npm 实为 npm.cmd，Node 不做 PATHEXT 解析，裸名会把已装误报 missing。
+ *  契约在场但指向文件跑不通同样如实报 missing。 */
 function probeNpm() {
   const l = runtime.npmLauncher();
   return cachedWhichVersion(l.program, l.args);

@@ -34,9 +34,8 @@ async function detectWindowUsage(ctx) {
 }
 
 /** Command billing 面解析：窗口耗尽只由 used>=cap 推导，不依赖 exceeded 标志（上游对 100% 窗口可能不返该标志）。
- *  credits 原体无 period 字段，月度重置精确时刻只在 subscriptions 的 currentPeriodEnd：
- *  仅 credits-limited 账号取订阅（其它账号零额外 API），cache._subCheckedAt 做 6h 缓存；非 limited 清空 monthlyResetAt（不留陈旧日期）。
- *  ctx = { key, quota, cache, prevQuota }。 */
+ *  credits 原体无 period 字段，月度重置精确时刻只在 subscriptions 的 currentPeriodEnd：仅 credits-limited 账号
+ *  取订阅（其它账号零额外 API），cache._subCheckedAt 做 6h 缓存。ctx = { key, quota, cache, prevQuota, creditFrozen }。 */
 async function detectCommandCodeBilling(ctx) {
   const q = (ctx && ctx.quota) || {};
   const key = (ctx && ctx.key) || '';
@@ -64,9 +63,8 @@ async function detectCommandCodeBilling(ctx) {
   const monthlyRemaining = [cr.monthlyCredits, cr.purchasedCredits, cr.freeCredits]
     .reduce((s, v) => { const n = num(v); return n !== null && n >= 0 ? s + n : s; }, 0);
   const hasCredits = cr.monthlyCredits !== undefined || cr.purchasedCredits !== undefined || cr.freeCredits !== undefined || cr.belowThreshold !== undefined;
-  // 月度重置：仅 credits-limited 取订阅；非 limited -> 清空 monthlyResetAt。
-  // creditLow 并入 ctx.creditFrozen（上游 400 拒绝驱动的冻结）：冻结期间必须持续掌握 periodEnd 以呈现/调度
-  // 精确恢复时刻——余额灰区（>0 但不足服务）单靠数据面永远测不到。
+  // 月度重置：仅 credits-limited 取订阅；非 limited -> 清空 monthlyResetAt。creditLow 并入
+  // ctx.creditFrozen（上游 400 拒绝驱动的冻结）：冻结期间必须掌握 periodEnd 以精确调度恢复。
   const creditLow = (hasCredits && ((typeof cr.monthlyCredits === 'number' && cr.monthlyCredits <= 0)
     || cr.belowThreshold === true
     || (Number.isFinite(Number(monthlyRemaining)) && Number(monthlyRemaining) <= 0)))

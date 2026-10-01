@@ -1,17 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 桌面壳看护 —— **端到端**验证
-//
-// 与 shell-watchdog-test.js 的分工：后者是纯决策逻辑（注入 mock、离线）；本测试用**真实
-//   Supervisor 进程 + 真实 spawn**，证明「壳缺失 -> 真的被拉起」这条链是通的。单元测试能证明
-//   「决策正确」，不能证明「接进守卫后真的会拉起」—— 本项目已多次出现「逻辑对、接线断」。
-//
-// 隔离手段：沙箱 HOME（守卫的状态/identity/日志全在其中）· 假壳脚本写标记文件（拉起即证明）·
-//   **唯一进程名**（本机可能真有壳在跑，用不存在的名字确保进入「缺失」分支）·
-//   端口取自 test/_ports.js 安全段（避开 OS ephemeral 与生产池）。
-// ---------------------------------------------------------------------------
+// 桌面壳看护的**端到端**验证（与 shell-watchdog-test.js 的纯决策逻辑分工）：用**真实 Supervisor 进程 +
+//   真实 spawn** 证明「壳缺失 -> 真的被拉起」这条链是通的（单元测试只证明决策正确）。
+//   隔离：沙箱 HOME · 假壳写标记文件 · **唯一进程名**（确保进入「缺失」分支）· 端口取自 test/_ports.js 安全段。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -30,12 +22,9 @@ const shDir = path.join(HOME, 'shell');
 fs.mkdirSync(swDir, { recursive: true });
 fs.mkdirSync(shDir, { recursive: true });
 
-// 假壳：被拉起即写标记，然后挂住（避免立刻退出被当成又缺失）。
-//   必须让假壳**可被 spawn**：① POSIX 脚本在 Windows 无法执行；② Node 的 child_process.spawn
-//   **不能直接 spawn .cmd/.bat**（需 shell:true），而产品用 spawn(exe, [], {detached:true,
-//   stdio:'ignore'}) -> 实测 CI 报 "spawn EINVAL"。最终方案：POSIX 用可执行 shell 脚本；
-//   Windows 用**node.exe 的拷贝**（真实 PE）配 NODE_OPTIONS=--require <hook>（经 env 透传，已实测
-//   有效）写标记并挂住。两者行为一致：把 "launched <pid>" 追加到标记文件并挂住约 20s。
+// 假壳：被拉起即写标记，然后挂住（避免立刻退出被当成又缺失）。必须让假壳**可被 spawn**：
+//   POSIX 脚本在 Windows 无法执行，child_process.spawn 也**不能直接 spawn .cmd/.bat**（实测 "spawn EINVAL"）。
+//   方案：POSIX 用可执行 shell 脚本；Windows 用 **node.exe 的拷贝**（真实 PE）配 NODE_OPTIONS=--require <hook>。
 const marker = path.join(HOME, 'launched.txt');
 const isWin = process.platform === 'win32';
 const fakeShell = path.join(HOME, isWin ? 'dsh-supervisor-gui.exe' : 'dsh-supervisor-gui');
@@ -87,10 +76,8 @@ const cfg = {
 };
 
 process.env.HOME = HOME;
-//  **必须同时设 USERPROFILE**（本仓既有约定）：Node 的 os.homedir() 在 **Windows 上优先读
-//  USERPROFILE**，而 shell.identity() 经 shellDir()（产品状态根 = DSH_SUPERVISOR_HOME）定位
-//  identity.json —— 只设 HOME 时 Windows 读不到夹具写入的 identity.json -> hasExe=false ->
-//  **不拉起** -> E2E-1/3/4/5 在 Windows 必红。这是夹具未遵循既有约定，不是产品问题。
+//  **必须同时设 USERPROFILE**：Node 的 os.homedir() 在 Windows 上优先读 USERPROFILE，只设 HOME 会让
+//   shell.identity() 读不到夹具的 identity.json -> hasExe=false -> **不拉起**（E2E-1/3/4/5 在 Windows 必红）。
 process.env.USERPROFILE = HOME;
 
 (async () => {

@@ -1,7 +1,7 @@
 'use strict';
 
-// app/control/scheduler.js —— 周期调度（tick 为 _dshConverge 别名）。装配：compose.js 以
-// Object.assign(host, mod.methods) 注入（DS-G3）；宿主绑定经按 host 缓存的惰性 deps，方法内不用 this。
+// 周期调度（tick 为 _dshConverge 别名）。装配：compose.js 以 Object.assign(host, mod.methods) 注入；
+//   宿主绑定经按 host 缓存的惰性 deps，方法内不用 this。
 const DEPS = new WeakMap();
 function depsOf(host) {
   let d = DEPS.get(host);
@@ -23,9 +23,10 @@ function depsOf(host) {
 
 module.exports = {
   methods: {
-  /** tick 保留为 _dshConverge 别名：外部收敛触发点（start 首拍 / setDesired / requestRestart /
-   *  _exitUpgradeHold）调用；shadow 模式的定时器也驱动此别名。on 模式下 main 每拍收敛由
-   *  heartbeat 的 dsh supervise 直接调 _dshConverge（无独立 tick 定时器）。 */
+    /**
+   * tick 保留为 _dshConverge 别名：外部收敛触发点（start 首拍 / setDesired / requestRestart / _exitUpgradeHold）调用；
+   * shadow 模式的定时器也驱动此别名。on 模式下 main 每拍收敛由 heartbeat 的 dsh supervise 直接调 _dshConverge。
+   */
   async tick() {
     const d = depsOf(this);
     return d.main().converge();
@@ -35,7 +36,7 @@ module.exports = {
     const d = depsOf(this);
     try {
       if (d.stopping()) return { ok: false, error: 'guard stopping' };
-      if (d.exitIntended()) return { ok: false, error: 'exit intended' }; // INV-S1/E-3：意图轴单源（stopping 或 session halting；_shellHalted 属壳域不在此）
+      if (d.exitIntended()) return { ok: false, error: 'exit intended' }; // 意图轴单源（stopping 或 session halting；_shellHalted 属壳域不在此）
       await d.main().converge(); // 唯一心跳驱动 main 收敛
       try { d.control().syncInstancesView(); } catch (e) { d.logger() && d.logger().warn && d.logger().warn('instances view sync: ' + ((e && e.message) || e)); } // 聚合视图随心跳刷新
     } catch (e) {

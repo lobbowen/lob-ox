@@ -1,21 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 删除实例：必须与「进行中的升级作业」互斥，且不得被平台服务能力异常拖崩
-//
-// 缺陷（被测对象：InstanceManager.removeInstance）：
-//   1) 其它三条路径都有 `tasks.isBusy` 互斥，唯独 removeInstance 没有 -> 升级到 npm install
-//      时删除：内存先移除、rmSync 删目录，npm 又把 install/ 重建写入 -> 目录永留盘上而无清理
-//      路径（**孤儿永久占盘**）。
-//   2) `stopUnit()` 会抛 CapabilityError 的平台（未知平台 NONE / 嵌入方）：removeInstance 原先
-//      假定它「不抛」-> 在 mac/win 上**每次删除都抛未捕获异常**。此处显式注入「会抛的 stopUnit」，
-//      于是**在 Linux 上也能拦住**该回归。
-//
-// 锁定不变量：R-a 有在飞作业 -> 拒绝删除且**未**改动实例列表（不留半删状态）· R-b 作业结束后
-//   可正常删除（互斥不得变成永久锁）· R-c 反向：不存在的实例仍被如实拒 · R-d stopUnit 抛能力
-//   异常时删除不得崩溃。
-// ---------------------------------------------------------------------------
+// 删除实例：必须与「进行中的升级作业」互斥，且不得被平台服务能力异常拖崩 —— removeInstance 原先既
+//   没有 tasks.isBusy 互斥（升级中删除 -> npm 重建 install/ -> 孤儿永久占盘），又假定 stopUnit 不抛
+//   CapabilityError。R-a 在飞作业拒绝删除且不留半删 · R-b 作业结束可删 · R-c 不存在仍如实拒 · R-d stopUnit 抛异常不崩溃。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -63,9 +51,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'inst-rm-'));
 }
 
 // -- R-d：stopUnit 抛「平台不支持」时，删除**不得崩溃** --
-//   本回归由 macOS runner 逼出：makeUnsupported（macOS launchd / Windows 服务 / 未知平台）的
-//   stopUnit() 直接 throw CapabilityError，而 removeInstance 原先假定它「不抛」。W3 起 mac/win
-//   落 portable（不抛），但「会抛的 stopUnit」仍是未知平台 NONE 与嵌入方的真实形状，拦截保留。
+//   makeUnsupported（macOS launchd / Windows 服务 / 未知平台）的真实形状；mac/win 现落 portable（不抛），拦截保留。
 {
   const { InstanceManager } = require(path.join(ROOT, 'src', 'domains', 'instance'));
   // 经**构造期注入**伪造平台服务（本仓约定：显式注入，而非 patch 模块导出 ——

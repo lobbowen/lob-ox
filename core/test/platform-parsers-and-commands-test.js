@@ -1,20 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 平台「输出解析 + 命令构造 + 会话判定」可移植性门禁（纯函数直调，非平行实现）：
-//   pidlookup.js（parseProcNetTcpInodes/parseLsofPid/parseNetstatPid/parseSsPid/
-//   parseWmicCommandLine/parsePowerShellCommandLine）· notify.js（notifyCommand/
-//   appleScriptString/powerShellString）· desktop.js（会话探针）。
-//
-// ## 真实缺陷（本门禁锁的）
-//   · PowerShell 转义曾套用 JSON 规则（JSON.stringify 产出 "a\"b"，而 PS 双引号串用
-//     **双写**转义、反斜杠是字面字符）-> PS 在反斜杠处终止字符串 -> notify 静默失败。
-//     AppleScript 确实用反斜杠，故两平台必须分开实现；PS 侧改用**单引号字面量**，
-//     $()/反引号不得成为插值点（注入面）。· wmic "No Instance(s) Available." 必须返回 null
-//     以走 CIM 回退。· 端口匹配必须**整段**（贪婪子串会取到别的 pid）。· resstats 采样解析与
-//     树聚合（逐分支铺量已按减重裁定删除，保留大分档与「垃圾输入→null」）。
-// ---------------------------------------------------------------------------
+// 平台「输出解析 + 命令构造 + 会话判定」可移植性（纯函数直调，非平行实现）：pidlookup.js 的 parse* 系列 ·
+//   notify.js（notifyCommand/appleScriptString/powerShellString）· desktop.js 会话探针。
+//   PowerShell 用**双写**转义、反斜杠是字面字符（套 JSON 规则会让 PS 在反斜杠处终止字符串 -> notify 静默失败）；wmic 的 "No Instance(s) Available." 必须返回 null 走 CIM 回退；端口匹配必须**整段**。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -32,7 +21,7 @@ const check = (n, c, x) => {
 
 const LF = String.fromCharCode(10);
 const CRLF = String.fromCharCode(13) + String.fromCharCode(10);
-// 异步判据登记表：汇总前统一 await（不为一条判据另开一道门禁）。
+// 异步判据登记表：汇总前统一 await。
 const pendingChecks = [];
 // -- Y-1：三平台监听者解析 --
 {
@@ -146,7 +135,7 @@ function underFakeEnv(platform, env, body) {
   // 子进程输出 -> {out, j}（JSON 解析失败时 j 为 null），下面各平台采样共用。
   const jOf = (out) => { try { return { out: out, j: JSON.parse(out) }; } catch { return { out: out, j: null }; } };
 
-  // darwin/win32 是同一代码路径在两个平台上的采样（「会话由启动器限定」同一判据），合成一条。
+  // darwin/win32 是同一代码路径的两个平台采样（会话由启动器限定）。
   const outs = ['darwin', 'win32'].map((p) => Object.assign({ p: p }, jOf(underFakeEnv(p, { DISPLAY: null, WAYLAND_DISPLAY: null }, BODY))));
   check('Y-4 darwin/win32 恒为可用（会话由启动器限定）且 reason=session-scoped-by-launcher',
     outs.every((o) => !!o.j && o.j.available === true && o.j.reason === 'session-scoped-by-launcher'),
@@ -165,10 +154,8 @@ function underFakeEnv(platform, env, body) {
   fs.rmSync(empty, { recursive: true, force: true });
 }
 
-// -- Y-5（反向）全组已删：三条都是 Y-1/Y-2/Y-3 已断言内容的逐字重述，且判据对象是就地自造的旧形态字符串。
 
-// -- Y-6：resstats 进程树采样解析（W2 观测面；/proc、ps、Get-CimInstance 三种真实形态文本离线验）--
-//    逐分支铺量已按减重裁定删除；大分档与「垃圾输入→null」保留。
+// -- Y-6：resstats 进程树采样解析（/proc、ps、Get-CimInstance 三种真实形态文本离线验）--
 {
   const resstats = require(path.join(ROOT, 'src', 'platform', 'os', 'resstats'));
   const { aggregate } = resstats;
@@ -217,7 +204,7 @@ function underFakeEnv(platform, env, body) {
         !!self && self.rssBytes > 0 && self.cpuMs >= 0
         && (await resstats.sampleAsync(2147483646)) === null, JSON.stringify(self));
     }
-    // 非 Linux：子进程数据源由 CI 对应 runner 裁决 —— 原来的 typeof 形状断言已按减重裁定删除。
+    // 非 Linux：子进程数据源由对应平台的 runner 裁决。
   })());
 }
 

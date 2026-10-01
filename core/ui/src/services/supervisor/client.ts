@@ -1,5 +1,5 @@
 /** supervisor HTTP API 客户端（同源 fetch，生产由 dsh-supervisor 托管）：唯一允许直接 fetch 的模块，页面经 services 层间接使用，GET 纯读；
- *  http() 只看 HTTP 状态码，2xx 里的 { ok:false } 视为数据（如探活不通）不抛，写操作假成功由 failureFromResult 统一判据（UI 条 5）；
+ *  http() 只看 HTTP 状态码，2xx 里的 { ok:false } 视为数据（如探活不通）不抛，写操作假成功由 failureFromResult 统一判据；
  *  生产同源（/…），开发跨端口用 vite proxy 转发（去掉 Origin 走回环）。 */
 import type {
   AccessKeyResult, AccessKeyStatus, AutostartStatus, CloseActionStatus, EnvironmentForm, EnvironmentSnapshotRead, EnvStatus, EventsPage, ExternalBrowserStatus, FrpStatus, GenericOk,
@@ -92,7 +92,7 @@ async function http<T>(method: string, path: string, body?: unknown, opts?: Http
         : msg,
     ) as Error & { status?: number; body?: unknown };
     err.status = res.status; // 轮询层据此区分「401 鉴权失败」与「真离线」
-    // 响应体随错误一起交出：后端把「动作未被接受」映射为非 2xx（GD 条），而有些结果的
+    // 响应体随错误一起交出：后端把「动作未被接受」映射为非 2xx，而有些结果的
     // 结构化字段（如外部打开的 url/reason）必须呈现给用户，只留一句文案就丢了可复制的地址。
     err.body = data;
     throw err;

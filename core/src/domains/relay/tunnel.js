@@ -43,7 +43,7 @@ function rejectSocket(socket, statusLine) {
 
 /** 构造 server.on('upgrade') 处理器。deps：session 会话桥、authority 回环权威 "host:port"、
  *  targetHost/targetPort 回环 DSH 目标、getToken 按需读令牌（proxy 侧可热换）、getGateSalt 会话盐、
- *  gateWaitMs/onGateFailure C-3 凭据失败退避（与 HTTP 路径同一账本，null=放行、拒绝时记一次失败）。 */
+ *  gateWaitMs/onGateFailure 凭据失败退避（与 HTTP 路径同一账本，null=放行、拒绝时记一次失败）。 */
 function createTunnelHandler({ session, authority, targetHost, targetPort, getToken, getGateSalt, gateWaitMs, onGateFailure }) {
   return function onUpgrade(req, socket, head) {
     // 来源闸：WS 升级同样必须限定回环/私网。

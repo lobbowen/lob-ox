@@ -303,7 +303,7 @@ function InstalledTab() {
   async function checkUpdates() {
     setChecking(true);
     try {
-      // force 只发一次，其余拍读快照；「取不到版本」与「已是最新」必须分开报（P 组口径）
+      // force 只发一次，其余拍读快照；「取不到版本」与「已是最新」必须分开报
       const first = await supervisorApi.pluginsCheckUpdates(true);
       const r = first.refreshing ? await pollSnapshot(() => supervisorApi.pluginsCheckUpdates(), (x) => !!x.refreshing) : first;
       const m = new Map<string, string>();

@@ -44,8 +44,7 @@ function OpenResultBody({ url, detail }: { url: string | null; detail: string | 
 }
 
 /** 一次外部打开结果的呈现（不抛错：这一步没有可失败的后端动作）。
- *  摊不摊证据行由服务层的 reveal 决定（判据见 classifyOpenResult），组件不自判：
- *  「白窗口现场该看见什么」写在渲染侧就没法在 CI 里判红。 */
+ *  摊不摊证据行由服务层的 reveal 决定（判据见 classifyOpenResult），组件不自判。 */
 export function notifyOpen(r?: OpenExternalResult | null): void {
   const { tier, url, title, detail, reveal } = classifyOpenResult(r);
   const shown = reveal ? detail : null;
@@ -58,7 +57,7 @@ export function notifyOpen(r?: OpenExternalResult | null): void {
   else toast.error(title, opts);
 }
 
-/** 发起 + 呈现的唯一入口。后端把「动作未被接受」映射为非 2xx（GD 条），而失败响应体里的地址
+/** 发起 + 呈现的唯一入口。后端把「动作未被接受」映射为非 2xx，而失败响应体里的地址
  *  仍必须呈现，故 catch 里优先取 err.body，取不到才退化成一句错误文案。
  *  泛型：调用方的端点带额外字段（如登录发起的 authUrl/isolated）时原样交出，不必二次请求。 */
 export async function runOpenExternal<T extends OpenExternalResult>(

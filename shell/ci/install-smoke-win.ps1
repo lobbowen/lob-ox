@@ -1,4 +1,4 @@
-# 安装冒烟 H10（Windows）：只执行**装进系统里的那份 exe**，不碰构建树。
+# 安装冒烟（Windows）：只执行**装进系统里的那份 exe**，不碰构建树。
 # 用法: install-smoke-win.ps1 -InstallerA <exe> -VerA <v> -InstallerB <exe> -VerB <v> -Work <dir>
 # A = 上一已发布版本，B = 本次构建产物；先静默装 A 再覆盖装 B，即用户的升级路径。
 param(

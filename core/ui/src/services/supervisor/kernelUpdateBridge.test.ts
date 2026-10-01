@@ -1,5 +1,4 @@
-// 面板 -> 壳 内核更新桥的行为测试。三条判据的失败模式都是静默的（伪造成功、进度丢失、超时误报后重试即并发写同一个 npm 全局包）；
-// 形态门禁（test/kernel-update-single-writer-test.js SW-9）只证明代码里有字样、证不了真生效，故两边都要锁。
+// 面板 -> 壳 内核更新桥的行为测试。三条判据的失败模式都是静默的（伪造成功、进度丢失、超时误报后重试即并发写同一个 npm 全局包），故按行为钉住。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BRIDGE_PROTOCOL_VERSION,
@@ -9,7 +8,7 @@ import {
   type KernelUpdateResult,
 } from "./kernelUpdateBridge";
 
-// 线格式在测试里重写字面量（不复用模块常量）：桥两侧各自持常量，跨仓一致性由门禁钉，
+// 线格式在测试里重写字面量（不复用模块常量）：桥两侧各自持常量，
 //   测试若复用同一常量就等于「用实现验证实现」，改错常量时两边一起错。
 const REQUEST = "dsh:kernel-update-request";
 const RESULT = "dsh:kernel-update-result";

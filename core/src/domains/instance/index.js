@@ -1,8 +1,8 @@
 'use strict';
 
 // 多实例管理器：门面 + 组装根，只做组合与委托（构造纯模块/IO 模块、注入协作方），不含业务逻辑。
-// 对外契约面见 contract.js（exports 与 PUBLIC_API 由门禁校验）。
-// 域内依赖：index -> ops -> lifecycle -> store -> model/sandbox/state-machine（单向 DAG）。
+// 对外契约面见 contract.js。
+// 域内依赖：index -> ops -> lifecycle -> store -> model/sandbox/state-machine（单向）。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -22,12 +22,12 @@ class InstanceManager {
     this.events = opts.events || null;
     this.dist = opts.dist || null;       // 统一分发：沙箱 npm 安装与 DSH 自升级共用全局镜像源
     this.dshBin = opts.dshBin || 'dsh';
-    this.service = opts.service || service;   // 平台服务控制器：可注入（测试显式注入，不 patch 模块导出）
+    this.service = opts.service || service;   // 平台服务控制器：可注入
     this.tokens = opts.tokenService || null;  // 唯一令牌节点：只登记「源」，不持有/转发令牌
     this.tasks = opts.tasks || null;          // 统一安装/更新任务注册表
     this.systemdDir = opts.systemdDir || path.join(os.homedir(), '.config', 'systemd', 'user');
     this.systemdTemplatePath = opts.systemdTemplatePath || path.join(this.systemdDir, 'dsh-web@.service');
-    // W2 控制面注入缝：采样与机器事实可替换（行为测试显式注入，不 patch 模块导出）。
+    // 控制面注入缝：采样与机器事实可替换。
     this.resstats = opts.resstats || defaultResstats;
     this.machineFacts = opts.machineFacts || null;
     this.instancesRoot = path.join(this.dir, 'instances');
@@ -49,17 +49,17 @@ class InstanceManager {
   }
 
   /** instances 活数组：每次返回 store 当前数组（身份稳定；app/state/store.js 等 20+ 处持引用直读/splice）。
-   *  跨域消费方（DG-11）只经下面的查询接口取用，不直读本内部活数组。 */
+   *  跨域消费方只经下面的查询接口取用，不直读本内部活数组。 */
   get instances() { return this._store.instances; }
   set instances(list) { this._store.replace(list); }
 
-  // 查询接口（DG-11 契约面）：每次经 store 取当前数组，保持活数组身份语义（非快照）。
+  // 查询接口：每次经 store 取当前数组，保持活数组身份语义（非快照）。
   all() { return this._store.instances; }
   forEach(fn) { return this._store.instances.forEach(fn); }
   find(id) { return this._store.instances.find((i) => i.id === id); }
   map(fn) { return this._store.instances.map(fn); }
 
-  /** 沙箱能力（实时求值）：三平台均可跑舱（W3 portable 档）；保留显式覆写位供测试/嵌入方。 */
+  /** 沙箱能力（实时求值）：三平台均可跑舱；保留显式覆写位。 */
   get sandboxSupported() { return sandbox.supported(this._sandboxSupportedOverride); }
   _setSandboxSupportedForTest(v) { this._sandboxSupportedOverride = (v === null ? null : v === true); }
 
@@ -87,10 +87,10 @@ class InstanceManager {
   startInstance(id, opts) { return this._lifecycle.start(id, opts); }
   stopInstance(id) { return this._lifecycle.stop(id); }
   supervise(id) { return this._lifecycle.supervise(id); }
-  /** 治理单拍（B2-6e）：心跳拍末由 onBeatDone 调一次，全花名册 decide+下发+违规处置。 */
+  /** 治理单拍：心跳拍末由 onBeatDone 调一次，全花名册 decide+下发+违规处置。 */
   governSweep() { return this._lifecycle.governSweep(); }
   probeInstance(id) { return this._lifecycle.probeInstance(id); }
-  /** 资源预算总览（/env/status 观测面，W2）：当前占用/剩余/下一份保底/可容纳实例数。 */
+  /** 资源预算总览（/env/status 观测面）：当前占用/剩余/下一份保底/可容纳实例数。 */
   budgetSnapshot() { return governor.budgetSnapshot(this._store.instances, this.machineFacts || undefined); }
   checkUpdate(id) { return this._upgrade.checkUpdate(id); }
   upgradeInstance(id) { return this._upgrade.upgradeInstance(id); }

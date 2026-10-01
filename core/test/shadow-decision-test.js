@@ -1,17 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 影子决策与真实拉起门的一致性
-//
-// 真实拉起门 `supervisor.js::_shouldRun()` 有三个否决位：desired !== 'running' /
-//   _sessionHalting() / _crashHalted；而影子的 `_decideMainAction()` 只建模了第一个 ->
-//   guardian=false 崩溃停靠时真实 tick 不拉起、影子算出 start -> 每拍 diff ->
-//   **G3 切换门槛（连续零 diff）永久不可达**。
-//
-// 锁定不变量：K5-a crashHalted 不得 start · K5-b sessionHalting 不得 start ·
-//   K5-c 否决位优先于 probeOk（不得 adopt）· K5-d 无否决位仍能 start（防修成永不拉起）。
-// ---------------------------------------------------------------------------
+// 影子决策与真实拉起门的一致性：真实门 supervisor.js::_shouldRun() 有三个否决位（desired !== 'running' /
+//   _sessionHalting() / _crashHalted），影子 _decideMainAction() 只建模第一个 ⇒ 崩溃停靠时真实 tick 不拉起、
+//   影子算出 start -> 每拍 diff -> 切换门槛（连续零 diff）永久不可达。K5-a..d 覆盖各否决位与其反向。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');

@@ -1,8 +1,8 @@
 'use strict';
 
-// 生命周期管理器（LifecycleManager）——全部模块生命周期的唯一注册表与统一启停入口。
-// 守卫重启只重置本管理器的观测状态，绝不停/杀被管模块（stop 仅在显式请求时执行）；
-// 周期拉起由守卫 daemon 监督与实例 watchdog/guardian 承担，本管理器不内置探活。
+// 生命周期管理器（LifecycleManager）：全部模块生命周期的唯一注册表与统一启停入口。守卫重启只重置本管理器的
+//   观测状态，绝不停/杀被管模块（stop 仅在显式请求时执行）；周期拉起由守卫 daemon 监督与实例
+//   watchdog/guardian 承担，本管理器不内置探活。
 
 const { ManagedLifecycle } = require('./entry');
 
@@ -57,9 +57,10 @@ class LifecycleManager {
     return { ok: r.ok !== false, error: r.error, already: r.already, ...lc.snapshot() };
   }
 
-  /** 重启（保持 desired 语义）。委托 lc.restart()：_restart 回调优先（如 dsh 经 requestRestart
-   *  停旧拉新），无回调才退化为 stop -> start；该回退逻辑由 ManagedLifecycle.restart() 唯一承担
-   *  （契约测试锁定），此处不留副本。 */
+    /**
+   * 重启（保持 desired 语义）。委托 lc.restart()：_restart 回调优先（如 dsh 经 requestRestart 停旧拉新），无回调才
+   * 退化为 stop -> start；该回退逻辑由 ManagedLifecycle.restart() 唯一承担，此处不留副本。
+   */
   async restart(id) {
     const lc = this.registrations.get(id);
     if (!lc) return { ok: false, error: '未注册模块: ' + id };
@@ -73,9 +74,10 @@ class LifecycleManager {
     return this.all().map((l) => lc_status(l));
   }
 
-  /** 守卫 shutdown：停全部 monitoring 的模块。契约 RC2：本管理器不内置 dsh 特例——
-   *  stopAll 会停掉所有纳管/期望运行项，「守卫退出不动 DSH」由调用方以 exclude:['dsh'] 保证
-   *  （见 supervisor.js 的调用）。exclude = 额外豁免的模块 id（如独立 daemon 型 router）。 */
+    /**
+   * 守卫 shutdown：停全部 monitoring 的模块。本管理器不内置 dsh 特例 —— stopAll 会停掉所有纳管/期望运行项，
+   * 「守卫退出不动 DSH」由调用方以 exclude:['dsh'] 保证（见 supervisor.js 的调用）。exclude = 额外豁免的模块 id。
+   */
   async stopAll(reason, opts) {
     const exclude = new Set((opts && opts.exclude) || []);
     for (const lc of this.all()) {

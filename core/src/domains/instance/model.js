@@ -9,10 +9,9 @@ function taskStateToView(s) {
   return (s === 'succeeded' || s === 'skipped') ? 'done' : (s === 'failed' || s === 'canceled') ? 'failed' : 'running';
 }
 
-/** 磁盘文档实例记录 -> 运行时记录（纯迁移，不落盘）：dshToken/remoteEnabled/frpEnabled/frpRemotePort/wanPort 一律剔除，
- *  legacy 布尔对推导 remoteMode 三态（端口权威在 relay 槽位注册表）；guardian 缺省关；
- *  重启后 FAILED 一律重置 STOPPED（失败是一次性状态）；desired（运行意图第二落点）已废止，残留一次性剔除。
- *  令牌源登记（tokens.attach）是 IO，留在 store.load()，不进本函数。 */
+/** 磁盘文档实例记录 -> 运行时记录（纯迁移，不落盘）：dshToken/remoteEnabled/frpEnabled/frpRemotePort/wanPort 剔除，
+ *  legacy 布尔对推导 remoteMode 三态（端口权威在 relay 槽位注册表）；guardian 缺省关；重启后 FAILED 重置 STOPPED；
+ *  残留 desired 一并剔除。令牌源登记（tokens.attach）是 IO，留在 store.load()。 */
 function normalizeInstance(inst) {
   if (Object.prototype.hasOwnProperty.call(inst, 'dshToken')) delete inst.dshToken;
   if (inst.remoteMode !== 'lan' && inst.remoteMode !== 'wan') {
@@ -22,7 +21,7 @@ function normalizeInstance(inst) {
   delete inst.frpEnabled;
   delete inst.frpRemotePort;
   delete inst.wanPort;
-  // 用户填额链已废止：历史记录残留的 memoryMax/cpuQuota 一律剔除，防「删了入口但旧值仍被读」的静默配额漂移。
+  // 残留的 memoryMax/cpuQuota 一律剔除，防「删了入口但旧值仍被读」的配额漂移。
   if (inst.sandbox) { delete inst.sandbox.memoryMax; delete inst.sandbox.cpuQuota; }
   if (inst.guardian === undefined) inst.guardian = false;
   if (inst.state && inst.state.phase === 'FAILED') {
@@ -30,8 +29,7 @@ function normalizeInstance(inst) {
     inst.state.lastError = null;
   }
   if (inst.state) inst.state.phase = inst.state.phase || 'STOPPED';
-  // 运行意图不设第二落点（B2-1）：自动拉起只认 guardian 开关，用户启停就是动作本身。
-  //  历史库里残留的 desired 一次性剔除，与上面 legacy 布尔对的剔除同惯例——字段没了就是没了。
+  // 运行意图不设第二落点：自动拉起只认 guardian 开关，用户启停就是动作本身；残留 desired 一律剔除。
   if (inst.state) delete inst.state.desired;
   return inst;
 }
@@ -88,7 +86,7 @@ function viewRow(inst, resolved) {
       lastError: inst.state ? inst.state.lastError : null,
       // 当次启动生效的动态配额（governor 推导；未启动过为 null）
       allocation: inst.state ? (inst.state.allocation || null) : null,
-      // 实测占用（W2 监督拍回填 { memMb, cpuPct, at }；未采到/已停止为 null，与 allocation 成对展示）
+      // 实测占用（监督拍回填 { memMb, cpuPct, at }；未采到/已停止为 null，与 allocation 成对展示）
       usage: inst.state ? (inst.state.usage || null) : null,
       // 稳定性统计（与原生卡一致）：重启次数 / 最近故障原因（BACKOFF/FAILED 由状态机记录）
       restartCount: inst.state ? (inst.state.restartCount || 0) : 0,

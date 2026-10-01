@@ -6,14 +6,13 @@
 // SSRF 主机分级与镜像基址形态都在 registry-ref 单一定义，本文件只做纯策略的组合与文案。
 const registryRef = require('./registry-ref');
 
-/** npm 子进程动作的时长预算（毫秒）。两处最坏情形不同，故分开定量、不再各写一个字面量：
- *  安装受 registry 往返支配；卸载只删本地 node_modules，卡住的原因是网络盘/杀软扫描，
- *  量级与 Rust 侧 npm 上限（15min）对齐。调用方可用 config 覆盖（测试与慢盘环境）。 */
+/** npm 子进程动作的时长预算（毫秒）。两处最坏情形不同，故分开定量：安装受 registry 往返支配；
+ *  卸载只删本地 node_modules，卡住的原因是网络盘/杀软扫描，量级与 Rust 侧 npm 上限（15min）对齐。
+ *  调用方可用 config 覆盖。 */
 const NPM_TIMEOUT_MS = { install: 600000, uninstall: 900000 };
 
-/** 最小兜底镜像源——仅契约缺失/损坏时使用，不参与正常选择路径（不变量 C2 的兜底）。
- *  完整目录与探测规格归壳（经 registry.json 的 catalog 投放）。保留 2 条覆盖两种基本
- *  情形：能上公网（官方）/ 中国网络（npmmirror）。 */
+/** 最小兜底镜像源——仅契约缺失/损坏时使用，不参与正常选择路径。完整目录与探测规格归壳
+ *  （经 registry.json 的 catalog 投放）。保留 2 条覆盖两种基本情形：能上公网（官方）/ 中国网络（npmmirror）。 */
 const FALLBACK_REGISTRIES = [
   'https://registry.npmjs.org',
   'https://registry.npmmirror.com',
@@ -33,7 +32,7 @@ function registryOriginViolation(origin) {
  *  1) 内核选择文档里的 origins —— 用户在面板里显式维护的候选，最该被尊重；
  *  2) 契约 catalog —— 壳投放的「这台机器上验证过的镜像目录」；
  *  3) defaultRegistries —— 兜底（构造参数，缺省即最小兜底）。
- *  把目录排在用户之前会让候选编辑在壳下次重写契约时静默失效，所以这一版按上面的顺序取第一个非空。 */
+ *  把目录排在用户之前会让候选编辑在壳下次重写契约时静默失效，故按上面的顺序取第一个非空。 */
 function effectiveOrigins(registryConfig, contract, defaultRegistries) {
   const user = ((registryConfig && registryConfig.origins) || [])
     .filter((x) => typeof x === 'string' && x.trim());
@@ -43,8 +42,8 @@ function effectiveOrigins(registryConfig, contract, defaultRegistries) {
   return [...(defaultRegistries || [])];
 }
 
-/** 由内核自持的选择文档重建内存态（纯）。这份文档只有内核写，所以不再需要「读回原文档保留壳字段」
- *  的义务；缺失字段按默认值：auto + 不固定手动源 + 空候选（候选来自契约目录）。
+/** 由内核自持的选择文档重建内存态（纯）。本文档只有内核写，故无需「读回原文档保留壳字段」；
+ *  缺失字段按默认值：auto + 不固定手动源 + 空候选（候选来自契约目录）。
  *  @param {object} [doc] 选择文档；null/损坏由调用方处理 */
 function rebuildRegistryConfig(doc) {
   const d = (doc && typeof doc === 'object' && !Array.isArray(doc)) ? doc : {};
@@ -56,10 +55,10 @@ function rebuildRegistryConfig(doc) {
   };
 }
 
-/** 展开单个镜像的探测目标。契约 probe.kind='package-metadata' 且有 platformTag 时用与壳完全一致的真实包元数据 URL，否则退化为 `/-/ping`
- *  （实测两种规格延迟差数倍，两侧必须同规格，否则「面板显示一个源、实际下载用另一个」分叉）。
- *  platformTag 为 null/空（宿主不可产标或不在发布矩阵，调用方 probeRegistry 已判定）时必须退化 —— 缺守卫会把字面量 `undefined` 拼进 pathTemplate 恒 404。
- *  基址非法时返回 url:null + violation，由调用方按「该源不可用」如实记录，而不是拼出一个必败 URL。 */
+/** 展开单个镜像的探测目标。契约 probe.kind='package-metadata' 且有 platformTag 时用与壳完全一致的
+ *  真实包元数据 URL，否则退化为 `/-/ping`（两侧必须同规格，否则「面板显示一个源、实际下载用另一个」）。
+ *  platformTag 为 null/空时必须退化 —— 缺守卫会把字面量 `undefined` 拼进 pathTemplate 恒 404。
+ *  基址非法时返回 url:null + violation。 */
 function resolveProbe(origin, spec, platformTag) {
   const timeoutMs = (spec && Number.isFinite(spec.timeoutMs) && spec.timeoutMs > 0) ? spec.timeoutMs : 4000;
   const parsed = registryRef.parseRegistryBase(origin);

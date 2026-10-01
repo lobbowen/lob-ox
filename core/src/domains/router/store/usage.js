@@ -33,7 +33,7 @@ class UsageLedger {
     this.events = o.events || null;
     this.totals = null;
     // byModel 键来自客户端请求体，可被撑到无界 -> 截断 + 限流桶；
-    //   全量同步写盘改脏标记 + 尾部定时器（writeDelayMs=0 保持即时落盘语义，供测试）。
+    //   全量同步写盘改脏标记 + 尾部定时器（writeDelayMs=0 保持即时落盘语义）。
     this._writeDelayMs = typeof o.writeDelayMs === 'number' ? o.writeDelayMs : 1000;
     this._maxModelKeys = typeof o.maxModelKeys === 'number' ? o.maxModelKeys : 64;
     this._timer = null;
@@ -91,7 +91,7 @@ class UsageLedger {
     return t.errors;
   }
 
-  /** 脏标记 + 尾部定时器合并落盘；delay=0 时每调用同步写（兼容既有测试语义）。 */
+  /** 脏标记 + 尾部定时器合并落盘；delay=0 时每调用同步写。 */
   _scheduleWrite() {
     this._dirty = true;
     if (this._writeDelayMs <= 0) return this._writeTotals();
@@ -103,7 +103,7 @@ class UsageLedger {
     if (this._timer && this._timer.unref) this._timer.unref();
   }
 
-  /** 强制落盘（停机/测试钩子）：定时器未到点也不丢账；无脏数据则跳过。 */
+  /** 强制落盘（停机钩子）：定时器未到点也不丢账；无脏数据则跳过。 */
   flush() {
     if (this._timer) { clearTimeout(this._timer); this._timer = null; }
     if (!this._dirty) return;

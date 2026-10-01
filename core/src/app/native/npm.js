@@ -1,15 +1,16 @@
 'use strict';
 
-// 域：原生 DSH（app/native）—— npm 调用（IO：exec / spawn 经 platform 统一封装）。
-// npm 的启动形态经 host._npmBin/_npmBinArgs 构造期注入，未注入时统一取运行期契约。
+// 域：原生 DSH —— npm 调用（IO：exec / spawn 经 platform 统一封装）。npm 的启动形态经 host._npmBin/_npmBinArgs
+//   构造期注入，未注入时统一取运行期契约。
 
 const ex = require('../../platform/util/exec');
 const runtimeContract = require('../../platform/contract/runtime');
 
-/** npm 启动形态 `{ program, args }`：必须成对取值、同源一次解析，绝不拆用。
- *  契约可能是「node + 包内 npm-cli.js」——只取 program 会降级成裸跑 node，只取 args 会把参数塞给别的解释器；
- *  program 走 ambient PATH 在 GUI 环境（PATH 里没有 nvm/fnm 的 npm）下安装/卸载/探测 root 全失败。
- *  注入即接管整对：测试注入 fake npm 时不继承契约前缀参数，否则假解释器会去跑真 npm-cli.js（真实副作用）。 */
+/**
+ * npm 启动形态 `{ program, args }`：必须成对取值、同源一次解析，绝不拆用 —— 契约可能是「node + 包内 npm-cli.js」，
+ * 只取 program 会降级成裸跑 node，只取 args 会把参数塞给别的解释器；program 走 ambient PATH 在 GUI 环境（PATH 里
+ * 没有 nvm/fnm 的 npm）下安装/卸载/探测 root 全失败。注入即接管整对，不继承契约前缀参数。
+ */
 function npmLaunch(host) {
   const h = host || {};
   if (h._npmBin) {
@@ -19,7 +20,7 @@ function npmLaunch(host) {
   return { program: l.program, args: l.args };
 }
 
-/** 优先注入值（测试）。 */
+/** 优先取注入值。 */
 /** npm 全局根（异步：HTTP 处理路径都在事件循环上，同步 root -g 最长冻结 15s）。
  *  opts 透传给执行器（超时口径由调用方定）：环境表单的读路径必须远小于默认 15s，
  *  否则一次面板刷新就吃掉用户可见的动作预算；拿不到即 null，由表单如实标「未测到」。 */

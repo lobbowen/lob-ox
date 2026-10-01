@@ -1,8 +1,8 @@
 'use strict';
 
-// 进程树资源采样（观测面，W2）：sampleAsync(pid) -> { rssBytes, cpuMs } | null，按父子关系聚合整棵树
-// （node 主进程 + 子工作进程）。平台差异只落在「数据源怎么取」；解析与树聚合是纯函数（文本 fixture 可三平台单测）。
-// 失败一律 null（= 无观测证据）：控制面纪律是「无证据不判违规」，绝不把采样失败当零占用。
+// 进程树资源采样（观测面）：sampleAsync(pid) -> { rssBytes, cpuMs } | null，按父子关系聚合整棵树。
+// 平台差异只落在「数据源怎么取」；解析与树聚合是纯函数。
+// 失败一律 null（= 无观测证据）：绝不把采样失败当零占用。
 
 const fs = require('node:fs');
 const platform = require('./index');
@@ -42,7 +42,7 @@ function parseCpuTimeMs(text) {
   if (parts.some((p) => !Number.isFinite(p))) return null;
   let sec = 0;
   for (const p of parts) sec = sec * 60 + p;
-  // 秒的小数部分（cs 百分秒）不可精确二进制表示，不取整会让纯测试的毫秒断言踩浮点尾巴。
+  // 秒的小数部分（cs 百分秒）不可精确二进制表示，故取整。
   return Math.round((days * 86400 + sec) * 1000);
 }
 
@@ -128,7 +128,7 @@ const CIM_QUERY = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Paren
   'WorkingSetSize,UserModeTime,KernelModeTime | ConvertTo-Json -Compress';
 
 /** 按平台取进程表并聚合。返回 Promise 以统一调用面：win/mac 数据源是子进程，必须异步
- *  （同步 exec 会把 2s 超时全额摊进守卫心跳 tick）。null = 本平台无数据源或采样失败。 */
+ *  （同步 exec 会把 2s 超时摊进守卫心跳 tick）。null = 本平台无数据源或采样失败。 */
 function sampleAsync(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return Promise.resolve(null);
   if (platform.isLinux) return Promise.resolve(sampleLinux(pid));

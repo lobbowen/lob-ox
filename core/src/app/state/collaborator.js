@@ -38,7 +38,7 @@ function createStateStore(deps) {
     tick: g.tick, stopProcess: g.stopProcess,
   });
 
-  // 协作方公共接口（SPEC：state.*）+ 宿主兼容所需的其余真实现
+    // 协作方公共接口（state.*）+ 宿主兼容所需的其余真实现
   return {
     // 公共接口
     phase: fields.phase, setPhase: fields.setPhase, guardian: fields.guardian,

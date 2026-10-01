@@ -2,8 +2,7 @@
 
 // plugin 域契约声明（纯数据，零 require）。
 // exports/PUBLIC_API/exports.keys 对应 index.js 导出面与全仓消费面；
-// deps.hooks 与 exempt.hooks 为 onNativeRestart 的 DG-4b 豁免出处；
-// pure 为零 IO require 的纯文件清单。
+// deps.hooks 与 exempt.hooks 为 onNativeRestart 的豁免出处；pure 为零 IO require 的纯文件清单。
 
 module.exports = {
   domain: 'plugin',
@@ -50,7 +49,7 @@ module.exports = {
 
   hooks: { onNativeRestart: true },
 
-  // 纯文件（src 相对全路径，门禁按 e.rel 查表）：model/policies 决定与构造均无 IO
+  // 纯文件（src 相对全路径）：model/policies 的决定与构造均无 IO
   pure: [
     'domains/plugin/model.js',
     'domains/plugin/policies.js',

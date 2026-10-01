@@ -3,8 +3,8 @@
 const fs = require('node:fs');
 
 // 出回环访问密钥 / 关闭窗口行为门面。导出形态 { methods }，方法经 this 协作。
-// 写入契约：持久化唯一入口是 state.persistConfigPatch（app/state/desired.js），本层写后读回核验；
-// 「有 configPath 且本次补丁未落盘」如实回 { ok:false, error }、内存态 config 不回滚；无 configPath 时不持久化、核验不适用回 { ok:true }。
+// 写入契约：持久化唯一入口是 state.persistConfigPatch（app/state/desired.js），本层写后读回核验；「有 configPath 且
+//   本次补丁未落盘」如实回 { ok:false, error }、内存态 config 不回滚；无 configPath 时不持久化、核验不适用回 { ok:true }。
 
 /** 读回配置文件核验本次补丁的每个键是否落盘（只读盘核验，不重实现持久化）。
  *  返回 null 表示通过或不适用；返回字符串为失败原因（供透传）。 */
@@ -30,10 +30,11 @@ module.exports = {
       return { configured: !!cfg.apiAccessKey, host: cfg.apiHost || undefined };
     },
 
-    /** 设置/清除出回环访问密钥（空串=清除）。
-     *  清空密钥必须同时回关 LAN（apiHost -> 127.0.0.1 并持久化）：lan-panel 的开 LAN
-     *  前置条件是「已有 apiAccessKey」，只清 key 不动 apiHost 会留下「绑定 0.0.0.0 且零认证」
-     *  的暴露窗口。监听 socket 的即时生效由 api 层 fail-closed 兜底，本层只保证配置自洽。 */
+        /**
+     * 设置/清除出回环访问密钥（空串=清除）。清空密钥必须同时回关 LAN（apiHost -> 127.0.0.1 并持久化）：lan-panel 的
+     * 开 LAN 前置条件是「已有 apiAccessKey」，只清 key 不动 apiHost 会留下「绑定 0.0.0.0 且零认证」的暴露窗口。
+     * 监听 socket 的即时生效由 api 层 fail-closed 兜底，本层只保证配置自洽。
+     */
     setAccessKey(key) {
       try {
         const cfg = this.config || {};
@@ -84,6 +85,6 @@ module.exports = {
       }
     },
   },
-  // settings 门面的写口核验件（B2-4）：lan-panel 共用同一「写后读回」口径，不各写各的。
+    // settings 门面的写口核验件：lan-panel 共用同一「写后读回」口径，不各写各的。
   verifyPersisted,
 };

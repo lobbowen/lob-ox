@@ -1,16 +1,13 @@
 'use strict';
 
-// 插件域 CLI 执行（无状态函数）：以目标描述的 env/runtime 起 dsh plugin 子进程，整树超时终止，逐行回吐日志；registryOrigin/logger 显式入参。
-// 注意：test/round8-fixes-test.js J-i/J-g 按域聚合断言本文件的 spawn/detached、杀树单源（procOS.killTree）与
-//   registry 注入形态；改这些形态要同步改判据。
+// 插件域 CLI 执行（无状态函数）：以目标描述的 env/runtime 起 dsh plugin 子进程，整树超时终止，逐行回吐日志；
+// registryOrigin/logger 显式入参。
 
-// 统一 spawn 封装（NO-CONSOLE-WINDOW-STANDARD W1）：Windows 上 detached 会新建控制台窗口，
-// 故经 spawn.piped({detached:true})，它固定 windowsHide:true。
+// 统一 spawn 封装：Windows 上 detached 会新建控制台窗口，故经 spawn.piped({detached:true})（固定 windowsHide:true）。
 const spawn = require('../../platform/os/spawn');
-// 整树终止走平台层单源（platform/os/process.killTree）：Windows 无进程组语义，域内自写组信号只杀得到
-// .cmd 那层壳，pnpm 孙进程照旧成孤儿。
+// 整树终止走平台层单源 platform/os/process.killTree：Windows 无进程组语义，域内自写组信号只杀得到 .cmd 那层壳。
 const procOS = require('../../platform/os/process');
-// 镜像基址的形态与注入形态只有一个口（platform/distribution/registry-ref），域内不再各写一遍 env 键。
+// 镜像基址的形态与注入形态只有一个口（platform/distribution/registry-ref）。
 const registryRef = require('../../platform/distribution/registry-ref');
 const { assertSafeCliArgs, cliArgv } = require('./policies');
 
@@ -34,9 +31,8 @@ function runCli({ target, args, opts, registryOrigin, logger }) {
     let timer = null; // 置于 executor 顶层：settle 闭包必须能访问（放 .then 内会引用越界、resolve 不执行）
     const settle = (v) => { if (!settled) { settled = true; if (timer) clearTimeout(timer); resolve(v); } };
     Promise.resolve().then(() => registryOrigin()).then((regRaw) => {
-      // registry 注入只有 registry-ref 一个口：非法基址与 null/空一样「完全不注入该键」，
-      // 因为 Node spawn 会把值强转成字符串，pnpm 收到 npm_config_registry='null' 或畸形地址时
-      // 报的错与真实原因（全镜像不可达 / 基址非法）无关，诊断会被带偏。
+      // registry 注入只有 registry-ref 一个口：非法基址与 null/空一样「完全不注入该键」——Node spawn 把值强转成
+      // 字符串，pnpm 收到 'null' 或畸形地址时报的错与真实原因（全镜像不可达 / 基址非法）无关，诊断会被带偏。
       const rp = registryRef.registryEnvPair(regRaw);
       const envBase = Object.assign({}, process.env, target.env);
       if (rp.ok) Object.assign(envBase, rp.env);
@@ -44,12 +40,10 @@ function runCli({ target, args, opts, registryOrigin, logger }) {
       const env = envBase;
       let child;
       try {
-        // 沙箱 target 固定 pnpm store（--store-dir 传给 dsh plugin），
-        // 防 HOME 变化（沙箱隔离）导致 ERR_PNPM_UNEXPECTED_STORE。
+        // 沙箱 target 固定 pnpm store（--store-dir 见 targets.js），防 HOME 变化导致 ERR_PNPM_UNEXPECTED_STORE。
         const cliArgs = cliArgv(target);
-        // detached:true 让子进程自成进程组，超时才能整树终止；否则只杀得到直接子进程，
-        // dsh plugin -> pnpm 的孙进程（真正在安装的那个）会成孤儿，继续占 profile 目录与 pnpm store 锁。
-        // 入口可能是包内 JS（原生绑定后/沙箱）-> 用 node <js> plugin ...；纯垫片直接执行。
+        // detached:true 让子进程自成进程组，超时才能整树终止；否则只杀得到直接子进程，dsh plugin -> pnpm
+        // 的孙进程会成孤儿，继续占 profile 目录与 pnpm store 锁。入口可能是包内 JS -> 用 node <js> plugin ...。
         const argv0 = target.runtime || target.bin;
         const argvPrefix = target.runtime ? [target.bin] : [];
         child = spawn.piped(argv0, [...argvPrefix, ...cliArgs, ...args], { env, detached: true });

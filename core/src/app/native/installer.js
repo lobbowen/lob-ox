@@ -1,8 +1,7 @@
 'use strict';
 
-// 原生 DeepSeek Harness（原生 DSH）生命周期门面——组合 + 委托，无业务实现。
-// 公共导出面 NativeManager 的消费方：supervisor、api/domains/native、assembly/compose、
-//   app/settings/versions 等门面装配入口。
+// 原生 DSH 生命周期门面 —— 组合 + 委托，无业务实现。公共导出面 NativeManager 的消费方：supervisor、
+//   api/domains/native、assembly/compose、app/settings/versions 等门面装配入口。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -22,9 +21,9 @@ class NativeManager {
     this.stateDir = opts.stateDir;          // 守卫状态目录（默认 <产品状态根>/supervisor）
     this.manifestFile = path.join(this.stateDir, 'native-manifest.json');
     this.dshHome = path.join(os.homedir(), '.dsh'); // DSH 数据目录（与守卫状态目录分开）
-    this.npmRoot = opts.npmRoot || null;    // npm 全局根（测试可注入隔离目录）
+    this.npmRoot = opts.npmRoot || null;    // npm 全局根（可注入以隔离）
     // npm 启动形态的注入口（构造期依赖注入，生产留空 = 走运行期契约/平台解析）。
-    // 解构 require 是值绑定、patch 无效，故做成构造期可注入，结构上保证测试不触碰真实 npm。
+        // 解构 require 是值绑定、patch 无效，故做成构造期可注入，保证不触碰真实 npm。
     // 注入即接管整对（见 npm.npmLaunch 说明）。
     this._npmBin = opts.npmBin || null;
     this._npmBinArgs = opts.npmBinArgs || null; // 前置参数（以 node 执行包内 JS 的形态）

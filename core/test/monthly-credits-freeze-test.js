@@ -1,11 +1,8 @@
 'use strict';
 
-// 月额度冻结/解冻语义测试：
-//  信号 = 权威：上游 400 insufficient credits -> 冻结（月额度限额）——一步到位，无需阈值猜测；
-//  解冻 = 只认正向证据：periodEnd 到期 或 余额较冻结时刻回升（充值）。
-//  billing 面快照（percent 99/remaining>0）只刷新展示，【不得】推翻信号冻结——
-//  修复前：冻结 300ms 后被补探测快照解冻 -> 99% 账号 frozen/ready 秒级死循环（生产实测 1 分钟 4 轮）。
-// 用法: node test/monthly-credits-freeze-test.js
+// 月额度冻结/解冻语义：信号 = 权威 —— 上游 400 insufficient credits 即冻结（月额度限额），无需阈值猜测；
+//   解冻 = 只认正向证据（periodEnd 到期 或 余额较冻结时刻回升）。
+//   billing 面快照（percent 99 / remaining>0）只刷新展示，**不得**推翻信号冻结。用法: node test/monthly-credits-freeze-test.js
 
 const { ProviderBase } = require('../src/domains/router/providers/base');
 
@@ -74,8 +71,7 @@ async function main() {
   check('60% 正常账号不受影响', normal.status === 'ready', normal.status);
 
   // -- 场景 G：creditsRefilled 对 null 基线必须 fail-closed --
-  //   冻结时无余额证据 -> freeze.js 记 lim.creditsAt = null。旧实现 Number(null)===0 是有限值，
-  //   任意正余额都满足 now>0 -> 误判「已充值」解冻，耗尽账号被重新选路。
+  //   冻结时无余额证据 ⇒ creditsAt=null；Number(null)===0 是有限值，任意正余额都会误判「已充值」而解冻。
   const quota = require('../src/domains/router/providers/policies/quota');
   const mkFrozen = (creditsAt, remaining) => ({
     status: 'frozen', nextResetAt: Date.now() + 3600e3, // 未到期：证据 a) 不成立

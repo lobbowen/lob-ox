@@ -1,9 +1,8 @@
 'use strict';
 
-// app/assembly/compose.js —— 编排层组装门面（唯一知道全局对象图、唯一发生 DI 的地方）。
-// 只做组合与编排，按固定顺序调用三个切面组（单向 facade -> steps，步骤不回 require 本文件）：
-//   installFacets（切面装配）-> composeCore（宿主/基础设施）-> composeDomains（各域构造）
-//     -> composeObservers（实例事件接线 + 生命周期注册）。
+// 编排层组装门面：唯一知道全局对象图、唯一发生 DI 的地方。
+// 只做组合与编排，按固定顺序调用 installFacets -> composeCore -> composeDomains -> composeObservers；
+//   切面各步单向依赖 facade，不回 require 本文件。
 
 const { installFacets } = require('./facets');
 const { composeCore } = require('./compose/core');

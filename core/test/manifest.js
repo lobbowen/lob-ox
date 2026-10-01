@@ -1,38 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 测试登记表 —— 由 test/_runner.js 读取并逐条起子进程执行。
-//
-// ## 2026-10-01：门禁已按用户决定整体拆除
-//   本文件原先被称为「门禁清单的唯一事实源」，并受 test/test-chain-completeness-test.js 的
-//   多条元判据执法（C-a/C-f/C-g/C-h/C-j/N-e 等）。**那套门禁与全部源码/文档文本断言测试
-//   已一并移出仓库**，落在 C:\work\_gate_backup\（含 MANIFEST.json 可还原），
-//   清单与理由见 C:\work\_understanding\GATE-REMOVAL-PLAN.md。
-//   ⇒ 本文件现在只是「跑哪些测试」的登记表，**不再承担任何对开发行为的管控**。
-//   ⇒ 真条数不再由谁自动核对：数字变了就是变了，没有门禁会因此判红（这是有意的）。
-//
-// ## 2026-10-01：瘦身后的登记重写（本次）
-//   上一轮清理**拆出了 18 个新测试文件**，而「未登记 ⇒ _runner 不跑 ⇒ 断言站点静默消失」
-//   （实测曾有 287 个站点处于该状态）。本次一并处理三件事：
-//     ① 删 6 条悬挂登记（文件已被并入/删除/改名）；
-//     ② 新增 18 条（拆分产物），全部 tier=L2 / os=all —— 取**保守方向**：
-//        「在四个平台都跑」而不是「只在 ubuntu 跑一次」，因为后者正是
-//        test/REGISTRY-AUDIT 发现的那类假覆盖（见下）；
-//     ③ 修正 15 项 tier 与 5 项 os（依据见 C:\work\_understanding\REGISTRY-AUDIT.md）。
-//
-// ## ⚠️ 关于 tier 的关键机制（2026-10-01 审计发现，务必知悉）
-//   CI 矩阵腿**只跑** `npm run test:os-behavior` = `node test/_runner.js --tier=L2`；
-//   **L1 只在 ubuntu 的 test job 跑一遍**。故「有真宿主依赖却标 L1」= 该回归在
-//   win32/darwin **永不执行**。本次据此把 15 项实为 L2 的条目改正。
-//
-// ## 分层（仅用于选跑范围，不再用于执法）
-//   L1 平台无关：判一次就够，四平台重复跑不产生额外证据。
-//   L2 依赖真实宿主 OS：真的 spawn 进程、跑 bash / pkill / systemctl、读 /proc、断言权限位；
-//      必须在 os 列出的每个宿主上真跑。
-//      ⚠️ 原先「SKIP 不等于通过」由 chain-completeness 执法，该门禁已拆 ⇒ **现在 SKIP 就是跳过，
-//         没有任何机制会把它记成缺口**（除下方 gaps() 仍可供人读）。
-// ---------------------------------------------------------------------------
+// 测试登记表 —— test/_runner.js 读取后逐条起子进程执行。
+//   tier 决定选跑范围：CI 矩阵腿只跑 --tier=L2，L1 只在 ubuntu 的 test job 跑一遍 ⇒ 有真宿主依赖却标 L1
+//   等于该回归在 win32/darwin 永不执行。os 列出的宿主才跑，其余由 gaps() 汇总成 SKIP 台账。
 
 const ENTRIES = [
   { file: "test/relay-dshauth-test.js", tier: "L2", os: "all", why: "起真 HTTP 中继（原标 L1 与实现不符 ⇒ win32/darwin 不跑）" },
@@ -94,9 +65,6 @@ const ENTRIES = [
   { file: "test/native-dsh-binding-test.js", tier: "L1", os: "all", why: "注入 NativeManager：绑定/认领契约" },
   { file: "test/install-id-test.js", tier: "L2", os: "all", why: "node -e 子进程 + installId 防漂移（os 原为 linux,darwin ⇒ win32 零验证）" },
   { file: "test/switch-policies-test.js", tier: "L1", os: "all", why: "纯策略函数" },
-  // ── 2026-10-01 瘦身拆分产物（18 个；原为未登记 ⇒ 站点静默不跑）───────────────
-  // 统一取 tier=L2 / os=all 的**保守方向**：若测试全为注入则四平台都通过（无额外风险），
-  // 若含真宿主依赖则获得真实跨平台覆盖。原「只在 ubuntu 跑一次」正是要消灭的假覆盖。
   { file: "test/log-persistence-test.js", tier: "L2", os: "all", why: "拆分自 core-test：日志落盘与轮转" },
   { file: "test/app-state-persist-failclosed-test.js", tier: "L2", os: "all", why: "拆分自 app-ctor-injection：state/config 持久化 fail-closed" },
   { file: "test/distribution-registry-contract-test.js", tier: "L2", os: "all", why: "原 round13-contract-reload（去轮次前缀）：registry 契约重载" },
@@ -107,17 +75,13 @@ const ENTRIES = [
   { file: "test/relay-token-hotswap-test.js", tier: "L2", os: "all", why: "拆分自 round13-router-relay-gaps：relay 令牌热换" },
   { file: "test/relay-html-inject-budget-test.js", tier: "L2", os: "all", why: "拆分自 round13-router-relay-gaps：HTML 注入预算" },
   { file: "test/router-oauth-callback-rounds-test.js", tier: "L2", os: "all", why: "拆分自 round13-router-relay-gaps：OAuth 回调轮次" },
-  // 2026-10-01 价值审计后合并：external-open-plan(582) + external-open-exec(592) = 1,174 行 → 827 行单文件。
-  //   审计结论：把同步/异步拆两文件是测试工程理由（"尾部 then 时序"），不是架构界线 ⇒ 合一。
-  //   四条真机事故判据逐条核对仍在：reg.exe 根名展开 / UserChoice 被系统忽略 / 多候选无默认"点了没弹" / 中文 Windows 弹法语窗口。
   { file: "test/external-open-test.js", tier: "L2", os: "all", why: "平台层外部打开（探测/分发依据/计划/执行/证据；四条真机事故回归）" },
-  // 2026-10-01 补的真缺口（价值审计发现全仓零覆盖）：两个 cookie 的 SameSite 属性
   { file: "test/cookie-attributes-test.js", tier: "L2", os: "all", why: "/open 的 SameSite=Strict 与门卫 cookie 的 SameSite=Lax（安全面，原为零覆盖）" },
 ];
 
 const ALL_OS = ['linux', 'darwin', 'win32'];
 
-/** 历史遗留：不带 -test 后缀但按测试登记的两个门禁（不改名，避免大范围改动）。 */
+/** 不带 -test 后缀但按测试登记的两个文件（不改名，避免大范围改动）。 */
 const IN_CHAIN_LEGACY = ['smoke.js', 'ports-verify.js'];
 
 function osSet(entry) {
@@ -137,7 +101,7 @@ function select(tier, platform) {
   return ENTRIES.filter((e) => e.tier === tier && osSet(e).indexOf(pl) >= 0);
 }
 
-/** 本宿主应跑但表里标了别的 OS 的 L2 条目 = 该平台缺口（供 SKIP 台账与门禁读）。 */
+/** 本宿主应跑但表里标了别的 OS 的 L2 条目 = 该平台缺口（供 SKIP 台账读）。 */
 function gaps(platform) {
   const pl = platform || process.platform;
   if (ALL_OS.indexOf(pl) < 0) return [];

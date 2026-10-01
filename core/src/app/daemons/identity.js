@@ -1,17 +1,14 @@
 'use strict';
 
-// lan-daemon / router-daemon 管理锁（身份文件）。
-// 导出形态 { methods }，方法名与体逐字保留；实现体经按 host 缓存的惰性 deps（WeakMap）取事实，
-// 唯一的 this 出现在 depsOf(this)（作为 WeakMap 键）。
+// lan-daemon / router-daemon 管理锁（身份文件）。导出形态 { methods }；实现体经按 host 缓存的惰性
+//   deps（WeakMap）取事实，唯一的 this 出现在 depsOf(this)（作为 WeakMap 键）。
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { isAlive } = require('../../platform/os/pidlookup');
 
-// 管理锁与守卫单实例锁（bin/dsh-supervisor 的 acquireLock/releaseLock）同一范式：'wx' 原子创建 +
-// 持有者存活检测（ESRCH 清残留 / EPERM 视为存活）+ 释放只删自己的锁。裸覆盖写会让两个守卫并存时
-// 后写者静默抢锁；pid 不回读则崩溃后锁恒在（对已死持有者持续授权）；无条件 unlink 会删掉别的守卫
-// 刚重建的锁。
+// 管理锁与守卫单实例锁同一范式：'wx' 原子创建 + 持有者存活检测（ESRCH 清残留 / EPERM 视为存活）+ 释放只删自己的锁。
+//   裸覆盖写会让两个守卫并存时后写者静默抢锁；pid 不回读则崩溃后锁恒在；无条件 unlink 会删掉别的守卫刚重建的锁。
 
 /** 锁内容 = 持有者 pid；不可解析（旧格式/半写）返回 null。 */
 function lockPid(p) {
@@ -73,7 +70,7 @@ function depsOf(host) {
 }
 
 module.exports = {
-  // 测试缝：锁的取/放/读主是纯 fs + kill(0) 语义，直接导出给回归用。
+    // 锁原语的取/放/读主是纯 fs + kill(0) 语义，直接导出。
   _lockPrimitives: { acquireLock, releaseLock, lockPid, pidAlive },
   methods: {
     _lanLockPath() { const d = depsOf(this); try { return path.join(path.dirname(d.config().stateFile), 'lan-daemon.lock'); } catch { return null; } },
@@ -81,8 +78,8 @@ module.exports = {
     _writeLanLock() { const d = depsOf(this); try { return acquireLock(d.lanLockPath()); } catch { return false; } },
     _clearLanLock() { const d = depsOf(this); try { releaseLock(d.lanLockPath()); } catch {} },
 
-    // router-daemon 管理权锁：只有「本守卫目录写过管理锁」的实例才可接管/停止/拉起独立 router-daemon，
-    // 防止任意 Supervisor 实例（尤其测试内嵌实例与线上守卫并存）经全局 ctl 端口探测误接管/误杀生产 daemon。
+        // router-daemon 管理权锁：只有「本守卫目录写过管理锁」的实例才可接管/停止/拉起独立 router-daemon，
+                //   防止任意 Supervisor 实例经全局 ctl 端口探测误接管/误杀生产 daemon。
     _routerDaemonLockPath() {
       const d = depsOf(this);
       try { return path.join(path.dirname(d.config().stateFile), 'router-daemon.lock'); } catch { return null; }

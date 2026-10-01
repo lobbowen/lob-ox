@@ -12,7 +12,7 @@ function appleScriptString(s) {
 }
 
 /** PowerShell 单引号字符串字面量：' 双写即唯一转义规则；$ 与反引号在单引号串内是字面字符。
- *  不得用双引号串：body 有 err.message 通路，$(...) 会被 PowerShell 子表达式插值执行，是命令注入面。
+ *  不得用双引号串：body 有 err.message 通路，$(...) 会被当作子表达式插值执行（命令注入面）。
  *  AppleScript/JSON 用反斜杠转义，规则不同，必须分开实现。 */
 function powerShellString(s) {
   return "'" + String(s).replace(/'/g, "''") + "'";

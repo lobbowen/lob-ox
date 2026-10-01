@@ -1,7 +1,7 @@
 // 远程控制三态页（关闭 / 局域网 / 公网）。模式写入唯一经 /remote/set-mode；就绪与 accessUrl 一律直消费
 // 后端 remote 单一视图，前端零推导。访问令牌由后端在开启远程时补齐，明文只随回环来源下发（本机可看可改，
 // 且本机有明文时二维码直接带一次性出示，扫码即用）。
-// FRP 卡只管 frps 连接配置，无总闸：frpc 常驻与否 = 是否存在公网模式实例。
+// FRP 卡只管 frps 连接配置；frpc 常驻与否 = 是否存在公网模式实例。
 import { useEffect, useState } from "react";
 import { ExternalLink, Eye, EyeOff, Globe, KeyRound, Landmark, Save, Wrench } from "lucide-react";
 import { toast } from "sonner";
@@ -236,7 +236,7 @@ export function LanPage() {
           })}
         </div>
       </Card>
-      {/* 无总闸：frpc 生命周期 = 是否存在公网模式实例 */}
+      {/* frpc 生命周期 = 是否存在公网模式实例 */}
       <Card>
         <CardTitle
           title="公网访问（FRP 内网穿透）"

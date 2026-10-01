@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 上游 credits 余额不足 -> 切换（20复）回归：
-//  - classifyUpstreamLimited：400/402/429/403 中 insufficient credits/billing/balance 识别为 'credits'（窗口词为 'window'，其余 'none'）
-//  - ProviderBase.markCreditsExhausted：冻结 + 周期重探（充值后自动恢复语义）
-//  - credits-low 账号被 isAccountUsable 排除（不参与挑选）
-// 自包含，不触碰真实 daemon/账号/上游。
+// 上游 credits 余额不足 -> 切换回归：classifyUpstreamLimited 把 400/402/429/403 中的 insufficient
+//   credits/billing/balance 识别为 'credits'（窗口词为 'window'，其余 'none'）· ProviderBase.markCreditsExhausted
+//   冻结 + 周期重探（充值后自动恢复）· credits-low 账号被 isAccountUsable 排除。自包含，不触碰真实 daemon/账号/上游。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -20,18 +18,12 @@ function check(name, cond, extra) {
 
 async function main() {
   console.log('== 上游限制分类 classifyUpstreamLimited ==');
-  // 实据：
-  // - Command /alpha/generate 原始错误体：{"success":false,"error":{"code":"BAD_REQUEST","status":400,
-  //   "message":"You have insufficient credits to make this request. Please purchase more credits…"}}
-  // - commandcode-api-proxy 将其包为 OpenAI 信封 type:"proxy_error"，message="CC API 400: <raw>"，
-  //   且代理层只对 5xx/429 做内部重试（upstream.ts retryable = status>=500||429）——400 余额不足不重试，
-  //   必须由路由层换号。
+  // 实据：Command /alpha/generate 原始错误体 400 + "You have insufficient credits…"，
+  //   commandcode-api-proxy 包成 OpenAI 信封 type:"proxy_error"，且代理层只对 5xx/429 重试 ⇒ 400 余额不足必须由路由层换号。
   check('真实样本：CC 400 success=false error.code=BAD_REQUEST → credits',
     classifyUpstreamLimited(400, '{"success":false,"error":{"code":"BAD_REQUEST","status":400,"message":"You have insufficient credits to make this request. Please purchase more credits to continue using the service.","docs":"https://commandcode.ai/docs/reference/errors/bad_request"}}') === 'credits');
   check('真实样本：commandcode-api-proxy 信封(CC API 400 内嵌原体) → credits',
     classifyUpstreamLimited(400, '{"error":{"message":"CC API 400: {\"success\":false,\"error\":{\"code\":\"BAD_REQUEST\",\"status\":400,\"message\":\"You have insufficient credits to make this request. Please purchase more credits.\"}}","type":"proxy_error"}}') === 'credits');
-  // （原「400 insufficient credits → credits」已删：与上方两条真实样本同判据、同关键词路径，同一分支的第三份采样。）
-  // （原「400 变体 insufficient balance → credits」已删：同一 400→credits 分支已留两处采样（真实原体 + 信封原体）。）
   check('400 无 credits 关键词 / 200 正常 → none（不误判为限额，两输入合 1 条）', classifyUpstreamLimited(400, '{"error":"context length exceeded"}') === 'none' && classifyUpstreamLimited(200, 'ok') === 'none');
   check('402 任意 → credits', classifyUpstreamLimited(402, 'payment required') === 'credits');
   check('429 quota 窗口词 → window', classifyUpstreamLimited(429, '{"error":{"message":"monthly limit exceeded"}}') === 'window');
@@ -83,7 +75,6 @@ async function main() {
     acc.status = 'ready'; acc.limit = null; acc.nextResetAt = null; acc.quota.monthlyRemaining = 0;
     p.applyDetection(acc, { ok: true, quota: { rolling: { status: 'ok', percent: 1 }, weekly: { status: 'ok', percent: 1 }, monthlyRemaining: 0 } });
     check('仍余额不足 → 保持 frozen 且 limit.kind=credits poll', acc.status === 'frozen' && acc.limit && acc.limit.kind === 'credits' && acc.limit.recovery.type === 'poll', acc.status + ' ' + JSON.stringify(acc.limit));
-    // （原「credits poll 调度 ≈+10min」已删：与 markCreditsExhausted 块的同一 +10min 窗口断言重复采样，留一处。）
   }
   {
     const p = new ProviderBase({ id: 't5', name: 'T5', kind: 'direct' });
@@ -99,8 +90,6 @@ async function main() {
     p.accounts.push(acc);
     p.markCreditsExhausted(acc);
     check('monthlyResetAt 已知 → limit.kind=credits + recovery.at 精确点 + nextResetAt=monthlyResetAt（不再 +10min 轮询，同一事件两面合 1 条）', acc.limit && acc.limit.kind === 'credits' && acc.limit.recovery && acc.limit.recovery.type === 'at' && acc.limit.recovery.at === at && acc.nextResetAt === at, JSON.stringify({ limit: acc.limit, next: acc.nextResetAt }));
-    // （原「月额度 0 仍排除挑选」已删：「冻结 → 不可挑选」在本文件已留一处采样；原「detectError 含预计
-    //   重置时间」已删：内部文案锁。）
   }
   {
     const p = new ProviderBase({ id: 't7', name: 'T7', kind: 'direct', onPersist: () => {} });
@@ -110,8 +99,7 @@ async function main() {
     p.applyDetection(acc, { ok: true, quota: { rolling: { status: 'ok', percent: 1 }, weekly: { status: 'ok', percent: 1 }, monthlyRemaining: 0, monthlyResetAt: stale } });
     check('过期 monthlyResetAt → 回退 credits/poll（不赌不可靠恢复点）', acc.limit && acc.limit.kind === 'credits' && acc.limit.recovery && acc.limit.recovery.type === 'poll', acc.limit);
   }
-  //  Phase 5（决策 A5）：取证子系统已整体删除（有产出无消费），本块随之从"验证证据内容"改为
-  //   "验证**分类与动作**"——那才是 reactToFailure 的真实职责，且不依赖任何已删除的旁路。
+  // 本块验的是**分类与动作**（reactToFailure 的真实职责），不依赖任何取证旁路。
   console.log('== reactToFailure：上游 ≥400 的分类与动作（取证旁路已删除）==');
   {
     const { SwitchEngine } = require(path.join(ROOT, 'src', 'domains', 'router', 'switch'));
@@ -159,7 +147,6 @@ async function main() {
     const r = await p.addAccount('nk-credits0');
     check('月额度用尽新账号：检测后入库为 frozen（不再 ready/review/discard）', r.ok && r.account && r.account.status === 'frozen', JSON.stringify(r && r.account && r.account.status));
     check('返回 limited=credits/review=false + limit.kind=credits poll（无订阅期 → 轮询兜底，同一入库事件两面合 1 条）', r.limited === 'credits' && r.review === false && r.account.limit && r.account.limit.kind === 'credits' && r.account.limit.recovery && r.account.limit.recovery.type === 'poll', JSON.stringify({ limited: r.limited, review: r.review, limit: r.account.limit }));
-    // （原「冻结后不参与挑选」已删：同「冻结 → 不可挑选」在本文件已留一处采样。）
   }
   {
     const p = new ProviderBase({ id: 'tb', name: 'TB', kind: 'direct' });
@@ -177,7 +164,6 @@ async function main() {
     check('窗口满新账号：直接 frozen（不再 review 闸门）+ limit.kind=window + recovery.at=周窗口 resetsAt（到点自动解冻，同一入库事件两面合 1 条）',
       r.ok && r.account.status === 'frozen' && r.limited === 'window' && r.review === false && r.account.limit && r.account.limit.kind === 'window' && r.account.limit.recovery && r.account.limit.recovery.type === 'at' && r.account.limit.recovery.at === weeklyResetAt && r.account.nextResetAt === weeklyResetAt,
       JSON.stringify({ status: r.account && r.account.status, limited: r.limited, limit: r.account.limit }));
-    // （原「窗口满冻结后不参与挑选」已删：同「冻结 → 不可挑选」在本文件已留一处采样。）
   }
   {
     // 运行中账号窗口满（applyDetection 路径）与添加时窗口满完全同机（防两套待遇回归）

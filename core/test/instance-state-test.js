@@ -1,12 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 沙箱实例状态机与监督拍行为测试（state-machine.js 纯转移 + B15 守护语义 + W2 控制面接线）：
-// 覆盖 restartCount 稳定窗归零（20复）与 20 次上限 FAILED 语义；第 7 节验 govern tick
-// （观测->决策->下发/处置）与准入（预算摊薄跌破下限显式拒绝、fromUpgrade 旁路）。
-//  域改造后状态转移已是**纯函数**（deps 显式入参）-> 只 require 叶子模块 + 假依赖；
-//   监督拍行为经 ctor opts 注入假 resstats/machineFacts（显式注入不 patch 模块导出），
-//   真实监听只为让 monitor 命中 RUNNING，绝不触碰真实 systemd/npm/进程账本（DF-6）。
+// 沙箱实例状态机与监督拍行为（state-machine.js 纯转移 + 守护语义 + W2 控制面接线）：
+//   restartCount 稳定窗归零与 20 次上限 FAILED 语义；第 7 节验 govern tick（观测->决策->下发/处置）
+//   与准入（预算摊薄跌破下限显式拒绝）。域改造后状态转移是**纯函数**，只 require 叶子模块 + 假依赖。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -147,10 +144,8 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       inst.state.phase + ' / ' + inst2.state.phase + ' ' + svcCalls.join(','));
   }
 
-  // ---- 6e/6f. B2-1 运行意图没有第二落点：start/stop 只动相位（动作即意图）----
-  //   2026-10-12 瘦身（THIN-1-12）：原 IN-1..IN-5 里多条只钉「state 形状里不得出现
-  //   desired 键」这一内部字段存废（形态锁：字段去留不改变任何外部可观测行为），
-  //   IN-3/IN-4 整条只为该断言 ⇒ 删；保留「start/stop 真的动相位」与「停止未确认不谎报已停」。
+  // ---- 6e/6f. 运行意图没有第二落点：start/stop 只动相位（动作即意图）----
+  //   保留「start/stop 真的动相位」与「停止未确认不谎报已停」。
   {
     const mgr = mkMgr(fs.mkdtempSync(path.join(os.tmpdir(), 'b15-intent-')));
     const inst = mk('STOPPED');
@@ -184,7 +179,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     check('D-1 手动启动成功 → 旧链计数作废（restartCount/backoffLevel/backoffUntil 清零）',
       r.ok === true && inst.state.phase === 'STARTING' && inst.state.restartCount === 0 && inst.state.backoffLevel === 0 && inst.state.backoffUntil === null,
       'ok=' + r.ok + ' ' + JSON.stringify(inst.state));
-    // 收口点：手动拉起后进程再失败，监督拍的 restart 从第 1 次重试重新走起。
+    // 手动拉起后进程再失败，监督拍的 restart 从第 1 次重试重新走起。
     sm.restart(deps, inst, '实例进程退出');
     check('D-2 手动启动后的失败重新进 BACKOFF 计第 1 次（旧实现此处必直落「重试超限」FAILED）',
       inst.state.phase === 'BACKOFF' && inst.state.restartCount === 1, inst.state.phase + ' count=' + inst.state.restartCount);
@@ -203,13 +198,9 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     check('D-3b 自动链超限判定不变：超限后再失败仍 FAILED（超限->手动重启才有出路）',
       inst.state.phase === 'FAILED' && /重试超限/.test(inst.state.lastError || ''), inst.state.phase);
   }
-  // （2026-10-01 已移除）此处原有一个块只读 src/api/domains/instances.js 源码、不产生任何断言，
-  //   其断言已随门禁清理删除 ⇒ 读取本身成死代码，一并删除。
 
-  // ---- 7. W2 控制面治理（B2-6e 两段制：逐实例采样拍 + 拍末 governSweep decide）+ 准入：
-  //      观测(假 resstats)->每拍决策(真 governor+假机器事实)->下发(展示值)->处置(违规停单元+退避)。
-  //      注入走 ctor opts（显式注入，不 patch 模块导出）。
-  //      端口用真实监听让 monitor 命中 RUNNING，但采样被假 resstats 接管，绝不读真实进程账本。 ----
+  // ---- 7. W2 控制面治理（逐实例采样拍 + 拍末 governSweep decide）+ 准入：观测(假 resstats)->
+  //   每拍决策(真 governor+假机器事实)->下发(展示值)->处置(违规停单元+退避)。注入走 ctor opts。 ----
   {
     const net = require('node:net');
     const { safePort } = require(path.join(__dirname, '_ports'));
@@ -323,8 +314,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       mgr.instances = [running, fresh];
       seedEntry(mgr, fresh);
       const r1 = await mgr.startInstance('gc2');
-      // 拒绝文案的具体字数/明细格式不再逐字锁（governor-test G5 已覆盖文案契约）；
-      //   此处只断「显式拒绝、绝不静默超卖」这一行为。
+      // 只断「显式拒绝、绝不静默超卖」这一行为（文案契约由 governor-test G5 覆盖）。
       check('7C 预算已满 -> 显式拒绝（绝不静默超卖）', r1.ok === false && /预算已满/.test(r1.error || ''), JSON.stringify(r1));
       check('7C 被拒实例未被拉起且相位不动', !transient.some((t) => t.unit === 'dsh-web@gc2') && fresh.state.phase === 'STOPPED', fresh.state.phase);
       const r2 = await mgr.startInstance('gc2', { fromUpgrade: true });
@@ -366,7 +356,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
         t0 && JSON.stringify(t0.anchors));
       mgr.stopInstance('ge1');
       const su = journal.filter((j) => j.kind === 'stopUnit').pop();
-      // 20s 具体值不再逐字锁：判据是「启停用同一身份锚 + 有界超时」（防止归属漂移/无限等）。
+      // 判据是「启停用同一身份锚 + 有界超时」（防归属漂移/无限等），不锁具体秒数。
       check('7E stopUnit 带**同一**身份锚与有界超时（启停同值防归属漂移）',
         !!su && su.ctx && su.ctx.port === port && su.ctx.pidFile === t0.pidFile
         && JSON.stringify(su.ctx.anchors) === JSON.stringify(t0.anchors)
@@ -393,8 +383,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
         g2.journal.filter((j) => j.kind === 'setLimits').length === n1, 'n=' + n1);
       srv2.close();
     }
-    // 7F. B2-6e 行为证据：两实例同超限 -> decide 每拍恰一次（旧形态逐实例监督拍各跑一遍全花名册，
-    //     违规 tick 双计，第 3 拍就会处置）。第 4 拍一次扫描同时处置两违规（不再按实例归属）。
+    // 7F. 两实例同超限 -> decide 每拍恰一次（逐实例监督拍会让违规 tick 双计）；第 4 拍一次扫描同时处置两违规。
     {
       const p1 = safePort('instance-state', 6);
       const p2 = safePort('instance-state', 7);
@@ -421,14 +410,9 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
         'ev=' + evs.length + ' stop=' + stops.length + ' ' + x.state.phase + '/' + y.state.phase);
       srv1.close(); srv2b.close();
     }
-    // （2026-10-01 已移除）原 7G「B2-6e 形态钉死」块 —— 它读 lifecycle.js / heartbeat.js /
-    //   compose/domains.js / instance/index.js / instance/contract.js 五份**源码文本**做形态断言，
-    //   属文本门禁，已按用户决定清理；读取本身随之成死代码，一并删除。
 
-    // 7H. 启动命令的「不自弹浏览器」由内核补齐。真机形状：存量 command 是旧版默认
-    //      [node, bin, 'web', '--port', P]，没带 --no-open -> dsh 自己拉起系统浏览器；那条路绕在
-    //      外部打开唯一出口之外（无能力档、无预检、无三档证据、日志里查无此事），且守卫每次重启
-    //      实例就再弹一个窗。补齐只补**缺省**：命令里已显式写了开关的一律原样交回，不砍用户意图。
+    // 7H. 启动命令的「不自弹浏览器」由内核补齐：存量 command 是旧版默认 [node, bin, 'web', '--port', P]，
+    //   没带 --no-open -> dsh 自己拉起浏览器（绕过外部打开唯一出口）。只补**缺省**，已显式写开关的原样交回。
     {
       // 命令里的入口必须落在该实例自己的沙箱安装根内，否则执行边界复校先拒（7E 同形）。
       const startWith = async (id, slot, mk) => {
@@ -458,11 +442,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     }
 
     // ---- 8. 冷启动历史态收敛：normalizeInstance（legacy 布尔对 → remoteMode 三态）----
-    //   原 test/defects-batch-f-test.js 的 C-3c 段按域拆入（该文件是缺陷批次编号的产物，已解散）；
-    //   实例域模型迁移的唯一所有者就是本文件。
-    //   这是冷启动唯一的历史态收敛点：legacy 布尔对 → 三态 + 旧键剔除 + 幂等。残留旧键 = 双轨真相
-    //   （下一轮读盘同时看到两个结论）。原件里「不过 normalize 的同形状记录键仍在」一条是**测自己的
-    //   夹具**（非空转自证），不搬。
+    //   唯一收敛点：三态 + 旧键剔除 + 幂等；残留旧键 = 双轨真相（下一轮读盘同时看到两个结论）。
     {
       const { normalizeInstance } = require(path.join(ROOT, 'src', 'domains', 'instance', 'model.js'));
       const base = () => ({ id: 'i', name: 'n', port: 29051 });

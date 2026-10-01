@@ -1,7 +1,7 @@
 'use strict';
 
 // 通用端口记录迁移（纯 IO）：把 owner 命中任一前缀的记录从 oldFile 迁出到 newFile，并从旧文件清除。
-// 平台只按 owner 前缀字符串工作，前缀由域侧提供（DS-G4）；目标合并去重（按 port）、幂等、原子写。
+// 平台只按 owner 前缀字符串工作，前缀由域侧提供；目标合并去重（按 port）、幂等、原子写。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -25,8 +25,8 @@ function migrateByOwnerPrefix(oldFile, newFile, prefixes) {
   let targetExisted = false;
   if (fs.existsSync(newFile)) {
     targetExisted = true;
-    // 只有 JSON 解析失败（SyntaxError）判「坏目标 -> no-op 保护」；读取本身的 IO 错误
-    // （如目标是目录）视为空目标继续，让写入阶段暴露失败。
+    // 只有 JSON 解析失败（SyntaxError）判「坏目标 -> no-op 保护」；读取本身的 IO 错误（如目标是目录）
+// 视为空目标继续，让写入阶段暴露失败。
     try {
       target = JSON.parse(fs.readFileSync(newFile, 'utf8'));
     } catch (e) {

@@ -1,6 +1,4 @@
-// 面板侧「把地址交给浏览器」的行为测试。病根是静默的：内核说「只是把地址交了出去」，
-// 面板却显示成功（或反过来把地址丢掉，用户只能重复点击）。形态门禁（platform-layer-portability X-11）
-// 只能证明源码里有这些字样，证不了分档判据按字段而非文案走、也证不了选路判据成立，故这里按行为钉。
+// 面板侧「把地址交给浏览器」的行为测试：按行为钉住分档判据（取字段而非文案）与选路判据。
 // 与 client.test.ts 同一手法：注入 fetch 替身，测到真实请求的路径与请求体，不碰 supervisorApi 本身。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handOffFromPanel, openViaWindow, servedByKernelHost, classifyOpenResult, evidenceDetail, loginIsolationText, loginUrlOf } from "./externalOpen";
@@ -133,8 +131,8 @@ describe("loginUrlOf：等待授权期间常驻的地址行（toast 十几秒就
 
 describe("evidenceDetail：把启动形态摊给用户（真机报错只有文案时无人能定位）", () => {
   it("不可信形态标注「退出码不作证据」，并可执行文件名而非全路径", () => {
-    // Windows 只剩「直启探测解析出的本体」这一种形态（那条向系统 shell 冒开的路已整体删除），
-    //   而它可被既有实例吸收，故退出码两个方向都不是证据。
+    // Windows 只剩「直启探测解析出的本体」这一种形态，而它可被既有实例吸收，
+    //   故退出码两个方向都不是证据。
     expect(evidenceDetail({ bin: "C:\\Windows\\System32\\notepad.exe", via: "browser", ownsWindow: false, exitCode: 1 }))
       .toBe("notepad.exe | browser | 退出码不作证据 | exit 1");
   });
@@ -162,7 +160,7 @@ describe("evidenceDetail：把启动形态摊给用户（真机报错只有文�
   it("引擎随行摊出：白窗口要能分「换浏览器」还是「配代理」，内核交出而界面不读等于没交", () => {
     const d = evidenceDetail({ bin: "/usr/bin/safari", via: "browser", engine: "webkit", ownsWindow: true, exitCode: 0 });
     expect(d).toContain("引擎 webkit");
-    // 反向：旧内核不交 engine 时不得凭空造出引擎字样（造出来就是把猜测投上屏幕）
+    // 反向：内核不交 engine 时不得凭空造出引擎字样（造出来就是把猜测投上屏幕）
     expect(evidenceDetail({ bin: "/usr/bin/safari", via: "browser", ownsWindow: true, exitCode: 0 })).not.toContain("引擎");
   });
   it("关窗即取消要说明：隔离登录的窗口关掉等于放弃，用户不知道就会继续等回调", () => {

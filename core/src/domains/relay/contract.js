@@ -1,8 +1,8 @@
 'use strict';
 
 // relay 域契约声明（纯数据，零 require）。
-// exports 取自 index.js 的 module.exports 字面量键（DG-9）；PUBLIC_API 为全仓消费点与对外契约面（DG-10）；
-// deps.hooks 是 DG-4b 豁免出处（mainOf/tokenOf）；pure 为零 IO require 的纯文件（DG-3）：仅 core.js。
+// exports 取自 index.js 的 module.exports 字面量键；PUBLIC_API 为对外契约面（消费方成员必须属于该表）；
+// deps.hooks 为 hooks 出处（mainOf/tokenOf）；pure 为零 IO require 的纯文件：仅 core.js。
 
 module.exports = {
   domain: 'relay',

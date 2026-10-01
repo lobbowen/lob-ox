@@ -2,8 +2,7 @@
 
 // 直连 API 供应商：轻量，账号=API Key，上游=官方 OpenAI 兼容端点（多 Key 共享直连）。
 // 检测按 adapter.quota.type 查配额策略注册表（quota-strategies.js）：window-usage（含别名
-// opencode-usage）用官方 /usage 窗口面；无适配器（adapter=null）为响应驱动（不探测，靠上游
-// 限额响应经转发层分类冻结）。模式类不携带供应商解析词。
+// opencode-usage）用官方 /usage 窗口面；adapter=null 为响应驱动（不探测，靠上游限额响应分类冻结）。
 
 const { ProviderBase } = require('./base');
 const { getQuotaStrategy } = require('./quota-strategies');

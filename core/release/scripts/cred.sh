@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-# 凭据库统一入口
+# 凭据库统一入口：把「哪个仓用哪个凭据、值在哪、是否有效、缺什么」变成可查、可验证的事实。
 #
-# 解决的问题（真实事故）：
-#   壳仓令牌原存于**实例附件目录**（.../instances/<id>/data/.dsh/attachments/...）——
-#   那是 ephemeral 的，换个会话就找不到了。于是出现「下午能推壳、现在找不到壳令牌」。
-#   本工具把「哪个仓用哪个凭据、值在哪、是否有效、缺什么」变成可查、可验证的事实。
-#
-#  $HOME 被 DSH 重定向到实例数据目录，故本工具**一律用绝对路径**，不依赖 ~。
+# $HOME 被 DSH 重定向到实例数据目录，故本工具一律用绝对路径，不依赖 ~。
 #
 # 用法：
 #   cred.sh list                 列出全部条目与状态
@@ -15,6 +10,11 @@
 #   cred.sh get <name>           打印令牌值（**仅**给脚本消费；人不要看）
 #   cred.sh path <name>          打印令牌文件路径
 #   cred.sh put <name>           从 stdin 写入令牌值（0600），并把 status 置 active
+#
+# 真机保护：put 写规范库需显式确认（--yes / DSH_CRED_ALLOW_OVERWRITE=1；
+#   目标已存在再要 DSH_CRED_FORCE=1），且空 stdin 一律拒写。
+#
+# 规范库根 = 真实 home 下 develop/.credentials（可由 DSH_CRED_DIR 覆盖）。
 #
 set -u
 
@@ -26,9 +26,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$(dsh_real_home)"
 # 归一为 /（Windows 路径含反斜杠）——必须与下方 STORE 的归一保持一致，
 # 否则 IS_REAL 比较（STORE == CANON_STORE）在 Windows 上恒假 -> 真机保护被绕过。
-# 规范库根：真实 home 下 develop/.credentials（随开发环境长期存在、
-#   多项目共享，不进任何项目仓；旧 ~/.dsh/credentials 位置已废弃）。仍然只由 REAL_HOME 派生，
-#   与 _npm-auth.sh 同源，不得写死任何机器绝对路径。换机/测试经 DSH_CRED_DIR 覆盖。
+# 规范库根：真实 home 下 develop/.credentials（随开发环境长期存在、多项目共享，不进任何项目仓）。
+#   只由 REAL_HOME 派生，与 _npm-auth.sh 同源，不得写死任何机器绝对路径。换机/测试经 DSH_CRED_DIR 覆盖。
 CANON_STORE="$(printf '%s' "$REAL_HOME/develop/.credentials" | tr '\\' '/')"
 
 # 凭据库根：默认 = 真实 home 下的规范位置；可用 DSH_CRED_DIR 覆盖（测试 / 换机 / 多套环境）。
@@ -40,7 +39,7 @@ STORE=$(printf '%s' "$STORE" | tr '\\' '/')
 INDEX="$STORE/index.json"
 #  导出供 node 子进程读取：**禁止**把路径插进 JS 源码字符串 ——
 #   Windows 路径含反斜杠，在 JS 单引号串里是**无效转义**（\U \A 等被吃），
-#   会导致 require 失败 / 行为错乱（本仓踩过同类事故；原记录于已拆除的 arch-validation 测试）。
+#   会导致 require 失败 / 行为错乱。
 export INDEX STORE
 
 [ -f "$INDEX" ] || { echo "凭据清单缺失: $INDEX" >&2; exit 1; }
@@ -81,19 +80,10 @@ case "${1:-list}" in
   put)
     f=$(file_of "$2");
     [ -n "$f" ] || { echo "未知条目: $2" >&2; exit 1; }
-    # --------------------------------------------------------------------------
-    #  覆盖保护
-    #
-    # 事故：做门禁的注入验证时，先注入了「移除 DSH_CRED_DIR」以破坏夹具模式，
-    #   然后脚本里的 put 步骤**回落到真机库根**执行，把测试串写进了
-    #   **真实的内核令牌文件** —— 93B 真令牌被 16B 的 'new-secret-value' 覆盖。
-    #   又因为迁移时把旧路径改成了**符号链接**，覆盖立刻生效、**无第二份副本可恢复**。
-    #
-    # 两条加固：
-    #   1) 默认（真机库）下 put 必须显式确认：--yes 或 DSH_CRED_ALLOW_OVERWRITE=1；
-    #      若目标文件已存在，再要求 DSH_CRED_FORCE=1。测试用 DSH_CRED_DIR 不受此限。
-    #   2) 旧值先备份到 <file>.bak-<时间戳>（0600），使覆盖**不再不可逆**。
-    # --------------------------------------------------------------------------
+    #  覆盖保护（真机库 = STORE 与 CANON_STORE 同路径）：
+    #   1) put 必须显式确认：--yes 或 DSH_CRED_ALLOW_OVERWRITE=1；
+    #      目标文件已存在时再要求 DSH_CRED_FORCE=1。测试用 DSH_CRED_DIR 不受此限。
+    #   2) 旧值先备份到 <file>.bak-<时间戳>（0600），使覆盖可逆。
     IS_REAL=0
     [ "$STORE" = "$CANON_STORE" ] && IS_REAL=1
     if [ "$IS_REAL" = '1' ] && [ "${DSH_CRED_ALLOW_OVERWRITE:-}" != '1' ] && [ "${3:-}" != '--yes' ]; then
@@ -108,12 +98,8 @@ case "${1:-list}" in
       echo "  如确需轮换，设 DSH_CRED_FORCE=1（会自动备份旧值到 .bak-<时间戳>）。" >&2
       exit 2
     fi
-    # B-25 收口：**空 stdin 一律拒写**，且必须在动目标之前 fail-closed。
-    #   旧形态 `cat > "$f"` 是「先截断、再等数据」：管道断裂、误敲 `cred.sh put x </dev/null`、
-    #   或只喂进空白字符，都会写出 **0 字节**并把 status 置 active ——
-    #   与 9-13「不可逆覆盖」同族的第二条例径（这次连覆盖都不需要，空输入本身就毁库）。
-    #   顺序也是判据的一部分：**先校验输入，再备份/落盘**，否则一次被拒的 put 会留下
-    #   无意义的 .bak-<时间戳>（B25 的备份是尽力安全网，不该变成垃圾残留）。
+    # **空 stdin 一律拒写**，且必须在动目标之前 fail-closed（否则会写出 0 字节凭据并把 status 置 active）。
+    #   顺序也是判据的一部分：**先校验输入，再备份/落盘**，否则一次被拒的 put 会留下无意义的 .bak-<时间戳>。
     TMP_IN="$f.tmp.$$"
     if ! ( umask 077; mkdir -p "$(dirname "$f")"; cat > "$TMP_IN" ); then
       rm -f "$TMP_IN" 2>/dev/null || true
@@ -124,16 +110,15 @@ case "${1:-list}" in
       echo "拒绝：stdin 为空（或只有空白）—— 不落 0 字节凭据、不改 status。$f 保持原样。" >&2
       exit 2
     fi
-    # B25：备份是**尽力安全网**，不得成为写入的硬闸 ——
-    #   原实现 cp&&chmod 链任一失败（如通配已有 .bak 不可改、目标FS 不支 chmod）即中止 put，
-    #   把应急轮换路径堵死。降级为 warn 继续；确认项（1)）不受影响仍为硬闸。
+    # 备份是**尽力安全网**，不得成为写入的硬闸：cp/chmod 链失败只 warn 继续，
+    #   否则应急轮换路径被堵死。确认项 1) 不受影响，仍为硬闸。
     if [ -f "$f" ]; then
       BK="$f.bak-$(date +%Y%m%d%H%M%S)"
       ( cp -p "$f" "$BK" && chmod 600 "$BK" ) 2>/dev/null \
         || echo "警告：旧值备份失败（${BK} 未落），写入仍继续；如需保底请先手工复制 ${f}。" >&2
     fi
-    # 写穿目标（而非 rename）：保留目标原为符号链接时的语义，与旧实现一致；内容已校验非空，
-    # 故此处截断不再有「截断后写不进」的窗口。
+    # 写穿目标（而非 rename）：保留目标为符号链接时的语义；内容已校验非空，
+    # 故此处截断不存在「截断后写不进」的窗口。
     cat "$TMP_IN" > "$f"; rm -f "$TMP_IN" 2>/dev/null || true; chmod 600 "$f"
     node -e "
       const fs=require('fs'),p=process.env.INDEX;
@@ -146,7 +131,7 @@ case "${1:-list}" in
 
   backup)
     # 持久化保障：把规范库整份复制到**操作者指定的**持久位置。
-    #  默认**必须显式给目录**：不给默认值，避免又写进实例子目录（那正是本仓踩过的坑）。
+    #  默认**必须显式给目录**：不给默认值，避免写进实例子目录（ephemeral，换会话即失效）。
     #  在 case 分支里 $1 是**子命令名**（"backup"），目标目录是 $2。
     DEST="${2:-}"
     [ -n "$DEST" ] || DEST="${DSH_CRED_BACKUP_DIR:-}"
@@ -206,10 +191,8 @@ case "${1:-list}" in
   doctor)
     rc=0
     echo '== 1) 目录与文件权限 =='
-    #  跨平台修复：原实现用 `stat -c %a`（**GNU 专有**）——
-    #   macOS 的 BSD stat 不支持 -c，Windows 根本没有 stat -> 权限判定在这些平台必然失效。
-    #   该缺陷长期隐藏，因为**四平台构建矩阵此前被 need_build 跳过**（只在 ubuntu 上跑过）。
-    #   现改用 node（脚本已依赖 node 读清单）—— 三平台通用；并用 IS_WIN 判定跳过 POSIX 权限断言。
+    #  权限位读取用 node 而非 `stat -c %a`（GNU 专有：macOS 的 BSD stat 不认 -c，Windows 没有 stat），
+    #  三平台通用；Windows 无 POSIX 权限位，用 IS_WIN 跳过断言。
     IS_WIN=$(node -e "process.stdout.write(process.platform==='win32'?'1':'0')")
     perm_of() { node -e "try{process.stdout.write((require('fs').statSync(process.argv[1]).mode & 0o777).toString(8).padStart(3,'0'))}catch(e){process.stdout.write('?')}" "$1"; }
     if [ "$IS_WIN" = '1' ]; then
@@ -261,7 +244,7 @@ case "${1:-list}" in
     " || rc=1
     #  第 4 项是**真机检查**：别名/散落副本都锚定在真实库根。
     #   当 DSH_CRED_DIR 覆盖了库根（测试夹具）时，这些真机事实与本库无关，必须跳过 ——
-    #   否则夹具模式会因"别名指向另一个库根"而误报（已踩过）。
+    #   否则夹具模式会因"别名指向另一个库根"而误报。
     if [ "$STORE" != "$CANON_STORE" ]; then
       echo '== 4) 失效散落副本（真机检查）=='
       echo '  SKIP  DSH_CRED_DIR 已覆盖库根 —— 该项只对真机库有意义'

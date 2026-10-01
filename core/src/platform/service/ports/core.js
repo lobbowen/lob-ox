@@ -1,7 +1,7 @@
 'use strict';
 
 // 端口池与逻辑段的纯核心（无 IO / 无定时 / 无进程）：少数物理池 + 逻辑段到池的映射。
-// 逻辑段名仅决定从哪个池取号，具体段名是域知识，不在本平台模块出现（门禁 DS-G4）：由域在装配期经 registerSegment(role, pool) 申报。
+// 逻辑段名仅决定从哪个池取号，具体段名是域知识，不在本平台模块出现：由域在装配期经 registerSegment(role, pool) 申报。
 
 const BASE_POOLS = {
   managed: { base: 20000, count: 4000 },      // 通用共享池（默认 20000-23999）

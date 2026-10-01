@@ -1,18 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// relay HTML 注入的全量缓冲**必须有上限**（超限放弃注入并按流透传，绝不截断）
-//
-// 缺陷（被测对象：src/domains/relay/proxy.js::handleUpstream）：原实现 `chunks.push(c)`
-//   无上限，且 buildForwardHeaders 强制 accept-encoding: identity -> 单个被代理文档按
-//   **真实字节无界进内存**（被代理方即可打爆守卫）。上限语义：超限**放弃注入并按流透传**，
-//   绝不截断（半份 HTML 会把浏览器打穿），也不静默降级（必须 warn）。
-//
-// 锁定不变量：B-a 小文档仍注入 polyfill 且无降级告警 · B-b 超限分块：总字节 == 上游总字节、
-//   无 script、有 warn、自然结束 · B-c 越限单块（end 抢先）res 仍被结束 · B-d 中途越限 +
-//   后续仍有大量块：字节按序完整（无丢块、无重复头）。
-// ---------------------------------------------------------------------------
+// relay HTML 注入的全量缓冲**必须有上限**：超限**放弃注入并按流透传**，绝不截断（半份 HTML 会把浏览器
+//   打穿），也不静默降级（必须 warn）。原实现 chunks.push 无上限且强制 accept-encoding: identity ⇒
+//   单个被代理文档按真实字节无界进内存。B-a 小文档仍注入 · B-b 超限分块字节完整无 script 有 warn · B-c 越限单块 res 仍结束 · B-d 中途越限后续块按序完整。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -92,8 +83,6 @@ const runUpstream = (headers, chunks, chunkMs) => new Promise((resolve) => {
         && (r.body.match(/<html>/g) || []).length === 1,
       'got=' + Buffer.byteLength(r.body) + '/' + Buffer.byteLength(doc));
   }
-  // 反向对照（阈值必须有限）= B-b/B-c/B-d 的字节相等判据已行为级覆盖；
-  //   原对 HTML_INJECT_MAX_BYTES 的 [1MB,16MB] 区间常量断言已按减重裁定删除（常量自证）。
 
   const failed = results.filter((r) => !r);
   console.log('\n结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');

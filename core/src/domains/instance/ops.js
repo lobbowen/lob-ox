@@ -3,7 +3,7 @@
 // 持久化/沙箱目录/端口登记经 store/sandbox/ports；启停与监督经 deps.lifecycle，版本/作业视图经 deps.upgrade（组装根注入）。无隐式 this。
 const fs = require('node:fs');
 const ports = require('../../platform/service/ports').shared;
-// 远程令牌强度下限与 relay/core 共用一份实现（shared/credential）；直接 require 兄弟域 relay/core 会构成跨域边（DS-G1 判红）。
+// 远程令牌强度下限与 relay/core 共用一份实现（shared/credential）。
 const { remoteTokenStrength } = require('../../shared/credential');
 const model = require('./model');
 const sandbox = require('./sandbox');
@@ -127,7 +127,7 @@ function createOps(deps) {
       if (inst.remoteToken !== next) {
         inst.remoteToken = next;
         remoteChanged = true;
-        // 事件只记「是否已设」，绝不带令牌值（TK-5 脱敏纪律）
+        // 事件只记「是否已设」，绝不带令牌值（脱敏纪律）
         if (events) events.append('inst_remote_token_changed', { id: inst.id, name: inst.name, tokenSet: next !== '' });
       }
     }
@@ -144,7 +144,7 @@ function createOps(deps) {
         if (inst.domain === 'native') continue;
         try { lifecycle.supervise(inst.id); } catch {}
       }
-      // B2-6e：decide/下发/处置每拍恰一次，挂拍末而非逐实例监督拍（与 heartbeat onBeatDone 同构）。
+      // decide/下发/处置每拍恰一次，挂拍末而非逐实例监督拍（与 heartbeat onBeatDone 同构）。
       try { lifecycle.governSweep(); } catch (e) { logger.warn && logger.warn('governSweep: ' + (e && e.message)); }
     }, intervalMs || 5000);
   }

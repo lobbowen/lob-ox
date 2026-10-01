@@ -1,7 +1,6 @@
 'use strict';
 
-// api/deps —— 每域所需的 supervisor 成员显式声明（只声明，不强制）。无运行期校验：过渡期门面方法可能被移动/改名而声明表未同步，
-// 缺成员即报错会误报为运行时故障。改 supervisor / 删 sup 方法前先查本表；`config` 语义为 sup.config（apiPort/apiAccessKey 等）。
+// api/deps —— 每域所需的 supervisor 成员显式声明（只声明，无运行期校验）。改 supervisor / 删 sup 方法前先查本表；`config` 语义为 sup.config（apiPort/apiAccessKey 等）。
 // 口径：只列该域 handle(ctx) 直接消费的成员（经 ctx 转交的不计）；网关自身消费的成员单列 GATEWAY；新增域/新增 sup 读取点必须同步本表，否则本表失效。
 
 /** 网关自身（api/index.js）直接消费的 sup 成员（域分派之前/之后）。 */
@@ -23,8 +22,8 @@ const DOMAIN_DEPS = {
     'events',            // eventHub 缺失时的空事件兜底（seq）
     'health',            // /healthz、/readyz（缺失时回退默认）
     'lifecycleManager',  // 模块生命周期唯一入口
-    'sessionState',      // /session/status（INV-S4 唯一读取口）
-    'shutdownAll',       // /session/stop（INV-S2 退出唯一入口）
+    'sessionState',      // /session/status 唯一读取口
+    'shutdownAll',       // /session/stop 退出唯一入口
     'statusSummary',     // /status、dsh 启停回执
   ],
 
@@ -46,7 +45,7 @@ const DOMAIN_DEPS = {
     'closeActionStatus', 'setCloseAction',
     'externalBrowserStatus', 'setExternalBrowser', // /settings/external-browser：外部打开的浏览器偏好（实现：app/settings/browser.js）
     'shutdownAll',           // /shutdown（旧退出入口）
-    'guardSelfUpdateStatus', // /self-update/status（只读；写端点已下架=410）
+    'guardSelfUpdateStatus', // /self-update/status（只读；写端点返回 410）
     'dshenvStatus', 'envStatus', 'nodeLtsStatus',
     'listPorts',             // /ports 统一端口清单
   ],

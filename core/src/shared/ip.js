@@ -26,10 +26,12 @@ function isPrivateIpv4(a) {
   return false;
 }
 
-/** 主机字面量是否落在「非公网」段；入参为 URL.hostname 去方括号后的字面量（调用方负责小写归一）。
- *  判定范围与 api/domains/dist.js 的探测闸一致：回环 / RFC1918 / 链路本地（含 169.254.169.254 元数据）/ CGNAT 100.64/10 /
- *  0/8 与组播保留 224+ / IPv6 字面量（含 ::1、ULA、fe80: 一律拒，因 URL 归一后的 ::ffff:7f00:1 形态逐段判有绕过面）/
- *  特殊后缀（localhost/.local/.internal/.home.arpa）/ 单标签短名（内网 DNS 搜索域）。域名公网解析不在此判（无 DNS 不能定性），写盘闸只拦字面量。 */
+/**
+ * 主机字面量是否落在「非公网」段；入参为 URL.hostname 去方括号后的字面量（调用方负责小写归一）。判定范围与
+ * api/domains/dist.js 的探测闸一致：回环 / RFC1918 / 链路本地（含 169.254.169.254 元数据）/ CGNAT 100.64/10 / 0/8 与
+ * 组播保留 224+ / IPv6 字面量（含 ::1、ULA、fe80:）/ 特殊后缀（localhost/.local/.internal/.home.arpa）/ 单标签短名。
+ * 域名公网解析不在此判，写盘闸只拦字面量。
+ */
 function isPrivateHostLiteral(host) {
   const h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '');
   if (!h) return true;

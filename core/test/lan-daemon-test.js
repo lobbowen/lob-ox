@@ -1,12 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// lan-daemon（L3b 进程解耦）机制集成测试：
-//  - lan-daemon 从 lan-state.json 快照拉起 relay（mock 目标）：wanPort 绑定唯一权威是端口注册表
-//    （与守卫共写 ports.json 单本账，claimSlot byOwner），实例行不带端口字段 —— 测试经 ctl list
-//    回读实际绑定端口，不硬编码期望值。
-//  - ctl list/frpStatus/health 可用；状态 diff（行缺席/remoteMode=off -> 移除 relay，新增 -> 补建）；
-//    SIGTERM 优雅退出（端口释放）。自包含：mock HTTP 目标 + 独立 tmp config/lan-state。
+// lan-daemon（进程解耦）机制集成测试：从 lan-state.json 快照拉起 relay（mock 目标），
+//   wanPort 绑定的唯一权威是端口注册表（与守卫共写 ports.json 单本账，claimSlot byOwner），
+//   测试经 ctl list 回读实际端口，不硬编码。含 ctl list/frpStatus/health、状态 diff、SIGTERM 优雅退出。
 
 const http = require('node:http');
 const path = require('node:path');
@@ -105,8 +102,8 @@ async function main() {
   if (!ctlUp) { child.kill('SIGTERM'); ta.close(); tb.close(); console.log('\n结果: ' + passed + ' passed, ' + failed + ' failed'); process.exit(failed ? 1 : 0); }
 
   // -- relay 拉起（注册表槽位绑定 + 真实代理）--
-  //  wanPort 权威在 daemon 侧端口注册表 -> 期望值只能从 ctl list 回读，再验证「回读端口确实在监听
-  //  且确实代理到本目标」。Windows 实测 relay 绑定需 10-14s，窗口放宽到 30s。
+  //  wanPort 权威在 daemon 侧端口注册表 -> 期望值只能从 ctl list 回读，再验证「回读端口确实在监听且代理到本目标」。
+  //   Windows 上 relay 绑定可达 10-14s，故窗口放宽到 30s。
   const listOnce = async () => {
     try {
       const l = await ctlCall('POST', { method: 'list', args: [] });
@@ -180,8 +177,6 @@ async function main() {
   // -- 优雅退出 --
   child.kill('SIGTERM');
   await sleep(800);
-  // 原「SIGTERM 后进程退出」断言为 `child.exitCode !== null || true` —— `|| true` 使其**恒真、永不可能红**
-  //   （作者同行注释自认「detached/unref：用端口判断」），已删；真正的退出证据是紧随其后的端口释放断言。
   const aDown = !(await portListening(PORT_A));
   check('退出后 wanPort 释放', aDown, { PORT_A });
 

@@ -1,7 +1,7 @@
 'use strict';
 
-// 统一持久化（DSH-TOKEN-CONTRACT 契约2/3，TK-5/TK-6）：令牌是会话凭据，本仓只认这一处写入——原子写、写后 0600、统一脱敏（TK-5）。
-// TK-6 超限必须轮转而非清空（清空唯一持久链路即永久丢失）：先原子备份进固定槽位再截断，全程没有删除调用。
+// 统一持久化：令牌是会话凭据，本仓只认这一处写入——原子写、写后 0600、统一脱敏。
+// 超限必须轮转而非清空（清空唯一持久链路即永久丢失）：先原子备份进固定槽位再截断，全程没有删除调用。
 // appendFileSync/writeFileSync 的 mode 只对新建文件生效，已存在文件的权限位被忽略，故所有写入后必须显式 chmod 收口。
 // Windows 忽略 POSIX mode，本文件的 chmod 为 no-op，安全边界由 supervisor 的目录级 protectDir 承担。
 
@@ -30,7 +30,7 @@ function stripAnsi(line) {
   return String(line == null ? '' : line).replace(ANSI_RE, '');
 }
 
-/** 统一脱敏入口（TK-5）：顺手清掉同一行里夹带的其它机密（access_token、password、api_key 等）。
+/** 统一脱敏入口：顺手清掉同一行里夹带的其它机密（access_token、password、api_key 等）。
  *  只做值替换不做行删除，行结构（含 ?token=）必须保留，恢复文件才能重新解析。 */
 function sanitizeTokenLine(line) {
   let s = stripAnsi(line).replace(/\r?\n$/, '');
@@ -62,16 +62,15 @@ function writeAtomic(file, data) {
     try { fs.chmodSync(fp, 0o600); } catch { /* 同上 */ }
     return { ok: true, path: fp };
   } catch (e) {
-    // 失败清理选择截断而不删除：门禁 TK-G3 把 rmSync/rmdirSync 判为危险信号；截断后残留空文件，不含明文令牌。
+    // 失败清理选择截断而不删除（rmSync/rmdirSync 在本仓属危险信号）；截断后残留空文件，不含明文令牌。
     try { if (fs.existsSync(tmp)) fs.truncateSync(tmp, 0); } catch { /* 清理失败不影响返回 */ }
     return { ok: false, path: fp, reason: (e && e.message) || String(e) };
   }
 }
 
 /** 轮转：把现有内容整体改名进固定备份槽。
- *  必须用 rename 而非「读-写槽-截断」：read 与 truncate 之间的并发追加（升级重叠期新旧守卫）既不在备份里也会被抹掉；
- *  rename 原子，改名后仍持旧 fd 的写者把数据落进备份本体，新追加按 O_APPEND 建目标新文件。
- *  任一步失败返回 false 且不截断，宁可文件继续增长；Windows 槽位占用致 rename 失败时降级为复制+截断（窗口更小但不为零）。 */
+ *  必须用 rename 而非「读-写槽-截断」：read 与 truncate 之间的并发追加（升级重叠期新旧守卫）既不在备份里也会被抹掉。
+ *  rename 原子，改名后仍持旧 fd 的写者把数据落进备份本体；任一步失败返回 false 且不截断，宁可文件继续增长（Windows 槽位占用致 rename 失败时降级为复制+截断）。 */
 function rotateByBackup(file, opts) {
   const fp = path.resolve(file);
   const keep = (opts && opts.keep) || PERSIST_LIMITS.KEEP_BACKUPS;
@@ -108,7 +107,7 @@ function pickBackupSlot(file, keep) {
 }
 
 /** 追加一行（经统一脱敏与权限收口）；超限时先轮转再追加。
- *  轮转失败（磁盘满等）时仍然追加：宁可文件超限，也不让当前令牌丢失（TK-1）。 */
+ *  轮转失败（磁盘满等）时仍然追加：宁可文件超限，也不让当前令牌丢失。 */
 function appendByRotation(file, line, opts) {
   const fp = path.resolve(file);
   const maxBytes = (opts && opts.maxBytes) || PERSIST_LIMITS.MAX_BYTES;
@@ -149,7 +148,6 @@ function readTailLines(file, opts) {
 }
 
 // 恢复文件名的单一事实源在 app/settings/token-kinds.js 的 TOKEN_FILE_NAME（assembly/compose/core.js 直接取用），
-// platform 侧不持有文件名注入链。
 module.exports = {
   PERSIST_LIMITS,
   writeAtomic,

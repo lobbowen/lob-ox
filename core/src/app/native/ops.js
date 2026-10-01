@@ -1,7 +1,7 @@
 'use strict';
 
-// 域：原生 DSH（app/native）—— 安装/卸载/状态/更新检查编排。
-// 纯编排：npm 动作一律经 host._runNpm 下沉到 platform/distribution 的执行器，本文件不自持子进程。
+// 域：原生 DSH —— 安装/卸载/状态/更新检查编排。纯编排：npm 动作一律经 host._runNpm 下沉到 platform/distribution
+//   的执行器，本文件不自持子进程。
 
 const fs = require('node:fs');
 const policies = require('./policies');
@@ -69,12 +69,11 @@ function beginTask(host, action, meta) {
 /** 安装执行（安装/升级/回滚共用 `_runNpm` 出口）。 */
 async function install(host, version) {
   if (!policies.isValidVersion(version)) return { ok: false, error: '非法版本号: ' + version };
-  // 并发锁必须在任何 await 之前置位（否则并发 POST 会在 await 间隙同时通过检查）。
-  //   环境检查已改异步（exec 冻结收口），故排在锁之后、进临界区，由 finally 统一释放。
+    // 并发锁必须在任何 await 之前置位（否则并发 POST 会在 await 间隙同时通过检查）。环境检查是异步探测，
+    //   故排在锁之后、进临界区，由 finally 统一释放。
   host.installing = true;
   host.installLog = [];
-  // 锁释放统一走 finally：锁一旦滞留，startInstall/startUninstall 与升级的并发闸
-  //   会永久拒绝全部安装类操作。分支内的显式置 null 只是冗余保险，权威释放点是 finally。
+    // 锁释放统一走 finally：锁一旦滞留，startInstall/startUninstall 与升级的并发闸会永久拒绝全部安装类操作。
   let task = null;
   try {
     const env = await host.checkEnvironment();
@@ -83,8 +82,8 @@ async function install(host, version) {
     let target = version;
     let registry = null;
     if (!target) {
-      // 目标版本与下载源**同源**：分开各选一次会让「A 源查到的版本」从「B 源」下载，
-      // B 恰好没有这个版本时表现为安装失败，而面板显示的镜像是 B —— 诊断指向错的那个源。
+            // 目标版本与下载源同源：分开各选一次会让「A 源查到的版本」从「B 源」下载，B 恰好没有这个版本时表现为安装
+            //   失败，而面板显示的镜像是 B —— 诊断指向错的那个源。
       const info = await host._latestVersion().catch(() => null);
       if (!info || !info.ok || !info.version) {
         host.installing = null;
@@ -109,13 +108,12 @@ async function install(host, version) {
       if (task) host.tasks.fail(task.id, res.error);
       return { ok: false, error: res.error, output: res.output };
     }
-    // 数据认领：仅首装（manifest 尚不存在）尝试；~/.dsh 已有用户数据时不认领（防误删）。
-    // 升级/重装绝不能传 []：manifest.record 的继承分支判据是「未显式传 dataPaths」，
-    //   传空数组会把上一代认领记录抹成 []，卸载清理从此静默失效、目录永久残留。
+        // 数据认领：仅首装（manifest 尚不存在）尝试；~/.dsh 已有用户数据时不认领（防误删）。升级/重装绝不能传 []：
+        //   manifest.record 的继承分支判据是「未显式传 dataPaths」，传空数组会把上一代认领记录抹成 []，
+        //   卸载清理从此静默失效、目录永久残留。
     const isFirstInstall = !host._manifest();
     await host._recordManifest(target, isFirstInstall ? host._claimDataPaths() : undefined);
-    // 安装成功后立即复跑「检测 -> 绑定」：裸 config.command 首装后若不绑定，
-    //   DSH 永不起、冷静期无限循环，直到守卫重启。
+        // 安装成功后立即复跑「检测 -> 绑定」：裸 config.command 首装后若不绑定，DSH 永不起、冷静期无限循环直到守卫重启。
     try { if (typeof host._bindNativeDshCommand === 'function') host._bindNativeDshCommand(); }
     catch (e) { host.logger.warn && host.logger.warn('安装后原生绑定失败: ' + (e && e.message)); }
     const ver = host.installedVersion();
@@ -130,9 +128,10 @@ async function install(host, version) {
   }
 }
 
-/** 启动安装（API 用）：同步前置检查，通过则后台执行并立即返回（进度经 status 轮询）。
- *  环境检查是异步探测，已移入 install() 锁内第一步：环境失败不再同步返回，
- *  而经 status 的 lastInstall 呈现——返回时序变了，能力不减。 */
+/**
+ * 启动安装（API 用）：同步前置检查，通过则后台执行并立即返回（进度经 status 轮询）。环境检查是异步探测，已移入
+ * install() 锁内第一步：环境失败经 status 的 lastInstall 呈现，而非同步返回。
+ */
 function startInstall(host, version) {
   if (host.installing) return { ok: false, error: '安装已在进行中' };
   if (host.uninstalling) return { ok: false, error: '卸载进行中，请稍后再装' };
@@ -168,9 +167,10 @@ function startUninstall(host) {
   return { ok: true, started: true };
 }
 
-/** 卸载：npm 动作经统一执行器（超时看门狗 / 杀进程树 / 在途记账都在那侧），本函数只管
- *  应用层状态：锁、任务、manifest 清理与 K10（失败保留 manifest 以便重试）。
- *  锁释放由 finally 结构保证（含异常路径）。 */
+/**
+ * 卸载：npm 动作经统一执行器（超时看门狗 / 杀进程树 / 在途记账都在那侧），本函数只管应用层状态：锁、任务、
+ * manifest 清理（失败保留 manifest 以便重试）。锁释放由 finally 结构保证（含异常路径）。
+ */
 async function uninstall(host) {
   if (host.tasks && host.tasks.isBusy('native', 'main')) return { ok: false, error: '已有任务在进行中' };
   if (host.installing) return { ok: false, error: '安装进行中，无法卸载' };

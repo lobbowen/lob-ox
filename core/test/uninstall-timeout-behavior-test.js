@@ -1,15 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// P1-F **行为级**回归：卸载挂起时必须超时收尾并释放锁
-//
-// 与 `uninstall-timeout-test.js`（静态断言）分工：静态断言只证「结构与接线存在」，
-//   注入「看门狗永不触发」后它照样通过（假门禁）；本文件用会挂起的假 npm 触发真实看门狗。
-// 做法：造一个永不退出的假 npm（用 node 自己当解释器，绝不用 `#!/bin/sh` —— Windows 无 sh
-//   会退化成立即失败，假 npm 段落记着这条实测教训）-> config.uninstallTimeoutMs=800ms ->
-//   调 uninstall()，断言：远小于 sleep 时长内返回、ok=false、timedOut=true、锁已释放。
-// ---------------------------------------------------------------------------
+// **行为级**回归：卸载挂起时必须超时收尾并释放锁。造一个永不退出的假 npm（用 node 自己当解释器，
+//   绝不用 `#!/bin/sh` —— Windows 无 sh 会退化成立即失败）-> config.uninstallTimeoutMs=800ms -> 调 uninstall()，
+//   断言：远小于 sleep 时长内返回、ok=false、timedOut=true、锁已释放。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -26,21 +20,16 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   const stateDir = path.join(tmp, 'state');
   fs.mkdirSync(stateDir, { recursive: true });
 
-  // 假 npm：**永不退出**（模拟 registry 挂死 / 凭证助手等待）。
-  //  复（P1）：**必须跨平台构造** —— 原实现写 '#!/bin/sh' + sleep 的 POSIX 脚本，Windows
-  //   无法执行（无 sh）-> spawn 立刻失败 ->「挂起」退化成「立即失败」-> 本测试在 Windows 必红
-  //   （实测 windows-latest：4ms 返回、timedOut=false）。修法：用 process.execPath 执行 .js。
+  // 假 npm：**永不退出**（模拟 registry 挂死 / 凭证助手等待）。**必须跨平台构造**：
+  //   写 '#!/bin/sh' + sleep 在 Windows 无法执行 -> spawn 立刻失败 ->「挂起」退化成「立即失败」-> 本测试必红。
   const HANG_JS = 'setTimeout(function () {}, 60000);';   // 60s 不退出（远大于 800ms 超时）
   const fakeNpmHang = path.join(tmp, 'npm-hangs.js');
   fs.writeFileSync(fakeNpmHang, HANG_JS);
   const fakeNpm = process.execPath;                        // 用真实 node 可执行当「解释器」
   const fakeNpmArg = [fakeNpmHang];                        // 由 manager 的 npmBin 支持数组
 
-  // 绝不用「patch 模块导出」替换 npm —— 真实事故：`const { npmBin } = require(...)` 是值绑定，
-  //   patch 无效，于是「伪造的挂起」实际执行了**真实 npm uninstall -g**（那次侥幸 no-op）。
-  //   现改为构造期依赖注入（opts.npmBin），结构上不可能触碰真实 npm。
-  // dist 注入**真实执行器**（platform/distribution/install.js）：看门狗/杀树/超时事实都在那侧，
-  //   塞假 dist 就只能证明 ops 接线，证明不了「挂起的子进程真的被超时收尾」。
+  // 绝不用「patch 模块导出」替换 npm：`const { npmBin } = require(...)` 是值绑定，patch 无效，
+  //   于是「伪造的挂起」会实际执行**真实 npm uninstall -g**；现改为构造期依赖注入（opts.npmBin）。
   const installMod = require(path.join(ROOT, 'src', 'platform', 'distribution', 'install.js'));
   const mgr = new NativeManager({
     config: {
@@ -100,15 +89,11 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   }
 
   // -- D-10：在途 npm 必须**可被关停路径中止** --
-  //   缺陷：npm 子进程以 detached 起（自成进程组），守卫退出/被 bin 的 8s 强杀后它继续存活，
-  //   新守卫 boot 时旧 npm 仍在写 node_modules 与全局前缀（无人等待、无人记账的并发写入者）。
-  //   本块证明三件事：句柄被记账、abort 真的杀掉进程组、Promise 不悬挂（ok:false + aborted:true）。
+  //   npm 子进程 detached 起（自成进程组），守卫退出后它继续存活并写 node_modules/全局前缀。
+  //   本块证明：句柄被记账、abort 真杀掉进程组、Promise 不悬挂（ok:false + aborted:true）。
   {
-    // （已删「关停出口经门面 re-export 是同一函数」的接线内省，与「无在途时计数 0」的反空转站：
-    //   前者是内部接线形态，后者被下面的 0 -> 1 -> 0 行为序列覆盖。）
     // 挂起假 npm：复用仓库内夹具 test/fake-npm.js 的 hang 模式（FAKE_MODE 经 env 传入）。
-    //   不能把临时脚本路径放进 commandTemplate：Windows runner 的 os.tmpdir() 是 8.3 短名
-    //   （含 `~`，B11 禁用字符，runNpmInstall 会 fail-closed 拒掉）；pid 文件经 env 传，不进 argv。
+    //   不能把临时脚本路径放进 commandTemplate：Windows runner 的 os.tmpdir() 是 8.3 短名（含 `~`，禁用字符，runNpmInstall 会 fail-closed 拒掉）。
     const pidFile = path.join(tmp, 'inflight-npm.pid');
     process.env.FAKE_MODE = 'hang';
     process.env.FAKE_PID_FILE = pidFile;

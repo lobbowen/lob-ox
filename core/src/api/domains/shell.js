@@ -2,7 +2,7 @@
 
 // 域：桌面壳更新安全网 API（/shell/*）。端点只回环可达（壳在本机，与既有 API 信任模型一致，identity.js socket 层判定）；
 // 写操作（health/update-pending/check-update/restart）走 originAllowed 同源校验（与 dist/relay 同规）。
-// 内核不含「更新源」职责（壳直连 npm CDN，故无 /shell/update/check），壳更新强制且不可回退（无 /shell/rollback）。
+// 内核不含「更新源」职责（壳直连 npm CDN）；壳更新强制且不可回退。
 function owns(pathname) {
   return pathname === '/shell/status' || pathname.startsWith('/shell/');
 }

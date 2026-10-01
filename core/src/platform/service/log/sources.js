@@ -1,6 +1,6 @@
 'use strict';
 
-// DS-G4 源注册接口（platform 去域名词，反转法）：平台不硬编码业务源名，源名单由 app/ 装配期注入。
+// 源注册接口（platform 去域名词，反转法）：平台不硬编码业务源名，源名单由 app/ 装配期注入。
 // name: 聚合流 source 字段 / 水位键 / ctl 拉取身份；key: 装配短键（ctlPorts/daemonLogs//logs/tail 的键，
 // 默认 = name）；local: true 表示本进程本地推源（守卫自身），不参与 ctl 拉取。
 const LOCAL_SOURCE = 'guard';
@@ -32,7 +32,7 @@ function registerSources(list) {
 // 用给定名单整体替换已注册源（装配期幂等：重复调用结果一致）。
 function setSources(list) { _sources.length = 0; registerSources(list); }
 
-// 未注入时的退化：只认本进程本地源，不猜测任何业务源名（DS-G4）。
+// 未注入时的退化：只认本进程本地源，不猜测任何业务源名。
 function resolvedSources() {
   if (_sources.length) return _sources.slice();
   return [normalizeSource(LOCAL_SOURCE, { local: true })];
@@ -48,8 +48,7 @@ function setInternalTypes(list) { _internalTypes.clear(); for (const t of (Array
 function isInternalEvent(type) {
   const t = String(type || '');
   if (t.startsWith('shadow_') || t.startsWith('managed_object_')) return true;
-  // 守卫监督簿记（router_daemon_supervised / orphan_audit，仍有真实生产者）：进审计不进用户时间线。
-  // 'guardian_action' 不得回潮：其生产者 _guardianEvent() 已删，全仓无调用点，事件永不再产生。
+  // 守卫监督簿记（router_daemon_supervised / orphan_audit）：进审计不进用户时间线。
   return _internalTypes.has(t);
 }
 

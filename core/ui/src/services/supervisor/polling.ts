@@ -1,5 +1,5 @@
 /** supervisor 运行态轮询中心（单源快照 -> 视图只读）：start() 每轮并行拉运行态 + 增量事件（after=seq），写完自排下一轮，
- *  健康 2s，连续失败 2s->4s->8s 退避封顶 30s（UI 条 6）；写操作后可 refresh() 立即同步一次；纯 JS set 订阅，页面用 useSyncExternalStore 消费。 */
+ *  健康 2s，连续失败 2s->4s->8s 退避封顶 30s；写操作后可 refresh() 立即同步一次；纯 JS set 订阅，页面用 useSyncExternalStore 消费。 */
 import { supervisorApi } from "./client";
 import type {
   EventsPage, FrpStatus, InstancesResponse, LanAccessResponse,
@@ -39,10 +39,10 @@ let busy = false;
 /** 事件增量拉取的 in-flight 守卫：refreshEvents 与 syncAll 相互独立，防慢网下并发交叠致同批事件双插。 */
 let eventsBusy = false;
 
-/** 心跳基准/上限间隔（UI 条 6 退避） */
+/** 心跳基准/上限间隔 */
 const BASE_TICK_MS = 2000;
 const MAX_TICK_MS = 30_000;
-/** 连续 syncAll 失败次数：成功后清零，是退避的唯一依据（UI 条 6）。 */
+/** 连续 syncAll 失败次数：成功后清零，是退避的唯一依据。 */
 let failStreak = 0;
 
 /** 下一轮心跳间隔：第 2 次连续失败起翻倍，封顶 MAX_TICK_MS。 */
@@ -51,7 +51,7 @@ function tickDelayMs(): number {
   return Math.min(MAX_TICK_MS, BASE_TICK_MS * 2 ** (failStreak - 1));
 }
 
-/** 事件游标归一化（UI 条 6）：后端异常时 r.seq 可能为 null/字符串/NaN。NaN 写进 eventsSeq 会永久污染
+/** 事件游标归一化：后端异常时 r.seq 可能为 null/字符串/NaN。NaN 写进 eventsSeq 会永久污染
  *  （Math.max(NaN,x) 恒为 NaN，下轮 after=NaN 再也拉不到事件），故非法值退回当前游标，不回退 0 造成重放。 */
 function safeSeq(v: unknown, fallback: number): number {
   const n = typeof v === "number" ? v : Number(v);
@@ -64,7 +64,7 @@ function setPartial(p: Partial<SupervisorSnapshot>) { snap = { ...snap, ...p }; 
 /** 心跳链世代号：stop() 后在途的那一轮不得再排下一轮（否则 start() 会同时跑两条链）。 */
 let epoch = 0;
 
-/** 统一心跳：一轮跑完再按退避间隔自排下一轮（UI 条 6），以便按失败次数调整间隔并避免慢网下轮次堆叠。 */
+/** 统一心跳：一轮跑完再按退避间隔自排下一轮，以便按失败次数调整间隔并避免慢网下轮次堆叠。 */
 async function heartbeat() {
   const mine = epoch;
   await Promise.all([refreshEvents(), syncAll()]);
@@ -95,7 +95,7 @@ async function syncAll() {
     // 退避只看「运行态是否读到」——status 读到即认为链路健康，个别域读失败
     // 由快照的 null 字段如实呈现，不该拖慢整条心跳。
     failStreak = online ? 0 : failStreak + 1;
-    // 心跳不附带 /tasks：snap.tasks 无消费者（TasksPage 自管本地 state + 手动刷新），避免每拍白拉低频任务列表。
+    // 心跳不含 /tasks：TasksPage 自管本地 state + 手动刷新，避免每拍白拉低频任务列表。
     setPartial({ status, instances, lan, frp, router, providers, ports, online, authFailed: !online && authHit });
   } catch {
     failStreak += 1;
@@ -137,7 +137,7 @@ export const supervisorStore = {
     listeners.add(listener);
     return () => listeners.delete(listener);
   },
-  /** 启动统一心跳（事件高频 + 运行态）；首轮立即同步，之后按退避间隔自排（UI 条 6） */
+  /** 启动统一心跳（事件高频 + 运行态）；首轮立即同步，之后按退避间隔自排 */
   start() {
     if (started) return;
     started = true;

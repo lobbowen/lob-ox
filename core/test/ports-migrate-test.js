@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// migrateByOwnerPrefix 契约（迁移S2）：router 自治端口段（owner 前缀 proxy:/providerApi:）从共享
-// oldFile 迁出到 newFile 并清旧段；幂等；目标合并去重；守卫段保留在旧文件。
-// 判据落在真文件字节上：迁移条数 + 旧文件残留 + 坏输入不崩（旧实现裸抛 -> 崩启动路径）。
+// migrateByOwnerPrefix 契约：router 自治端口段（owner 前缀 proxy:/providerApi:）从共享 oldFile 迁出到
+//   newFile 并清旧段；幂等；目标合并去重；守卫段保留在旧文件。
+//   判据落在真文件字节上：迁移条数 + 旧文件残留 + 坏输入不崩。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -41,7 +41,7 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   check('MIG-2 幂等（无 router 段时 0 条）且目标合并去重（新增 1 条、保留既有 1 条）',
     moved2 === 0 && moved3 === 1 && newDoc3.records.length === 2, 'idem=' + moved2 + ' moved=' + moved3 + ' recs=' + newDoc3.records.length);
 
-  // -- MIG-3+：坏输入一律安全 no-op（旧实现或裸抛、或吞异常后照常清源 -> 两头无存） --
+  // -- MIG-3+：坏输入一律安全 no-op（不得裸抛，也不得吞异常后照常清源）--
   {
     const cOld = path.join(TMP, 'mig-corrupt-old.json');
     const cNew = path.join(TMP, 'mig-corrupt-new.json');

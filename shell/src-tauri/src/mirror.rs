@@ -1,14 +1,12 @@
 //! 镜像源适配（壳自持）：装机时机器上没有内核，壳必须先于内核跑完镜像探测，内核消费壳投放的 registry.json。
 //! 不变量：并行探测全部候选（串行会被最慢源拖死）；Node 版本取全部可达源中的最高版本（镜像同步滞后，首个成功即采用会装到旧版）；
-//! 选最快且确实提供该版本的源下载，逐源实测结论缓存到 ~/.dsh/shell/mirrors.json 并导出内核。
-//! 壳对内核只交证据（目录 + 探测规格 + 逐源实测），从不交选择：固定哪个源写在内核自持的 registry-choice.json。
+//! 选最快且确实提供该版本的源下载，逐源实测结论缓存到 ~/.dsh/shell/mirrors.json 并导出内核。壳对内核只交证据（目录 + 探测规格 + 逐源实测），从不交选择。
 
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// npm registry 预设：全部经真实 tarball 下载验证过 - 仅元数据可读不算可用（部分镜像只代理元数据、不代理 tarball）。
-/// 已排除（实测不可用）：mirrors.aliyun.com/npm、mirrors.tuna.tsinghua.edu.cn/npm（非标准 registry 路径，元数据即读不到）。
+/// npm registry 预设：仅元数据可读不算可用（部分镜像只代理元数据、不代理 tarball）。
 pub const NPM_PRESETS: [&str; 6] = [
     "https://registry.npmmirror.com",
     "https://registry.npmjs.org",
@@ -18,9 +16,7 @@ pub const NPM_PRESETS: [&str; 6] = [
     "https://r.cnpmjs.org",
 ];
 
-/// Node 发行镜像预设：全部经真实下载 + 该源自身 SHASUMS256 校验通过，比「URL 可达」严格得多
-/// （能过滤代理不完整、文件损坏、清单与文件不匹配的镜像）。
-/// 已排除（实测 SHA256 校验失败）：mirrors.ustc.edu.cn/node。
+/// Node 发行镜像预设：入选须经真实下载 + 该源自身 SHASUMS256 校验通过（能过滤代理不完整、文件损坏、清单与文件不匹配的镜像）。
 /// 各源同步进度不同不影响使用：latest_lts() 跨全部可达源取最高版本，再在提供该版本的源中选最快者，滞后源作回退。
 pub const NODE_PRESETS: [&str; 10] = [
     "https://nodejs.org/dist",
@@ -43,32 +39,22 @@ pub const SHELL_PRESETS: [&str; 2] = [
 ];
 
 /// 安装包（清单里 `platforms.*.url` 指向的东西）的可换主机 npm CDN。
-/// 入选判据：实测能把本平台安装包的完整字节取回（HTTP 200 + 全量），只看清单或元数据可达不算；
-/// 逐源取样与排除理由见（已归档的）SHELL-UPDATE-CHANNEL-VERIFICATION.md —— 该文档已于 2026-10-01
-///   随 .md 清理移出仓库，现存 C:\work\_md_backup；下方黑名单本身即当时的实测结论。
+/// 入选判据：实测能把本平台安装包的完整字节取回（HTTP 200 + 全量），只看清单或元数据可达不算。
 pub const SHELL_ARTIFACT_NPM_CDNS: [&str; 2] = [
     "https://unpkg.com",
     "https://cdn.jsdelivr.net/npm",
 ];
 
 /// 安装包的另一类源：CI 挂上 GitHub Release 的同名安装程序（`shell-<ver>/<文件名>`）。
-/// ⚠ tag 段随 2026-10-01 的命名空间改造由 `v<ver>` 改为 `shell-<ver>`：壳与内核各自独立版本，
-///   共用 `v*` 会让任一 tag 同时触发两条产线，故壳的 tag 现为 `shell-<壳版本>`（不带 `v` 前缀，
-///   与 tauri.conf.json#version 直接对账）。本函数拼的是**真实 tag 路径**，不跟着改就会 404
-///   （且因为只是候选源之一，失败是静默换源，不会红）。
-/// ⚠ 2026-10-01 合仓配套修正：**发布仓已变更** —— 由合仓前的
-///   `lobbowen/dsh-supervisor-launcher` 改为合仓后的 `lobbowen/lob-ox`。
-///   合仓后两条产线同仓发布，壳的 Release 就建在 `lobbowen/lob-ox` 上；沿用旧仓 slug
-///   ⇒ 这一候选源大概率 404，而它是**候选源之一、失败只是静默换到下一个源、不会红**
-///   （这正是最危险的一类静默失败：长期无声失效，日志里也只是一条「换源」）。故 owner/repo
-///   与上面的 tag 段必须同时对上真实发布仓。
+/// ⚠ tag 段是 `shell-<壳版本>`（不带 `v`，与 tauri.conf.json#version 直接对账），owner/repo 必须是真实发布仓 `lobbowen/lob-ox`：
+///   本函数拼的是**真实 tag 路径**，两段任一对不上都会 404（且因为只是候选源之一，失败是静默换源，不会红）。
 pub const SHELL_ARTIFACT_RELEASE_BASE: &str =
     "https://github.com/lobbowen/lob-ox/releases/download";
 
 /// 除清单声明的那一个 URL 外，安装包还该按序尝试哪些源（声明源永远第一）。
 /// Tauri 清单每平台只有一个产物 URL，插件下载阶段不会自己换源；Update::download_url 是公开字段，壳可改写它，
-/// 验签仍在插件内按清单签名做，任何源都没有让 updater 装上篡改包的能力。
-/// 文件名不含架构标识时不挂 Release 候选：macOS 两架构产物同名，换过去取到的是错架构的包（表现为验签失败，更难排障）。
+/// 验签仍在插件内按清单签名做，任何源都没有让 updater 装上篡改包的能力。文件名不含架构标识时不挂 Release 候选
+/// （macOS 两架构产物同名，换过去取到的是错架构的包，表现为验签失败，更难排障）。
 pub fn artifact_candidates(declared: &tauri::Url, ver: &str) -> Vec<tauri::Url> {
     let mut out = vec![declared.clone()];
     let path = declared.path().to_string();
@@ -265,12 +251,12 @@ pub fn save(m: &Mirrors) -> Result<(), String> {
     Ok(())
 }
 
-/// 契约 schema 版本（内核据此判断格式是否兼容）。v3 按「谁写哪份」拆开：壳只交 catalog（镜像目录）
-/// / probe（探测规格）/ measurements（逐源实测），mode 与 manualOrigin 一类的**选择**字段搬到内核
+/// 契约 schema 版本（内核据此判断格式是否兼容）。按「谁写哪份」拆分：壳只交 catalog（镜像目录）
+/// / probe（探测规格）/ measurements（逐源实测），mode 与 manualOrigin 一类的**选择**字段在内核
 /// 自持的 registry-choice.json。内核照 probe 规格执行即可与壳得到同一答案。
 pub const CONTRACT_SCHEMA: u64 = 3;
 
-/// 契约文档本体（纯）。独立成函数是为了让单测钉得住形状：写盘那条路径要产品状态根，测不到。
+/// 契约文档本体（纯）：与写盘路径分开，便于独立校验形状。
 /// 不变量：键集合恰为 schema/writtenBy/writtenAt/catalog/probe/measurements —— 出现任何
 /// mode/manualOrigin/selected 一类的**选择**字段即为回归（那份所有权在内核）。
 fn contract_doc(m: &Mirrors) -> serde_json::Value {
@@ -292,8 +278,7 @@ fn contract_doc(m: &Mirrors) -> serde_json::Value {
 
 /// 导出镜像契约给内核（`<产品状态根>/supervisor/registry.json`）。
 /// 所有权在壳、方向单向（壳写内核读）：装壳那一刻机器上没有内核，壳必须先于内核跑完探测；
-/// 由 main.rs setup 在启动时无条件导出。契约里一个字的选择都不写，所以内核固定过哪个源
-/// 也不会让这份目录停止更新。
+/// 由 main.rs setup 在启动时无条件导出。契约里一个字的选择都不写，所以内核固定过哪个源也不会让这份目录停止更新。
 pub fn export_to_kernel(m: &Mirrors) -> Result<(), String> {
     if m.npm.is_empty() {
         return Ok(());
@@ -312,7 +297,7 @@ pub fn export_to_kernel(m: &Mirrors) -> Result<(), String> {
 /// 把一轮 npm 逐源探测落成契约证据、并重投契约。预热与面板手动重测两条路径共用此出口，
 /// 否则「用户在引导页点了重新测速」这条路径的结果只留在内存，内核仍按旧证据选源。
 /// 全部不可达时**清空**证据：留着旧结论会在其新鲜窗口内压住内核自测，网络恢复后面板仍显示
-/// 一批死源；而证据缺失时内核会自己测一轮，答案更新得更勤。目录照投，只是不附结论。
+/// 一批死源；而证据缺失时内核会自己测一轮。目录照投，只是不附结论。
 pub fn record_npm_measurements(probes: &[Probe]) {
     if probes.is_empty() {
         return;
@@ -435,7 +420,7 @@ pub fn probe_all(sources: &[String], path: &str) -> Vec<Probe> {
 
 // 形态尺：什么才算「一个镜像源」、什么才算「一个可下载的产物地址」。与内核
 // distribution/registry-ref.js 的 parseRegistryBase 逐条对齐；两仓语言不同、只能各有一份实现，
-// 所以答案由双侧同表 golden vectors 钉死（Rust 单测 + 内核 test/npm-resolution-test.js）。
+// 故判据以双侧同表 golden vectors 钉死。
 
 /// 归一：去首尾空白 + 剥尾斜杠（`https://host/` 与 `https://host` 是同一个源）。
 pub fn normalize_base(raw: &str) -> String {
@@ -518,8 +503,7 @@ pub fn asset_url(raw: &str) -> Result<String, String> {
 }
 
 // 镜像是壳全部网络动作的基础设施，不是「下载 Node 的辅助」：引导开始即后台预热（不阻塞任何步骤），
-// 结果任何时刻经 cached() 可读（无网络 I/O）并写透诊断串。旧引导只在缺 Node/版本过低才调 probeMirrorThen，
-// Node 达标的主力用户永远看不到镜像结果，现与「是否需要下载 Node」解耦。
+// 结果任何时刻经 cached() 可读（无网络 I/O）并写透诊断串，与「是否需要下载 Node」解耦。
 
 /// 预热结果缓存：`None` 表示尚未测速完成。
 static WARM: std::sync::OnceLock<Mutex<Option<ProbeSnapshot>>> = std::sync::OnceLock::new();
@@ -552,9 +536,8 @@ pub fn cached() -> Option<ProbeSnapshot> {
 static WARMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// 离开线程体（正常返回或 panic）就把 WARMING 落下。
-///
-/// 手写 `store(false)` 只覆盖不 panic 的路径：探测链上任一处 panic 都会让标记永久停在
-/// true，此后每次预热都被第一行的 swap 挡掉 —— 表现为 registry 那一格再也不更新，且无日志。
+/// 手写 `store(false)` 只覆盖不 panic 的路径：探测链上任一处 panic 都会让标记永久停在 true，
+/// 此后每次预热都被第一行的 swap 挡掉 —— 表现为 registry 那一格再也不更新，且无日志。
 struct WarmingGuard;
 impl Drop for WarmingGuard {
     fn drop(&mut self) {
@@ -644,8 +627,7 @@ mod tests {
             "jsdelivr 的 npm 路径要在（它对 .exe 会给 403，换下一个源是预期）: {:?}", all);
         assert!(all.contains(&"https://github.com/lobbowen/lob-ox/releases/download/shell-1.2.0/dsh-supervisor_1.2.0_x64-setup.exe".to_string()),
             "文件名带架构 → 同名 Release 资产要在（owner/repo = 合仓后的发布仓 lobbowen/lob-ox）: {:?}", all);
-        // 实测取不到安装包字节的源，一律不许回到表里（判据与理由见已归档的 SHELL-UPDATE-CHANNEL-VERIFICATION.md，
-        // 现存 C:\work\_md_backup）。
+        // 实测取不到安装包字节的源，一律不许回到表里。
         for banned in [
             "npmmirror", "jsdmirror", "fastly", "gcore", "testingcf",
             "tencent", "aliyun", "huaweicloud", "unpkg.net", "gh-proxy", "ghfast", "gitmirror",
@@ -707,9 +689,8 @@ mod tests {
         assert!(registry_base("http://192.168.1.10:4873").is_ok());
     }
 
-    /// 私网主机字面量表，与内核 `shared/ip.js::isPrivateHostLiteral` 及本文件形态尺同表
-    /// （内核 test/npm-resolution-test.js 的 C-m 是另一半）。两仓语言不同，判据只能各写一遍，
-    /// 所以整段边界由这张表钉：127/8 与 0/8 曾被两侧各判一半（壳认整段、内核只认 127.0.0.1）。
+    /// 私网主机字面量表，与内核 `shared/ip.js::isPrivateHostLiteral` 及本文件形态尺同表。
+    /// 两仓语言不同，判据只能各写一遍，故整段边界由这张表钉死。
     #[test]
     fn private_host_literal_golden_vectors() {
         let private: [&str; 16] = [

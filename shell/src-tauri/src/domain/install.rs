@@ -1,7 +1,5 @@
 //! 安装与下载进度的唯一语义层（事件形态见 ENV-TOOLCHAIN-INSTALL-STANDARD）。
 //! 本模块只承认两种进度：可测分母（下载字节比）与如实的阶段/心跳文字。无分母时 `progress` 发 `null`，不猜。
-//! 起因：`install_progress` 曾有两个发射点、`kind` 只枚举 node/npm 而内核与桌面壳用裸字符串过线，
-//! 「哪些东西可被安装」在 Rust 与前端各有一份账；且没有真进度源 —— 阶段分数按代码顺序编出来，与真实进度无关。
 
 use tauri::{Emitter, Manager};
 
@@ -107,9 +105,8 @@ pub(crate) fn push(app: &tauri::AppHandle, kind: InstallKind, status: String, pr
     );
 }
 
-/// 完成播报（按 kind 各一条）：`version` 就是**该 kind 自己的**版本。
-/// 旧实现发过一条 `kind=npm` 却带 node 版本 —— 同一句话有两个作者时就没人能对账。
-/// 未回读到版本号时发 `null`：事实层不写「未知」的文案变体，怎么念由 UI 唯一出口决定。
+/// 完成播报（按 kind 各一条）：`version` 就是**该 kind 自己的**版本；未回读到版本号时发 `null`
+/// （事实层不写「未知」的文案变体，怎么念由 UI 唯一出口决定）。
 pub(crate) fn done(app: &tauri::AppHandle, kind: InstallKind, version: serde_json::Value) {
     emit_json(app, "install_done", serde_json::json!({ "kind": kind.as_str(), "version": version }));
 }
@@ -128,8 +125,7 @@ pub(crate) fn npm_heartbeat(elapsed: std::time::Duration, lines: usize, last_lin
 
 /// 内核安装的开工行：把「在装什么、有几个源、上限多久」一次说清。耗时上界是已知的（单源
 /// `core::NPM_INSTALL_TIMEOUT` 与 `bridge::KERNEL_UPDATE_BUDGET_MS`），写进文案用户才能判断该继续等还是换源。
-/// 为什么数字从常量算而不是手写：预算的第二份文字账改一处就会出现「说的是 15 分钟、干的是 20 分钟」，
-///  而那正是这条文案要防的事。
+/// 数字一律从常量算：手写就会出现「说的是 15 分钟、干的是 20 分钟」。
 pub(crate) fn kernel_begin(app: &tauri::AppHandle, version: &str, origins: usize) {
     let per_source_min = crate::core::NPM_INSTALL_TIMEOUT.as_secs() / 60;
     let total_min = crate::bridge::KERNEL_UPDATE_BUDGET_MS / 60_000;
@@ -196,12 +192,11 @@ pub(crate) fn kernel_direct(app: &tauri::AppHandle, origin: &str, why: &str) {
 }
 
 /// 完整工具链安装管线（ENV-TOOLCHAIN-INSTALL-STANDARD）：node 与 npm 顺序执行，缺一不可。返回运行期契约本身
-/// （node 路径/版本 + npm 路径/参数/版本），外层每一条播报都从它取，「某个 kind 的版本」在管线里只存在一份事实。
-/// npm 补不上时必须 Err：只校验 node 版本会把「node 在、npm 缺」判成成功，前端随后拿不存在的 npm 去装内核必然失败；
-/// 失败经 `InstallFailure` 带上归属步骤，供 IPC 边界发 `install_error { kind, error }`。
+/// （node 路径/版本 + npm 路径/参数/版本），外层每一条播报都从它取。npm 补不上时必须 Err：只校验 node 版本
+/// 会把「node 在、npm 缺」判成成功，前端随后拿不存在的 npm 去装内核必然失败；失败经 `InstallFailure` 带上归属步骤。
 pub(crate) fn run_install(app: &tauri::AppHandle) -> Result<crate::runtime_contract::NodeRuntime, InstallFailure> {
     stage(app, InstallKind::Node, "获取官方最新 LTS 版本…");
-  // 1) 解析并安装/修复 node（latest_lts -> download_verified -> install 链路不变）。
+  // 解析并安装/修复 node（latest_lts -> download_verified -> install）。
     let choice = crate::node::latest_lts().map_err(InstallFailure::node)?;
     let version = choice.version.clone();
     let file = choice.file.clone();
@@ -222,13 +217,11 @@ pub(crate) fn run_install(app: &tauri::AppHandle) -> Result<crate::runtime_contr
     stage(app, InstallKind::Node, "SHA256 校验通过，准备安装…");
     let node_bin = crate::node::install(&local).map_err(InstallFailure::node)?;
   // 安装后作废探测缓存：否则可能仍返回安装前记录的旧 Node（版本不一致，永不收敛）；
-  //  校验/补 npm 的完整收尾在 node.rs（G3：main.rs 只做组装）。
-  //  失效必须覆盖**全部**环境维度（B5）：只清 node 会留下旧 npm/前缀结论。
+  // 校验/补 npm 的完整收尾在 node.rs。失效必须覆盖**全部**环境维度：只清 node 会留下旧 npm/前缀结论。
     super::probes::invalidate_all();
     stage(app, InstallKind::Npm, "正在校验 npm…");
   // 收尾返回**运行期契约**（node 与 npm 的路径/版本都出自一次真实探测）。
-  //  这里不再自行拼「npm 已就绪（…）」：完成播报的唯一出口是 install_done，
-  //  而该处曾把 Node 版本号当 npm 版本号念出去。
+  // 不在此自行拼完成文案：完成播报的唯一出口是 install_done。
     let rt = crate::node::finalize_install(&node_bin, &version, &local)
         .map_err(|(is_npm, e)| if is_npm { InstallFailure::npm(e) } else { InstallFailure::node(e) })?;
     Ok(rt)
@@ -248,8 +241,7 @@ mod tests {
         assert_eq!(download_line(InstallKind::Node, 20 * 1024 * 1024, Some(20 * 1024 * 1024)).1, Some(1.0));
     }
 
-  /// 无分母 = **不发比值**。旧实现用 0.0 兼作「没有分母」，于是进度条要么不画、
-  ///  要么在整段下载期间停在 0%（用户报的「看不到下载进度」之一就是它）。
+  /// 无分母 = **不发比值**（不得用 0.0 兼作「没有分母」，那会让进度条整段停在 0%）。
     #[test]
     fn download_line_without_content_length_has_no_ratio() {
         let (text, ratio) = download_line(InstallKind::Shell, 3 * 1024 * 1024, None);

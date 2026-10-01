@@ -67,11 +67,10 @@ export function RouterPage({ onRegisterActions }: { onRegisterActions?: (a: { on
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-5 py-3.5">
           <div className="flex items-center gap-2">
-            {/* conflict 分支移除：后端 routerStatus/router.status 从不产出 conflict，
-                原「端口被占」永不可达（死分支）。路由不可用由 running=false 呈现。 */}
+            {/* 路由不可用由 running=false 呈现（后端 routerStatus 从不产出 conflict） */}
             <ToneDot tone={r?.running ? "ok" : "off"} ping={Boolean(r?.running)} />
             <strong className="text-xl font-semibold tracking-[-0.01em] text-foreground">{r?.running ? "路由运行中" : "路由已停止"}</strong>
-            {/* 路由服务默认自动启动(用户定稿)——不额外外显「自动启动」标签 */}
+            {/* 路由服务默认自动启动；不额外外显「自动启动」标签 */}
           </div>
           <Button
             aria-label={r?.running ? "停止路由" : "启动路由"}
@@ -86,7 +85,7 @@ export function RouterPage({ onRegisterActions }: { onRegisterActions?: (a: { on
         </div>
         {/* 运行指标：四格分隔（每格带边框与独立底） */}
         <div className="grid grid-cols-1 divide-y divide-border/60 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x lg:divide-border/60">
-          {/* 后端降级响应（{running:false,error}）无 usage 字段：必须 usage?.，否则整页 TypeError（20复） */}
+          {/* 后端降级响应（{running:false,error}）无 usage 字段：必须 usage?.，否则整页 TypeError */}
           <div className="px-5 py-3.5"><Metric icon={<Activity className="size-4" />} label="总请求 / 失败" value={formatCount(r?.usage?.requests) + " / " + formatCount(r?.usage?.errors)} mono /></div>
           <div className="px-5 py-3.5"><Metric icon={<CheckCircle2 className="size-4" />} label="总 Tokens" value={formatCount(r?.usage?.totalTokens)} mono /></div>
           <div className="px-5 py-3.5"><Metric icon={<Terminal className="size-4" />} label="Prompt / Completion" value={formatCount(r?.usage?.promptTokens) + " / " + formatCount(r?.usage?.completionTokens)} mono /></div>
@@ -528,7 +527,7 @@ function AccountRow({ a, p, busy, onAction }: { a: ProviderAccount; p: RouterPro
   const stats = formatCount(a.requests || 0) + " 次 · " + formatCount(a.totalTokens || 0) + " tok";
   const [quotaOpen, setQuotaOpen] = useState(false);
   let actionBtn: React.ReactNode;
-  // 无 review 态写入方：账号入库即终态
+  // 账号入库即终态（无 review 态）
   if (limited && !isActive) {
     actionBtn = (
       <Button size="chip" variant="outline" className="w-[70px] gap-1 px-1.5" onClick={() => setQuotaOpen(true)} title={limitHint ?? "查看该账号限额情况"}>

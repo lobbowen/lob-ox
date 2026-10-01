@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// FRP 自愈回归（20复）：
-//   R1 配置生成必须含 loginFailExit = false（否则 frps 暂不可达 -> frpc 退出且不重试 -> 隧道永久失效）
-//   R2 frpc 非预期退出 -> 有界退避自动重拉（真实子进程 kill 验证）
-//   R3 主动 stop / 停用 / 无代理 -> 不重启
+// FRP 自愈回归：R1 配置生成必须含 loginFailExit = false（否则 frps 暂不可达 -> frpc 退出且不重试 ->
+//   隧道永久失效）· R2 frpc 非预期退出 -> 有界退避自动重拉（真实子进程 kill 验证）·
+//   R3 主动 stop / 停用 / 无代理 -> 不重启。
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -100,10 +99,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   }
 
   // -- R4：frpc 不可执行时必须优雅降级（不得抛出 / 不得崩溃进程）--
-  //   两条失败路径都要覆盖：
-  //     1) spawn 同步抛出（Windows 上拿非可执行格式当程序）
-  //     2) spawn 异步 emit 'error'（存在但不可执行：权限/架构/目标是目录）
-  //   2)若无监听器会成为未捕获异常 -> 整个守卫崩溃。
+  //   两条路径都要覆盖：spawn 同步抛出（Windows 上拿非可执行格式当程序）、异步 emit 'error'
+  //   （存在但不可执行：权限/架构/目标是目录）—— 后者若无监听器会成为未捕获异常 -> 守卫崩溃。
   console.log('== R4 frpc 不可执行时的降级 ==');
   {
     const D4 = fs.mkdtempSync(path.join(TMP, 'bad-'));
@@ -111,7 +108,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     fs.mkdirSync(m4.binPath, { recursive: true });   // binPath 变成**目录**：existsSync 通过但不可执行
     m4.saveSettings({ serverAddr: '127.0.0.1', serverPort: 7000, authToken: 'tok', user: 'dsh' });
     m4.syncFromInstances([{ id: 'inst-abc12345', remoteMode: 'wan', wanPort: 28070 }]);
-    // 原 R4-a（`check(…, true, 'ok')` 恒真断言）已删：「不同步抛」由本行覆盖——真抛则落 L131 .catch 非零退出。
     await sleep(500);
     check('R4-b 异步 spawn 失败已被处理（child 清空、进程未崩溃）', m4.child === null, 'child=' + (m4.child && m4.child.pid));
     m4.stop();

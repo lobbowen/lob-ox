@@ -36,8 +36,7 @@ class FrpManager {
     this._hardenPermissions();
   }
 
-  /** frpc.toml 含 auth.token 明文、frp.json 同含 token：新写入已用 0600，
-   *  但历史遗留文件可能是早期以默认 umask 写出的 0644/0664，故启动时补加固。 */
+  /** frpc.toml 含 auth.token 明文、frp.json 同含 token：新写入用 0600，启动时再补加固旧文件。 */
   _hardenPermissions() {
     try {
       const fp = platform.fileProtect;
@@ -72,9 +71,8 @@ class FrpManager {
       installed: fs.existsSync(this.binPath),
       running: !!(this.child && this.child.pid),
       pid: this.child ? this.child.pid : null,
-      // API 面绝不回显 authToken 明文，只报 authTokenSet（与 access.js「只报 configured」同规）。
-      // normalizeFrpSettings 是 patch 归并：字段缺省（undefined）= 保留现值，显式 '' = 清除；
-      // 故 UI 想保留现值必须省略字段而不是留空。
+      // API 面绝不回显 authToken 明文，只报 authTokenSet。normalizeFrpSettings 是 patch 归并：
+      // 字段缺省（undefined）= 保留现值，显式 '' = 清除，故 UI 想保留现值必须省略字段。
       settings: { serverAddr: s.serverAddr, serverPort: s.serverPort, user: s.user, authTokenSet: !!s.authToken },
       logTail: this.logTail.slice(-20),
     };
@@ -223,7 +221,7 @@ class FrpManager {
     return killed;
   }
 
-  /** HTTP(S) 下载（供 install 与测试桩覆盖）。 */
+  /** HTTP(S) 下载。 */
   _download(url, report) {
     return download(url, report);
   }

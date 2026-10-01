@@ -1,7 +1,6 @@
-//! 桌面壳环境观测报告（P7）的写入侧：壳写、内核读，落点 `<状态根>/supervisor/shell-report.json`；
+//! 桌面壳环境观测报告的写入侧：壳写、内核读，落点 `<状态根>/supervisor/shell-report.json`；
 //! 与 `runtime_contract.rs` 分权 —— 那一份是内核拿去 spawn 的**启动契约**，这一份只给人和判据读、永不参与 spawn。
-//! 为什么走文件而不是上报端点：壳与内核恒同机、本机实况的采集者就是写入者，而 HTTP 那条投递重试会把「没送达」
-//! 伪装成「已上报」。本文件只做投影与投放：一个探针都不新造，字段形态一律复用 `domain::probes` 的记录。
+//! 本文件只做投影与投放：一个探针都不新造，字段形态一律复用 `domain::probes` 的记录。
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -9,15 +8,15 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::domain::probes::{Probe, Record, Snapshot};
 use crate::nodeprobe::Outcome;
 
-/// 与内核 `src/platform/contract/shell-report.js` 的 `SUPPORTED_SCHEMA` 握手（门禁 G-14 钉住本值）：
+/// 与内核 `src/platform/contract/shell-report.js` 的 `SUPPORTED_SCHEMA` 握手：
 /// 不等即整份作废 —— 字段形状变了，内核不能靠猜。
 pub const SCHEMA: u32 = 1;
 
 /// 报告文件名。落点口径由写入侧给出，内核读取口拼同一个名字（与启动契约同目录）。
 pub const FILE_NAME: &str = "shell-report.json";
 
-/// 两次投放动作之间的下限。取值口径 = 依赖探测的 `DEPENDENT_TTL`（10 秒）：过了这个窗口，
-/// npm / prefix 才是**重新真实执行**得到的结论，此时刷新投放时刻才名副其实。
+/// 两次投放动作之间的下限。取值口径 = 依赖探测的 `DEPENDENT_TTL`（10 秒）：
+/// 过了这个窗口，npm / prefix 才是重新真实执行得到的结论。
 const MIN_WRITE_GAP: Duration = Duration::from_secs(10);
 
 /// 报告落点。
@@ -86,8 +85,7 @@ fn dep_record<'a>(deps: &'a Snapshot, probe: Probe) -> Option<&'a Record> {
     deps.records.iter().find(|r| r.probe == probe)
 }
 
-/// 逐条探测结论：node 的逐候选在前、依赖维度在后，形态一律出自 `Record::json`。
-/// 本模块不拼记录字段 —— 拼一份就是第二份契约（门禁 G-13）。
+/// 逐条探测结论：node 的逐候选在前、依赖维度在后，形态一律出自 `Record::json`（本模块不拼记录字段）。
 fn records(out: &Outcome, deps: &Snapshot) -> Vec<serde_json::Value> {
     let mut v: Vec<serde_json::Value> = out.records.iter().map(|r| r.json()).collect();
     v.extend(deps.records.iter().map(|r| r.json()));
@@ -108,7 +106,6 @@ pub fn payload(out: &Outcome, deps: &Snapshot) -> serde_json::Value {
 }
 
 /// 是否轮到投放（纯判据：`last` = 距上次投放动作的时长，`None` = 从没投过）。
-/// 抽成纯函数：这条判据只能靠真实时序验证的话，测试就是在猜等待时长。
 fn due(last: Option<Duration>, gap: Duration) -> bool {
     match last {
         Some(age) => age >= gap,

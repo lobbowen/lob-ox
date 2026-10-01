@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# glibc 基座门禁（跨平台审计 F1 的防线）：断言 Linux 产物不要求高于允许上限的 glibc 符号。
+# glibc 基座门禁：断言 Linux 产物不要求高于允许上限的 glibc 符号。
 # 用法: ci/check-glibc.sh <binary> [max=2.35]
-#   背景：glibc 前向兼容 —— 在新基座编译的二进制无法在旧发行版运行。
-#   实测教训：在 Ubuntu 24.04（glibc 2.39）构建 -> 产物只能装 Ubuntu 24.04+，
-#             把最主流的 Ubuntu 22.04 LTS(2.35) 与 Debian 12(2.36) 用户全部排除。
-#   本门禁在 CI 中对每个 Linux **ELF 产物**执行，超限即失败，防止该缺陷回归。
-#   调用点（单源）：release/scripts/ci-core.sh 的 [3.5/5] 步 —— 条件执行：当前 launcher 是
-#   纯 JS，dist/ 下没有 ELF 时该步如实报「无对象可检」，
-#   重新引入原生产物即自动执法。历史上被它拦下的真实对象是 Rust 壳产物（壳仓自理）。
+#   判据：glibc 前向兼容 —— 在新基座编译的 ELF 无法在旧发行版运行
+#   （Ubuntu 24.04 基座产出的 ELF 装不到 Ubuntu 22.04 LTS(2.35) / Debian 12(2.36)）。
+#   调用点（单源）：release/scripts/ci-core.sh 的 [3.5/5] 步，逐 Linux ELF 产物执行，超限即失败；
+#   dist/ 下无 ELF（纯 JS launcher）时该步报「无对象可检」，一旦出现原生二进制即自动执法。
 set -euo pipefail
 BIN="${1:?用法: check-glibc.sh <binary> [max]}"; MAX="${2:-2.35}"
 [ -f "$BIN" ] || { echo "错误：找不到 $BIN"; exit 2; }
@@ -20,7 +17,7 @@ vercmp() { [ "$1" = "$2" ] && { echo 0; return; }; printf "%s\n%s\n" "$1" "$2" |
 
 # 提取该二进制引用的所有 GLIBC_x.y 版本（取最高）。
 # 取不到符号有两种完全不同的含义：产物真是静态链接（可豁免），或工具缺席/读不动（只是看不见）。
-# 旧实现把两者合并成 exit 0 —— 缺 objdump/readelf 或对不上格式的产物上，本门禁从未真正判过。
+# 两者必须分开处置，不得合并成 exit 0。
 TOOL=''
 command -v objdump >/dev/null 2>&1 && TOOL=objdump
 [ -n "$TOOL" ] || { command -v readelf >/dev/null 2>&1 && TOOL=readelf; }

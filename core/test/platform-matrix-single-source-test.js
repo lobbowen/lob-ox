@@ -1,17 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 平台矩阵「单一事实源」门禁 —— 全仓**唯一**的平台事实校验点
-//
-// 修复的缺陷（失效模式 b：同一事实多处实现且已分叉）：`os/arch -> 标签` 曾散落 **5 处**
-//   （platform/os、domains/relay/frpmgr.js、platform/distribution、guard/settings-view.js、
-//   domains/plugin/ops.js）—— 5 份副本必然漂移，且业务域持有的平台知识在非本平台上不会被校验，
-//   这正是「内部业务开发悄悄破坏跨平台构建」的机制。现全部收口到 platform/contract/matrix.js。
-// 承接：four-platform-behavior-matrix-test 的 P-1/P-2/P-3（四组合穷举整组移到这里，同一张表只留一处）；
-//   该文件 P-5 的 supportsProcessGroup 同名站已回并 four-platform P-5（避免同一事实两处采样）。
-// 锁定不变量 M-b：npmTag / osTag / frpTag 四组合取值 + 不支持组合边界（后者必须显式失败，不静默回落）。
-// ---------------------------------------------------------------------------
+// 平台矩阵「单一事实源」：全仓**唯一**的平台事实校验点 —— `os/arch -> 标签` 曾散落 5 处（platform/os、
+//   domains/relay/frpmgr.js、platform/distribution、guard/settings-view.js、domains/plugin/ops.js），
+//   副本必然漂移且非本平台不被校验。M-b：npmTag / osTag / frpTag 四组合取值 + 不支持组合必须显式失败，不静默回落。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -25,7 +17,7 @@ const check = (n, c, x) => {
 
 // -- M-b：行为正确（关键取值，跨平台语义）--
 {
-  // npm 命名（win-x64）与 frp 第三方命名（windows_amd64）**必须区分** —— 曾因分叉导致下载 404。
+  // npm 命名（win-x64）与 frp 第三方命名（windows_amd64）**必须区分**（分叉会导致下载 404）。
   const expect = [
     { p: 'linux', a: 'x64', os: 'linux', npm: 'linux-x64', frp: 'linux_amd64', exe: false },
     { p: 'darwin', a: 'arm64', os: 'darwin', npm: 'darwin-arm64', frp: 'darwin_arm64', exe: false },

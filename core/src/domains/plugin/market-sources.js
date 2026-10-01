@@ -1,11 +1,10 @@
 'use strict';
 
 // 插件市场源抓取叶子原语（无预算状态）：rawGet / fetchLatest / repoPkg + RAW_MIRRORS。
-// 批次循环必须留在 market.js（test/market-budget-test.js M-d 以源码正则锁定预算检查在 slice 之前）。
 
 const { getJson, getText } = require('./market-net');
 // 镜像基址的形态与传输走 platform/distribution/registry-ref 单口：市场查询与内核取包元数据
-// 必须对同一个源得到同一个答案（第二套 HTTP 就会长出第二套「可达」判据）。
+// 必须对同一个源得到同一个答案。
 const ref = require('../../platform/distribution/registry-ref');
 
 /** raw.githubusercontent.com 镜像回退：该域名在部分网络不可达会导致 github/community

@@ -1,21 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// ---------------------------------------------------------------------------
-// 壳看护：**陈旧 phase 的时效上限**
-//
-// 缺陷：`expectedAbsence()` 只要 identity.phase 是 restarting/shell-update-* 就恒真，宽限期永远走
-// updateGraceMs（5min）而非 graceMs（90s）；而 phase 只由壳写入、唯一复位点是壳成功启动时的
-// init_identity —— 壳更新中途崩溃且再也起不来时 phase 永久停在 shell-update-*，自愈被拖慢 3 倍
-// 以上且无任何陈旧信号。
-// 修法：看护自己计时——tick() 每拍 updatePhaseTracking，进入「更新中」相位开始计时，超过
-// phaseMaxAgeMs（默认 10 分钟）仍在该相位即判陈旧，不再延长宽限；离开该相位即复位。
-//   （不用 identity 文件 mtime/lastSeenAt：本模块是依赖注入+纯决策，identity() 在测试里是桩；
-//     且壳的 set_phase() 只写 phase、不写 lastSeenAt，依赖该字段等于不生效。）
-//
-// 锁定不变量：N-a 新鲜「更新中」相位不抢跑；N-b 同相位超窗判陈旧、按正常宽限介入；
-//   N-c phase=ready → 不视为预期缺席；N-d 有未确认账本 → 仍不抢跑；N-e 离开相位后计时复位。
-// ---------------------------------------------------------------------------
+// 壳看护：**陈旧 phase 的时效上限**。expectedAbsence() 只要 identity.phase 是 restarting/shell-update-*
+//   就恒真，宽限期永远走 updateGraceMs（5min）而非 graceMs（90s），而 phase 只由壳写入、唯一复位点是
+//   壳成功启动时的 init_identity ⇒ 壳更新中途崩溃后自愈被拖慢数倍。修法：看护自己计时（超过 phaseMaxAgeMs 默认 10 分钟仍在该相位即判陈旧，离开即复位）。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -110,10 +98,8 @@ const GUI = '/usr/bin/dsh-supervisor-gui';
     check('N-e 离开相位后计时复位（重新进入重新计时）', expected === true, String(expected));
   }
 
-  //  窗口可配置由 N-b 本身证明（它注入 shellWatchdogPhaseMaxAgeMs: 2000 并观察到 3s 后陈旧），
-  //  故不再重放「大窗口/小窗口」两条 —— 那是 N-a/N-b 的同义重复；
-  //  `DEFAULTS.phaseMaxAgeMs === 600000` 是**默认值策略锁定**（有人有理由调到 15 分钟时无故障却判红），
-  //  一并删除。
+  //  窗口可配置由 N-b 本身证明（它注入 shellWatchdogPhaseMaxAgeMs: 2000 并观察到 3s 后陈旧）；
+  //  `DEFAULTS.phaseMaxAgeMs === 600000` 是**默认值策略锁定**（有人有理由调到 15 分钟时无故障却判红），一并删除。
   const failed = results.filter((r) => !r);
   console.log(String.fromCharCode(10) + '结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');
   process.exit(failed.length ? 1 : 0);

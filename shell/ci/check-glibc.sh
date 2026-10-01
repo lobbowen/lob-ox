@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# glibc 基座门禁（跨平台审计 F1 的防线）：断言 Linux 产物不要求高于允许上限的 glibc 符号。
+# glibc 基座门禁：断言 Linux 产物不要求高于允许上限的 glibc 符号。
 # 用法: ci/check-glibc.sh <binary> [max=2.35]
 # 不变量：产物引用的最高 GLIBC 符号不得超过 max（glibc 前向兼容；超限则旧发行版无法运行）。
 set -euo pipefail
@@ -13,8 +13,8 @@ vercmp() { [ "$1" = "$2" ] && { echo 0; return; }; printf "%s\n%s\n" "$1" "$2" |
   || { echo "  ❌ 自校失败：版本比较器不能分辨 2.31/2.35/2.40，本门禁无裁决能力"; exit 2; }
 
 # 提取该二进制引用的所有 GLIBC_x.y 版本（取最高）。
-# 取不到符号有两种完全不同的含义：产物真是静态链接（豁免），或工具缺席/读不动（看不见）。
-# 旧实现把两者合并成 `exit 0` —— 缺 objdump/readelf 的 runner 上，本门禁从未真正判过。
+# 取不到符号有两种完全不同的含义：产物真是静态链接（豁免），或工具缺席/读不动（看不见）——
+# 两者必须分开判，缺工具不等于合规。
 TOOL=''
 command -v objdump >/dev/null 2>&1 && TOOL=objdump
 [ -n "$TOOL" ] || { command -v readelf >/dev/null 2>&1 && TOOL=readelf; }

@@ -45,8 +45,8 @@ class Rotator {
       console.error('[logger] rotate failed:', e.message);
     }
     try {
-      // mode 仅作用于文件首次创建：日志含 dsh 输出的启动令牌 URL，故权限收紧为 0600，
-      // 与 state.json 一致；默认 0644 时同机其他用户可读会话令牌。
+      // mode 仅作用于文件首次创建：日志含 dsh 输出的启动令牌 URL，故权限收紧为 0600（与 state.json 一致）；
+      // 默认 0644 时同机其他用户可读会话令牌。
       fs.appendFileSync(this.file, line + '\n', { mode: 0o600 });
       if (this._size !== null) this._size += Buffer.byteLength(line) + 1;
       this._writes += 1;

@@ -1,11 +1,9 @@
 'use strict';
 
 // 统一生命周期抽象（ManagedLifecycle）：启停只走统一入口（start/stop/restart），守卫经 LifecycleManager 观测/按策略拉起。
-// 写权分工与违规基线见契约 GUARD-DOMAIN-MODEL（ML-2 ratchet 机器执法）。
 // 进程独立性：本对象是「管理视图」，模块进程可独立于守卫存在——守卫重启只重置观测，不停/杀模块；周期拉起在守卫侧，本对象不内置探活。
 
-// phase 词表唯一源在 registry.js，必须直接引用：_setPhase 对表外的值静默丢弃，
-// 手写副本会随 canonical 漂移并把合法值无声拒绝，形成第二个状态源。
+// phase 词表唯一源在 registry.js，必须直接引用：_setPhase 对表外的值静默丢弃，手写副本会漂移并把合法值无声拒绝。
 const { PHASES } = require('./registry');
 
 /** 统一生命周期状态对象（每个模块实例一个，注册到 LifecycleManager）。
@@ -15,9 +13,8 @@ class ManagedLifecycle {
     this.id = opts.id || ('lc-' + Math.random().toString(36).slice(2, 8));
     this.kind = opts.kind || 'module';
     this.name = opts.name || this.id;
-    // 能力声明（MANAGED_KINDS.startable/guardable 的消费点）：
-    //   startable=false：LifecycleManager.start/stop/restart 显式拒绝，不「返回 ok 但什么都不做」；
-    //   guardable=false：构造期锁定 guardian=false，防被误开为守护。
+        // 能力声明（MANAGED_KINDS.startable/guardable 的消费点）：startable=false 时 LifecycleManager.start/stop/restart
+        //   显式拒绝，不「返回 ok 但什么都不做」；guardable=false 时构造期锁定 guardian=false，防被误开为守护。
     this.startable = opts.startable !== false;
     this.guardable = opts.guardable !== false;
     this.logger = opts.logger || null;
@@ -33,10 +30,9 @@ class ManagedLifecycle {
     this.lastTransitionAt = null;
     this.error = null;            // 最近一次错误
     this.startedAt = null;
-    // 不设模块级重启计数字段：真正的计数在域 A 侧——dsh 走 app/main/process.js 的
-    // restartCount（supervisor._mSetRestartCount），沙箱走实例自身 state.restartCount。
-    // 守护开关（域 A 专有，契约 GUARD-DOMAIN-MODEL G-1）：true=崩溃时按用户意图自愈；
-    // 域 B 基础设施由保活路径无条件拉起，adapters 不为其置 guardian；guardable=false 恒为 false。
+                // 不设模块级重启计数字段：真正的计数在域 A 侧 —— dsh 走 app/main/process.js 的 restartCount
+        //   （supervisor._mSetRestartCount），沙箱走实例自身 state.restartCount。守护开关（域 A 专有）：true=崩溃时按用户
+        //   意图自愈；域 B 基础设施由保活路径无条件拉起，adapters 不为其置 guardian，guardable=false 恒为 false。
     this.guardian = this.guardable && opts.guardian === true;
     this._monitoring = false;     // 是否纳入统一启停管理
   }
@@ -62,8 +58,9 @@ class ManagedLifecycle {
     };
   }
 
-  /** 状态迁移。非白名单值静默丢弃是执法不是 bug：phase 只取 canonical 词表，
-   *  防止手写字符串造成分叉；代价是写错不报错，故词表必须引用唯一源。 */
+    /**
+   * 状态迁移。非白名单值静默丢弃是执法：phase 只取 canonical 词表，故词表必须引用唯一源。
+   */
   _setPhase(p) {
     if (!PHASES.includes(p)) return;
     if (this.phase !== p) {
@@ -83,9 +80,10 @@ class ManagedLifecycle {
     this.desired = 'stopped';
   }
 
-  /** 启动（幂等：已在运行则 no-op）。必须尊重回调的显式失败：适配器 start 可能返回
-   *  {ok:false}（如 daemon 拉不起来），不看 r.ok 就置 running/healthy 会让
-   *  /lifecycle/status 谎报成功。r.ok !== false 视为成功（允许回调返回 undefined）。 */
+    /**
+   * 启动（幂等：已在运行则 no-op）。必须尊重回调的显式失败：适配器 start 可能返回 {ok:false}，不看 r.ok 就置
+   * running/healthy 会让 /lifecycle/status 谎报成功。r.ok !== false 视为成功（允许回调返回 undefined）。
+   */
   async start() {
     if (this.phase === 'running' || this.phase === 'starting') return { ok: true, already: true };
     this.error = null;
@@ -109,26 +107,26 @@ class ManagedLifecycle {
     } catch (e) {
       this.error = (e && e.message) || String(e);
       this._setPhase('stopped');
-      // 抛异常与显式失败同语义（K4-e），desired 也必须一并复位：留着 running 就是把
-      //   「回调没跑完、意图根本没落库」的半程状态当成用户意图，会被面板与收敛回路当真。
+            // 抛异常与显式失败同语义，desired 也必须一并复位：留着 running 就是把「回调没跑完、意图根本没落库」的
+            //   半程状态当成用户意图，会被面板与收敛回路当真。
       this.desired = 'stopped';
       if (this.logger && this.logger.warn) this.logger.warn('[lifecycle] ' + this.id + ' start 失败: ' + this.error);
       return { ok: false, error: this.error };
     }
   }
 
-  /** 停止（守卫 shutdown 或用户显式停）。同样必须尊重回调显式失败：ok:false 时
-   *  不得置 stopped，否则面板显示「已停止」而进程可能还在跑。 */
+    /**
+   * 停止（守卫 shutdown 或用户显式停）。必须尊重回调显式失败：ok:false 时不得置 stopped，
+   * 否则面板显示「已停止」而进程可能还在跑。
+   */
   async stop(reason) {
     if (this.phase === 'stopped') {
-      // 早退也要落 desired：否则 desired=running / phase=stopped 的模块被点停止后
-      // desired 仍为 running，收敛回路会把它重新拉起，stop 不生效。
-      // 只改这条早退路径；显式失败路径（下方 prevPhase 恢复）必须保持 desired 不变。
+            // 早退也要落 desired：否则 desired=running / phase=stopped 的模块被点停止后 desired 仍为 running，收敛回路
+            //   会把它重新拉起，stop 不生效。只改这条早退路径；显式失败路径必须保持 desired 不变。
       this.desired = 'stopped';
       return { ok: true, already: true };
     }
-    // 失败时恢复进入前的 phase 而非硬编码 'running'：若之前是 failed/backoff 等
-    // 已知失败态，硬编码会把模块谎报成运行中，与观测相反。
+        // 失败时恢复进入前的 phase 而非硬编码 'running'：若之前是 failed/backoff 等已知失败态，硬编码会与观测相反。
     const prevPhase = this.phase;
     this._setPhase('draining');
     try {
@@ -151,8 +149,10 @@ class ManagedLifecycle {
     }
   }
 
-  /** 重启（无 _restart 回调时退化为 stop -> start）。两步返回值都不得丢弃显式失败：
-   *  stop 失败=模块仍在跑、重启未发生；start 失败=已停但未起。 */
+    /**
+   * 重启（无 _restart 回调时退化为 stop -> start）。两步返回值都不得丢弃显式失败：
+   * stop 失败=模块仍在跑、重启未发生；start 失败=已停但未起。
+   */
   async restart() {
     if (this._restart) {
       const r = await this._restart();

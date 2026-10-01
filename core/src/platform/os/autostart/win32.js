@@ -2,7 +2,8 @@
 
 // Windows 自启策略（schtasks DSH-Supervisor-GUI）。schtasks ONLOGON 只在登录时启动一次、崩溃不重启，
 // 保活由每 5 分钟检查的 watchdog 任务负责；守卫任务与 watchdog 的所有者都是桌面壳。
-// 本模块只管「GUI 壳开机自启」这一个语义：不创建 watchdog、不 enable/disable 守卫任务，否则与壳争定义、形成第二个启动器。
+// 本模块只管「GUI 壳开机自启」这一个语义：不创建 watchdog、不 enable/disable 守卫任务，
+// 否则与壳争定义、形成第二个启动器。
 
 const ex = require('../../util/exec');
 

@@ -18,8 +18,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function applyPluginChange(ctx, target, kind, onLog) {
   const log = (m) => { try { if (typeof onLog === 'function') onLog(m); } catch {} };
   if (!target) return false;
-  // 本域注入的是裸 InstanceManager，INV-S1 退出门只在外层适配器（control/instance-adapter.js），
-  //   故退出中 in-flight 的卸载/更新作业仍可直接停起实例。这里自查注入谓词（E-3 单源）：
+  // 本域注入的是裸 InstanceManager，退出门只在外层适配器（control/instance-adapter.js），
+  //   故退出中 in-flight 的卸载/更新作业仍可直接停起实例。这里自查注入谓词：
   //   退出中即跳过重启并视为未生效（下次启动自然生效）。
   try {
     if (typeof ctx.exitIntended === 'function' && ctx.exitIntended()) {

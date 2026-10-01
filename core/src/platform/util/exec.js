@@ -1,8 +1,9 @@
 'use strict';
 
 // 统一子进程执行器：src 内 execFile / execFileSync 的唯一合法调用点（spawn.js 豁免 spawn）。
-// 选项固定：timeout、killSignal=SIGKILL（SIGTERM 对挂起进程可能无效）、windowsHide（不弹黑框）、显式 maxBuffer（Node 默认 1MB 会误判冗长输出）；
-//   run()/runOut() 失败或超时返回 null。同步版仅限守卫启动早期与 CLI 一次性命令，事件循环敏感路径必须 runOutAsync/runAsync（同步会冻结整个 tick）。
+// 选项固定：timeout、killSignal=SIGKILL（SIGTERM 对挂起进程可能无效）、windowsHide（不弹黑框）、
+//   显式 maxBuffer（Node 默认 1MB 会误判冗长输出）；run()/runOut() 失败或超时返回 null。
+//   同步版仅限守卫启动早期与 CLI 一次性命令；事件循环敏感路径必须 runOutAsync/runAsync。
 
 const { execFileSync, execFile } = require('node:child_process');
 

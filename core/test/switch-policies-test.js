@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// router 纯策略单测（DF-6）：只 require policies/switch 与 policies/failure，给假 state/ctx，
-// 零 IO。覆盖选号序列（selected/sticky/rotate/clearSelected/excludeKeys/反代就绪优先）
-// 与失败动作映射（credits/window/banned/transient/none + retryMs 阈值）。策略分支一条不删。
+// router 纯策略单测（DF-6）：只 require policies/switch 与 policies/failure，给假 state/ctx，零 IO。
+//   覆盖选号序列（selected/sticky/rotate/clearSelected/excludeKeys/反代就绪优先）
+//   与失败动作映射（credits/window/banned/transient/none + retryMs 阈值）。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -21,7 +21,7 @@ const { decideFailure, headerRetryMs, bodyResetMs } = require(path.join(ROOT, 's
 {
   const state = { accounts: [{ keyId: 'k1', usable: true }, { keyId: 'k2', usable: false }], kind: 'direct', cursor: 0 };
   const d = pickAccount(state, {});
-  // 同一次 pickAccount 的两个侧面（选谁 + 游标走没走）合成一条，不减少判据。
+  // 同一次 pickAccount 的两个侧面：选谁 + 游标走没走。
   check('S1 轮换选中首个可用账号且 nextCursor 递增',
     d.keyId === 'k1' && d.reason === 'rotate' && d.nextCursor === 1, JSON.stringify(d));
   // 两个「选不出」的输入（无可用账号 / excludeKeys 强制排除）同一判据（keyId=null）。
@@ -38,7 +38,7 @@ const { decideFailure, headerRetryMs, bodyResetMs } = require(path.join(ROOT, 's
 
   const dead = pickAccount({ accounts: [{ keyId: 'k1', status: 'banned', usable: false }, { keyId: 'k2', usable: true }], selectedAccountKeyId: 'k1', cursor: 0 }, {});
   const frozen = pickAccount({ accounts: [{ keyId: 'k1', status: 'frozen', usable: false }, { keyId: 'k2', usable: true }], selectedAccountKeyId: 'k1', cursor: 0 }, {});
-  // 正反对照必须成对出现：banned 才清锁、frozen（临时冻结）不清锁 —— 同一规则的两个输入合成一条。
+  // 正反对照成对出现：banned 才清锁、frozen（临时冻结）不清锁。
   check('S1 锁定账号 banned 才清锁换号；frozen 临时冻结不清锁但同样落到可用号',
     dead.clearSelected === true && dead.keyId === 'k2' && frozen.clearSelected === false && frozen.keyId === 'k2',
     JSON.stringify([dead, frozen]));
@@ -79,7 +79,7 @@ const { decideFailure, headerRetryMs, bodyResetMs } = require(path.join(ROOT, 's
 // -- retry 时长解析与 providers/base 逐字对齐（防两处漂移）--
 {
   const base = require(path.join(ROOT, 'src', 'domains', 'router', 'providers', 'base'));
-  // 绝对时刻样本两侧各自调用 Date.now()，毫秒差会偶发假红（Windows CI 实测 1ms）；
+  // 绝对时刻样本两侧各自调用 Date.now()，毫秒级抖动会偶发假红；
   // 容差 50ms 远小于任何语义差异（样本间隔为秒/小时级），不掩盖真实漂移。
   const sameMs = (x, y) => (x === y) ||
     (typeof x === 'number' && typeof y === 'number' && Math.abs(x - y) <= 50);

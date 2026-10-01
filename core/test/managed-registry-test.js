@@ -12,9 +12,6 @@ const TMP = fs2.mkdtempSync(path.join(os.tmpdir(), 'mreg-'));
 const { ManagedRegistry, PHASES, MANAGED_KINDS } = require(path.join(ROOT, 'src', 'app', 'control', 'registry'));
 
 let failures = 0;
-//  （P3 测试基建缺陷，已修）：本文件原以硬编码常量报总数（passCount = 26，实际 40 个 check）——
-//   汇总与真实执行数脱钩，且删掉 14 个 check 后仍打印「26 passed」，是历史审计记录的「假门禁」形状。
-//   现由 check() 自己累加，汇总恒等于实执行数。
 let checks = 0;
 const check = (name, cond, extra) => { checks++; if (!cond) failures++; console.log((cond ? 'PASS' : 'FAIL') + ' ' + name + (extra !== undefined ? '  ← ' + JSON.stringify(extra) : '')); };
 
@@ -37,7 +34,7 @@ const fakePorts = {
   check('注册 dsh 返回目录项', !!dsh && dsh.id === 'main' && dsh.phase === 'stopped');
   // 沙箱实例注册（「注册成功」由下方查询契约 byKind('sandbox-instance') 断言，不另打恒真采样）
   reg.register({ kind: 'sandbox-instance', id: 'inst-1', name: '沙箱1', desired: 'running', guardian: false, ownership: { ports: [{ role: 'inst', port: 3200 }], rootPath: '/data/instances/inst-1', unit: 'dsh-web@inst-1' } });
-  // 查询面合成一条：list 顺序 / byKind / get 都是「目录项能按 id、kind、插入序取到」这一个契约。
+  // 查询面：list 顺序 / byKind / get 都属「目录项能按 id、kind、插入序取到」这一个契约。
   check('查询契约：list 顺序 + byKind + get',
     reg.list().map(o => o.id).join(',') === 'main,inst-1' && reg.byKind('sandbox-instance').length === 1 && reg.get('main').kind === 'dsh');
   check('kind 能力', MANAGED_KINDS.dsh.guardable === true && MANAGED_KINDS.plugin.startable === false);
@@ -67,9 +64,8 @@ const fakePorts = {
   reg.setPhase('main', 'huh');
   check('非法 phase 忽略', reg.get('main').phase === 'running');
 
-  // 5. 持久化恢复（文件只含应然+所有权+受管 phase，不含观测）
-  //    恢复字段面合成一条；「观测不落盘」以**重载后 lastObserved === null** 为判据
-  //    （不再对文件字节做 indexOf('lastObserved') —— 字节扫描是同一风险的重复采样）。
+  // 5. 持久化恢复（文件只含应然+所有权+受管 phase，不含观测）；
+  //    「观测不落盘」以**重载后 lastObserved === null** 为判据（不对文件字节做 indexOf 扫描）。
   const reg2 = new ManagedRegistry({ file, logger: null, events: null, ports: fakePorts });
   check('恢复 2 对象，且应然/phase/所有权字段面齐全、观测不落盘',
     reg2.count() === 2 && reg2.get('main').desired === 'stopped' && reg2.get('main').phase === 'running'
@@ -111,11 +107,11 @@ const fakePorts = {
   check('heartbeat 观测到 ok 对象并写入实然',
     r1.observed.indexOf('s1') >= 0 && !!hb.get('s1').lastObserved && hb.get('s1').lastObserved.ok === true);
   check('heartbeat 跳过无 adapter 对象', r1.observed.indexOf('m') < 0);
-  // 异常隔离：抛错对象既不进 observed，又必须在 errors 里可观测（原先拆两条打同一点）。
+  // 异常隔离：抛错对象既不进 observed，又必须在 errors 里可观测。
   check('heartbeat 异常隔离并上报(s2)',
     r1.observed.indexOf('s2') < 0 && r1.errors.length === 1 && r1.errors[0].indexOf('s2') >= 0);
   const r2 = await hb.heartbeat(1000);
-  // 节流（tickEvery=6 的 s2 跳过）与「每拍对象继续观测（s1）」是同一拍的两面，合成一条。
+  // 节流（tickEvery=6 的 s2 跳过）与「每拍对象继续观测（s1）」是同一拍的两面。
   check('heartbeat 节流生效(s2 跳过)且每拍对象继续观测(s1)',
     r2.observed.indexOf('s2') < 0 && r2.observed.indexOf('s1') >= 0);
 
@@ -132,7 +128,7 @@ const fakePorts = {
     const r3 = await hk.heartbeat(1000);
     check('onBeatDone 每拍恰一次（3 条目不放大）、且收到与返回同源的拍汇总',
       seen.length === 1 && !!seen[0] && seen[0].observed === r3.observed && seen[0].errors === r3.errors, 'n=' + seen.length);
-    await hk.heartbeat(1000); // 第二拍：上面那条已覆盖「逐拍触发」，不再单独打点
+    await hk.heartbeat(1000); // 第二拍
     hk.onBeatDone = () => { throw new Error('hook boom'); };
     const r4 = await hk.heartbeat(1000);
     check('onBeatDone 异常隔离（心跳仍返回全量 observed）',
@@ -149,10 +145,8 @@ const fakePorts = {
   dp.registerAdapter('router-daemon', { supervise: () => ({ ok: false }), derivePhase: true });
   await dp.heartbeat(1000);
   check('derivePhase: 失联 → phase stopped', dp.get('rd').phase === 'stopped');
-  // 10. heartbeat 逐对象超时：单个 adapter 卡死不得停摆整条心跳
-  //   缺陷：`await fn(e)` 无超时 -> 任一 adapter 的 promise 永不 settle 即让心跳永停，
-  //     而心跳是 main 收敛/沙箱监督/daemon 监督的**唯一周期驱动**（managedObjects 存在时
-  //     不创建 tick 定时器）->「面板开着、服务全死、无任何事件」。
+  // 10. heartbeat 逐对象超时：单个 adapter 卡死不得停摆整条心跳 —— `await fn(e)` 无超时即让心跳永停，
+  //   而心跳是 main 收敛/沙箱监督/daemon 监督的**唯一周期驱动**。
   {
     const toFile = path.join(TMP, 'hb-timeout.json');
     const to = new ManagedRegistry({ file: toFile, logger: null });
@@ -204,10 +198,8 @@ const fakePorts = {
       regP.count() === 1 && !!regP.get('ok-1'), String(regP.count()));
   }
 
-  // 12. 生命周期镜像并入（原 test/lifecycle-mirror-test.js 的 M0/M5/M7）——
-  //     M1–M4/M6 已删（与 §9 derivePhase「观测 ok → running / 失联 → stopped」同判据，同一风险不留第二份）；
-  //     M8（重启计数链路）落在 daemon-lifecycle-test.js；原 §12「老目录含历史 guardian 键」属 guardian
-  //     键族 schema 锁，已删（加载健壮性由 §11 A1c 承担）。
+  // 12. 生命周期镜像：与 derivePhase（观测 ok → running / 失联 → stopped）同判据；
+  //   重启计数链路落在 daemon-lifecycle-test.js。
   {
     const { Supervisor } = require(path.join(ROOT, 'src', 'supervisor'));
     const { registerAll } = require(path.join(ROOT, 'src', 'app', 'control', 'adapters'));
@@ -235,7 +227,7 @@ const fakePorts = {
     check('M0 lifecycle 模块注册齐（dsh/instances/lan/router 等）',
       /router/.test(ids) && /dsh/.test(ids) && /instances/.test(ids), ids);
     const lc = sup.lifecycleManager.get('router');
-    // 前置：router 未注册时下面 M5/M7 全部无意义 —— 直接抛错定位（原为恒真占位）。
+    // 前置：router 未注册时下面 M5/M7 全部无意义 —— 直接抛错定位。
     if (!lc) throw new Error('M5/M7 前置失败：router 生命周期未注册（M0 已判过注册齐）');
 
     // M5 视图同步不污染 router 业务状态（只写统一状态机）：router 自述状态逐字节未被改写。

@@ -1,12 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 令牌边界回归：
-//  - supervisor.listLan() 输出剔除 token/dshToken（/lan-access 允许 LAN 访问，防会话令牌泄漏）
-//  - InstanceManager.load 剔除历史遗留 dshToken 列（会话令牌不落盘）
-//  - /status 仅暴露 dshTokenCaptured 布尔
-// 自包含：构造测试 Supervisor（tmp 状态）+ 覆写 lan 存根，不触碰真实 daemon/账号。
-// 2026-10-01 瘦身：删「listLan 键集全等」形态锁与 attach 前置断言；合同状态/同日志两表述各合 1；journal 档「同步返回」改按语义判（详见 _understanding/THIN-26-38.md）。
+// 令牌边界回归：supervisor.listLan() 输出剔除 token/dshToken（/lan-access 允许 LAN 访问，防会话令牌泄漏）·
+//   InstanceManager.load 剔除历史遗留 dshToken 列（会话令牌不落盘）· /status 仅暴露 dshTokenCaptured 布尔。
+//   自包含：构造测试 Supervisor（tmp 状态）+ 覆写 lan 存根，不触碰真实 daemon/账号。
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -52,10 +49,8 @@ async function main() {
     const it = r.items && r.items[0];
     check('listLan 保留结构字段且剔除 remoteToken/dshToken 两个机密字段', !!it && it.id === 'inst-x' && it.wanPort === 28213
       && !Object.prototype.hasOwnProperty.call(it, 'token') && !Object.prototype.hasOwnProperty.call(it, 'dshToken'));
-    // 白名单（三态化收口后）：tokenSet 与 remote 视图均为**非机密**
-    //   （tokenSet 只表明「令牌已设」；remote = projectRemoteView 产物 {mode,ready,accessUrl,reasons}，
-    //   accessUrl 是给用户访问的地址而非凭据）。旧并行开关字段 enabled/frpEnabled/frpRemotePort/localPort
-    //   已从数据模型删除，出现即为残留回流。机密字段（token/dshToken/remoteToken）仍被剔除。
+    // 白名单（三态化收口后）：tokenSet 与 remote 视图均为**非机密**（tokenSet 只表明「令牌已设」；
+    //   remote = projectRemoteView 产物 {mode,ready,accessUrl,reasons}，accessUrl 是给用户访问的地址）。机密字段仍被剔除。
     check('listLan 输出 remote 视图（tokenSet 已设 → ready 判定归后端）',
       !!it.remote === false || (typeof it.remote.ready === 'boolean' && Array.isArray(it.remote.reasons)),
       JSON.stringify(it.remote));
@@ -87,8 +82,6 @@ async function main() {
     let pushed = null;
     const unsub = sup.tokenService.onChange((id, tok) => { pushed = { id, tok }; });
     // attach 必须给可登记的分类（显式 kind；unit 留空以隔离 journal 档，本用例只测 stdout 链路）。
-    // 分类不可登记时 attach 静默失败、捕获只能靠 feedLine 隐式源旁路（正是 TK-3 要封的洞）——
-    // 该前提被下面“捕获成功/广播”两条蕴含，原前置断言已删。
     sup.tokenService.attach('inst-z', { kind: 'dsh-instance', unit: null });
     sup.tokenService.feedLine('inst-z', 'dsh web: http://127.0.0.1:3081/?token=AbC123');
     check('feedLine 捕获成功', sup.tokenService.get('inst-z') === 'AbC123');
@@ -112,7 +105,7 @@ async function main() {
     check('清除前 capture 正常（前置状态）', sup.tokenService.get('inst-w') === 'OLD999');
     sup.tokenService.clear('inst-w');
     check('clear 后 get 为空串（TK-8 失效已广播）', sup.tokenService.get('inst-w') === '');
-    // capture 不得从残留 stdout 行复活旧令牌（旧实现第 0 拍即命中 OLD999 记为新 gen）；池仍为空是同一状态，已并入本条。
+    // capture 不得从残留 stdout 行复活旧令牌（池仍为空是同一状态）。
     const revived = sup.tokenService.capture('inst-w');
     check('capture() 不得从残留行复活旧令牌（且池仍为空）',
       !revived && sup.tokenService.get('inst-w') === '', String(revived) + ' / ' + sup.tokenService.get('inst-w'));
@@ -151,7 +144,7 @@ async function main() {
     const r2 = await capture.captureJournal(unit, { logger: lg, providerKind: () => 'portable' });
     check('服务档闸 portable 档直接查无（不为不存在的 journal 起子进程）',
       r1 === null && r2 === null, JSON.stringify([String(r1), String(r2)]));
-    // 同一日志去重风险的两表述（“停用一句”/“合计一行”）合成一条。
+    // 同一日志去重风险的两个表述：「停用一句」与「合计一行」。
     check('服务档闸 停用只落一行（第二拍不得再刷同一句，周期兜底不得变成噪声源）',
       rows.filter((l) => l.indexOf('停用') >= 0).length === 1 && rows.length === 1, JSON.stringify(rows));
     check('服务档闸 落点写明本机服务档', /portable/.test(rows[0] || ''), rows[0]);
@@ -175,7 +168,7 @@ async function main() {
     const pool = new TokenPool({ logger: quiet, journal: () => { journalCalls += 1; return new Promise((r) => { late = r; }); } });
     const drain = () => new Promise((r) => setTimeout(r, 25));
 
-    // A：detach 时回填已在途 —— 旧实现无守卫，此断言必红（死令牌以新 gen 复活并广播）
+    // A：detach 时回填已在途（无守卫则死令牌以新 gen 复活并广播）。
     pool.attach('gp', { kind: 'dsh-instance', unit: 'u-gp' });
     pool.capture('gp');
     await drain(); // 让 journal 档真正发射（悬挂中）

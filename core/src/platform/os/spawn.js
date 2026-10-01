@@ -1,8 +1,8 @@
 'use strict';
 
-// 异步子进程统一封装（NO-CONSOLE-WINDOW-STANDARD，契约冻结）：src 内的异步 spawn 只走本文件。
-// windowsHide:true 在三个入口写死、调用方不可覆盖：Windows 上 detached:true 会给子进程新建控制台
-// 窗口，能隐藏它的只有 windowsHide。逐处补字段正是漏隐藏的成因，故不开放覆盖。
+// 异步子进程统一封装：src 内的异步 spawn 只走本文件。
+// windowsHide:true 在三个入口写死、调用方不可覆盖：Windows 上 detached:true 会给子进程新建
+// 控制台窗口，能隐藏它的只有 windowsHide。
 // 窗口可见性与生命周期正交：detached/stdio 语义由各入口自身定义，不随隐藏策略变化（分工见各函数）。
 
 const { spawn } = require('node:child_process');

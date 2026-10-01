@@ -1,19 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 升级测试用假安装器：模拟 npm install -g 的成功/失败，不碰真实 npm。
-// 用法: node fake-npm.js <version>
-// 环境变量:
-//   FAKE_PKG_JSON  要改写的 package.json 路径（ok/fail 模式必填；hang/argv 模式不需要）
-//   FAKE_MODE      ok(默认)=改写版本并退出0 | fail=退出3 | hang=报出自身 pid 后挂住不退出
-//                  | argv=回显收到的 argv 与 registry 环境变量后退出 0（执行器构造判据用）
-//   FAKE_PID_FILE  hang 模式：把自身 pid 写到这里（D-10 用它证明「子进程真的活过」）
-//   FAKE_HANG_MS   hang 模式挂起时长，默认 60000
-//
-//  为什么 hang 用**环境变量**而不是 argv：
-//   runNpmInstall 的 commandTemplate 逐项过禁用字符集（B11 fail-closed），而 Windows
-//   runner 的 os.tmpdir() 是 **8.3 短名** `C:\Users\RUNNER~1\AppData\Local\Temp\…`，
-//   `~` 属禁用字符 -> 合法的临时脚本路径被拒。pid 文件路径经 env 传入，argv 只留仓库内路径。
+// 升级测试用假安装器：模拟 npm install -g 的成功/失败，不碰真实 npm。用法: node fake-npm.js <version>
+//   环境变量：FAKE_PKG_JSON（要改写的 package.json）· FAKE_MODE=ok|fail|hang|argv · FAKE_PID_FILE · FAKE_HANG_MS。
+//   hang 用环境变量而非 argv 的原因：commandTemplate 要过禁用字符集，而 Windows runner 的 os.tmpdir() 是 8.3 短名（含禁用字符 `~`）。
 
 const fs = require('node:fs');
 

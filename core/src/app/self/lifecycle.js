@@ -1,8 +1,7 @@
 'use strict';
 
-// 守卫自身生命周期（与实例生命周期完全分离）。
-// 守卫是「监事」：它有自己的 start/drain/shutdown/ready 状态，绝不因守卫重启/启动/崩溃而影响任何实例。
-// 本模块只跟踪守卫自身的生命周期标志，供 statusSummary / API 呈现与竞态防护。
+// 守卫自身生命周期（与实例生命周期完全分离）：守卫是「监事」，绝不因自身重启/启动/崩溃影响任何实例。
+//   本模块只跟踪守卫自身的标志，供 statusSummary / API 呈现与竞态防护。
 
 class Lifecycle {
   constructor() {

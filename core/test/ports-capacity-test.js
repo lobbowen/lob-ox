@@ -1,12 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 动态端口池容量与弹性回归：
-//   1) 大量对象可持续分配，远超旧的固定小段上限（如 providerApi 旧 32）；
-//   2) 选址避开 OS 动态端口范围且落在合法区间；3) 共享池不同锚点互不挤占；
-//   4) 池满 -> 显式 ErrFull（不再静默 null），capacity()/available()/isFull() 可观测；
-//   5) portPools 可配置覆盖；6) 保留池拒绝用户实例端口。
-// 自包含：独立临时注册表文件 + 大跨度测试池，不触碰生产 ports.json。
+// 动态端口池容量与弹性：大量对象可持续分配（远超旧固定小段上限）· 选址避开 OS 动态端口范围 ·
+//   共享池不同锚点互不挤占 · 池满 -> 显式 ErrFull（不静默 null）且 capacity()/available()/isFull() 可观测 ·
+//   portPools 可覆盖 · 保留池拒绝用户实例端口。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -18,8 +15,7 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
 
 (async () => {
   const { PortRegistry, DEFAULT_POOLS, SEGMENT_POOL } = require(path.join(ROOT, 'src', 'platform', 'service', 'ports'));
-  // DS-G4 （反转法）：段名/独立池是**域知识**，platform 不再硬编码 -> 测试显式申报
-  // （等价于生产由 router/relay 域装配期注入；未申报时未注册段回退通用池 managed）。
+  // DS-G4（反转法）：段名/独立池是**域知识**，测试显式申报（等价于生产由 router/relay 域装配期注入；未申报段回退 managed）。
   require(path.join(ROOT, 'src', 'domains', 'router', 'port-segments'));
   require(path.join(ROOT, 'src', 'domains', 'relay', 'port-segments'));
 
@@ -32,14 +28,13 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
       return (Number.isInteger(lo) && Number.isInteger(hi)) ? { lo, hi } : null;
     } catch { return null; }
   })();
-  // （原「默认池定义存在且含 managed/providerApi」是后续全部断言的前提，已删：缺定义时下面必红且可定位）
   const overlaps = (p) => !!ephemeral && !(p.base + p.count - 1 < ephemeral.lo || p.base > ephemeral.hi);
   check('默认池避开 OS 动态端口范围且在合法端口区间(1024-65535)',
     !Object.values(DEFAULT_POOLS).some(overlaps)
     && Object.values(DEFAULT_POOLS).every((p) => p.base >= 1024 && p.base + p.count - 1 <= 65535),
     ephemeral ? ('ephemeral=' + ephemeral.lo + '-' + ephemeral.hi + ' pools=' + JSON.stringify(DEFAULT_POOLS)) : 'no /proc (skip range)');
 
-  // 2) 规模：providerApi 轻松容纳 200+ 供应商（旧实现 32 即满）
+  // 2) 规模：providerApi 轻松容纳 200+ 供应商。
   console.log('== 2) 供应商规模弹性（旧固定 32 上限）==');
   const reg = new PortRegistry({ file: path.join(TMP, 'ports.json') });
   const N = 200;

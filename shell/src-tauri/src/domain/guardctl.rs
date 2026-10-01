@@ -1,9 +1,6 @@
 //! 守卫的启停与就绪判定（生命周期所有权的调用方）。铁律：壳不是守卫的所有者 —— 只向所有者
 //! （systemd / launchd / schtasks）提出请求，服务管理器不可用时走 spawn 兜底（可用性优先）。
-//! 阶段序列 P0 契约 -> P1 对齐 -> P3 定位 -> P4 定义 -> P5 启动 -> P6 就绪（原规范
-//! docs/KERNEL-LAUNCH-STANDARD.md 已于 2026-10-01 随 .md 清理移出仓库，现存 C:\work\_md_backup；
-//! 下述阶段名与语义以本文件实现为准），
-//! P1 是 P5 的前置：磁盘内核必须等于线上最新，否则拒绝启动。所有等待都有上限，退出也要能在服务管理器无响应时走完。
+//! 阶段序列 P0 契约 -> P1 对齐 -> P3 定位 -> P4 定义 -> P5 启动 -> P6 就绪；P1 是 P5 的前置（磁盘内核必须等于线上最新，否则拒绝启动）。所有等待都有上限，退出也要能在服务管理器无响应时走完。
 
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -18,9 +15,8 @@ static PANEL_WATCH_ARMED: AtomicBool = AtomicBool::new(false);
 /// 连续不在服役的拍数（Alive 归零）。
 static PANEL_WATCH_DOWN: AtomicU32 = AtomicU32::new(0);
 
-/// 启动失败的结构化错误（stage 取值见本文件各 `LaunchError::new` 调用点；
-///  原规范 KERNEL-LAUNCH-STANDARD.md 节4 已归档至 C:\work\_md_backup）。
-///  前端据此给可操作结论；日志据此定位到具体阶段 —— 不允许「未知错误」。
+/// 启动失败的结构化错误（stage 取值见本文件各 `LaunchError::new` 调用点）。
+/// 前端据此给可操作结论；日志据此定位到具体阶段 —— 不允许「未知错误」。
 #[derive(Debug, Clone)]
 pub(crate) struct LaunchError {
     pub code: &'static str,
@@ -59,9 +55,9 @@ pub(crate) fn resolve_aligned_with(resource_dir: Option<std::path::PathBuf>) -> 
         Err(e) => return AlignOutcome::ResolveFailed(format!("{}：{}", pkg, e)),
     };
     let pkg_opt = Some(pkg.as_str());
-  // 1) 位置契约命中且版本一致（最快路径）。契约路径可能是旧版写入的 `.cmd` 垫片
-  //  或含 `\\?\` 前缀 —— 先规范化再判可用。版本按 semver 相等判定：两侧字符串分别来自
-  //  契约与 registry 快照，文本差（build metadata 等）不该让已对齐的内核判成未对齐。
+  // 位置契约命中且版本一致（最快路径）。契约路径可能含 `.cmd` 垫片
+  //  或含 `\\?\` 前缀，先规范化再判可用。版本按 semver 相等判定：两侧字符串分别来自
+  // 契约与 registry 快照，文本差（build metadata 等）不该让已对齐的内核判成未对齐。
     if let Some(c) = crate::core_contract::read() {
         let bin = crate::domain::coreloc::normalize_guard(c.bin, pkg_opt);
         if bin.is_file() && crate::core::semver_cmp(&c.version, &latest) == 0 {
@@ -103,10 +99,9 @@ pub fn resolve_local(resource_dir: Option<std::path::PathBuf>) -> Option<(crate:
 }
 
 pub(crate) fn shutdown_all(port: u16) {
-  // 契约 节4.1 退出握手：1) 带超时请求内核停全部被管对象并等回执（守卫挂起时壳不无限阻塞）；
-  //  2) 轮询 sessionState 直到 stopped（确认内核确实停好；守卫已不可达同样视为完成）；
-  //  3) 由所有者停止守卫进程——守卫自身从不停止自己（所有权归一）。
-  // 握手最长约 70s，其间「不在服役」是本次退出的预期结果，看护必须闭嘴（否则退出途中把用户甩回引导页）。
+  // 退出握手：1) 带超时请求内核停全部被管对象并等回执（守卫挂起时壳不无限阻塞）；
+  // 2) 轮询 sessionState 直到 stopped（守卫已不可达同样视为完成）；3) 由所有者停止守卫进程 ——
+  // 守卫自身从不停止自己（所有权归一）。握手最长约 70s，其间「不在服役」是预期结果，看护必须闭嘴。
     EXITING.store(true, Ordering::SeqCst);
     let _ = crate::domain::localhttp::post_local_timeout(port, "/session/stop", std::time::Duration::from_secs(60));
     for _ in 0..40 {
@@ -116,10 +111,9 @@ pub(crate) fn shutdown_all(port: u16) {
             _ => std::thread::sleep(std::time::Duration::from_millis(250)),
         }
     }
-    // 完成的断言只能在 stop() 真的成功时说：三平台的自启/看护通道都不会在本次登录内把守卫
-    //   拉回（Windows 会 /Delete 看护任务、Linux unit 保持 enabled 只在下次登录起、macOS 已 bootout），
-    //   这句话是「为什么重开程序才恢复」的唯一线索，说错了就把排错方向整个带偏。
-    //   失败分支仍双写：GUI 下 stderr 常丢，而「程序关不掉」是用户可感知缺陷，必须留下痕迹。
+    // 完成的断言只能在 stop() 真的成功时说：三平台的自启/看护通道都不会在本次登录内把守卫拉回
+    // （Windows 会 /Delete 看护任务、Linux unit 只在下次登录起、macOS 已 bootout）。
+    // 失败分支仍双写：GUI 下 stderr 常丢，而「程序关不掉」是用户可感知缺陷，必须留下痕迹。
     match crate::platform::service().stop() {
         Ok(()) => crate::update::log("[shell] 退出握手完成：守卫已停止，本次登录内不会自动拉起；重新打开程序即恢复"),
         Err(e) => {
@@ -129,10 +123,9 @@ pub(crate) fn shutdown_all(port: u16) {
     }
 }
 
-/// 服务管理器路径（P4 建立定义 -> P5 请求启动）的阶段产物。不变量由结构强制而非注释：
+/// 服务管理器路径（P4 建立定义 -> P5 请求启动）的阶段产物。不变量由结构强制：
 /// `started` 只可能在 `defined` 为 `Ok` 时才是 `Some` —— 定义失败时那条出边是关闭的。
-/// 把 `ensure_defined` 的错误写进日志就丢掉再无条件 `start()`，报错就只剩「/Run 失败（退出码 1）」，
-/// 而真实失败点可能在更早的 P4；对不存在的任务发起 /Run 不产生命中信息，只产出误导性退出码。
+/// 丢掉 `ensure_defined` 的错误再无条件 `start()`，报错就只剩「/Run 失败（退出码 1）」，真实失败点可能在更早的 P4。
 pub(crate) struct ServiceLaunch {
   /// P4：服务定义的结果（成功时带平台给出的状态描述）。
     defined: Result<String, String>,
@@ -177,8 +170,7 @@ impl ServiceLaunch {
     }
 
   /// 面向人的**一句话阶段证据**：说清走到了哪一步、为什么停在那一步。
-  ///
-  /// 进 `READY_TIMEOUT` / `SERVICE_START_FAILED` 的正文（规范 H8：报错必须可定位到阶段）。
+  /// 进 `READY_TIMEOUT` / `SERVICE_START_FAILED` 的正文（报错必须可定位到阶段）。
     fn evidence(&self) -> String {
         match (&self.defined, &self.started) {
             (Err(d), None) => format!("服务定义未建立（因此未请求服务管理器启动）：{}", d),
@@ -206,10 +198,9 @@ pub(crate) fn ensure_guard(app: &tauri::AppHandle) -> Result<(), LaunchError> {
         let verdict = serving_state(port);
         step(&verdict.note());
         if matches!(verdict, Serving::Alive | Serving::Sick) {
-            // 守卫已在服役（或只是还没应答）时也确保一次服务定义：退出时 Windows stop() 会 /Delete
-            // 看护任务，而登录任务可能已先拉起守卫使本函数提前返回，那样看护任务永不重建、崩溃自愈
-            // 在整个会话内失效。ensure_defined 三平台幂等且自愈。不复用 spec 变量名以免 K-3 的顺序
-            // 判据锚到本提前返回分支；不得在此引入平台条件编译（platform/ 之外禁止平台分支）。
+            // 守卫已在服役（或只是还没应答）时也确保一次服务定义：退出时 Windows stop() 会 /Delete 看护任务，
+            // 而登录任务可能已先拉起守卫使本函数提前返回，那样看护任务永不重建、崩溃自愈在本会话内失效。
+            // ensure_defined 三平台幂等且自愈；不复用 spec 变量名（顺序判据会锚到本提前返回分支），也不得引入平台分支。
             if let Some((rt_wd, guard_wd)) = resolve_local(None) {
                 match crate::platform::LaunchSpec::from_runtime(&rt_wd, guard_wd) {
                     Ok(spec_wd) => {
@@ -287,7 +278,7 @@ pub(crate) fn ensure_started(
 
   // P5 兜底：直接拉起守护进程（容器/无 user session/策略拦截等场景）。
     step("服务管理器未能拉起守卫 · 改用直接启动兜底…");
-  // 服务管理器那一段的**阶段证据**必须在最终报错里出现（规范 H8）：真机上它才是根因所在。
+  // 服务管理器那一段的**阶段证据**必须在最终报错里出现：真机上它才是根因所在。
     let evidence = launch.evidence();
     match crate::platform::service().spawn_daemon(spec) {
         Ok(mut child) => {
@@ -365,12 +356,12 @@ fn guard_log_tail() -> String {
     if s.trim().is_empty() { "(日志为空)".to_string() } else { s }
 }
 
-/// 服务管理器路径的就绪等待预算（原「60 tick x 500ms」；含每 tick 的探针成本）。
+/// 服务管理器路径的就绪等待预算（含每 tick 的探针成本）。
 const SERVICE_READY_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 /// 兜底直接拉起后的就绪等待预算（守卫是刚 fork 的 node，冷启动比服务管理器路径慢）。
 const DAEMON_READY_BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// 守卫就绪判据（规范 H6 的**唯一**实现产物）。
+/// 守卫就绪判据的**唯一**实现产物。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Readiness {
   /// `GET /healthz` 返回 2xx —— 唯一算「就绪」的形态。
@@ -396,7 +387,6 @@ impl Readiness {
 }
 
 /// 裸 TCP 可达判定 —— **只**用于「不再可达 = 进程已停」这类否定问题（重启前的等待）。
-///
 /// 就绪与否**不得**用它回答（那是 [`ready`] 的活）：端口能连只说明有人在听，
 /// 守卫在绑定端口与真正可服务之间还有一大段启动过程。
 pub(crate) fn port_open(port: u16) -> bool {
@@ -435,7 +425,7 @@ pub(crate) enum Serving {
 }
 
 impl Serving {
-  /// 启动过程里的一句话证据（规范 H8）：静默等待与卡死要能区分，两种「跳过」的下一步也不同。
+  /// 启动过程里的一句话证据：静默等待与卡死要能区分，两种「跳过」的下一步也不同。
     pub(crate) fn note(&self) -> String {
         match self {
             Serving::Alive => "守卫在服役 · 跳过启动".to_string(),
@@ -549,8 +539,7 @@ const SERVING_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_mil
 
 /// 等待预算内轮询就绪（每 tick 500ms），返回最后一次判定。每 tick 重读实际端口：
 /// 内核可能因端口占用而顺延并持久化（见 env::current_api_port），只盯固定端口会永远等不到已健康的守卫。
-/// 用时长而非 tick 数计预算：每 tick 成本不是常数（多了 /healthz 一次往返），按 tick 计数会让
-/// 总上界随网络状态漂移，而外层 guard_start 的预算是固定的。
+/// 用时长而非 tick 数计预算：每 tick 成本不是常数（多了 /healthz 一次往返），按 tick 计数会让总上界随网络状态漂移。
 pub(crate) fn await_ready(budget: std::time::Duration) -> Readiness {
     let started = std::time::Instant::now();
     let mut last = Readiness::PortClosed;
@@ -571,9 +560,8 @@ mod tests {
     use std::time::Duration;
 
   /// 起一个假守卫：持续接管连接，每条按 `reply` 应答（`None` = 连上但不回一个字节）。
-  /// 必须持续 accept 而非一次一答：ready() 先做裸 TCP 探测再看 /healthz，同一次判定会打开
-  /// 两个连接。只 accept 一次的夹具会把真正的 HTTP 连接留在队列里无人接管，
-  /// 「200 = 就绪」那条用例必然以无响应收场（假阴性）。
+  /// 必须持续 accept 而非一次一答：ready() 先做裸 TCP 探测再看 /healthz，同一次判定会打开两个连接。
+  /// 只 accept 一次的夹具会把真正的 HTTP 连接留在队列里无人接管，「200 = 就绪」那条用例必然假阴性。
     fn fake_guard(reply: Option<&'static [u8]>) -> u16 {
         let l = TcpListener::bind("127.0.0.1:0").expect("假守卫应能绑定回环端口");
         let port = l.local_addr().expect("回环监听必有地址").port();
@@ -606,8 +594,7 @@ mod tests {
     }
 
   /// 就绪判据必须**分辨得出**四种现场 —— 它们的可操作结论完全不同：
-  /// 没起来（继续等）/ 起了但病了（看日志）/ 应答 5xx（真失败）/ 健康（放行）。
-  /// 旧实现只回 `bool`，于是「healthz 回 500」与「端口都没开」在报错里是同一句话。
+  /// 没起来（继续等）/ 起了但病了（看日志）/ 应答 5xx（真失败）/ 健康（放行）；只回 `bool` 会让它们变成同一句话。
     #[test]
     fn readiness_distinguishes_closed_healthz_and_sick() {
   // 2xx = 唯一算就绪的形态
@@ -623,7 +610,7 @@ mod tests {
             ),
             Readiness::Http(503)
         );
-  // 连得上但不吐字 节= 无响应，**不得**混成 Http(0)（那等于把「没回话」说成「回了 0」）
+  // 连得上但不吐字 = 无响应，**不得**混成 Http(0)（那等于把「没回话」说成「回了 0」）
         assert_eq!(
             ready(fake_guard(None), Duration::from_millis(300)),
             Readiness::NoHttpResponse
@@ -675,9 +662,8 @@ mod tests {
         port
     }
 
-  /// 桌面真机现场：守卫还在监听、`/healthz` 还回 200，服务链却已拆完 —— 「端口通」既不等于
-  /// 「在服役」，也不等于「该重拉」。三态必须各自成立；探针抖动（问不出会话态）只许降级成
-  /// Alive：把健康守卫停掉重拉是把缺陷放大。
+  /// 桌面真机现场：「端口通」既不等于「在服役」，也不等于「该重拉」。三态必须各自成立；
+  /// 探针抖动（问不出会话态）只许降级成 Alive：把健康守卫停掉重拉是把缺陷放大。
     #[test]
     fn serving_state_separates_alive_from_halted_but_listening() {
         assert!(matches!(serving_state(fake_serving(HEALTHZ_OK, SESSION_ACTIVE)), Serving::Alive));

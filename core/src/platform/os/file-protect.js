@@ -1,7 +1,7 @@
 'use strict';
 
-// 跨平台文件/目录访问保护。POSIX mode 在 Windows 被忽略（NTFS 用 ACL），故含 apiAccessKey/remoteToken/会话令牌的文件
-// 在 Windows 必须另行收紧：icacls 移除继承并仅授当前用户（目录用 (OI)(CI) 让内部文件继承）。
+// 跨平台文件/目录访问保护。POSIX mode 在 Windows 被忽略（NTFS 用 ACL），故含 apiAccessKey/remoteToken/
+// 会话令牌的文件在 Windows 必须另行收紧：icacls 移除继承并仅授当前用户（目录用 (OI)(CI) 让内部文件继承）。
 // 全部 best-effort：失败不阻断主流程，但经返回值可观测。
 
 const fs = require('node:fs');
@@ -15,8 +15,7 @@ let _icacls = null; // 缓存 icacls 可用性
 function hasIcacls(platform) {
   if ((platform || process.platform) !== 'win32') return false;
   if (_icacls !== null) return _icacls;
-  // 经统一执行器。必须用 runOut：execFileSync 在 stdio ignore 下成功也返回 null，
-  // 用 !== null 判可用会恒 false，导致 icacls 收紧静默失效。
+  // 必须用 runOut 而非 execFileSync：stdio ignore 下成功也返回 null，用 !== null 判可用会恒 false。
   _icacls = ex.runOut('icacls', ['/?'], { timeoutMs: 3000 }) !== null;
   return _icacls;
 }
@@ -64,8 +63,7 @@ function ensurePrivateDir(dir) {
   return protectDir(dir);
 }
 
-/** 写入敏感文件并施加保护（原子写 + 保护，避免写完到保护之间的可读窗口）；保护失败如实返回 ok:false。
- *  生产零调用点（仅测试套件使用）；真正生效的那一半是同目录 protectDir。
+/** 写出敏感文件并施加保护（原子写 + 保护，避免写完到保护之间的可读窗口）；保护失败如实返回 ok:false。
  *  @returns {{ok:boolean, reason?:string, mode?:string}} */
 function writePrivate(file, data) {
   try {

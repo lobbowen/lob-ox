@@ -12,8 +12,8 @@ function createDesired(deps) {
   const intents = () => (typeof g.getIntents === 'function' ? g.getIntents() : null);
   const events = () => (typeof g.getEvents === 'function' ? g.getEvents() : null);
   const configPath = () => (typeof g.getConfigPath === 'function' ? g.getConfigPath() : null);
-  // 换名别名表与 config.normalize 同源（app/settings/domain-config 声明，装配期注入，B2-4）：
-  //   写盘清理由字典驱动，不在本文件硬编码键名。
+    // 换名别名表与 config.normalize 同源（app/settings/domain-config 声明，装配期注入）：写盘清理由字典驱动，
+    //   不在本文件硬编码键名。
   const configAliases = () => (typeof g.getConfigAliases === 'function' ? (g.getConfigAliases() || []) : []);
   const logger = () => (typeof g.getLogger === 'function' ? g.getLogger() : null);
   const setCrashHalted = typeof g.setCrashHalted === 'function' ? g.setCrashHalted : () => {};
@@ -58,10 +58,10 @@ function createDesired(deps) {
     return { ok: true };
   }
 
-  /*  config.json 补丁持久化；原子写 0600。返回落盘成败：无 configPath 或写失败均 false
-   *  （调用方据此如实上报，不再靠回读比对核验）。
-   *  既有文件读/解析失败时拒绝写回（fail-closed）：瞬时读错后继续写会把 apiAccessKey 等全部键抹掉。
-   *  文件缺失（ENOENT）视为首启空配置，照常写入。 */
+    /**
+   * config.json 补丁持久化；原子写 0600。返回落盘成败：无 configPath 或写失败均 false。既有文件读/解析失败时拒绝
+   * 写回（fail-closed）—— 瞬时读错后继续写会把 apiAccessKey 等全部键抹掉；文件缺失（ENOENT）视为首启空配置，照常写入。
+   */
   function persistConfigPatch(patch) {
     const p = configPath();
     if (!p) return false; // 无落点 = 未持久化
@@ -88,7 +88,7 @@ function createDesired(deps) {
         }
       }
       Object.assign(cur, patch);
-      // 旧键清理由别名驱动（B2-4）：仅当新键已在盘上才删旧键——旧键是唯一意图时提前删=静默丢失。
+            // 旧键清理由别名驱动：仅当新键已在盘上才删旧键 —— 旧键是唯一意图时提前删=静默丢失。
       for (const [from, to] of configAliases()) {
         if (cur[from] !== undefined && cur[to] !== undefined) delete cur[from];
       }

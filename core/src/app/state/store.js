@@ -39,8 +39,7 @@ function createStore(deps) {
   }
 
   function loadState() {
-    // 读段只对 ENOENT（首启，正常）保持安静；恢复段失败一律留痕，
-    //   否则 shellHalted/upgradeHold/desired 种子丢失无痕可查。
+        // 读段只对 ENOENT（首启，正常）保持安静；恢复段失败一律留痕，否则 shellHalted/upgradeHold/desired 种子丢失无痕可查。
     let raw = null;
     try {
       raw = JSON.parse(fs.readFileSync(config().stateFile, 'utf8'));

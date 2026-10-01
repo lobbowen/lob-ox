@@ -1,9 +1,8 @@
 'use strict';
 
-// app/main/shadow.js —— 影子记账（_actNote/_mainActualAction/_shadowExcluded/_shadowTickNote/_shadowHeartbeatBeat）。
-// 影子对照真实收敛动作，连续零 diff 是收敛切换门槛的观测依据。
-// 导出 { methods }，由 app/assembly/facets.js 装到 host；方法名与 { methods } 形态不可改（读源码形态门禁按符号名匹配）。
-// 事实经 depsOf(host) 惰性缓存取得。
+// 影子记账（_actNote/_mainActualAction/_shadowExcluded/_shadowTickNote/_shadowHeartbeatBeat）。影子对照真实收敛动作，
+//   连续零 diff 是收敛切换门槛的观测依据。导出 { methods }，由 app/assembly/facets.js 装到 host；方法名与 { methods }
+//   形态不可改。事实经 depsOf(host) 惰性缓存取得。
 const DEPS = new WeakMap();
 function depsOf(host) {
   let d = DEPS.get(host);
@@ -79,9 +78,10 @@ module.exports = {
     return { action: 'none', reason: 'unclassified:' + p };
   },
 
-  /** 影子 diff 排除集：异步事件/守卫业务钩子触发（非主循环收敛决策可比范畴），
-   *  不计入 diff 与零 diff 门槛。升级钩子 / child exit / spawn error / 假死。
-   *  排除项的意义是豁免异步事件触发的迁移，而不是给凭据驱动的重启开后门。 */
+    /**
+   * 影子 diff 排除集：异步事件/守卫业务钩子触发的迁移（升级钩子 / child exit / spawn error / 假死）不计入 diff 与零 diff
+   * 门槛。排除项的意义是豁免异步事件触发的迁移，而不是给凭据驱动的重启开后门。
+   */
   _shadowExcluded(reason) {
     if (!reason) return false;
     const r = String(reason);

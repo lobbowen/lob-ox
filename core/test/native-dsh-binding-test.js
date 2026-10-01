@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
-// 原生 DSH「检测 -> 绑定 -> 接管」契约回归。
-// 缺陷（真机）：原生 DSH 只被静态 config.command[1]（出厂默认裸名 'dsh'）定义 ->
-//   fs.existsSync('dsh') 恒 false -> 「已安装」判不出来，与「安装」分支形成两套相反逻辑
-//   （系统已装 DSH 却报未安装 -> 面板去装第二个 DSH 顶替原生的那个）。
+// 原生 DSH「检测 -> 绑定 -> 接管」契约回归：原生 DSH 只被静态 config.command[1]（出厂默认裸名 'dsh'）定义，
+//   fs.existsSync('dsh') 恒 false ⇒ 「已安装」判不出来，面板会去装第二个 DSH 顶替原生的那个。
 
 const path = require('node:path');
 const os = require('node:os');
@@ -83,8 +81,6 @@ process.env.DSH_BIN = JS;
 const adopted = mkNM(['node', 'dsh', 'web'], EMPTY_PREFIX);
 check('检测到真实安装 → installed=true（检测驱动）', adopted.status().installed === true, adopted.binPath());
 
-// 6/7/8) 已删：`typeof … === 'function'` 形状断言（改名即红而产品等价）、runtime-contract 的 npmArgs
-//   逐字重复采样、以及安装成功路径的当场复跑。行为侧由 §1–§5 与 §9/§10 承担。
 
 // 9) D-9：升级/重装不得用空数组抹掉 dataPaths 认领（Array.isArray([]) 为真 =>
 //    传 [] 会把上一代认领写成 []，卸载清理恒 no-op，目录永久残留）。
@@ -99,7 +95,7 @@ check('检测到真实安装 → installed=true（检测驱动）', adopted.stat
     config: { command: ['node', path.join(mdir, 'no-such-bin')], packageName: '@deepseek-ai/dsh' },
   };
   const readM = () => { try { return JSON.parse(fs.readFileSync(mfFile, 'utf8')); } catch { return null; } };
-  // 认领路径取自夹具目录（宿主中性）：本仓 X-1 门禁禁止测试里钉死操作者的绝对路径。
+  // 认领路径取自夹具目录（宿主中性）：测试里不得钉死操作者的绝对路径。
   const CLAIM = [path.join(mdir, 'dsh-home', 'sessions')];
 
   mf.record(host, '1.0.0', CLAIM, '/npmroot');
@@ -114,8 +110,6 @@ check('检测到真实安装 → installed=true（检测驱动）', adopted.stat
   check('D-9 反向：非数组（null）才走继承而不覆盖',
     readM().dataPaths.length === 2, JSON.stringify(readM().dataPaths));
 
-  // 已删两条「缺陷形态复现」（把已知缺陷固化为期望 = 负价值）。按第二条路断言**调用点行为**：
-  //   升级/重装路径必须传 undefined 而非 []，见文件尾部 D-9 调用点判据。
 
   try { fs.rmSync(mdir, { recursive: true, force: true }); } catch {}
 }

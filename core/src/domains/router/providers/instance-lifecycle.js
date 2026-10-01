@@ -53,8 +53,7 @@ function arbitrateStop(provider, inst, force) {
   }
   try { provider._terminatingPids.add(pid); } catch {}
   // 停止经载体：POSIX 组信号整树 + 1.5s 有界升级 SIGKILL；win32 无进程组语义，直接
-  //   kill 只打得到 .cmd/npx 壳、子孙 node 照旧占端口，由 platform/os/process#killTree
-  //   的 taskkill /T /F 补平（PROXY-ISOLATION-STANDARD L1）。
+  //   kill 只打得到 .cmd/npx 壳、子孙 node 照旧占端口，由 platform/os/process#killTree 补平。
   carrier.signalTermination(pid);
   inst.pid = null;
   inst.status = INSTANCE_STATES.COLD;

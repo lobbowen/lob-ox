@@ -75,11 +75,11 @@ html, body {
  * ≥641px（桌面/平板竖屏及以上）：恒为左右常驻两列，宽度连续由 grid 承担。
  * ≤640px（真手机）：侧边栏变为 fixed 左侧抽屉 —— 默认移出视口，
  *   由 .fw-layout[data-sidebar-open="true"] 滑入；遮罩与菜单按钮在 App 层。
- * 内容区在任何宽度都独占主轨，不做"上下堆叠"旧式切换。
+ * 内容区在任何宽度都独占主轨。
  */
 @media (min-width: 641px) {
   .fw-layout .fw-sidebar {
-    /* 常驻列：恢复静态定位（防手机态 fixed 残留）；min-h-0 + 纵向滚动：
+    /* 常驻列：静态定位（防手机态 fixed 残留）；min-h-0 + 纵向滚动：
        矮窗口下品牌/导航/状态总高超视口时在列内滚动，footer 经 mt-auto 贴底 */
     position: static;
     transform: none;
