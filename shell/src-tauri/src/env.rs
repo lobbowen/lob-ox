@@ -116,7 +116,7 @@ pub const STATE_ROOT_SCHEMA: u32 = 1;
 
 /// 必须独立于 DSH 的 ~/.dsh：本产品**管控** DSH，放在被管控对象的 ~/.dsh 下会被 DSH 的卸载/清理/迁移一并带走（config/state/ports/logs）。
 pub fn state_root() -> PathBuf {
-    if let Ok(v) = std::env::var("DSH_SUPERVISOR_HOME") {
+    if let Ok(v) = std::env::var(crate::brand::ENV_STATE_ROOT) {
         if !v.trim().is_empty() {
             return PathBuf::from(v.trim());
         }
@@ -125,11 +125,11 @@ pub fn state_root() -> PathBuf {
 }
 
 pub fn supervisor_dir() -> PathBuf {
-    state_root().join("supervisor")
+    state_root().join(crate::brand::STATE_SUPERVISOR_SUBDIR)
 }
 
 pub fn shell_dir() -> PathBuf {
-    state_root().join("shell")
+    state_root().join(crate::brand::STATE_SHELL_SUBDIR)
 }
 
 /// 前向自愈迁移：把旧位置（DSH 数据目录下）的条目并入产品状态根，不覆盖已存在文件；壳启动早期调用一次，失败不阻断，迁移完成后为 no-op。
@@ -137,8 +137,14 @@ pub fn migrate_legacy() {
     let home = home();
     let root = state_root();
     for (from, to) in [
-        (home.join(".dsh").join("supervisor"), root.join("supervisor")),
-        (home.join(".dsh").join("shell"), root.join("shell")),
+        (
+            home.join(crate::brand::LEGACY_HARNESS_DIR).join(crate::brand::STATE_SUPERVISOR_SUBDIR),
+            root.join(crate::brand::STATE_SUPERVISOR_SUBDIR),
+        ),
+        (
+            home.join(crate::brand::LEGACY_HARNESS_DIR).join(crate::brand::STATE_SHELL_SUBDIR),
+            root.join(crate::brand::STATE_SHELL_SUBDIR),
+        ),
     ] {
         if !from.is_dir() {
             continue;

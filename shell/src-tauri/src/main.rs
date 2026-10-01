@@ -4,6 +4,7 @@
 // 结构化错误模型：IPC 边界统一返回它（前端按 `kind` 分支、并显示后端给的 `hint`）。
 mod error;
 mod bounded;
+mod brand;
 mod core;
 mod env;
 mod bridge;

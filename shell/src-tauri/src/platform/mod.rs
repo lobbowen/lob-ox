@@ -320,12 +320,10 @@ pub trait Platform: Send + Sync {
     fn is_usable_executable(&self, cand: &std::path::Path) -> bool;
 
     fn state_root_default(&self) -> std::path::PathBuf {
-        if let Some(x) = std::env::var_os("XDG_STATE_HOME") {
-            if !x.is_empty() {
-                return std::path::Path::new(&x).join("dsh-supervisor");
-            }
-        }
-        home_dir().join(".local").join("state").join("dsh-supervisor")
+        crate::brand::state_root_linux(
+            std::env::var_os(crate::brand::STATE_ROOT_LINUX_XDG_ENV),
+            &home_dir(),
+        )
     }
 
         /// 安装 Node：用户级、零权限。三平台统一：官方归档解到 `<状态根>/node` 再原子替换（Linux/macOS `tar --strip-components=1`；Windows 走 zip 解包路径）。不提权是因为系统级安装需要 UAC/pkexec/sudo，容器/WSL/SSH 常无可用提权代理，而用户级解包在任何权限下都能成功。

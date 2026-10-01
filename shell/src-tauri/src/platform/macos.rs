@@ -8,7 +8,7 @@ use super::service::ServiceControl;
 use super::{home_dir, Capabilities, LaunchSpec, Platform, SVC_NORMAL, SVC_QUICK};
 
 pub const NAME: &str = "macos";
-pub const GUARD_LABEL: &str = "com.dsh.supervisor";
+pub const GUARD_LABEL: &str = crate::brand::MACOS_GUARD_LABEL;
 
 /// bootstrap 脚本：域标签交给 shell 求值，plist 路径由 `"$1"` 位参传入而非拼进脚本文本。
 const BOOTSTRAP_SCRIPT: &str = "launchctl bootstrap \"gui/$(id -u)\" \"$1\"";
@@ -120,7 +120,7 @@ impl Platform for Impl {
     }
 
     fn state_root_default(&self) -> PathBuf {
-        home_dir().join("Library").join("Application Support").join("dsh-supervisor")
+        crate::brand::state_root_macos(&home_dir())
     }
 
     fn is_local_fixed_dir(&self, _dir: &Path) -> bool {
@@ -164,7 +164,8 @@ impl ServiceControl for Impl {
         for a in args {
             prog.push_str(&format!("<string>{}</string>", xml_escape(a)));
         }
-        let body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n  <key>Label</key><string>com.dsh.supervisor</string>\n  <key>ProgramArguments</key>\n  <array>@PROG@</array>\n  <key>EnvironmentVariables</key><dict><key>DSH_SUPERVISOR_HOME</key><string>@ROOT@</string></dict>\n  <key>RunAtLoad</key><true/>\n  <key>KeepAlive</key><true/>\n  <key>ProcessType</key><string>Interactive</string>\n  <key>StandardOutPath</key><string>@LOG@</string>\n  <key>StandardErrorPath</key><string>@LOG@</string>\n</dict></plist>\n"
+        let body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n  <key>Label</key><string>@LABEL@</string>\n  <key>ProgramArguments</key>\n  <array>@PROG@</array>\n  <key>EnvironmentVariables</key><dict><key>DSH_SUPERVISOR_HOME</key><string>@ROOT@</string></dict>\n  <key>RunAtLoad</key><true/>\n  <key>KeepAlive</key><true/>\n  <key>ProcessType</key><string>Interactive</string>\n  <key>StandardOutPath</key><string>@LOG@</string>\n  <key>StandardErrorPath</key><string>@LOG@</string>\n</dict></plist>\n"
+            .replace("@LABEL@", GUARD_LABEL)
             .replace("@PROG@", &prog)
             .replace("@ROOT@", &xml_escape(&spec.state_root.display().to_string()))
             .replace("@LOG@", &xml_escape(&log.display().to_string()));

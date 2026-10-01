@@ -9,6 +9,7 @@ const results = [];
 const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x !== undefined && x !== '' ? '  ← ' + x : '')); };
 
 const dist = require(path.join(ROOT, 'src', 'platform', 'distribution', 'index.js'));
+const BRAND = require(path.join(ROOT, 'src', 'shared', 'brand.js'));
 const channel = dist;
 const { VERSION_RE } = dist;
 
@@ -18,7 +19,7 @@ const meta = (tags, versions) => ({ 'dist-tags': tags, versions: versions || {} 
 const obj = (arr) => arr.reduce((m, v) => { m[v] = {}; return m; }, {});
 
 {
-  check('归属 我们的内核/壳发布包 → isOurReleasePackage', channel.isOurReleasePackage('@lob-ox/dsh-core-linux-x64') === true && channel.isOurReleasePackage('@lob-ox/shell-release') === true);
+  check('归属 我们的内核/壳发布包 → isOurReleasePackage', channel.isOurReleasePackage(BRAND.corePackageName('linux-x64')) === true && channel.isOurReleasePackage(BRAND.SHELL_RELEASE_PKG) === true);
   check('归属 第三方 DSH 本体/代理包 → 非我们的', channel.isOurReleasePackage('@deepseek-ai/dsh') === false && channel.isOurReleasePackage('commandcode-api-proxy') === false);
 }
 

@@ -7,8 +7,8 @@ use super::service::ServiceControl;
 use super::{home_dir, Capabilities, LaunchSpec, Platform, SVC_NORMAL, SVC_QUICK};
 
 pub const NAME: &str = "windows";
-pub const GUARD_TASK: &str = "DSH-Supervisor";
-pub const WATCHDOG_TASK: &str = "DSH-Supervisor-Watchdog";
+pub const GUARD_TASK: &str = crate::brand::WINDOWS_GUARD_TASK;
+pub const WATCHDOG_TASK: &str = crate::brand::WINDOWS_WATCHDOG_TASK;
 
 /// 「守卫活着吗」不得只看 TCP 端口存活；GUI 自愈的唯一所有者是守卫（内核 `domains/shell/watchdog`：进程实存 + 宽限 + 更新相位时效），看护任务只剩：守卫没就绪时把它拉起来 —— 见 `domain::cli::cli_watchdog`。
 pub const WATCHDOG_ARGS: &[&str] = &["--watchdog"];
@@ -235,12 +235,10 @@ impl Platform for Impl {
     }
 
     fn state_root_default(&self) -> PathBuf {
-        let base = std::env::var("LOCALAPPDATA")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home_dir().join("AppData").join("Local"));
-        base.join("dsh-supervisor")
+        crate::brand::state_root_windows(
+            std::env::var(crate::brand::STATE_ROOT_WIN_BASE_ENV).ok(),
+            &home_dir(),
+        )
     }
 
     fn is_local_fixed_dir(&self, dir: &Path) -> bool {

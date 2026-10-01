@@ -3,6 +3,7 @@
 const runtime = require('../contract/runtime');
 
 const ex = require('../util/exec');
+const BRAND = require('../../shared/brand');
 
 function whichVersion(bin, args) {
   const v = ex.runOut(bin, (Array.isArray(args) ? args : []).concat(['--version']), { timeoutMs: 3000 });
@@ -138,7 +139,7 @@ class EnvCatalog {
         label: '内核更新（桌面壳执行）',
         required: false,
         state: 'unconfigured',
-        detail: '未配置 corePackageName（形如 @lob-ox/dsh-core-<os>-<arch>）',
+        detail: '未配置 corePackageName（形如 ' + BRAND.corePackageName('<os>-<arch>') + '）',
       };
     }
     return { label: '内核更新（桌面壳执行）', required: false, state: 'configured', detail: pkg };

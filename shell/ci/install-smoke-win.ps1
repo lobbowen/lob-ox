@@ -133,6 +133,15 @@ New-Item -ItemType Directory -Force -Path $Work | Out-Null
 New-Item -ItemType Directory -Force -Path $script:StateDir | Out-Null
 $env:DSH_SUPERVISOR_HOME = $script:StateDir
 
+# 计划任务名取自跨语言单源（core/src/shared/brand.js），本脚本不再手写任务名。
+$brandJs = Join-Path $PSScriptRoot '..\..\core\src\shared\brand.js'
+$eapSaved = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$guardTask = node -e "process.stdout.write(require(process.argv[1]).WINDOWS_GUARD_TASK)" $brandJs
+$watchdogTask = node -e "process.stdout.write(require(process.argv[1]).WINDOWS_WATCHDOG_TASK)" $brandJs
+$ErrorActionPreference = $eapSaved
+if (-not $guardTask -or -not $watchdogTask) { Fail input "读不到计划任务名（单源 $brandJs）" }
+
 SilentInstall $InstallerA 'A'
 $exeA = Resolve-InstalledExe 'A'
 ProbeInstalled $exeA $VerA 'A'
@@ -169,7 +178,7 @@ try {
     }
 } finally {
     $ErrorActionPreference = 'Continue'
-    foreach ($t in @('DSH-Supervisor', 'DSH-Supervisor-Watchdog')) {
+    foreach ($t in @($guardTask, $watchdogTask)) {
         & schtasks.exe /Delete /TN $t /F 2>&1 | Out-Null
     }
 }

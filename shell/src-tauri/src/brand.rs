@@ -1,0 +1,205 @@
+#![allow(dead_code)]
+// 品牌与命名的跨语言单源：与 `core/src/shared/brand.js` 声明**同一组常量名**与逐字相同的值。
+//   `core/test/brand-single-source-test.js` 解析本文件并逐项对账 brand.js —— 只改一边必判红。
+// 只放名字与规则，不放行为：每条都是一个对外可见的字面量（产品名/包名/状态根/服务名/环境变量/产物名/进程模式）。
+// 本模块整体豁免 dead_code：其中一部分常量只由内核侧消费（并行的 JS 单源），Rust 侧在此仅声明。
+
+use std::path::{Path, PathBuf};
+
+// ── 产品与组件名 ─────────────────────────────────────────────────────────────
+/// 产品名：状态根/落点路径/安装目录/通知与 UA 等处的产品标识。
+pub const PRODUCT_NAME: &str = "dsh-supervisor";
+/// 内核 CLI 可执行名：core/package.json#bin 的键与值、core/bin/dsh-supervisor 安装期建立的入口名、壳定位内核的候选名。
+pub const CLI_NAME: &str = "dsh-supervisor";
+/// 桌面壳可执行名（= Cargo 产物名）：壳自定位、内核识别壳进程、CI 冒烟三处共用的入口名。
+pub const GUI_BIN_NAME: &str = "dsh-supervisor-gui";
+/// 桌面壳 crate 名：shell/src-tauri/Cargo.toml#package.name，同时是 shell/scripts/bump-shell.sh 的 sed 锚点。
+pub const GUI_CRATE_NAME: &str = "dsh-supervisor-gui";
+
+// ── npm 包 ──────────────────────────────────────────────────────────────────
+/// npm scope：已发布包名的前缀（core/package.json#npmPublish.scope，已发布包不可改）。
+pub const NPM_SCOPE: &str = "@lob-ox";
+/// 内核平台子包名的前缀（不含 scope）：与平台标签拼接成裸包名 dsh-core-<tag>。
+pub const CORE_PKG_PREFIX: &str = "dsh-core-";
+/// 内核平台子包覆盖的四组平台标签：决定 core/package.json#npmPublish.packages 的四条。
+pub const CORE_PKG_TAGS: &[&str] = &["linux-x64", "darwin-arm64", "darwin-x64", "win-x64"];
+/// 壳更新清单包名：内核查最新壳版本、updater endpoint、壳产物组装三处共用的完整包名。
+pub const SHELL_RELEASE_PKG: &str = "@lob-ox/shell-release";
+
+// ── Tauri 应用身份与安装包名 ─────────────────────────────────────────────────
+/// Tauri identifier（应用身份）：Windows 卸载项与升级谱系、macOS bundle id、应用数据目录名。
+pub const TAURI_IDENTIFIER: &str = "dev.bowen.dsh-supervisor";
+/// Tauri productName：全部安装包文件名由它派生（nsis/msi/dmg/deb 与 .app.tar.gz）。
+pub const TAURI_PRODUCT_NAME: &str = "dsh-supervisor";
+
+// ── 状态根（内核 state-root.js 与壳 env.rs 必须推出同一个根）──────────────────
+/// 状态根目录名：三平台状态根的**最后一段**，Windows/macOS/Linux 共用。
+pub const STATE_DIR_NAME: &str = "dsh-supervisor";
+/// 状态根下内核侧子目录名：config.json / ports.json / state.json / 日志的落点。
+pub const STATE_SUPERVISOR_SUBDIR: &str = "supervisor";
+/// 状态根下壳侧子目录名：identity.json / shell.log / guard 日志的落点。
+pub const STATE_SHELL_SUBDIR: &str = "shell";
+/// Windows 状态根基座的环境变量名。
+pub const STATE_ROOT_WIN_BASE_ENV: &str = "LOCALAPPDATA";
+/// 基座环境变量缺失时，Windows 状态根在家目录下的相对段（拼出 <家>/AppData/Local）。
+pub const STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS: &[&str] = &["AppData", "Local"];
+/// macOS 状态根在家目录下的相对段（拼出 <家>/Library/Application Support）。
+pub const STATE_ROOT_MACOS_SEGMENTS: &[&str] = &["Library", "Application Support"];
+/// Linux 状态根基座的环境变量名（XDG 规范）。
+pub const STATE_ROOT_LINUX_XDG_ENV: &str = "XDG_STATE_HOME";
+/// XDG 基座缺失时，Linux 状态根在家目录下的相对段（拼出 <家>/.local/state）。
+pub const STATE_ROOT_LINUX_FALLBACK_SEGMENTS: &[&str] = &[".local", "state"];
+/// 旧位置（harness 数据目录）的第一段：迁移来源，绝不能被 harness 的卸载/清理一并带走。
+pub const LEGACY_HARNESS_DIR: &str = ".dsh";
+
+// ── 环境变量（本产品自己的；名字与值都是现状）────────────────────────────────
+/// 状态根覆盖位：三平台最先命中并绝对化；壳注入服务定义、内核据此定位，两侧必须同名。
+pub const ENV_STATE_ROOT: &str = "DSH_SUPERVISOR_HOME";
+/// 配置文件路径覆盖位：CLI 与内核配置装载共用。
+pub const ENV_CONFIG: &str = "DSH_SUPERVISOR_CONFIG";
+/// 单实例锁文件路径覆盖位：守卫与 CLI 共用。
+pub const ENV_LOCK_FILE: &str = "DSH_SUPERVISOR_LOCK_FILE";
+/// 内核可执行覆盖位：自启层解析可执行文件时的第一候选。
+pub const ENV_DAEMON: &str = "DSH_SUPERVISOR_DAEMON";
+/// 托盘端口覆盖位：壳读它决定托盘桥端口。
+pub const ENV_TRAY_PORT: &str = "DSH_SUPERVISOR_TRAY_PORT";
+/// 壳可执行覆盖位：自启层解析壳可执行文件时的第一候选。
+pub const ENV_SHELL_EXE: &str = "DSH_SHELL_EXE";
+/// 守卫可执行覆盖位：壳的服务定义自检与 CI 冒烟用来注入占位文件。
+pub const ENV_GUARD_BIN: &str = "DSH_GUARD_BIN";
+/// 被监管 harness 可执行覆盖位：内核解析 dsh 入口时优先读它。
+pub const ENV_HARNESS_BIN: &str = "DSH_BIN";
+/// 冒烟脚本的 PID 变量名（core/release/scripts/install-smoke-core.sh 自己用）。
+pub const ENV_SMOKE_PID: &str = "DSH_PID";
+/// 灰度总开关的读取位。
+pub const ENV_CANARY: &str = "DSH_CANARY";
+/// 灰度身份名单的读取位。
+pub const ENV_CANARY_ID: &str = "DSH_CANARY_ID";
+/// 灰度允许名单包名的读取位。
+pub const ENV_CANARY_ALLOWLIST: &str = "DSH_CANARY_ALLOWLIST";
+/// 部署形态的读取位：内核据此区分安装形态。
+pub const ENV_DEPLOY_FORM: &str = "DSH_DEPLOY_FORM";
+/// 面板静态目录覆盖位：内核 api/static.js 的 UI 落点。
+pub const ENV_UI_DIR: &str = "DSH_UI_DIR";
+/// 跳过 UI 安装构建的开关位：构建脚本与 CI 用。
+pub const ENV_UI_SKIP_INSTALL: &str = "DSH_UI_SKIP_INSTALL";
+/// 内核发布 scope 覆盖位：发布脚本用。
+pub const ENV_CORE_SCOPE: &str = "DSH_CORE_SCOPE";
+/// 发布用 registry 覆盖位：CI 与发布脚本共用。
+pub const ENV_PUBLISH_REGISTRY: &str = "DSH_PUBLISH_REGISTRY";
+/// npm provenance 开关位：CI 仓库变量与发布脚本共用。
+pub const ENV_NPM_PROVENANCE: &str = "DSH_NPM_PROVENANCE";
+/// 临时 .npmrc 路径位：凭据脚本与发布脚本共用。
+pub const ENV_NPMRC: &str = "DSH_NPMRC";
+/// 旧 npm 令牌暂存位（凭据脚本内部）。
+pub const ENV_NPM_AUTH_PREV: &str = "DSH_NPM_AUTH_PREV";
+/// 旧 npm 令牌是否存在的标志位（凭据脚本内部）。
+pub const ENV_NPM_AUTH_PREV_SET: &str = "DSH_NPM_AUTH_PREV_SET";
+/// 旧 npm 令牌行的暂存位（凭据脚本内部）。
+pub const ENV_NPM_AUTH_PREVL: &str = "DSH_NPM_AUTH_PREVL";
+/// 旧 npm 令牌行是否存在的标志位（凭据脚本内部）。
+pub const ENV_NPM_AUTH_PREVL_SET: &str = "DSH_NPM_AUTH_PREVL_SET";
+/// npm 凭据来源标记位（凭据脚本内部）。
+pub const ENV_NPM_AUTH_SOURCE: &str = "DSH_NPM_AUTH_SOURCE";
+/// npm 凭据临时目录位（凭据脚本内部）。
+pub const ENV_NPM_AUTH_TMP: &str = "DSH_NPM_AUTH_TMP";
+/// 凭据目录覆盖位：发布凭据的落点。
+pub const ENV_CRED_DIR: &str = "DSH_CRED_DIR";
+/// 允许覆盖已有凭据的开关位。
+pub const ENV_CRED_ALLOW_OVERWRITE: &str = "DSH_CRED_ALLOW_OVERWRITE";
+/// 强制覆盖凭据的开关位。
+pub const ENV_CRED_FORCE: &str = "DSH_CRED_FORCE";
+/// 凭据备份目录覆盖位。
+pub const ENV_CRED_BACKUP_DIR: &str = "DSH_CRED_BACKUP_DIR";
+/// 真实家目录覆盖位：凭据脚本需要绕开被隔离的 HOME。
+pub const ENV_REAL_HOME: &str = "DSH_REAL_HOME";
+/// 发布架构覆盖位：CI 与构建脚本用。
+pub const ENV_ARCH_OVERRIDE: &str = "DSH_ARCH_OVERRIDE";
+/// 发布平台覆盖位：CI 与构建脚本用。
+pub const ENV_PLATFORM_OVERRIDE: &str = "DSH_PLATFORM_OVERRIDE";
+/// esbuild 版本钉死位：launcher 构建用。
+pub const ENV_ESBUILD_VERSION: &str = "DSH_ESBUILD_VERSION";
+/// 版本号读取库路径位：版本提升与发布脚本用。
+pub const ENV_VERSION_LIB: &str = "DSH_VERSION_LIB";
+
+// ── 服务 / 计划任务 / systemd unit / macOS label ─────────────────────────────
+/// Windows 守卫计划任务名：schtasks /Create /Query /Run /End /Delete 全用这个名字。
+pub const WINDOWS_GUARD_TASK: &str = "DSH-Supervisor";
+/// Windows 看护计划任务名：每 5 分钟拉起守卫，漏改等于看护失效。
+pub const WINDOWS_WATCHDOG_TASK: &str = "DSH-Supervisor-Watchdog";
+/// Windows 壳登录自启计划任务名：由内核自启层建立/删除，壳侧不碰。
+pub const WINDOWS_GUI_TASK: &str = "DSH-Supervisor-GUI";
+/// systemd 用户单元短名：systemctl --user start/stop/enable/disable 的操作对象。
+pub const SYSTEMD_UNIT_NAME: &str = "dsh-supervisor";
+/// systemd 用户单元文件名：落点 ~/.config/systemd/user/<该名>。
+pub const SYSTEMD_UNIT_FILE: &str = "dsh-supervisor.service";
+/// macOS 守卫 LaunchAgent label：plist 文件名与 launchctl bootstrap/bootout/kickstart 的操作对象。
+pub const MACOS_GUARD_LABEL: &str = "com.dsh.supervisor";
+/// macOS 壳 LaunchAgent label：登录自启壳用，内核自启层建立/删除。
+pub const MACOS_GUI_LABEL: &str = "com.dsh.supervisor.gui";
+
+// ── 产物名模板 ──────────────────────────────────────────────────────────────
+/// 内核 SEA 产物名：esbuild 打包 bin 的输出文件名。
+pub const SEA_BUNDLE_NAME: &str = "core.cjs";
+/// 版本注入宏名：esbuild --define 的键，也是内核读自报版本的常量名。
+pub const SEA_VERSION_DEFINE: &str = "__DSH_VERSION__";
+/// 内核源码归档名模板：release.sh 的 PAK + .tar.gz。
+pub const KERNEL_ARCHIVE_TEMPLATE: &str = "dsh-supervisor-{ver}.tar.gz";
+/// 内核 GitHub Release 资产名模板：core.yml 逐平台打包的 tar.gz。
+pub const KERNEL_RELEASE_TARBALL_TEMPLATE: &str = "dsh-supervisor-kernel-{ver}-{plat}.tar.gz";
+/// 内核 launcher 产物目录名模板：build-launcher.sh 派生、publish-core.sh 回读。
+pub const LAUNCHER_DIR_TEMPLATE: &str = "dsh-supervisor-{ver}-{plat}-{arch}";
+/// Windows NSIS 安装包名模板（Tauri 由 productName 派生）。
+pub const INSTALLER_NSIS_WIN_X64_TEMPLATE: &str = "{product}_{ver}_x64-setup.exe";
+/// macOS .app 归档名模板（updater 资产）。
+pub const INSTALLER_MACOS_APP_TEMPLATE: &str = "{product}.app.tar.gz";
+/// Linux deb 包名模板。
+pub const INSTALLER_DEB_LINUX_X64_TEMPLATE: &str = "{product}_{ver}_amd64.deb";
+/// macOS arm64 dmg 名模板。
+pub const INSTALLER_DMG_ARM64_TEMPLATE: &str = "{product}_{ver}_aarch64.dmg";
+/// macOS x64 dmg 名模板。
+pub const INSTALLER_DMG_X64_TEMPLATE: &str = "{product}_{ver}_x64.dmg";
+/// Windows 上内核可执行名的三种形态：壳在 %APPDATA%\npm 与新前缀下按它探测。
+pub const CLI_BIN_NAMES: &[&str] = &["dsh-supervisor.exe", "dsh-supervisor.cmd", "dsh-supervisor"];
+/// 安装冒烟在 PATH 上找内核入口的三种形态。
+pub const CLI_SHIM_NAMES: &[&str] = &["dsh-supervisor", "dsh-supervisor.cmd", "dsh-supervisor.ps1"];
+/// 桌面壳可执行名的两种形态。
+pub const GUI_BIN_NAMES: &[&str] = &["dsh-supervisor-gui", "dsh-supervisor-gui.exe"];
+
+// ── 进程匹配模式 ────────────────────────────────────────────────────────────
+/// 守卫进程的命令行匹配模式：Windows 按命令行含此串精确杀守卫（镜像名是 node.exe，按镜像名杀不到）。
+pub const PROC_MATCH_GUARD: &str = "*dsh-supervisor*";
+/// 壳进程名匹配串：内核用 pgrep 找壳进程。
+pub const PROC_MATCH_GUI: &str = "dsh-supervisor-gui";
+/// 壳进程正则源：内核 isShellProcess 判命令行是否属于壳（.exe 可选）。
+pub const PROC_MATCH_GUI_RE: &str = "dsh-supervisor-gui(\\.exe)?";
+
+/// 家目录 + 相对段 的拼接（状态根三平台规则的共同动作）。
+fn home_join(home: &Path, segments: &[&str]) -> PathBuf {
+    segments.iter().fold(home.to_path_buf(), |p, s| p.join(*s))
+}
+
+/// 状态根推导规则（Windows）：基座取 `LOCALAPPDATA`（空白或缺失则退回 <家>/AppData/Local），拼状态根目录名。
+pub fn state_root_windows(local_appdata: Option<String>, home: &Path) -> PathBuf {
+    let base = local_appdata
+        .filter(|s| !s.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_join(home, STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS));
+    base.join(STATE_DIR_NAME)
+}
+
+/// 状态根推导规则（macOS）：<家>/Library/Application Support/ + 状态根目录名。
+pub fn state_root_macos(home: &Path) -> PathBuf {
+    home_join(home, STATE_ROOT_MACOS_SEGMENTS).join(STATE_DIR_NAME)
+}
+
+/// 状态根推导规则（Linux 及未支持平台）：基座取 `XDG_STATE_HOME`（空则退回 <家>/.local/state），拼状态根目录名。
+/// 基座按 `OsString` 原样取用，非 UTF-8 的 XDG 基座不做二次解码。
+pub fn state_root_linux(xdg_state_home: Option<std::ffi::OsString>, home: &Path) -> PathBuf {
+    if let Some(x) = xdg_state_home {
+        if !x.is_empty() {
+            return Path::new(&x).join(STATE_DIR_NAME);
+        }
+    }
+    home_join(home, STATE_ROOT_LINUX_FALLBACK_SEGMENTS).join(STATE_DIR_NAME)
+}

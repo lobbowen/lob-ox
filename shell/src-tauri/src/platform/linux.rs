@@ -8,6 +8,10 @@ use super::{home_dir, user_name, Capabilities, LaunchSpec, Platform, SVC_NORMAL,
 
 pub const NAME: &str = "linux";
 
+/// systemd 用户单元的短名与文件名：本文件是这两个名字在 Rust 侧的消费点（服务定义、enable、start/stop 走同一对常量）。
+const UNIT_NAME: &str = crate::brand::SYSTEMD_UNIT_NAME;
+const UNIT_FILE: &str = crate::brand::SYSTEMD_UNIT_FILE;
+
 const INSTALL_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 /// Linux 可用提权通道（按优先级）。单一事实源，只由 `has_privilege_channel()` 使用：提权唯一消费者是壳自更新（deb 落系统目录），探测与实际执行必须同源；Node 安装刻意不经过这里（解到用户级状态目录，零权限）。
@@ -146,7 +150,7 @@ impl ServiceControl for Impl {
             .join(".config")
             .join("systemd")
             .join("user")
-            .join("dsh-supervisor.service")
+            .join(UNIT_FILE)
     }
 
         /// 建立 systemd 用户单元（幂等，且内容过时时自愈）：先算期望内容与磁盘比对，不存在则写入并首次启用、不同则只重写定义、一致则不触碰。
@@ -155,7 +159,8 @@ impl ServiceControl for Impl {
                 // 模板内嵌（不依赖外部 systemd/*.service 文件）。ExecStart 的可执行路径必须自带引号：systemd 对第一个参数按 shell-like 规则解析，未加引号的空格会把含空格的家目录拆成两段。ExecStart 只指向稳定入口 <壳> --run-guard；node/guard 不写进 unit，由 --run-guard 每次启动重新检测。
         let (shell, args) = spec.service_command();
         let exec_start = crate::platform::service_exec_line(shell, args);
-        let body = "[Unit]\nDescription=dsh-supervisor - DSH lifecycle guard\nAfter=network.target\nStartLimitIntervalSec=600\nStartLimitBurst=3\n\n[Service]\nType=simple\nEnvironment=\"DSH_SUPERVISOR_HOME=@ROOT@\"\nExecStart=@EXEC@\nRestart=always\nRestartSec=5\nKillMode=process\n\n[Install]\nWantedBy=default.target\n"
+        let body = "[Unit]\nDescription=@NAME@ - DSH lifecycle guard\nAfter=network.target\nStartLimitIntervalSec=600\nStartLimitBurst=3\n\n[Service]\nType=simple\nEnvironment=\"DSH_SUPERVISOR_HOME=@ROOT@\"\nExecStart=@EXEC@\nRestart=always\nRestartSec=5\nKillMode=process\n\n[Install]\nWantedBy=default.target\n"
+            .replace("@NAME@", UNIT_NAME)
             .replace("@ROOT@", &spec.state_root.display().to_string())
             .replace("@EXEC@", &exec_start);
         let existing = std::fs::read_to_string(&path).ok();
@@ -180,7 +185,7 @@ impl ServiceControl for Impl {
             return Ok(format!("已更新定义（自启位未改动） {}", path.display()));
         }
         let en = crate::bounded::run(
-            Command::new("systemctl").args(["--user", "enable", "dsh-supervisor.service"]),
+            Command::new("systemctl").args(["--user", "enable", UNIT_FILE]),
             SVC_NORMAL,
         );
         crate::bounded::run_lossy(
@@ -204,16 +209,16 @@ impl ServiceControl for Impl {
 
     fn start(&self) -> Result<(), String> {
         crate::bounded::run_checked(
-            Command::new("systemctl").args(["--user", "start", "dsh-supervisor"]),
+            Command::new("systemctl").args(["--user", "start", UNIT_NAME]),
             SVC_NORMAL,
-            "systemctl --user start dsh-supervisor",
+            &format!("systemctl --user start {}", UNIT_NAME),
         )
         .map(|_| ())
     }
 
     fn stop(&self) -> Result<(), String> {
         crate::bounded::run_checked(
-            Command::new("systemctl").args(["--user", "stop", "dsh-supervisor"]),
+            Command::new("systemctl").args(["--user", "stop", UNIT_NAME]),
             SVC_NORMAL,
             "systemctl --user stop",
         )

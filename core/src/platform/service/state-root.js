@@ -3,38 +3,29 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const BRAND = require('../../shared/brand');
 
 const SCHEMA = 1;
 
 function root() {
-  const override = process.env.DSH_SUPERVISOR_HOME;
+  const override = process.env[BRAND.ENV_STATE_ROOT];
   if (override && String(override).trim()) return path.resolve(String(override).trim());
-  if (process.platform === 'win32') {
-    const local = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-    return path.join(local, 'dsh-supervisor');
-  }
-  if (process.platform === 'darwin') {
-    return path.join(os.homedir(), 'Library', 'Application Support', 'dsh-supervisor');
-  }
-  const xdg = process.env.XDG_STATE_HOME;
-  return xdg && String(xdg).trim()
-    ? path.join(String(xdg).trim(), 'dsh-supervisor')
-    : path.join(os.homedir(), '.local', 'state', 'dsh-supervisor');
+  return BRAND.stateRoot(process.platform, process.env, os.homedir());
 }
 
 function supervisorDir() {
-  return path.join(root(), 'supervisor');
+  return path.join(root(), BRAND.STATE_SUPERVISOR_SUBDIR);
 }
 
 function shellDir() {
-  return path.join(root(), 'shell');
+  return path.join(root(), BRAND.STATE_SHELL_SUBDIR);
 }
 
 function legacySupervisorDir() {
-  return path.join(os.homedir(), '.dsh', 'supervisor');
+  return path.join(os.homedir(), BRAND.LEGACY_HARNESS_DIR, BRAND.STATE_SUPERVISOR_SUBDIR);
 }
 function legacyShellDir() {
-  return path.join(os.homedir(), '.dsh', 'shell');
+  return path.join(os.homedir(), BRAND.LEGACY_HARNESS_DIR, BRAND.STATE_SHELL_SUBDIR);
 }
 
 function why(e) { return ((e && e.code) ? e.code + ': ' : '') + ((e && e.message) || String(e)); }

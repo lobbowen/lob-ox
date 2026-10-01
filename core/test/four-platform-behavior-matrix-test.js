@@ -7,6 +7,7 @@ const { execFileSync } = require('node:child_process');
 const ROOT = path.join(__dirname, '..');
 const matrix = require(path.join(ROOT, 'src', 'platform', 'contract', 'matrix.js'));
 const osLayer = require(path.join(ROOT, 'src', 'platform', 'os', 'index.js'));
+const BRAND = require(path.join(ROOT, 'src', 'shared', 'brand.js'));
 
 const results = [];
 const check = (n, c, x) => {
@@ -80,12 +81,13 @@ function underFake(platform, arch, body) {
   // guardCorePkg 落在 app/settings/versions.js（不在 env.js），导出形态为 { methods } ⇒ 必须读 desc.methods.guardCorePkg。
   const svPath = path.join(ROOT, 'src', 'app', 'settings', 'versions.js');
   for (const [p, a, want] of [
+    // 期望名保持为**独立预言字面量**（不取自单源，避免拿同一个源证明自己）；单源侧的拼接规则由 brand-single-source-test.js 逐字钉住。
     ['linux', 'x64', '@lob-ox/dsh-core-linux-x64'],
     ['win32', 'x64', '@lob-ox/dsh-core-win-x64'],
   ]) {
     const out = underFake(p, a, [
       "const desc = require(" + JSON.stringify(svPath) + ");",
-      "const o = { config: { corePackageName: '@lob-ox/dsh-core-{os}-{arch}' } };",
+      "const o = { config: { corePackageName: '" + BRAND.corePackageName('{os}-{arch}') + "' } };",
       "Object.defineProperty(o, 'guardCorePkg', { value: desc.methods.guardCorePkg });",
       "process.stdout.write(String(o.guardCorePkg()));",
     ].join(String.fromCharCode(10)));

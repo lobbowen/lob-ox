@@ -7,6 +7,10 @@ if [ $# -ne 5 ]; then
 fi
 A=$1 AVER=$2 B=$3 BVER=$4 WORK=$5
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+# systemd 单元名取自跨语言单源（core/src/shared/brand.js），本脚本不再手写服务名。
+BRAND_JS="$SCRIPT_DIR/../../core/src/shared/brand.js"
+UNIT_FILE=$(node -e 'process.stdout.write(require(process.argv[1]).SYSTEMD_UNIT_FILE)' "$BRAND_JS")
+[ -n "$UNIT_FILE" ] || { echo "读不到 systemd unit 名（单源 $BRAND_JS）"; exit 1; }
 OS=$(uname -s)
 STATE=$WORK/state
 FK=$WORK/fake-core
@@ -89,8 +93,8 @@ chain_linux() {
   export DSH_SUPERVISOR_HOME="$STATE"
   # 守卫由 unit 的 Restart=always 反复拉起，只杀进程不删定义会一直复活；runner 上的残留会污染下一步对拉起次数的计数，所以服务定义与进程都要收口。
   trap 'pkill -f "$FK/bin/dsh-supervisor" 2>/dev/null || true
-        systemctl --user disable --now dsh-supervisor.service 2>/dev/null || true
-        rm -f "$HOME/.config/systemd/user/dsh-supervisor.service"' EXIT
+        systemctl --user disable --now "$UNIT_FILE" 2>/dev/null || true
+        rm -f "$HOME/.config/systemd/user/$UNIT_FILE"' EXIT
   "$BIN" --watchdog || fail chain "装好的壳未在预算内判为就绪，见 $STATE/shell/shell.log 与 $STATE/shell/guard.log"
   grep -q '"supervisor-api"' "$STATE/supervisor/ports.json" \
     || fail chain "ports.json 缺 supervisor-api 记录（进程没真的绑定端口）"

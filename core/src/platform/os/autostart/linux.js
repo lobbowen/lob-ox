@@ -5,6 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 const ex = require('../../util/exec');
 const { writeAtomic } = require('../../util/fs');
+const BRAND = require('../../../shared/brand');
 
 const GUI_AUTOSTART_TEMPLATE = [
   '[Desktop Entry]',
@@ -24,7 +25,7 @@ function guiFile() {
 
 function status() {
   let unit = 'unknown';
-  const en = ex.runDetail('systemctl', ['--user', 'is-enabled', 'dsh-supervisor.service']);
+  const en = ex.runDetail('systemctl', ['--user', 'is-enabled', BRAND.SYSTEMD_UNIT_FILE]);
   unit = String(en.stdout || en.stderr || 'disabled').trim() || 'disabled';
   return { kind: 'systemd', unit, on: unit === 'enabled', gui: fs.existsSync(guiFile()) };
 }
@@ -33,7 +34,7 @@ function setAutostart(on, deps) {
   const errors = [];
   { const r = ex.runDetail('systemctl', ['--user', 'daemon-reload']);
     if (!r.ok) errors.push('daemon-reload: ' + (r.error || '执行失败')); }
-  { const r = ex.runDetail('systemctl', ['--user', on ? 'enable' : 'disable', 'dsh-supervisor.service']);
+  { const r = ex.runDetail('systemctl', ['--user', on ? 'enable' : 'disable', BRAND.SYSTEMD_UNIT_FILE]);
     if (!r.ok) errors.push((on ? 'enable' : 'disable') + ': ' + (r.error || '执行失败')); }
   { const r = ex.runDetail('loginctl', [on ? 'enable-linger' : 'disable-linger', os.userInfo().username]);
     if (!r.ok && on) errors.push('enable-linger: ' + (r.error || '执行失败')); }

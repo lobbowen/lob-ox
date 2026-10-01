@@ -206,6 +206,10 @@ jobs:
         shell: bash
         run: |
           set -u
+          # systemd 单元名取自跨语言单源（core/src/shared/brand.js），本步不再手写服务名。
+          BRAND_JS="$GITHUB_WORKSPACE/core/src/shared/brand.js"
+          UNIT_FILE="$(node -e 'process.stdout.write(require(process.argv[1]).SYSTEMD_UNIT_FILE)' "$BRAND_JS")"
+          [ -n "$UNIT_FILE" ] || { echo "读不到 systemd unit 名（单源 $BRAND_JS）"; exit 1; }
           BIN=./target/debug/dsh-supervisor-gui
           STATE="$RUNNER_TEMP/shell-chain-state"
           PKG="$RUNNER_TEMP/shell-chain-fake-core"
@@ -223,8 +227,8 @@ jobs:
           # 兜底 spawn 的守卫是脱离本进程的 node：unit 带 Restart=always，故连服务管理器一侧一起停
           #   并删定义（残留进程会在这一步之后继续被拉起，干扰后面的计数断言）。
           trap 'pkill -f "$PKG/bin/dsh-supervisor" 2>/dev/null || true;
-                systemctl --user disable --now dsh-supervisor.service 2>/dev/null || true;
-                rm -f "$HOME/.config/systemd/user/dsh-supervisor.service"' EXIT
+                systemctl --user disable --now "$UNIT_FILE" 2>/dev/null || true;
+                rm -f "$HOME/.config/systemd/user/$UNIT_FILE"' EXIT
           if ! "$BIN" --watchdog; then
             echo "第一步：拉起后未在预算内判为就绪（详见上方 shell.log 与 $STATE/shell/guard.log）"
             cat "$STATE/shell/shell.log" 2>/dev/null || true
@@ -247,6 +251,11 @@ jobs:
         shell: bash
         run: |
           set -u
+          # 计划任务名取自跨语言单源（core/src/shared/brand.js），本步不再手写任务名。
+          BRAND_JS="$GITHUB_WORKSPACE/core/src/shared/brand.js"
+          GUARD_TASK="$(node -e 'process.stdout.write(require(process.argv[1]).WINDOWS_GUARD_TASK)' "$BRAND_JS")"
+          WATCHDOG_TASK="$(node -e 'process.stdout.write(require(process.argv[1]).WINDOWS_WATCHDOG_TASK)' "$BRAND_JS")"
+          { [ -n "$GUARD_TASK" ] && [ -n "$WATCHDOG_TASK" ]; } || { echo "读不到计划任务名（单源 $BRAND_JS）"; exit 1; }
           BIN=./target/debug/dsh-supervisor-gui.exe
           STATE="$RUNNER_TEMP/windows-service-state"
           rm -rf "$STATE"; mkdir -p "$STATE"
@@ -273,7 +282,7 @@ jobs:
           grep -q '未写盘' <<<"$OUT2" || { echo "只读自检走了写盘分支"; exit 1; }
           # 计划任务是机器级状态，隔离不到 RUNNER_TEMP ⇒ 显式清理。
           export MSYS2_ARG_CONV_EXCL='*'
-          for t in DSH-Supervisor DSH-Supervisor-Watchdog; do
+          for t in "$GUARD_TASK" "$WATCHDOG_TASK"; do
             schtasks /Delete /TN "$t" /F 2>&1 | tail -2 || echo "警告：清理 $t 失败（不影响本步判定）"
           done
           echo "Windows 服务定义冒烟通过：装配定义行 → schtasks /Create → /Query 回读现存"

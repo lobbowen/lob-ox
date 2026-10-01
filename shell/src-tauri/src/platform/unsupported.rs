@@ -102,12 +102,10 @@ impl Platform for Impl {
     }
 
     fn state_root_default(&self) -> PathBuf {
-        if let Some(x) = std::env::var_os("XDG_STATE_HOME") {
-            if !x.is_empty() {
-                return Path::new(&x).join("dsh-supervisor");
-            }
-        }
-        super::home_dir().join(".local").join("state").join("dsh-supervisor")
+        crate::brand::state_root_linux(
+            std::env::var_os(crate::brand::STATE_ROOT_LINUX_XDG_ENV),
+            &super::home_dir(),
+        )
     }
 
     fn is_local_fixed_dir(&self, _dir: &Path) -> bool {

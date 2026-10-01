@@ -8,9 +8,10 @@ const os = require('node:os');
 const ex = require('../../util/exec');
 const { writeAtomic } = require('../../util/fs');
 const { shellDir } = require('../../service/state-root');
+const BRAND = require('../../../shared/brand');
 
-const GUARD_LABEL = 'com.dsh.supervisor';
-const GUI_LABEL = 'com.dsh.supervisor.gui';
+const GUARD_LABEL = BRAND.MACOS_GUARD_LABEL;
+const GUI_LABEL = BRAND.MACOS_GUI_LABEL;
 const MAC_T = 8000;
 
 function laFile(name) {

@@ -51,7 +51,6 @@ const ENTRIES = [
   { file: "test/shell-watchdog-e2e-test.js", tier: "L2", os: "all", why: "真 start() 拉起假壳进程" },
   { file: "test/shell-safety-net-test.js", tier: "L2", os: "all", why: "含专为 win32 修的分支与 exePath 夹具" },
   { file: "test/platform-matrix-single-source-test.js", tier: "L1", os: "all", why: "纯函数 npmTag/osTag/frpTag + 清单对账" },
-  { file: "test/brand-single-source-test.js", tier: "L1", os: "all", why: "纯逻辑：解析 brand.rs 常量与 brand.js 逐值+名字集合对账（跨语言单源）" },
   { file: "test/destructive-op-safety-test.js", tier: "L2", os: "linux,darwin", why: "chmod/字节哈希在真 FS 上（真机令牌唯一字节级防线）" },
   { file: "test/credential-hygiene-test.js", tier: "L2", os: "linux,darwin", why: "cred.sh 子进程 + 0700 位" },
   { file: "test/platform-parsers-and-commands-test.js", tier: "L2", os: "all", why: "真 node -e 子进程 + 真 FS 探测" },
