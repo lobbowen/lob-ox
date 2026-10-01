@@ -176,7 +176,7 @@ mod tests {
     impl Env {
         fn new(tag: &str) -> Self {
             let g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-            let dir = std::env::temp_dir().join(format!("dsh-shell-{}-{}", tag, std::process::id()));
+            let dir = std::env::temp_dir().join(format!("lobox-shell-{}-{}", tag, std::process::id()));
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).expect("create temp dir");
             *TEST_STATE_DIR.lock().unwrap_or_else(|e| e.into_inner()) = Some(dir.clone());

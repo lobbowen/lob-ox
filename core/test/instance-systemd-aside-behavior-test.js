@@ -56,7 +56,7 @@ function scenario() {
   const systemdDir = fs.mkdtempSync(path.join(tmpRoot, 'user-'));
   const template = path.join(systemdDir, 'dsh-web@.service');
   fs.writeFileSync(template, '[Unit]\nDescription=legacy\n');
-  const userFile = template + '.disabled-by-dsh';
+  const userFile = template + '.disabled-by-lobox';
   const userBody = 'USER-OWNED-CONTENT-DO-NOT-DELETE\n';
   fs.writeFileSync(userFile, userBody);
   return { systemdDir, template, userFile, userBody };
@@ -83,7 +83,7 @@ try {
 
   check('原模板路径已不存在（已让位）', !fs.existsSync(s.template), String(fs.existsSync(s.template)));
 
-  const asideFiles = fs.readdirSync(s.systemdDir).filter((f) => f.startsWith('dsh-web@.service.disabled-by-dsh-'));
+  const asideFiles = fs.readdirSync(s.systemdDir).filter((f) => f.startsWith('dsh-web@.service.disabled-by-lobox-'));
   check('存在带时间戳的让位文件', asideFiles.length === 1, asideFiles.join(', '));
   if (asideFiles.length === 1) {
     const asidePath = path.join(s.systemdDir, asideFiles[0]);
@@ -98,7 +98,7 @@ try {
 
   const s2 = scenario();
   const mgr2 = makeMgr(s2.systemdDir);
-  const asideOf = () => fs.readdirSync(s2.systemdDir).filter((f) => f.startsWith('dsh-web@.service.disabled-by-dsh-'));
+  const asideOf = () => fs.readdirSync(s2.systemdDir).filter((f) => f.startsWith('dsh-web@.service.disabled-by-lobox-'));
   mgr2._prepareSystemd();
   const firsts = asideOf();
   check('首次让位产生唯一命名的让位文件', firsts.length === 1, firsts.join(', '));

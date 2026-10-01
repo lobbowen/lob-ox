@@ -65,7 +65,7 @@ const KINDS = {
     captured: false,
     store: 'browser',
     unitBacked: false,
-    desc: 'lan gate cookie（dsh_lan_token，我方签发并校验）',
+    desc: 'lan gate cookie（lobox_lan_token，我方签发并校验）',
   },
 };
 

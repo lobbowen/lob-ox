@@ -2,6 +2,7 @@
 
 const { createRelay } = require('../proxy');
 const portsvc = require('../ports');
+const BRAND = require('../../../shared/brand');
 
 function startLanServer(host, inst) {
   host._lanServers = host._lanServers || {};
@@ -72,7 +73,7 @@ function applyToken(host, instId) {
   const server = proxy && host._lanServers && host._lanServers[proxy.id];
   if (server && typeof server.setDshToken === 'function') {
     server.setDshToken();
-    if (host.events) host.events.append('lan_dsh_token_updated', { id: instId });
+    if (host.events) host.events.append(BRAND.EVENT_LAN_HARNESS_TOKEN_UPDATED, { id: instId });
   }
   return !!server;
 }

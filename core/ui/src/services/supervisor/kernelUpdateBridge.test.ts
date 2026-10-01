@@ -7,9 +7,10 @@ import {
   type KernelUpdateResult,
 } from "./kernelUpdateBridge";
 
-const REQUEST = "dsh:kernel-update-request";
-const RESULT = "dsh:kernel-update-result";
-const PROGRESS = "dsh:kernel-update-progress";
+// 与实现同值的冻结字面量（改实现不改此处必红）；壳侧同名的字面量由 core/test/brand-single-source-test.js J 段对账。
+const REQUEST = "lobox:kernel-update-request";
+const RESULT = "lobox:kernel-update-result";
+const PROGRESS = "lobox:kernel-update-progress";
 
 type Handler = (ev: MessageEvent) => void;
 

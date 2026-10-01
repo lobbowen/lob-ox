@@ -2,6 +2,7 @@
 
 const { validateWanAccess, generateRemoteToken } = require('../../domains/relay/core');
 const { remoteTokenStrength } = require('../../shared/credential');
+const BRAND = require('../../shared/brand');
 
 function lanModule(deps) {
   const lm = typeof deps.getLifecycleManager === 'function' ? deps.getLifecycleManager() : null;
@@ -43,7 +44,7 @@ function createLanActions(deps) {
     }
     if (modeEventPayload) {
       const events = g.getEvents();
-      if (events) { try { events.append('dsh_remote_changed', modeEventPayload); } catch {} }
+      if (events) { try { events.append(BRAND.EVENT_HARNESS_REMOTE_CHANGED, modeEventPayload); } catch {} }
     }
   }
 
@@ -68,7 +69,7 @@ function createLanActions(deps) {
           applyMainIntent(patch, { id: 'main', name: '原生 DSH', mode });
           if (allocate) {
             const events = g.getEvents();
-            if (events) { try { events.append('dsh_remote_token_changed', { id: 'main', tokenSet: true, autoAllocated: true }); } catch {} }
+            if (events) { try { events.append(BRAND.EVENT_HARNESS_REMOTE_TOKEN_CHANGED, { id: 'main', tokenSet: true, autoAllocated: true }); } catch {} }
           }
         }
         return { ok: true, tokenAutoAllocated: allocate };
@@ -93,7 +94,7 @@ function createLanActions(deps) {
       if (target.kind === 'main') {
         applyMainIntent({ remoteToken: next }, null);
         const events = g.getEvents();
-        if (events) { try { events.append('dsh_remote_token_changed', { id: 'main', tokenSet: next !== '' }); } catch {} }
+        if (events) { try { events.append(BRAND.EVENT_HARNESS_REMOTE_TOKEN_CHANGED, { id: 'main', tokenSet: next !== '' }); } catch {} }
         return { ok: true };
       }
       return g.getInstances().updateInstance(id, { remoteToken: next });

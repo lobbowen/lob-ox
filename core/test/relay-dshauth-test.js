@@ -73,12 +73,12 @@ async function main() {
     String(noToken.headers['cache-control'] || '') === 'no-store' && String(withToken.headers['cache-control'] || '') === 'no-store',
     JSON.stringify([noToken.headers['cache-control'], withToken.headers['cache-control']]));
   check('场景3: ?token=lan-secret → 302 且所种 cookie 为派生 64hex（不含令牌原文）',
-    withToken.code === 302 && /^dsh_lan_token=[0-9a-f]{64}(;|$)/.test(sc2) && !sc2.includes('lan-secret'),
+    withToken.code === 302 && /^lobox_lan_token=[0-9a-f]{64}(;|$)/.test(sc2) && !sc2.includes('lan-secret'),
     withToken.code + ' ' + sc2);
-  const lanCk = 'dsh_lan_token=' + ((/dsh_lan_token=([^;]+)/.exec(sc2) || [])[1] || '');
+  const lanCk = 'lobox_lan_token=' + ((/lobox_lan_token=([^;]+)/.exec(sc2) || [])[1] || '');
   const withCookie = await req(p2, 'GET', '/', { Cookie: lanCk });
   check('场景3: lan 派生 cookie + DSH 桥 → 200', withCookie.code === 200, withCookie.code + ' ' + withCookie.body);
-  const rawAsCookie = await req(p2, 'GET', '/', { Cookie: 'dsh_lan_token=lan-secret' });
+  const rawAsCookie = await req(p2, 'GET', '/', { Cookie: 'lobox_lan_token=lan-secret' });
   check('场景3: 门卫令牌原文冒充 cookie → 401（原文只容 ?token= 一次性出示）', rawAsCookie.code === 401, String(rawAsCookie.code));
 
   const rf = await req(p2, 'GET', '/anything', { Cookie: lanCk, Origin: 'http://192.168.3.64:3088', Referer: 'http://192.168.3.64:3088/' });

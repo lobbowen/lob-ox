@@ -95,7 +95,7 @@ const ENVIRONMENT_FORM = {
       data: { node: 'v24.18.0', npm: '11.0.0', git: null, registry: { origin: 'https://registry.npmjs.org', mode: 'default' }, prefix: 'C:\\npm' } },
     shell: { label: '桌面壳所见（Node/npm/镜像源/全局前缀）', at: 1700000000000, source: 'shell', state: 'ok', error: null,
       data: { available: true, reason: 'ok', path: 'C:\\s\\shell-report.json', at: 1699999900000, ageMs: 100000,
-        writtenBy: 'dsh-shell 1.2.8', schema: 1,
+        writtenBy: 'lobox-shell 1.2.8', schema: 1,
         node: { path: 'C:\\n\\node.exe', binDir: 'C:\\n', version: 'v22.12.0', min: 'v22.12.0', ok: true },
         npm: { path: 'C:\\n\\node.exe', args: ['C:\\n\\node_modules\\npm\\bin\\npm-cli.js'], version: '10.9.0', ok: true },
         prefix: { dir: 'C:\\Users\\u\\AppData\\Roaming\\npm', writable: true, why: null },
@@ -302,7 +302,7 @@ function reqH(method, p, headers, body) {
       JSON.stringify({ order: SRC_SECTION_ORDER, keys: Object.keys(secs).map((id) => [id, secs[id].state, secs[id].at]) }));
     check('EF 壳上报维连 reason/ageMs 一起交出（「壳没报」与「报了读不出」处置相反，缺一个字段面板就说错话）',
       secs.shell.data.available === true && secs.shell.data.reason === 'ok'
-        && secs.shell.data.ageMs === 100000 && secs.shell.data.writtenBy === 'dsh-shell 1.2.8'
+        && secs.shell.data.ageMs === 100000 && secs.shell.data.writtenBy === 'lobox-shell 1.2.8'
         && secs.shell.data.node.version === 'v22.12.0' && secs.shell.data.npm.args.length === 1
         && secs.shell.data.registry.probes[0].ok === null && secs.shell.data.records.length === 1,
       JSON.stringify(secs.shell && secs.shell.data));

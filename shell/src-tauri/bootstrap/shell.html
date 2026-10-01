@@ -97,7 +97,8 @@
           panelUrl = u;
           retried = 0;
           var sep = u.indexOf('?') >= 0 ? '&' : '?';
-          frame.src = u + sep + 'dsh_retry=' + Date.now();
+          // 破缓存参数：只影响本页对面板 URL 的请求，服务端不读它（内联 HTML 不能引用单源，故留字面量）。
+          frame.src = u + sep + 'lobox_retry=' + Date.now();
         }).catch(function () {});
       }).catch(retry);
     };
@@ -117,7 +118,7 @@
       if (!panelUrl || retried >= 2) return;
       retried++;
       var sep = panelUrl.indexOf('?') >= 0 ? '&' : '?';
-      frame.src = panelUrl + sep + 'dsh_retry=' + Date.now();
+      frame.src = panelUrl + sep + 'lobox_retry=' + Date.now();
     });
 
     var BRIDGE = null;

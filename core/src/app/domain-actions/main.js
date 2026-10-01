@@ -1,5 +1,7 @@
 'use strict';
 
+const BRAND = require('../../shared/brand');
+
 function createMainActions(deps) {
   const g = deps || {};
   return {
@@ -14,7 +16,7 @@ function createMainActions(deps) {
       try {
         const events = g.getEvents();
         if (p.guardian !== undefined && prev.guardian !== meta.guardian) {
-          events.append('dsh_guardian_changed', { id: 'main', name: '原生 DSH', enabled: meta.guardian === true });
+          events.append(BRAND.EVENT_HARNESS_GUARDIAN_CHANGED, { id: 'main', name: '原生 DSH', enabled: meta.guardian === true });
         }
       } catch (e) { const logger = g.getLogger(); logger && logger.warn && logger.warn('patchDshMain event: ' + ((e && e.message) || e)); }
       return { ok: true, main: g.getViews().dshMain() };

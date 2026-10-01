@@ -1,6 +1,7 @@
 'use strict';
 const fs = require('node:fs');
 const monitor = require('../../platform/service/monitor');
+const BRAND = require('../../shared/brand');
 const ports = require('../../platform/service/ports').shared;
 const guardian = require('../../shared/guardian');
 const sandbox = require('./sandbox');
@@ -21,9 +22,10 @@ function createLifecycle(deps) {
       fs.mkdirSync(systemdDir, { recursive: true });
       if (fs.existsSync(systemdTemplatePath)) {
         const stamp = Date.now();
-        let aside = systemdTemplatePath + '.disabled-by-dsh-' + stamp;
+        // 后缀取自单源：模板名 `dsh-web@.service` 属被监管产品（不改），这个标记是**我方**加的。
+        let aside = systemdTemplatePath + BRAND.SYSTEMD_TEMPLATE_ASIDE_SUFFIX + stamp;
         let n = 1;
-        while (fs.existsSync(aside)) { aside = systemdTemplatePath + '.disabled-by-dsh-' + stamp + '-' + (n++); }
+        while (fs.existsSync(aside)) { aside = systemdTemplatePath + BRAND.SYSTEMD_TEMPLATE_ASIDE_SUFFIX + stamp + '-' + (n++); }
         fs.renameSync(systemdTemplatePath, aside);
         logger.info && logger.info('已将阻挡 systemd-run 的模板让位（改名保留，未删除）：' + aside);
         if (events) events.append('systemd_template_moved_aside', { from: systemdTemplatePath, to: aside });

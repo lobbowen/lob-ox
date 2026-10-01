@@ -4,6 +4,7 @@ const spawnOS = require('../../platform/os/spawn');
 const pidlook = require('../../platform/os/pidlookup');
 const { LineBuffer } = require('../../platform/service/log/log');
 const native = require('../../app/native/command');
+const BRAND = require('../../shared/brand');
 const { findManagedDshPort, applyMainPort } = require('./port-rederive');
 
 const DEPS = new WeakMap();
@@ -50,7 +51,7 @@ module.exports = {
     d.writeCrashHalted(false);
     const nst = d.nativeManager() ? d.nativeManager().status() : { installed: true };
     if (!nst.installed) {
-      d.events().append('dsh_not_installed', { bin: nst.binPath });
+      d.events().append(BRAND.EVENT_HARNESS_NOT_INSTALLED, { bin: nst.binPath });
       if (!d.mMissingNotified()) {
         d.mSetMissingNotified(true);
         d.ui().notify('未检测到 DeepSeek Harness', '可在 lobox 面板一键安装');
@@ -98,7 +99,7 @@ module.exports = {
       if (d.mChild() === child && d.state().phase() === 'STARTING') {
         d.mSetChild(null);
         if (err.code === 'ENOENT') {
-          d.events().append('dsh_command_missing', { command: d.config().command[0] });
+          d.events().append(BRAND.EVENT_HARNESS_COMMAND_MISSING, { command: d.config().command[0] });
           d.logger().warn('command missing: ' + d.config().command.join(' ') + ' — 60s 冷静期内不再尝试');
           if (!d.mMissingNotified()) {
             d.mSetMissingNotified(true);
@@ -116,7 +117,7 @@ module.exports = {
       outBuf.flush();
       errBuf.flush();
       if (d.mChild() !== child) return;
-      d.events().append('dsh_exited', { code, signal, phase: d.state().phase() });
+      d.events().append(BRAND.EVENT_HARNESS_EXITED, { code, signal, phase: d.state().phase() });
       d.mSetChild(null);
       if (d.stopping()) return;
       if (d.state().desired() !== 'running') return;

@@ -18,7 +18,7 @@ import { EVENT_LABELS, SUP_PHASE_META, friendlyFailure } from "./nav";
 import { useSupervisorAction } from "./useSupervisorAction";
 import { runOpenExternal } from "./openExternal";
 
-const NOISE = new Set(["dist_registry_selected", "gui_autostart_changed", "autostart_changed", "lan_panel_changed", "lan_dsh_token_updated"]);
+const NOISE = new Set(["dist_registry_selected", "gui_autostart_changed", "autostart_changed", "lan_panel_changed", "lan_harness_token_updated"]);
 
 export function OverviewPage() {
   const { snap } = useSupervisorData();
@@ -378,15 +378,15 @@ function eventDetail(e: SupervisorEvent): string {
   if (e.type === "provider_quota_refreshed") return (d.provider || "") + " 额度已刷新";
   if (e.type === "proxy_update_available") return [(d.pkg || ""), (d.from || ""), (d.to || "")].filter(Boolean).join(" → ");
   if (e.type === "proxy_instance_started") return "port=" + (d.port ?? "") + (d.pid ? " pid=" + d.pid : "");
-  if (e.type === "dsh_guardian_changed" || e.type === "inst_guardian_changed") {
+  if (e.type === "harness_guardian_changed" || e.type === "inst_guardian_changed") {
     const who = d.name || (d.id === "main" ? "原生 DSH" : d.id || "实例");
     return who + " · 进程守护" + (d.enabled === true ? " → 开启" : " → 关闭");
   }
-  if (e.type === "dsh_remote_changed" || e.type === "inst_remote_changed") {
+  if (e.type === "harness_remote_changed" || e.type === "inst_remote_changed") {
     const who = d.name || (d.id === "main" ? "原生 DSH" : d.id || "实例");
     return who + " · 远程控制 → " + (d.mode === "lan" ? "局域网" : d.mode === "wan" ? "公网" : "关闭");
   }
-  if (e.type === "dsh_remote_token_changed" || e.type === "inst_remote_token_changed") {
+  if (e.type === "harness_remote_token_changed" || e.type === "inst_remote_token_changed") {
     const who = d.name || (d.id === "main" ? "原生 DSH" : d.id || "实例");
     return who + " · 访问令牌" + (d.tokenSet === true ? " → 已设置" : " → 已清除");
   }
@@ -408,7 +408,7 @@ const EVENT_TONE: Record<string, "ok" | "err" | "warn" | "boot" | "off"> = {
   inst_running: "ok", inst_added: "ok", inst_started: "ok", lan_instance_started: "ok",
   frpc_installed: "ok", frpc_started: "ok", plugin_install_done: "ok",
   native_installed: "ok", inst_upgraded: "ok", plugin_update_done: "ok",
-  account_frozen: "err", account_banned: "err", dsh_exited: "err", unhealthy: "err",
+  account_frozen: "err", account_banned: "err", harness_exited: "err", unhealthy: "err",
   spawn_failed: "err", spawn_error: "err", upgrade_failed: "err", api_error: "err", api_offline: "err",
   proxy_instance_failed: "err", inst_failed: "err", inst_start_failed: "err",
   native_install_failed: "err", native_uninstall_failed: "err",
@@ -416,11 +416,11 @@ const EVENT_TONE: Record<string, "ok" | "err" | "warn" | "boot" | "off"> = {
   plugin_uninstall_job_failed: "err", frpc_install_failed: "err", router_stream_aborted: "err",
   sigkill_sent: "err", start_timeout: "err", crash_loop_entered: "err",
   guard_exit: "warn", version_check_failed: "warn", restart_triggered: "warn",
-  dsh_not_installed: "warn", sigterm_sent: "warn", account_review: "warn",
-  dsh_guardian_changed: "warn", inst_guardian_changed: "warn",
-  dsh_remote_changed: "warn", inst_remote_changed: "warn",
-  dsh_remote_token_changed: "warn", inst_remote_token_changed: "warn", lan_frp_blocked: "warn",
-  proxy_update_available: "warn", upgrade_started: "warn", upgrade_stopping_dsh: "warn",
+  harness_not_installed: "warn", sigterm_sent: "warn", account_review: "warn",
+  harness_guardian_changed: "warn", inst_guardian_changed: "warn",
+  harness_remote_changed: "warn", inst_remote_changed: "warn",
+  harness_remote_token_changed: "warn", inst_remote_token_changed: "warn", lan_frp_blocked: "warn",
+  proxy_update_available: "warn", upgrade_started: "warn", upgrade_stopping_harness: "warn",
   inst_restarted: "warn", native_uninstall_started: "warn",
   account_discarded: "off", router_stopped: "off", proxy_instance_stopped: "off",
   inst_stopped: "off", inst_removed: "off", lan_instance_removed: "off",

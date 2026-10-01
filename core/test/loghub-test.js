@@ -47,15 +47,15 @@ const freePort = () => new Promise((res) => { const s = http.createServer(); s.l
     const ge = new Events(path.join(TMP, 'guard2.events.log'), 1 << 20, { process: 'guard' });
     const hub = new EventHub({ stateDir: path.join(TMP, 's2'), aggBase: 'state', guardEvents: ge, guardLogFile: '', dshLogFile: '', upgradeLogFile: '', daemonLogs: {}, ctlPorts: {}, eventsMaxBytes: 1 << 20, logger: { debug() {} } });
     ge.attachHub(hub);
-    ge.append('shadow_dsh_action', { diff: false });
+    ge.append('shadow_harness_action', { diff: false });
     ge.append('managed_object_updated', { kind: 'dsh' });
     ge.append('router_daemon_supervised', { pid: 9 });
     ge.append('running', { pid: 1 });
     const all = hub.read(0, 20);
     check('内部簿记名单判定+打标+默认过滤后只剩业务事件',
-      isInternalEvent('shadow_dsh_action') && isInternalEvent('managed_object_updated') && isInternalEvent('router_daemon_supervised')
+      isInternalEvent('shadow_harness_action') && isInternalEvent('managed_object_updated') && isInternalEvent('router_daemon_supervised')
       && !isInternalEvent('running')
-      && all.find((e) => e.type === 'shadow_dsh_action').internal === true && all.find((e) => e.type === 'running').internal === false
+      && all.find((e) => e.type === 'shadow_harness_action').internal === true && all.find((e) => e.type === 'running').internal === false
       && all.filter((e) => !e.internal).map((e) => e.type).join(',') === 'running');
     hub.writer.appendRaw({ ts: new Date().toISOString(), type: 'managed_object_updated', data: {}, source: 'guard', srcSeq: 1 });
     hub.writer.appendRaw({ ts: new Date().toISOString(), type: 'running', data: {}, source: 'guard', srcSeq: 2 });

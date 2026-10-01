@@ -23,8 +23,8 @@ const check = (n, c, x) => {
     check('门卫 cookie 带 Path=/、HttpOnly 与 SameSite=Lax（杜绝跨站携带；此前零覆盖）',
       /(^|;\s*)Path=\//.test(ck) && /HttpOnly/.test(ck) && /SameSite=Lax/.test(ck), ck);
     check('门卫 cookie 只存派生 64hex 且不含令牌原文',
-      /^dsh_lan_token=[0-9a-f]{64}(;|$)/.test(ck) && !ck.includes('lan-secret'), ck);
-    const okReq = { url: '/', headers: { cookie: 'dsh_lan_token=' + core.lanGateCookieValue('lan-secret', 'salt-A') } };
+      /^lobox_lan_token=[0-9a-f]{64}(;|$)/.test(ck) && !ck.includes('lan-secret'), ck);
+    const okReq = { url: '/', headers: { cookie: 'lobox_lan_token=' + core.lanGateCookieValue('lan-secret', 'salt-A') } };
     check('门卫：持有效派生 cookie → 放行', core.tokenGateDecision(okReq, 'lan-secret', 'salt-A').ok === true);
   }
 }

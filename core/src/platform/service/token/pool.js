@@ -3,6 +3,7 @@
 const path = require('node:path');
 const persist = require('./persist');
 const kinds = require('./kinds');
+const BRAND = require('../../../shared/brand');
 const capture = require('./capture');
 const { FollowBus } = require('./follow');
 const snapshot = require('./snapshot');
@@ -211,7 +212,7 @@ class TokenPool {
     };
     this._records.set(id, rec);
     this._persistPool();
-    if (this.events) { try { this.events.append('dsh_token_captured', { id, source: rec.source, gen: rec.gen }); } catch {  } }
+    if (this.events) { try { this.events.append(BRAND.EVENT_HARNESS_TOKEN_CAPTURED, { id, source: rec.source, gen: rec.gen }); } catch {  } }
     if (this.logger && this.logger.info) this.logger.info('[token] captured for ' + id + ' (source=' + rec.source + ', gen=' + rec.gen + ')');
     this._bus.emit(id, rec.value, { value: rec.value, gen: rec.gen, source: rec.source, at: rec.at });
     return value;

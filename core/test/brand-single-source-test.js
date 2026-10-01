@@ -604,6 +604,212 @@ const HOME = path.join('H', 'ome');
     labelRoots.length === 0, labelRoots.join(','));
 }
 
+// ── J. 跨侧契约字段（波 3）：两侧同版 + 单源消费（内核 ↔ 壳各自独立发布）────────────
+// 要防的缺陷：内核（core/**，含面板 bundle core/ui/**）与壳（shell/**，Tauri）是两个**各自独立发布**的
+//   产物，而波 3 改的契约字段（面板↔壳消息桥名 / 内核事件类型名 / localStorage 键 / LAN cookie 名 /
+//   systemd 模板让位后缀）在两侧各有一份字面量：只改一侧 = 契约断裂，且现场只有一句
+//   「更新按钮没反应 / 面板读不到」，没有任何报错。
+// 做法（不编译 Rust、不跑 vitest —— 与 G 段同一手法：从源码**逐字提取**语义位再与冻结字面量对账）：
+//   ① J-1：冻结字面量表 JEXPECT（独立预言值；不拿单源算一遍再和单源比）；
+//   ② J-2：壳侧 bridge.rs 必须**从 crate::brand 取值**（不许再把名字写第二遍字面量）；
+//   ③ J-3：面板 bundle 是浏览器产物，不能 require 内核的 CommonJS 单源 ⇒ 从 TS 源码提取字面量与单源比
+//      —— 这就是「内核侧常量 ↔ 壳侧常量值相等」的值级证据；
+//   ④ J-4/J-5：localStorage 键、面板事件映射表（覆盖内核全部事件常量 + 无旧事件名残留）；
+//   ⑤ J-6..J-8：全仓（含隐藏目录 `.github/`）旧名 0 命中；唯一豁免（CI 工作流名）显式登记且钉死处数。
+{
+  // 旧名（波 3 之前的值）——只作为**判据表**出现在本文件里，故 J-6 扫描把本文件自身列为唯一豁免。
+  const OLD_BRIDGE = 'dsh:kernel-update';
+  const OLD_STORE = 'dsh.apiAccessKey';
+  const OLD_COOKIE = 'dsh_lan_token';
+  const OLD_ASIDE = 'disabled-by-dsh';
+  const OLD_RETRY = 'dsh_retry';
+  const OLD_EVENTS = ['dsh_exited', 'dsh_token_captured', 'dsh_token_missing', 'dsh_command_missing',
+    'dsh_not_installed', 'dsh_command_bound', 'dsh_guardian_changed', 'dsh_remote_changed',
+    'dsh_remote_token_changed', 'lan_dsh_token_updated', 'shadow_dsh_action', 'upgrade_stopping_dsh'];
+  const OLD_SHELL_FIXTURE = 'dsh-shell';
+
+  // 冻结的现状值（改单源必须同步改这里 ⇒ 单源被同时改错也判红）。
+  const JEXPECT = {
+    BRIDGE_MSG_KERNEL_UPDATE_REQUEST: 'lobox:kernel-update-request',
+    BRIDGE_MSG_KERNEL_UPDATE_RESULT: 'lobox:kernel-update-result',
+    BRIDGE_MSG_KERNEL_UPDATE_PROGRESS: 'lobox:kernel-update-progress',
+    STORE_KEY_API_ACCESS: 'lobox.apiAccessKey',
+    COOKIE_LAN_TOKEN: 'lobox_lan_token',
+    EVENT_HARNESS_EXITED: 'harness_exited',
+    EVENT_HARNESS_TOKEN_CAPTURED: 'harness_token_captured',
+    EVENT_HARNESS_TOKEN_MISSING: 'harness_token_missing',
+    EVENT_HARNESS_COMMAND_MISSING: 'harness_command_missing',
+    EVENT_HARNESS_NOT_INSTALLED: 'harness_not_installed',
+    EVENT_HARNESS_COMMAND_BOUND: 'harness_command_bound',
+    EVENT_HARNESS_GUARDIAN_CHANGED: 'harness_guardian_changed',
+    EVENT_HARNESS_REMOTE_CHANGED: 'harness_remote_changed',
+    EVENT_HARNESS_REMOTE_TOKEN_CHANGED: 'harness_remote_token_changed',
+    EVENT_LAN_HARNESS_TOKEN_UPDATED: 'lan_harness_token_updated',
+    EVENT_SHADOW_HARNESS_ACTION: 'shadow_harness_action',
+    EVENT_UPGRADE_STOPPING_HARNESS: 'upgrade_stopping_harness',
+    SYSTEMD_TEMPLATE_ASIDE_SUFFIX: '.disabled-by-lobox-',
+  };
+  {
+    const bad = [];
+    for (const [name, want] of Object.entries(JEXPECT)) {
+      if (BRAND[name] !== want) bad.push(name + '=' + JSON.stringify(BRAND[name]) + ' ≠ ' + JSON.stringify(want));
+    }
+    check('J-1 契约字段等于冻结字面量（' + Object.keys(JEXPECT).length + ' 项）', bad.length === 0, bad.join(' | '));
+    const eventVals = Object.keys(JEXPECT).filter((k) => k.indexOf('EVENT_') === 0).map((k) => JEXPECT[k]);
+    check('J-1b 12 个事件类型名两两不同（不得与既有事件名撞车，如 lan_token_updated / harness_* 家族）',
+      new Set(eventVals).size === eventVals.length && eventVals.length === 12,
+      'unique=' + new Set(eventVals).size + ' of ' + eventVals.length);
+  }
+
+  const SHELL_SRC = path.join(ROOT, '..', 'shell', 'src-tauri', 'src');
+  const UI_SRC = path.join(ROOT, 'ui', 'src');
+  const UI_BRIDGE = path.join(UI_SRC, 'services', 'supervisor', 'kernelUpdateBridge.ts');
+  const UI_CLIENT = path.join(UI_SRC, 'services', 'supervisor', 'client.ts');
+  const UI_CLIENT_TEST = path.join(UI_SRC, 'services', 'supervisor', 'client.test.ts');
+  const UI_NAV = path.join(UI_SRC, 'features', 'supervisor', 'nav.ts');
+
+  // ── J-2 壳侧：三个消息类型名必须从单源取值（bridge.rs 里不得再有名字字面量）────────
+  {
+    const bridgeSrc = fs.readFileSync(path.join(SHELL_SRC, 'bridge.rs'), 'utf8');
+    const wires = [
+      ['MSG_KERNEL_UPDATE_REQUEST', 'BRIDGE_MSG_KERNEL_UPDATE_REQUEST'],
+      ['MSG_KERNEL_UPDATE_RESULT', 'BRIDGE_MSG_KERNEL_UPDATE_RESULT'],
+      ['MSG_KERNEL_UPDATE_PROGRESS', 'BRIDGE_MSG_KERNEL_UPDATE_PROGRESS'],
+    ];
+    const bad = [];
+    for (const [msg, brandName] of wires) {
+      const line = bridgeSrc.split('\n').find((l) => l.indexOf(msg) >= 0) || '';
+      if (line.indexOf('crate::brand::' + brandName) < 0) bad.push(msg + ' 未从单源取值: ' + line.trim().slice(0, 90));
+    }
+    // 名字本身一个都不许再写在这里（旧名 `dsh:` 与新名 `lobox:` 都算重复定义）。
+    const lits = (bridgeSrc.match(/"(?:dsh|lobox):kernel-update[^"]*"/g) || []);
+    check('J-2 壳侧 bridge.rs 三个消息类型名逐条从 crate::brand 取值、且本文件里没有名字字面量（0 处）',
+      bad.length === 0 && lits.length === 0, bad.join(' | ') + (lits.length ? ' 字面量: ' + lits.join(',') : ''));
+  }
+
+  // ── J-3 面板侧：从 TS 源码逐字提取，与单源（= 壳侧）逐字相等 ──────────────────────
+  {
+    const tsSrc = fs.readFileSync(UI_BRIDGE, 'utf8');
+    const lit = (name) => ((new RegExp('const ' + name + ' = "([^"]*)"')).exec(tsSrc) || [])[1];
+    const pairs = [
+      ['REQUEST', BRAND.BRIDGE_MSG_KERNEL_UPDATE_REQUEST, JEXPECT.BRIDGE_MSG_KERNEL_UPDATE_REQUEST],
+      ['RESULT', BRAND.BRIDGE_MSG_KERNEL_UPDATE_RESULT, JEXPECT.BRIDGE_MSG_KERNEL_UPDATE_RESULT],
+      ['PROGRESS', BRAND.BRIDGE_MSG_KERNEL_UPDATE_PROGRESS, JEXPECT.BRIDGE_MSG_KERNEL_UPDATE_PROGRESS],
+    ];
+    const bad = [];
+    for (const [name, brandVal, frozen] of pairs) {
+      const got = lit(name);
+      if (got !== brandVal) bad.push(name + '=' + JSON.stringify(got) + ' ≠ 单源 ' + JSON.stringify(brandVal));
+      else if (got !== frozen) bad.push(name + '=' + JSON.stringify(got) + ' ≠ 冻结值 ' + JSON.stringify(frozen));
+    }
+    check('J-3 面板侧三个消息类型名与内核单源逐字相等（两侧同版的值级证据；改任一侧必红）',
+      bad.length === 0, bad.join(' | '));
+  }
+
+  // ── J-4 面板侧 localStorage 键 ────────────────────────────────────────────────
+  {
+    const clientSrc = fs.readFileSync(UI_CLIENT, 'utf8');
+    const got = (/const ACCESS_KEY_STORAGE = "([^"]*)"/.exec(clientSrc) || [])[1];
+    const clientTestSrc = fs.readFileSync(UI_CLIENT_TEST, 'utf8');
+    check('J-4 localStorage 键 == 单源 STORE_KEY_API_ACCESS，且面板测试里引用的键名同值',
+      got === BRAND.STORE_KEY_API_ACCESS && got === JEXPECT.STORE_KEY_API_ACCESS
+        && clientTestSrc.indexOf('"' + BRAND.STORE_KEY_API_ACCESS + '"') >= 0,
+      'client.ts=' + JSON.stringify(got) + ' test含=' + (clientTestSrc.indexOf('"' + BRAND.STORE_KEY_API_ACCESS + '"') >= 0));
+  }
+
+  // ── J-5 面板侧事件映射表：两个方向都钉死（不要求「全部 12 个都映射」——面板故意留 2 个裸显示）──
+  //  方向①（覆盖，冻结 10 项）：波 3 之前 EVENT_LABELS **实际映射**的那 10 个事件，改名后必须仍以新名出现
+  //     ⇒ 改回旧名 / 改错词（dsh→harness 之外）必红；
+  //  方向②（无孤儿）：面板里凡是本次改名词表形态的键，都必须是单源里的内核事件常量 ⇒ 面板不得引用内核
+  //     已不存在的类型名（旧名亦然，旧名另有 J-7 全仓扫描兜底）；
+  //  另有 2 个事件（token_missing / command_bound）面板**故意不映射**（显示原始类型名），故不在此断言覆盖，
+  //     它们的名字由单源常量与发送点（J-8）钉住。
+  {
+    const navSrc = fs.readFileSync(UI_NAV, 'utf8');
+    const MAPPED_FROZEN = [
+      'harness_command_missing', 'harness_not_installed', 'harness_exited',
+      'harness_token_captured', 'harness_guardian_changed', 'harness_remote_changed',
+      'harness_remote_token_changed', 'lan_harness_token_updated', 'shadow_harness_action',
+      'upgrade_stopping_harness',
+    ];
+    const missing = MAPPED_FROZEN.filter((v) => navSrc.indexOf(v + ':') < 0);
+    const brandEventValues = Object.keys(JEXPECT)
+      .filter((k) => k.indexOf('EVENT_') === 0).map((k) => JEXPECT[k]);
+    const panelKeys = (navSrc.match(/(?:^|[\s,{])((?:harness|lan_harness|shadow_harness|upgrade_stopping_harness)[a-z0-9_]*):/g) || [])
+      .map((s) => s.replace(/^[\s,{]/, '').replace(/:$/, ''));
+    const orphans = panelKeys.filter((k) => brandEventValues.indexOf(k) < 0);
+    const stale = OLD_EVENTS.filter((e) => navSrc.indexOf(e) >= 0);
+    check('J-5 面板映射表：改名后的 10 个既有映射逐条到位（冻结表）+ 无孤儿键 + 0 处旧事件名',
+      missing.length === 0 && orphans.length === 0 && stale.length === 0,
+      (missing.length ? '缺: ' + missing.join(',') : '') + (orphans.length ? ' 孤儿: ' + orphans.join(',') : '')
+        + (stale.length ? ' 旧名: ' + stale.join(',') : '') + ' panelKeys=' + panelKeys.length);
+  }
+
+  // ── J-6/J-7/J-8 全仓旧名 0 命中（含隐藏目录；唯一豁免显式登记）────────────────────
+  {
+    const REPO = path.join(ROOT, '..');
+    const SELF = path.resolve(__filename);
+    const BINARY = ['.png', '.ico', '.icns', '.woff2', '.jpg', '.jpeg', '.gif', '.webp', '.pdf'];
+    const walk = (dir, out) => {
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+      for (const e of entries) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) {
+          // 与 standards-check 同一口径：目录遍历不过滤隐藏项（`.github` 必须被扫到），只跳过依赖/构建产物。
+          if (['node_modules', 'target', '.git'].indexOf(e.name) >= 0) continue;
+          walk(p, out);
+        } else out.push(p);
+      }
+      return out;
+    };
+    // 唯一豁免：CI 工作流名 `.github/workflows/shell.yml:1` 的 `dsh-shell-build`。
+    //   它是**我们的**串（(a) 语义），但改名会同时动 `concurrency.group`（= github.workflow）与 GitHub 仓
+    //   设置里的 Required status check 名称 ⇒ 归 (c) 待裁，由 CI 专项波次连外部状态一起改。
+    //   豁免显式到「文件 + 恰好 1 处」：清理后本断言会变红，迫使同步删掉这条豁免（与 standards-check 的
+    //   「豁免命中数 0 = 过期豁免判红」同一口径）。
+    const SHELL_YML = path.join(REPO, '.github', 'workflows', 'shell.yml');
+    const wfSrc = fs.readFileSync(SHELL_YML, 'utf8');
+    const wfHits = wfSrc.match(/dsh-shell/g) || [];
+    check('J-6 唯一豁免（CI 工作流名）恰好 1 处且就是 name: 行；清理后必须同步删除本豁免',
+      wfHits.length === 1 && /^name: dsh-shell-build$/m.test(wfSrc),
+      'hits=' + wfHits.length + ' name行=' + /^name: dsh-shell-build$/m.test(wfSrc));
+
+    const FORBIDDEN = [OLD_BRIDGE, OLD_STORE, OLD_COOKIE, OLD_ASIDE, OLD_RETRY, OLD_SHELL_FIXTURE].concat(OLD_EVENTS);
+    const hits = [];
+    let scanned = 0;
+    for (const f of walk(REPO, [])) {
+      if (path.resolve(f) === SELF) continue;                       // 本文件持有旧名字面量（它就是判据表）
+      if (BINARY.indexOf(path.extname(f).toLowerCase()) >= 0) continue;
+      let txt;
+      try { txt = fs.readFileSync(f, 'utf8'); } catch { continue; }
+      scanned += 1;
+      const rel = path.relative(REPO, f).split(path.sep).join('/');
+      // 豁免只在 shell.yml 里生效，且只抹掉那 1 处工作流名（J-6 已钉死「恰好 1 处」）。
+      const text = rel === '.github/workflows/shell.yml' ? txt.replace(/dsh-shell/g, 'SHELL_BUILD') : txt;
+      for (const pat of FORBIDDEN) {
+        if (text.indexOf(pat) >= 0) hits.push(rel + ' ← ' + pat);
+      }
+    }
+    check('J-7 全仓（含隐藏目录 .github/，' + scanned + ' 个文本文件）旧契约名 0 命中',
+      hits.length === 0, hits.join(' | '));
+
+    // 反向：新名必须在**消费点**真的出现过（防「只改了单源、消费点没跟上」这类假绿）。
+    const need = [
+      ['.github/workflows/shell.yml', 'shell-'],
+      ['shell/src-tauri/src/bridge.rs', 'BRIDGE_MSG_KERNEL_UPDATE_REQUEST'],
+      ['core/ui/src/services/supervisor/kernelUpdateBridge.ts', JEXPECT.BRIDGE_MSG_KERNEL_UPDATE_REQUEST],
+      ['core/src/domains/instance/lifecycle.js', 'SYSTEMD_TEMPLATE_ASIDE_SUFFIX'],
+      ['core/src/domains/relay/core.js', 'COOKIE_LAN_TOKEN'],
+      ['core/src/app/main/process.js', 'EVENT_HARNESS_EXITED'],
+    ];
+    const absent = need.filter(([rel, needle]) => fs.readFileSync(path.join(REPO, rel), 'utf8').indexOf(needle) < 0)
+      .map(([rel, needle]) => rel + ' 缺 ' + needle);
+    check('J-8 新名在消费点（壳/面板/内核/让位/cookie）逐处出现（' + need.length + ' 处）',
+      absent.length === 0, absent.join(' | '));
+  }
+}
+
 const failed = results.filter((r) => !r);
 console.log(String.fromCharCode(10) + '结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');
 process.exit(failed.length ? 1 : 0);

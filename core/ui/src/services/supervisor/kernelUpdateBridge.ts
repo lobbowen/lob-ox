@@ -3,9 +3,12 @@
 /** 协议版本：语义变更必须递增，须与壳 src/bridge.rs 常量一致。 */
 export const BRIDGE_PROTOCOL_VERSION = 1;
 
-const REQUEST = "dsh:kernel-update-request";
-const RESULT = "dsh:kernel-update-result";
-const PROGRESS = "dsh:kernel-update-progress";
+// 消息类型名必须与壳 `shell/src-tauri/src/bridge.rs`（→ 单源 `crate::brand` / `core/src/shared/brand.js`）逐字一致：
+//   面板 bundle 与壳是两个独立发布的产物，改一侧 = 请求超时且无任何报错。面板是浏览器 bundle，
+//   不能 require 内核的 CommonJS 单源，故此处保留字面量 —— 由 `core/test/brand-single-source-test.js` J 段逐字对账。
+const REQUEST = "lobox:kernel-update-request";
+const RESULT = "lobox:kernel-update-result";
+const PROGRESS = "lobox:kernel-update-progress";
 
 export type KernelUpdateResult = {
   ok: boolean;

@@ -3,7 +3,9 @@
 //   `core/test/brand-single-source-test.js` 解析本文件并逐项对账 brand.js —— 只改一边必判红。
 // 只放名字与规则，不放行为：每条都是一个对外可见的字面量（产品名/包名/状态根/服务名/环境变量/产物名/进程模式）。
 // 本模块整体豁免 dead_code：其中一部分常量只由内核侧消费（并行的 JS 单源），Rust 侧在此仅声明。
-// 本波（核心标识改名）已改：产品名/CLI/壳 crate+bin/npm 子包前缀/状态根目录名/服务与 unit 与 label/产物名。
+// 波 1（核心标识改名）已改：产品名/CLI/壳 crate+bin/npm 子包前缀/状态根目录名/服务与 unit 与 label/产物名。
+// 波 3（契约字段改名）已改：面板↔壳消息桥名 / 内核事件类型名 / localStorage 键 / LAN cookie 名 / systemd
+//   模板让位后缀 —— 见文末「跨侧契约字段」一节；这几类名字**两侧各自独立发布**，必须同波改。
 //   ⚠ `LEGACY_PRODUCT_NAME` 是**唯一**保留旧名的常量：只用于「检测旧状态根 + 认旧守卫」，不参与任何新命名。
 
 use std::path::{Path, PathBuf};
@@ -184,6 +186,52 @@ pub const PROC_MATCH_GUARD: &str = "*lobox*";
 pub const PROC_MATCH_GUI: &str = "lobox-shell";
 /// 壳进程正则源：内核 isShellProcess 判命令行是否属于壳（.exe 可选）。
 pub const PROC_MATCH_GUI_RE: &str = "lobox-shell(\\.exe)?";
+
+// ── 跨侧契约字段（波 3）───────────────────────────────────────────────────────
+// 与 brand.js 同名同值。内核（core/**，含面板 bundle core/ui/**）与壳（shell/**，Tauri）是各自独立发布的
+//   两个产物：下面每个名字都同时出现在两侧的代码字面量里，只改一侧 = 契约断裂（现场只有「更新按钮没反应」）。
+// 破坏性：本产品尚未对外发布，老安装按 D 系列决策不迁移、不提供兼容期 ⇒ 旧名字一律不再被识别。
+// `dsh` 在下面唯一的语义是「被监管的 DSH harness 本体」：事件类型名里用通用词 `harness` 取代它，
+//   使「去 dsh 前缀」不变成说谎（`lobox_exited` 会谎称是我们自己退出）。
+
+/// 面板 → 壳 的内核更新请求消息类型名（引导页 `shell.html` 经 `shell_bridge_contract` 取得本值）。
+pub const BRIDGE_MSG_KERNEL_UPDATE_REQUEST: &str = "lobox:kernel-update-request";
+/// 壳 → 面板 的终结结果消息类型名。
+pub const BRIDGE_MSG_KERNEL_UPDATE_RESULT: &str = "lobox:kernel-update-result";
+/// 壳 → 面板 的非终结进度消息类型名。
+pub const BRIDGE_MSG_KERNEL_UPDATE_PROGRESS: &str = "lobox:kernel-update-progress";
+/// 浏览器 localStorage 键：出回环访问密钥（面板 `services/supervisor/client.ts` 消费，我方签发/校验）。
+pub const STORE_KEY_API_ACCESS: &str = "lobox.apiAccessKey";
+/// LAN 门卫 cookie 名：**我方**签发并校验（与 harness 签发的 `dsh-auth-*` 无关）。
+pub const COOKIE_LAN_TOKEN: &str = "lobox_lan_token";
+
+/// 内核事件类型名：内核 `events.append()` 产生 → 面板 `nav.ts` / `OverviewPage.tsx` 消费（harness 不读写它）。
+pub const EVENT_HARNESS_EXITED: &str = "harness_exited";
+/// 见 [`EVENT_HARNESS_EXITED`]：harness 会话令牌已捕获。
+pub const EVENT_HARNESS_TOKEN_CAPTURED: &str = "harness_token_captured";
+/// 见 [`EVENT_HARNESS_EXITED`]：harness 会话令牌缺失（等待捕获）。
+pub const EVENT_HARNESS_TOKEN_MISSING: &str = "harness_token_missing";
+/// 见 [`EVENT_HARNESS_EXITED`]：启动命令缺失（ENOENT）。
+pub const EVENT_HARNESS_COMMAND_MISSING: &str = "harness_command_missing";
+/// 见 [`EVENT_HARNESS_EXITED`]：未检测到 harness 安装。
+pub const EVENT_HARNESS_NOT_INSTALLED: &str = "harness_not_installed";
+/// 见 [`EVENT_HARNESS_EXITED`]：裸命令名已绑定到真实入口。
+pub const EVENT_HARNESS_COMMAND_BOUND: &str = "harness_command_bound";
+/// 见 [`EVENT_HARNESS_EXITED`]：主实例守护开关变更。
+pub const EVENT_HARNESS_GUARDIAN_CHANGED: &str = "harness_guardian_changed";
+/// 见 [`EVENT_HARNESS_EXITED`]：主实例远程模式变更。
+pub const EVENT_HARNESS_REMOTE_CHANGED: &str = "harness_remote_changed";
+/// 见 [`EVENT_HARNESS_EXITED`]：主实例远程访问令牌变更。
+pub const EVENT_HARNESS_REMOTE_TOKEN_CHANGED: &str = "harness_remote_token_changed";
+/// 见 [`EVENT_HARNESS_EXITED`]：LAN 代理持有的 harness 会话令牌已刷新。
+pub const EVENT_LAN_HARNESS_TOKEN_UPDATED: &str = "lan_harness_token_updated";
+/// 见 [`EVENT_HARNESS_EXITED`]：影子状态同步动作（内部簿记，按 `shadow_` 前缀过滤）。
+pub const EVENT_SHADOW_HARNESS_ACTION: &str = "shadow_harness_action";
+/// 见 [`EVENT_HARNESS_EXITED`]：为升级而停止 harness。
+pub const EVENT_UPGRADE_STOPPING_HARNESS: &str = "upgrade_stopping_harness";
+
+/// systemd 模板让位后缀：模板名 `dsh-web@.service` 属被监管产品（不改），后缀是我方加的标记。
+pub const SYSTEMD_TEMPLATE_ASIDE_SUFFIX: &str = ".disabled-by-lobox-";
 
 /// 家目录 + 相对段 的拼接（状态根三平台规则的共同动作）。
 fn home_join(home: &Path, segments: &[&str]) -> PathBuf {

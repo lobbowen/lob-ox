@@ -2,6 +2,7 @@
 
 const pidlook = require('../../platform/os/pidlookup');
 const monitor = require('../../platform/service/monitor');
+const BRAND = require('../../shared/brand');
 const { startDeadlinePassed } = require('./decide');
 
 const DEPS = new WeakMap();
@@ -92,7 +93,7 @@ module.exports = {
           d.main().adoptObserved();
         } else {
           if (d.mAdoptPid() !== null && !adoptedAlive) {
-            d.events().append('dsh_exited', { code: null, signal: null, adopted: true, observed: true });
+            d.events().append(BRAND.EVENT_HARNESS_EXITED, { code: null, signal: null, adopted: true, observed: true });
             d.mSetAdoptPid(null);
             d.mSetObservedOnly(false);
           }
@@ -169,7 +170,7 @@ module.exports = {
         case 'RUNNING': {
           const guarded = d.state().guardian();
           if (d.mAdoptPid() !== null && adoptedAlive === false) {
-            d.events().append('dsh_exited', { code: null, signal: null, phase: d.state().phase(), adopted: true });
+            d.events().append(BRAND.EVENT_HARNESS_EXITED, { code: null, signal: null, phase: d.state().phase(), adopted: true });
             d.mSetAdoptPid(null);
             if (guarded) d.main().beginRestart('adopted_exit', { startupFailure: false });
             else { d.writeCrashHalted(true); d.events().append('guardian_off_exit', { reason: 'adopted_exit 未守护，保持停止' }); d.state().setPhase('STOPPED'); }

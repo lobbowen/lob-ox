@@ -1,6 +1,7 @@
 'use strict';
 
 const policies = require('./policies');
+const BRAND = require('../../shared/brand');
 
 function log(host, msg) { host._appendUpgradeLog(msg); }
 function taskLog(host, task, msg) { if (task && host.tasks) host.tasks.log(task.id, msg); }
@@ -50,7 +51,7 @@ async function stopForUpgrade(host, task) {
   if (!(host.hooks.isDshActive && host.hooks.isDshActive())) return;
   host.upgradeState = 'restarting';
   log(host, '停止 DSH 以便安全安装…');
-  if (host.events) host.events.append('upgrade_stopping_dsh', {});
+  if (host.events) host.events.append(BRAND.EVENT_UPGRADE_STOPPING_HARNESS, {});
   if (task) {
     markStep(host, task, '停止 DSH');
     host.tasks.log(task.id, '停止 DSH 以便安全安装…');

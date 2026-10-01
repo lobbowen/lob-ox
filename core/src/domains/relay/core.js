@@ -3,6 +3,10 @@
 const crypto = require('node:crypto');
 const { isLoopbackAddress, isPrivateIpv4 } = require('../../shared/ip');
 const { remoteTokenStrength } = require('../../shared/credential');
+const BRAND = require('../../shared/brand');
+
+// 门卫 cookie 名取自单源：它由**我方**签发与校验（不是 harness 的 `dsh-auth-*`），改名即所有在途 LAN 会话失效。
+const LAN_COOKIE_RE = new RegExp('(?:^|;\\s*)' + BRAND.COOKIE_LAN_TOKEN + '=([^;]+)');
 
 // 来源闸收窄到回环/RFC1918：relay 监听 0.0.0.0 且把 Origin/Referer 改写成回环权威，连得上即等于拿到 DSH 特权面（不是鉴权）。
 function isTrustedSource(req, sock) {
@@ -53,7 +57,7 @@ function hasValidToken(req, token, salt) {
   const queryToken = url.searchParams.get('token');
   if (queryToken && safeEqual(queryToken, token)) return true;
   const cookies = req.headers.cookie || '';
-  const m = /(?:^|;\s*)dsh_lan_token=([^;]+)/.exec(cookies);
+  const m = LAN_COOKIE_RE.exec(cookies);
   if (m) {
     try {
       const want = lanGateCookieValue(token, salt);
@@ -69,7 +73,7 @@ function tokenGateDecision(req, token, salt) {
   if (!token) return { ok: true };
   const url = new URL(req.url, 'http://localhost');
   const cookies = req.headers.cookie || '';
-  const m = /(?:^|;\s*)dsh_lan_token=([^;]+)/.exec(cookies);
+  const m = LAN_COOKIE_RE.exec(cookies);
   if (m) {
     try {
       const want = lanGateCookieValue(token, salt);
@@ -81,7 +85,7 @@ function tokenGateDecision(req, token, salt) {
     return {
       ok: false,
       redirect: url.pathname,
-      cookie: 'dsh_lan_token=' + lanGateCookieValue(token, salt) + '; Path=/; HttpOnly; SameSite=Lax',
+      cookie: BRAND.COOKIE_LAN_TOKEN + '=' + lanGateCookieValue(token, salt) + '; Path=/; HttpOnly; SameSite=Lax',
     };
   }
   return { ok: false, unauthorized: true };

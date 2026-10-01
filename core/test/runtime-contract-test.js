@@ -139,7 +139,7 @@ check('R-6 契约 schema 版本 = 2（与壳 handshake）', rc.SUPPORTED_SCHEMA 
     sr.read({ now: NOW }).reason === 'unreadable-or-schema-mismatch', 'ok');
 
   writeReport({
-    schema: 1, writtenBy: 'dsh-shell 1.2.8', at: NOW() - 1500,
+    schema: 1, writtenBy: 'lobox-shell 1.2.8', at: NOW() - 1500,
     node: { path: '/n/node', binDir: '/n', version: 'v22.12.0', min: 'v22.12.0', ok: true },
     npm: { path: '/n/node', args: ['/n/node_modules/npm/bin/npm-cli.js'], version: '10.9.0', ok: true },
     prefix: { dir: '/p/npm', writable: false, why: 'EACCES' },
@@ -151,7 +151,7 @@ check('R-6 契约 schema 版本 = 2（与壳 handshake）', rc.SUPPORTED_SCHEMA 
   const rep = sr.read({ now: NOW });
   check('SR-7 一份正常报告逐字段摊平交出（npm 的 args 与 program 成对：只念 path 会把 node 版本念成 npm 版本）',
     rep.available === true && rep.reason === 'ok' && rep.ageMs === 1500 && rep.at === 1998500
-      && rep.writtenBy === 'dsh-shell 1.2.8' && rep.node.ok === true && rep.node.min === 'v22.12.0'
+      && rep.writtenBy === 'lobox-shell 1.2.8' && rep.node.ok === true && rep.node.min === 'v22.12.0'
       && rep.npm.args.length === 1 && rep.npm.version === '10.9.0'
       && rep.prefix.writable === false && rep.prefix.why === 'EACCES'
       && rep.records.length === 2 && rep.records[0].probe === 'node --version', JSON.stringify(rep));

@@ -1,6 +1,7 @@
 'use strict';
 
 const execPath = require('../../platform/os/exec-path');
+const BRAND = require('../../shared/brand');
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -210,7 +211,7 @@ function _bindNativeDshCommand(host) {
       host.config.command = d.isJs
         ? [d.runtime || process.execPath, d.bin, ...cmd.slice(2)]
         : [d.bin, ...cmd.slice(2)];
-      try { host.events && host.events.append('dsh_command_bound', { from: cur || null, to: host.config.command[1] }); } catch {}
+      try { host.events && host.events.append(BRAND.EVENT_HARNESS_COMMAND_BOUND, { from: cur || null, to: host.config.command[1] }); } catch {}
       try { host.logger.info && host.logger.info('原生 DSH 已绑定: ' + host.config.command.join(' ')); } catch {}
     } catch (e) { try { host.logger.warn && host.logger.warn('原生 DSH 绑定失败: ' + (e && e.message)); } catch {} }
 }

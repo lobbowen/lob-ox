@@ -62,7 +62,7 @@ describe("访问密钥携带与 401 语义", () => {
   it("已存密钥时所有请求自动带 Authorization: Bearer", async () => {
     const store = stubLocalStorage();
     setStoredAccessKey("sekret-123");
-    expect(store["dsh.apiAccessKey"]).toBe("sekret-123");
+    expect(store["lobox.apiAccessKey"]).toBe("sekret-123");
     let sent: Record<string, string> | undefined;
     vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => {
       sent = init?.headers as Record<string, string> | undefined;
@@ -90,7 +90,7 @@ describe("访问密钥携带与 401 语义", () => {
     const store = stubLocalStorage();
     setStoredAccessKey("a-b-c");
     setStoredAccessKey("");
-    expect("dsh.apiAccessKey" in store).toBe(false);
+    expect("lobox.apiAccessKey" in store).toBe(false);
   });
 
   it("401 错误带 status=401 且文案可操作（轮询层据此区分鉴权失败与离线）", async () => {

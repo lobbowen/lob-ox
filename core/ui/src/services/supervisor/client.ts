@@ -15,7 +15,9 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 
 // 后端 core/src/api/transport/server.js 对非回环请求 fail-closed：无匹配 key 一律 401（连静态页也被拦）。
 // key 仅存本机 localStorage（绝不入仓库/日志），此后同源请求统一带 Bearer 头。
-const ACCESS_KEY_STORAGE = "dsh.apiAccessKey";
+// 键名必须与单源 core/src/shared/brand.js#STORE_KEY_API_ACCESS 逐字一致（面板不能 require CommonJS 单源，
+//   由 core/test/brand-single-source-test.js J 段解析本文件对账）；改名 ⇒ 已存密钥失效、非回环访问被拒。
+const ACCESS_KEY_STORAGE = "lobox.apiAccessKey";
 
 function readStoredAccessKey(): string {
   try { return globalThis.localStorage?.getItem(ACCESS_KEY_STORAGE) || ""; } catch { return ""; }

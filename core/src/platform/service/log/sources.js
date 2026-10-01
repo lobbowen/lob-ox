@@ -1,5 +1,7 @@
 'use strict';
 
+const BRAND = require('../../../shared/brand');
+
 const LOCAL_SOURCE = 'guard';
 const _sources = [];
 
@@ -47,8 +49,8 @@ function humaneMsg(type, data) {
   switch (type) {
     case 'lan_cookie_exchanged': return who + ' 远程会话 cookie 已刷新';
     case 'lan_cookie_failed': return who + ' 远程会话 cookie 换取失败' + (d.error ? '：' + d.error : '');
-    case 'dsh_token_captured': return who + ' DSH 令牌已捕获';
-    case 'dsh_token_missing': return who + ' DSH 令牌缺失，等待捕获';
+    case BRAND.EVENT_HARNESS_TOKEN_CAPTURED: return who + ' DSH 令牌已捕获';
+    case BRAND.EVENT_HARNESS_TOKEN_MISSING: return who + ' DSH 令牌缺失，等待捕获';
     case 'inst_added': return '新增沙箱实例：' + (d.id || '?');
     case 'inst_removed': return '删除沙箱实例：' + (d.id || '?');
     case 'inst_started': return '沙箱实例已启动：' + (d.id || '?');

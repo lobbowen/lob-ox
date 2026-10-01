@@ -3,12 +3,15 @@
 /// 协议版本；任何语义变更都必须递增。
 pub const KERNEL_UPDATE_PROTOCOL_VERSION: u32 = 1;
 
-pub const MSG_KERNEL_UPDATE_REQUEST: &str = "dsh:kernel-update-request";
+// 消息类型名的**唯一事实源**是 `crate::brand`（与内核 `core/src/shared/brand.js` 逐字一致，由
+//   core/test/brand-single-source-test.js 对账）：面板 bundle 是内核产物、本文件是壳产物，两侧各自独立发布，
+//   所以名字不能在这里再写一遍字面量 —— 只改一侧就是「更新按钮没反应」且没有任何报错。
+pub const MSG_KERNEL_UPDATE_REQUEST: &str = crate::brand::BRIDGE_MSG_KERNEL_UPDATE_REQUEST;
 
-pub const MSG_KERNEL_UPDATE_RESULT: &str = "dsh:kernel-update-result";
+pub const MSG_KERNEL_UPDATE_RESULT: &str = crate::brand::BRIDGE_MSG_KERNEL_UPDATE_RESULT;
 
 /// 非终结、可多次；不递增协议版本。
-pub const MSG_KERNEL_UPDATE_PROGRESS: &str = "dsh:kernel-update-progress";
+pub const MSG_KERNEL_UPDATE_PROGRESS: &str = crate::brand::BRIDGE_MSG_KERNEL_UPDATE_PROGRESS;
 
 pub const CMD_KERNEL_UPDATE_APPLY: &str = "kernel_update_apply";
 

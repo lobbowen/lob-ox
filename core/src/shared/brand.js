@@ -5,7 +5,9 @@
 //   `core/test/brand-single-source-test.js` 解析 brand.rs 并逐项对账本文件 —— 只改一边必判红。
 // 只放名字与规则，不放行为：每条都是一个对外可见的字面量（产品名/包名/状态根/服务名/环境变量/产物名/进程模式）。
 // 消费方式：内核 `require` 取常量；壳取 `crate::brand::<同名常量>`。
-// 本波（核心标识改名）已改：产品名/CLI/壳 crate+bin/npm 子包前缀/状态根目录名/服务与 unit 与 label/产物名。
+// 波 1（核心标识改名）已改：产品名/CLI/壳 crate+bin/npm 子包前缀/状态根目录名/服务与 unit 与 label/产物名。
+// 波 3（契约字段改名）已改：面板↔壳消息桥名 / 内核事件类型名 / localStorage 键 / LAN cookie 名 / systemd
+//   模板让位后缀 —— 见文末「跨侧契约字段」一节；这几类名字**两侧各自独立发布**，必须同波改。
 //   ⚠ `LEGACY_PRODUCT_NAME` 是**唯一**保留旧名的常量：它只用于「检测旧状态根 + 认旧守卫」，
 //   不参与任何新命名（D-2/P-2：旧状态不迁移，但绝不静默）。
 
@@ -188,6 +190,44 @@ const PROC_MATCH_GUI = 'lobox-shell';
 // 壳进程正则源：内核 isShellProcess 判命令行是否属于壳（.exe 可选）。
 const PROC_MATCH_GUI_RE = 'lobox-shell(\\.exe)?';
 
+// ── 跨侧契约字段（波 3）───────────────────────────────────────────────────────
+// 为什么必须两侧同波改：内核（core/**，含面板 bundle core/ui/**）与壳（shell/**，Tauri）是**各自独立发布**
+//   的两个产物，下面每个名字都同时出现在两侧的**代码字面量**里 —— 只改一侧 = 契约断裂，且断裂的现场
+//   只有一句「更新按钮没反应 / 面板读不到」，没有报错。
+// 破坏性：本产品尚未对外发布，老安装按 D 系列决策**不迁移、不提供兼容期** ⇒ 旧名字一律不再被识别
+//   （旧事件日志里的旧类型名、旧 localStorage 键、旧 cookie 一律失效，见波 3 报告 §⑥）。
+// `dsh` 在下面**唯一**的语义是「被监管的 DSH harness 本体」（不是我们的产品名）：事件类型名里用通用词
+//   `harness` 取代它，是为了让「去 dsh 前缀」不变成说谎（说 `lobox_exited` 就等于谎称是我们自己退出）。
+
+// 面板 ↔ 壳 的 postMessage 消息类型名：壳 `src/bridge.rs` 经 `shell_bridge_contract` 下发给引导页，
+//   面板 bundle 内的 `services/supervisor/kernelUpdateBridge.ts` 各持一份 —— 改一侧必断。
+const BRIDGE_MSG_KERNEL_UPDATE_REQUEST = 'lobox:kernel-update-request';
+const BRIDGE_MSG_KERNEL_UPDATE_RESULT = 'lobox:kernel-update-result';
+const BRIDGE_MSG_KERNEL_UPDATE_PROGRESS = 'lobox:kernel-update-progress';
+// 浏览器 localStorage 键：出回环访问密钥（我方签发/校验，存的是用户的 key，不是 harness 的任何凭据）。
+const STORE_KEY_API_ACCESS = 'lobox.apiAccessKey';
+// LAN 门卫 cookie 名：**我方**签发并校验（`token-kinds.js` 的 lan-gate 种类），与 harness 签发的 `dsh-auth-*` 无关。
+const COOKIE_LAN_TOKEN = 'lobox_lan_token';
+
+// 内核事件类型名（内核 `events.append()` 产生 → 面板 `nav.ts` 的 EVENT_LABELS / `OverviewPage.tsx` 消费）。
+//   为什么改名：事件词表是**我们自己的**标识（harness 不读不写它），旧名把被监管产品的缩写当成了我们的前缀。
+const EVENT_HARNESS_EXITED = 'harness_exited';
+const EVENT_HARNESS_TOKEN_CAPTURED = 'harness_token_captured';
+const EVENT_HARNESS_TOKEN_MISSING = 'harness_token_missing';
+const EVENT_HARNESS_COMMAND_MISSING = 'harness_command_missing';
+const EVENT_HARNESS_NOT_INSTALLED = 'harness_not_installed';
+const EVENT_HARNESS_COMMAND_BOUND = 'harness_command_bound';
+const EVENT_HARNESS_GUARDIAN_CHANGED = 'harness_guardian_changed';
+const EVENT_HARNESS_REMOTE_CHANGED = 'harness_remote_changed';
+const EVENT_HARNESS_REMOTE_TOKEN_CHANGED = 'harness_remote_token_changed';
+const EVENT_LAN_HARNESS_TOKEN_UPDATED = 'lan_harness_token_updated';
+const EVENT_SHADOW_HARNESS_ACTION = 'shadow_harness_action';
+const EVENT_UPGRADE_STOPPING_HARNESS = 'upgrade_stopping_harness';
+
+// systemd 模板让位后缀：模板名 `dsh-web@.service` 属**被监管产品**（不改），后缀是**我方**加的标记
+//   （我们把阻挡 systemd-run 的模板改名保留，而不是删除）。
+const SYSTEMD_TEMPLATE_ASIDE_SUFFIX = '.disabled-by-lobox-';
+
 // 内核平台子包名的拼接规则：scope + '/' + 前缀 + 平台标签。
 function corePackageName(tag) {
   return NPM_SCOPE + '/' + CORE_PKG_PREFIX + tag;
@@ -315,6 +355,24 @@ module.exports = {
   PROC_MATCH_GUARD,
   PROC_MATCH_GUI,
   PROC_MATCH_GUI_RE,
+  BRIDGE_MSG_KERNEL_UPDATE_REQUEST,
+  BRIDGE_MSG_KERNEL_UPDATE_RESULT,
+  BRIDGE_MSG_KERNEL_UPDATE_PROGRESS,
+  STORE_KEY_API_ACCESS,
+  COOKIE_LAN_TOKEN,
+  EVENT_HARNESS_EXITED,
+  EVENT_HARNESS_TOKEN_CAPTURED,
+  EVENT_HARNESS_TOKEN_MISSING,
+  EVENT_HARNESS_COMMAND_MISSING,
+  EVENT_HARNESS_NOT_INSTALLED,
+  EVENT_HARNESS_COMMAND_BOUND,
+  EVENT_HARNESS_GUARDIAN_CHANGED,
+  EVENT_HARNESS_REMOTE_CHANGED,
+  EVENT_HARNESS_REMOTE_TOKEN_CHANGED,
+  EVENT_LAN_HARNESS_TOKEN_UPDATED,
+  EVENT_SHADOW_HARNESS_ACTION,
+  EVENT_UPGRADE_STOPPING_HARNESS,
+  SYSTEMD_TEMPLATE_ASIDE_SUFFIX,
   corePackageName,
   stateRoot,
   legacyStateRoot,
