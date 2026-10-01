@@ -2,6 +2,12 @@ name: core-build-release
 
 # monorepo：core/ = 内核（本工作流），shell/ = 桌面壳（.github/workflows/shell.yml）。
 # 两条产线的 tag 命名空间互不触发：内核 `core-<内核版本>`，壳 `shell-<壳版本>`。
+#
+# 发布职责边界（勿按 job 名推断，此处为登记单源）：
+#   - npm 真发布只有一处：build 矩阵 job 的「内核发布（tag 触发 · NPM_TOKEN 唯一持有步）」，
+#     它调 release/scripts/ci-core.sh --publish-only，由各矩阵腿各推自己平台的子包上 registry。
+#   - release job 只负责把 build 各腿的 launcher 产物打包并挂到 GitHub Release 资产，它不含任何
+#     npm publish ⇒「GitHub Release 上有资产」不等于「npm 上有包」，两者是两条独立路径。
 on:
   push:
     tags:
@@ -209,6 +215,9 @@ jobs:
 
       # ⚠ 令牌非空判断必须在 run 内：step 级 if 的上下文里没有 secrets（引用即 workflow 解析错误
       #    → 整文件 0-job 红）。--publish-only 只跑 [5/5] 真发布，复用同 workspace 上一轮构建产物。
+      # ⚠ 本步 if 已把语境限定为「内核 tag + need_build=true」＝确实要发布 ⇒ 此语境下无令牌必然是
+      #    「job 判绿而 registry 上什么都没有」的假绿，故必须判红。非 tag / 不需要构建发布的语境根本
+      #    不进本步（step 级 if 直接跳过，跳过语义仍合法），因此这里不留「无令牌即 exit 0」的降级分支。
       - name: 内核发布（tag 触发 · NPM_TOKEN 唯一持有步）
         if: startsWith(github.ref, 'refs/tags/core-') && needs.precheck.outputs.need_build == 'true'
         shell: bash
@@ -217,10 +226,56 @@ jobs:
           DSH_NPM_PROVENANCE: ${{ vars.DSH_NPM_PROVENANCE }}
         run: |
           if [ -z "$NPM_TOKEN" ]; then
-            echo '无 NPM_TOKEN：跳过真发布（与拆分前 [ -n "$NPM_TOKEN" ] 分支语义一致，tag 构建仅产 artifacts）'
-            exit 0
+            echo "::error::tag 发布必须持有 NPM_TOKEN；缺它会导致 job 假绿且产物从未发布（tag=${GITHUB_REF_NAME}，need_build=true 即四平台确有缺失）"
+            exit 1
           fi
           bash release/scripts/ci-core.sh --publish-only
+
+      # 发布后自证：真发布之后立刻回查 registry。查不到即判红——「跳过」与「静默失败」不得再伪装成成功。
+      # ⚠ 与发布步同门（tag + need_build=true）：非发布语境不进此步 ⇒ push/PR 上不会误红。
+      - name: 发布后自证（回查 registry 确有该版本）
+        if: startsWith(github.ref, 'refs/tags/core-') && needs.precheck.outputs.need_build == 'true'
+        shell: bash
+        run: |
+          # ⚠ 本步带 -e：`VAR=$(cmd)` 非零会直接终止脚本、连 ::error:: 都打不出来 ⇒ 取值类赋值一律兜底。
+          set -euo pipefail
+          # registry 与 publish-core.sh 同一单源（脚本内同名默认值），不另起口径。
+          REGISTRY="${DSH_PUBLISH_REGISTRY:-https://registry.npmjs.org/}"
+          VER="$(node -p 'require("./package.json").version')" || {
+            echo "::error::读取 core/package.json#version 失败（node -p 非零），发布后自证无法完成"; exit 1; }
+          # 包名与上一轮子包构建、published-smoke 同一口径（平台判定 + core/package.json#version），不新写字面量。
+          PLAT="${DSH_PLATFORM_OVERRIDE:-$(node -p 'process.platform')}"
+          ARCH="${DSH_ARCH_OVERRIDE:-$(node -p 'process.arch')}"
+          case "$PLAT" in
+            linux) OS_TAG=linux ;; darwin) OS_TAG=darwin ;; win32) OS_TAG=win ;;
+            *) echo "::error::不支持的平台 $PLAT"; exit 1 ;;
+          esac
+          SPEC="@dsh-sup/dsh-core-$OS_TAG-$ARCH@$VER"
+          echo "  发布后自证目标: $SPEC（registry=$REGISTRY）"
+          # registry 摄取与前置缓存有分钟级延迟（同 published-smoke 的重试理由）⇒ 有限轮重试；
+          # 轮次用尽仍未确认即判红。⚠ 末尾不用 `[ ... ] && sleep`：那会让循环体以非零收尾、被 -e 炸掉。
+          PROBE_ATTEMPTS=5
+          PROBE_SLEEP_SEC=20
+          i=0
+          rc=1
+          while [ "$i" -lt "$PROBE_ATTEMPTS" ]; do
+            i=$((i + 1))
+            if OUT="$(npm view "$SPEC" version --registry="$REGISTRY" --prefer-online 2>&1)"; then
+              OUT="${OUT//$'\r'/}"
+              case "$OUT" in
+                *"$VER"*) echo "  ✓ registry 已确认 $SPEC"; rc=0; break ;;
+                *) echo "  第 $i/$PROBE_ATTEMPTS 轮 npm view 返回与 $VER 不符: $OUT" ;;
+              esac
+            else
+              echo "  第 $i/$PROBE_ATTEMPTS 轮 registry 尚无该版本（等 registry 摄取与缓存过期）"
+              printf '%s\n' "$OUT" | sed 's/^/    /'
+            fi
+            if [ "$i" -lt "$PROBE_ATTEMPTS" ]; then sleep "$PROBE_SLEEP_SEC"; fi
+          done
+          if [ "$rc" != 0 ]; then
+            echo "::error::发布后自证失败：$PROBE_ATTEMPTS 轮后 registry 仍未确认 $SPEC —— job 不得以此收场（产物并未真正发布）"
+            exit 1
+          fi
 
       # ⚠ upload-artifact 的 `path:` 相对 workspace 根，不受 defaults.run.working-directory 影响
       #    ⇒ 必须显式加 `core/` 前缀；artifact 内布局取匹配路径的最小公共祖先（= core/dist/launcher）。
@@ -274,10 +329,15 @@ jobs:
           generate_release_notes: true
 
   # registry 上架有分钟级延迟（npm 摄取 + 前置缓存 max-age=300），故重试；只有最后一轮决定判据。
-  # ⚠ always() 不可省：非 tag 运行里 release 是 skipped，不加 always 本 job 会被连带跳过（假绿）。
+  # 轮次预算 5：precheck 已独立证过「本 tag 版本在 registry 上缺失」时，重试只具传播延迟意义；
+  # 重试本身保留——真实传播延迟下它是必要的。
+  # ⚠ 门只认「这是内核 tag 发布」这件事本身（workflow_dispatch 是手工冒烟入口），不挂 release 的
+  #   result：release 在 need_build=false 时是 skipped，拿它的 result 当门会让冒烟被连带跳过（假绿）。
+  #   always() 保留：needs 里哪个 job 红或跳过都不许让本 job 静默消失——「registry 上有没有这个版本」
+  #   必须被如实判定，而不是因为上游被跳过就自动变绿。
   published-smoke:
-    needs: [precheck, build, release]
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/core-') && needs.release.result == 'success')) }}
+    needs: [precheck, build]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/core-')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -316,7 +376,7 @@ jobs:
           VER="${VER_INPUT:-$(node -p 'require("./package.json").version')}"
           SPEC="@dsh-sup/dsh-core-$OS_TAG-$ARCH@$VER"
           echo "  发布后冒烟目标: $SPEC"
-          ATTEMPTS=10
+          ATTEMPTS=5
           SLEEP_SEC=75
           ROUND_DIR="${RUNNER_TEMP:-$(mktemp -d)}"
           i=0

@@ -6,7 +6,7 @@
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lobbowen/dsh-supervisor-core.git"
+    "url": "git+https://github.com/lobbowen/lob-ox.git"
   },
   "bin": {
     "dsh-supervisor": "bin/dsh-supervisor"
