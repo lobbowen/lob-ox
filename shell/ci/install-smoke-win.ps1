@@ -48,24 +48,28 @@ function RunExit([string]$text) {
 
 function Find-InstalledExe {
     $dirs = @()
-    $keys = @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    # 卸载登记键与固定目录里的产品名一律从单源派生（brand.js#TAURI_PRODUCT_NAME），本脚本不再手写。
+    $uninstall = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\'
+    $keys = @($uninstall + '*',
               'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
-              'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\lobox*')
+              $uninstall + $script:ProductName + '*')
     foreach ($k in $keys) {
         foreach ($it in @(Get-ItemProperty -Path $k -ErrorAction SilentlyContinue)) {
             if ($null -eq $it) { continue }
             $hay = ('{0} {1} {2} {3}' -f $it.DisplayName, $it.DisplayIcon, $it.UninstallString, $it.InstallLocation)
-            if ($hay -notmatch 'lobox') { continue }
+            if ($hay -notmatch [regex]::Escape($script:ProductName)) { continue }
             if ($it.InstallLocation) { $dirs += $it.InstallLocation }
             if ($it.UninstallString -match '"([^"]+)"') { $dirs += (Split-Path $Matches[1]) }
         }
     }
-    $dirs += @("$env:LOCALAPPDATA\lobox", "$env:LOCALAPPDATA\Programs\lobox",
-               "$env:ProgramFiles\lobox", "${env:ProgramFiles(x86)}\lobox")
+    $dirs += @("$env:LOCALAPPDATA\$($script:ProductName)", "$env:LOCALAPPDATA\Programs\$($script:ProductName)",
+               "$env:ProgramFiles\$($script:ProductName)", "${env:ProgramFiles(x86)}\$($script:ProductName)")
     foreach ($d in ($dirs | Select-Object -Unique)) {
         if (-not (Test-Path $d)) { continue }
-        $exe = Get-ChildItem -Path $d -Filter '*.exe' -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like 'lobox*' -and $_.Name -notmatch 'uninstall' } |
+        # 名字判据 = 单源期望名**逐字相等**（此前是 `-like 'lobox*'`：只要有任何一个 lobox* 文件就当找到了，
+        #   于是「Tauri 把主二进制打成别的名字」这类不一致永远查不出来 —— 判据见 Assert-InstalledName）。
+        $exe = Get-ChildItem -Path $d -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq $script:GuiExe } |
             Select-Object -First 1
         if ($exe) { return $exe.FullName }
     }
@@ -78,11 +82,26 @@ function Resolve-InstalledExe([string]$tag) {
         if ($exe) { Write-Host "[$tag] 已装二进制 = $exe"; return $exe }
         Start-Sleep -Seconds 2
     }
-    $cand = @(Get-ChildItem -Path $env:LOCALAPPDATA -Filter 'lobox*.exe' -File -Recurse -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 5)
+    # 诊断用（不进判据）：按 productName 前缀把候选都列出来，名字分叉时现场就能看见真名。
+    $cand = @(Get-ChildItem -Path $env:LOCALAPPDATA -Filter '*.exe' -File -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like ($script:ProductName + '*') -and $_.Name -notmatch 'uninstall' } | Select-Object -First 5)
     Write-Host "[$tag] 卸载键与固定目录都没命中；LOCALAPPDATA 递归搜到 $($cand.Count) 个候选："
     $cand | ForEach-Object { Write-Host "  候选 $($_.FullName)" }
-    Fail install "$tag 装完后找不到已安装的壳可执行文件（见上方候选）"
+    Fail install "$tag 装完后找不到期望的壳可执行文件 $($script:GuiExe)（见上方候选）"
+}
+
+# 装后名字断言（Windows）：**实际落盘**的二进制名与安装包名必须逐字等于从单源派生的期望名。
+# 为什么必须显式断言：本脚本原用 `-like 'lobox*'` 找 exe、工作流用 `*_x64-setup.exe` 通配取安装包，
+#   Tauri 若把主二进制/productName 打成别的名字，通配照样挑得到一个文件、探针照样跑得起来 ⇒ 永远查不出来。
+# 判据实现与 Linux/macOS 是同一份（ci/installed-name-check.js，四平台共用），这里只负责把实测名传进去。
+function Assert-InstalledName([string]$exe, [string]$installer, [string]$tag) {
+    $checker = Join-Path $PSScriptRoot 'installed-name-check.js'
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & node $checker --platform win32 --tag $tag --actual-exe (Split-Path $exe -Leaf) --installer (Split-Path $installer -Leaf)
+    $rc = $LASTEXITCODE
+    $ErrorActionPreference = $eap
+    if ($rc -ne 0) { Fail name "$tag 的装后名字断言未通过（node 退出码 $rc；判据见上一行的 ::error:: ）" }
 }
 
 function SilentInstall([string]$pkg, [string]$tag) {
@@ -133,22 +152,30 @@ New-Item -ItemType Directory -Force -Path $Work | Out-Null
 New-Item -ItemType Directory -Force -Path $script:StateDir | Out-Null
 $env:DSH_SUPERVISOR_HOME = $script:StateDir
 
-# 计划任务名取自跨语言单源（core/src/shared/brand.js），本脚本不再手写任务名。
+# 计划任务名与壳二进制名/productName 一律取自跨语言单源（core/src/shared/brand.js），本脚本不再手写这些名字。
 $brandJs = Join-Path $PSScriptRoot '..\..\core\src\shared\brand.js'
 $eapSaved = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 $guardTask = node -e "process.stdout.write(require(process.argv[1]).WINDOWS_GUARD_TASK)" $brandJs
 $watchdogTask = node -e "process.stdout.write(require(process.argv[1]).WINDOWS_WATCHDOG_TASK)" $brandJs
+$guiBin = node -e "process.stdout.write(require(process.argv[1]).GUI_BIN_NAME)" $brandJs
+$productName = node -e "process.stdout.write(require(process.argv[1]).TAURI_PRODUCT_NAME)" $brandJs
 $ErrorActionPreference = $eapSaved
 if (-not $guardTask -or -not $watchdogTask) { Fail input "读不到计划任务名（单源 $brandJs）" }
+if (-not $guiBin -or -not $productName) { Fail input "读不到壳二进制名/productName（单源 $brandJs）" }
+$script:GuiBin = $guiBin
+$script:GuiExe = $guiBin + '.exe'
+$script:ProductName = $productName
 
 SilentInstall $InstallerA 'A'
 $exeA = Resolve-InstalledExe 'A'
+Assert-InstalledName $exeA $InstallerA 'A'
 ProbeInstalled $exeA $VerA 'A'
 $hashA = HashOf $exeA
 
 SilentInstall $InstallerB 'B'
 $exeB = Resolve-InstalledExe 'B'
+Assert-InstalledName $exeB $InstallerB 'B'
 ProbeInstalled $exeB $VerB 'B'
 $hashB = HashOf $exeB
 if (($VerA -ne $VerB) -and ($hashA -eq $hashB)) { Fail upgrade "覆盖安装后二进制字节没变（sha256=${hashB}）" }

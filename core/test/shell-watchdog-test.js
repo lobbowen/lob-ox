@@ -6,7 +6,7 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 // 纯决策/谓词在 core.js，看护状态机在 watchdog.js；读取面必须随文件搬移同步更新，否则判据静默失去覆盖面。
 const { createShellWatchdog } = require(path.join(ROOT, 'src', 'domains', 'shell', 'watchdog'));
-const { decide, isShellProcess, HEADLESS_FLAGS } =
+const { decide, isShellProcess, HEADLESS_FLAGS, DEFAULTS } =
   require(path.join(ROOT, 'src', 'domains', 'shell', 'core'));
 
 const results = [];
@@ -45,6 +45,39 @@ console.log('== W2 isShellProcess 过滤 ==');
       && HEADLESS_FLAGS.every((f) => isShellProcess({ cmdline: 'lobox-shell ' + f }) === false));
   check('W2-j 反向：未登记的同名进程仍判为壳',
     isShellProcess({ cmdline: 'lobox-shell --some-future-headless-flag' }) === true);
+  // W2-k/W2-l/W2-m：进程判据的「不误杀」性质（改名后最容易踩的坑：把裸 `lobox` 当成壳）。
+  //   为什么必须固化：守卫 CLI 自己就是 `node .../bin/lobox ...`，被监管 harness 的命令行/参数里也可能出现
+  //   状态根 `.../lobox/...`；判据一旦放宽成裸 `lobox`，watchdog 会把它们当「壳在运行」，真壳缺失时永不拉起，
+  //   restartShell 还会对它们发 SIGTERM/SIGKILL。
+  const BRAND = require(path.join(ROOT, 'src', 'shared', 'brand'));
+  const PROC_RE = new RegExp(BRAND.PROC_MATCH_GUI_RE);
+  check('W2-k 壳进程模式取自跨语言单源，且只认壳入口名（裸产品名不算壳）',
+    BRAND.PROC_MATCH_GUI === BRAND.GUI_BIN_NAME
+    && DEFAULTS.procPattern === BRAND.PROC_MATCH_GUI
+    && PROC_RE.test(BRAND.GUI_BIN_NAME) === true
+    && PROC_RE.test(BRAND.GUI_BIN_NAME + '.exe') === true
+    && PROC_RE.test(BRAND.PRODUCT_NAME) === false
+    && PROC_RE.test(BRAND.CLI_NAME) === false,
+    'PROC_MATCH_GUI=' + BRAND.PROC_MATCH_GUI + ' RE=' + BRAND.PROC_MATCH_GUI_RE);
+  const NOT_SHELL = [
+    ['守卫 CLI（daemon）', 'node /opt/lobox/bin/lobox daemon'],
+    ['守卫 CLI（无头入口）', 'node C:\\lobox\\bin\\lobox --run-guard'],
+    ['守卫 CLI（裸名）', BRAND.CLI_NAME],
+    ['DSH harness 本体', 'node /usr/lib/node_modules/@deepseek-ai/dsh/bin/dsh.js web'],
+    ['DSH harness（窗内）', 'C:\\node\\node.exe C:\\dsh\\dsh.js web'],
+    ['harness 参数含状态根（.../lobox/...）',
+      'node /x/@deepseek-ai/dsh/bin/dsh.js --cwd /home/u/.local/state/lobox/supervisor'],
+    ['harness 参数含壳名之外的产品路径',
+      'node /x/@deepseek-ai/dsh/bin/dsh.js --root C:\\Users\\u\\AppData\\Local\\lobox\\shell'],
+  ];
+  const leaked = NOT_SHELL.filter(([, cmd]) => isShellProcess({ cmdline: cmd }) === true || PROC_RE.test(cmd) === true);
+  check('W2-l 绝不误判为壳：守卫 CLI / DSH harness（含命令行里带 lobox 路径）逐条为 false',
+    leaked.length === 0, leaked.map(([n]) => n).join(','));
+  check('W2-m 不误杀 harness 的依据：除壳入口名外，判据不含任何裸产品名片段',
+    BRAND.PROC_MATCH_GUI.indexOf(BRAND.PRODUCT_NAME) === 0
+    && BRAND.PROC_MATCH_GUI !== BRAND.PRODUCT_NAME
+    && PROC_RE.test('node /x/dsh.js --state ' + BRAND.STATE_DIR_NAME) === false,
+    BRAND.PROC_MATCH_GUI_RE);
 }
 
 console.log('== W3 tick() 集成 ==');

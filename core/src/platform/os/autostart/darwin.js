@@ -10,8 +10,9 @@ const { writeAtomic } = require('../../util/fs');
 const { shellDir } = require('../../service/state-root');
 const BRAND = require('../../../shared/brand');
 
-const GUARD_LABEL = BRAND.MACOS_GUARD_LABEL;
-const GUI_LABEL = BRAND.MACOS_GUI_LABEL;
+// 两个 label 都从 identifier 派生（brand.js#macosGuardLabel/macosGuiLabel）：本文件不得再出现反向域名字面量。
+const GUARD_LABEL = BRAND.macosGuardLabel();
+const GUI_LABEL = BRAND.macosGuiLabel();
 const MAC_T = 8000;
 
 function laFile(name) {

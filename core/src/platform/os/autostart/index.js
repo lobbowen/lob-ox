@@ -4,6 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
 const { resolveExecutable } = require('../exec-path');
+const BRAND = require('../../../shared/brand');
 
 const win32 = require('./win32');
 const darwin = require('./darwin');
@@ -13,21 +14,24 @@ const isLinux = process.platform === 'linux';
 const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
 
+// 落点文件名一律从跨语言单源派生（brand.js）：自启定义里写错名字 ⇒ 登录自启静默失效（拿裸名或旧名去 spawn）。
+const CLI_EXE = isWindows ? BRAND.CLI_NAME + '.exe' : BRAND.CLI_NAME;
+const GUI_EXE = isWindows ? BRAND.GUI_BIN_NAME + '.exe' : BRAND.GUI_BIN_NAME;
+
 function daemonCommand() {
-  const hit = resolveExecutable('lobox', { envVar: 'DSH_SUPERVISOR_DAEMON' });
+  const hit = resolveExecutable(BRAND.CLI_NAME, { envVar: BRAND.ENV_DAEMON });
   if (hit) return hit;
-  const exe = isWindows ? 'lobox.exe' : 'lobox';
-  return path.join(os.homedir(), '.local', 'bin', exe);
+  return path.join(os.homedir(), '.local', 'bin', CLI_EXE);
 }
 
 function guiCommand() {
-  const hit = resolveExecutable('lobox-shell', { envVar: 'DSH_SHELL_EXE' });
+  const hit = resolveExecutable(BRAND.GUI_BIN_NAME, { envVar: BRAND.ENV_SHELL_EXE });
   if (hit) return hit;
   const home = os.homedir();
-  const exe = isWindows ? 'lobox-shell.exe' : 'lobox-shell';
   const cands = isWindows
-    ? [path.join(home, '.local', 'bin', exe), path.join(home, 'AppData', 'Local', 'Programs', 'lobox', exe)]
-    : [path.join(home, '.local', 'bin', exe), '/usr/local/bin/' + exe, '/opt/homebrew/bin/' + exe];
+    ? [path.join(home, '.local', 'bin', GUI_EXE),
+       path.join(home, 'AppData', 'Local', 'Programs', BRAND.PRODUCT_NAME, GUI_EXE)]
+    : [path.join(home, '.local', 'bin', GUI_EXE), '/usr/local/bin/' + GUI_EXE, '/opt/homebrew/bin/' + GUI_EXE];
   for (const c of cands) { try { if (fs.statSync(c).isFile()) return c; } catch {} }
   return cands[0];
 }

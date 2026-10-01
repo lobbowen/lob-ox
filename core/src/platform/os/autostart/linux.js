@@ -7,20 +7,21 @@ const ex = require('../../util/exec');
 const { writeAtomic } = require('../../util/fs');
 const BRAND = require('../../../shared/brand');
 
+// .desktop 定义里的名字全部从跨语言单源派生：手写名字 = 改名漏一处 ⇒ 登录自启指向不存在的可执行文件。
 const GUI_AUTOSTART_TEMPLATE = [
   '[Desktop Entry]',
   'Type=Application',
-  'Name=lobox GUI',
+  'Name=' + BRAND.PRODUCT_NAME + ' GUI',
   'Comment=登录时打开 DSH 监管面板',
-  'Exec=@HOME@/.local/bin/lobox-shell',
-  'Icon=@HOME@/.local/share/icons/lobox.png',
+  'Exec=@HOME@/.local/bin/' + BRAND.GUI_BIN_NAME,
+  'Icon=@HOME@/.local/share/icons/' + BRAND.PRODUCT_NAME + '.png',
   'Terminal=false',
   'X-GNOME-Autostart-enabled=true',
   '',
 ].join('\n');
 
 function guiFile() {
-  return path.join(os.homedir(), '.config', 'autostart', 'lobox-shell-autostart.desktop');
+  return path.join(os.homedir(), '.config', 'autostart', BRAND.GUI_BIN_NAME + '-autostart.desktop');
 }
 
 function status() {
@@ -50,7 +51,7 @@ function setGuiAutostart(on, deps) {
       let entry = GUI_AUTOSTART_TEMPLATE;
       entry = entry.split('@HOME@').join(os.homedir());
       const guiBin = deps.guiCommand();
-      const oldExec = os.homedir() + '/.local/bin/lobox-shell';
+      const oldExec = os.homedir() + '/.local/bin/' + BRAND.GUI_BIN_NAME;
       if (entry.includes(oldExec)) entry = entry.split(oldExec).join(guiBin);
       const execQuote = (p) => '"' + String(p)
         .replace(/\\/g, '\\\\')
@@ -58,9 +59,9 @@ function setGuiAutostart(on, deps) {
         .replace(/%/g, '%%') + '"';
       entry = entry.replace(/^Exec=.*$/m, 'Exec=' + execQuote(guiBin));
       const iconCandidates = [
-        path.join(os.homedir(), '.local', 'share', 'icons', 'lobox.png'),
-        '/usr/share/icons/hicolor/256x256/apps/lobox.png',
-        '/usr/share/pixmaps/lobox.png',
+        path.join(os.homedir(), '.local', 'share', 'icons', BRAND.PRODUCT_NAME + '.png'),
+        '/usr/share/icons/hicolor/256x256/apps/' + BRAND.PRODUCT_NAME + '.png',
+        '/usr/share/pixmaps/' + BRAND.PRODUCT_NAME + '.png',
       ];
       const icon = iconCandidates.find((c) => { try { return fs.statSync(c).isFile(); } catch { return false; } });
       if (icon) entry = entry.split(/^Icon=.*$/m).join('Icon=' + icon);

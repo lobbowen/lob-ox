@@ -8,7 +8,13 @@ use super::service::ServiceControl;
 use super::{home_dir, Capabilities, LaunchSpec, Platform, SVC_NORMAL, SVC_QUICK};
 
 pub const NAME: &str = "macos";
-pub const GUARD_LABEL: &str = crate::brand::MACOS_GUARD_LABEL;
+
+/// 守卫 LaunchAgent label 的**唯一取值点**：从跨语言单源派生（brand.rs::macos_guard_label = `<identifier>.core`）。
+/// 为什么是本模块的函数而不是 `brand` 的常量：Rust 侧要在 const 里从 identifier 派生字符串是做不到的
+///   （std 无 const-concat），故派生放在求值函数里；本文件不得再出现反向域名字面量。
+fn guard_label() -> String {
+    crate::brand::macos_guard_label()
+}
 
 /// bootstrap 脚本：域标签交给 shell 求值，plist 路径由 `"$1"` 位参传入而非拼进脚本文本。
 const BOOTSTRAP_SCRIPT: &str = "launchctl bootstrap \"gui/$(id -u)\" \"$1\"";
@@ -146,7 +152,7 @@ impl ServiceControl for Impl {
         home_dir()
             .join("Library")
             .join("LaunchAgents")
-            .join(format!("{}.plist", GUARD_LABEL))
+            .join(format!("{}.plist", guard_label()))
     }
 
         /// 建立 LaunchAgent plist 并 bootstrap（幂等，且内容过时时自愈）：先算期望内容、与磁盘比对，一致不动、不同则重写并重新 bootstrap。
@@ -165,7 +171,7 @@ impl ServiceControl for Impl {
             prog.push_str(&format!("<string>{}</string>", xml_escape(a)));
         }
         let body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n  <key>Label</key><string>@LABEL@</string>\n  <key>ProgramArguments</key>\n  <array>@PROG@</array>\n  <key>EnvironmentVariables</key><dict><key>DSH_SUPERVISOR_HOME</key><string>@ROOT@</string></dict>\n  <key>RunAtLoad</key><true/>\n  <key>KeepAlive</key><true/>\n  <key>ProcessType</key><string>Interactive</string>\n  <key>StandardOutPath</key><string>@LOG@</string>\n  <key>StandardErrorPath</key><string>@LOG@</string>\n</dict></plist>\n"
-            .replace("@LABEL@", GUARD_LABEL)
+            .replace("@LABEL@", &guard_label())
             .replace("@PROG@", &prog)
             .replace("@ROOT@", &xml_escape(&spec.state_root.display().to_string()))
             .replace("@LOG@", &xml_escape(&log.display().to_string()));
@@ -186,7 +192,7 @@ impl ServiceControl for Impl {
         }
         std::fs::write(&path, &body).map_err(|e| format!("写入 plist 失败: {}", e))?;
         if is_update {
-            let off = format!("launchctl bootout gui/$(id -u)/{}", GUARD_LABEL);
+            let off = format!("launchctl bootout gui/$(id -u)/{}", guard_label());
             crate::bounded::run_lossy(Command::new("sh").args(["-c", &off]), SVC_QUICK);
         }
         let p = path.display().to_string();
@@ -210,7 +216,7 @@ impl ServiceControl for Impl {
     fn start(&self) -> Result<(), String> {
                 // `kickstart -k` = 若在运行则先杀再启，否则启动。若任务已被 `stop`（bootout）移除，kickstart 会失败 -> 退回 bootstrap 兜底。
         let uid = "$(id -u)";
-        let kick = format!("launchctl kickstart -k gui/{}/{}", uid, GUARD_LABEL);
+        let kick = format!("launchctl kickstart -k gui/{}/{}", uid, guard_label());
         let r = crate::bounded::run(Command::new("sh").args(["-c", &kick]), SVC_NORMAL);
         if matches!(&r, Ok(o) if o.success) {
             return Ok(());
@@ -235,7 +241,7 @@ impl ServiceControl for Impl {
     }
 
     fn stop(&self) -> Result<(), String> {
-        let cmd = format!("launchctl bootout gui/$(id -u)/{}", GUARD_LABEL);
+        let cmd = format!("launchctl bootout gui/$(id -u)/{}", guard_label());
         crate::bounded::run_checked(
             Command::new("sh").args(["-c", &cmd]),
             SVC_NORMAL,

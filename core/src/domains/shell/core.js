@@ -1,5 +1,7 @@
 'use strict';
 
+const BRAND = require('../../shared/brand');
+
 const DEFAULTS = {
   enabled: true,
   intervalMs: 20000,
@@ -8,7 +10,9 @@ const DEFAULTS = {
   maxRestarts: 5,
   windowMs: 1800000,
   phaseMaxAgeMs: 600000,
-  procPattern: 'lobox-shell',
+  // 壳进程判据的**唯一来源**是跨语言单源（brand.js#PROC_MATCH_GUI，与 brand.rs 同名同值）：
+  //   此处再写一份字面量 = 改名漏一处 ⇒ pgrep 找不到壳（watchdog 反复拉起/双实例），或杀错进程。
+  procPattern: BRAND.PROC_MATCH_GUI,
 };
 
 const HEADLESS_FLAGS = Object.freeze([
@@ -16,11 +20,17 @@ const HEADLESS_FLAGS = Object.freeze([
   '--service-plan', '--platform-matrix', '--run-guard', '--watchdog',
 ]);
 const HEADLESS_RE = new RegExp(HEADLESS_FLAGS.join('|'));
+// 正则同样取自单源（PROC_MATCH_GUI_RE 的源串，.exe 可选）。
+const SHELL_PROC_RE = new RegExp(BRAND.PROC_MATCH_GUI_RE);
 
+// 判据必须**窄到只认壳入口名**（`lobox-shell[.exe]`），绝不能放宽成裸 `lobox`：
+//   守卫 CLI 自己就是 `node .../bin/lobox ...`，被监管 harness 的命令行/参数里也可能出现状态根 `.../lobox/...`；
+//   一旦放宽，watchdog 会把守卫或受监管进程当成「壳在运行」（永不拉起真正的壳），restartShell 还会 SIGKILL 无辜进程。
+//   这条「不误杀」性质由 test/shell-watchdog-test.js 的 W2-k/W2-l/W2-m 固化。
 function isShellProcess(proc) {
   const c = String((proc && proc.cmdline) || '');
   if (HEADLESS_RE.test(c)) return false;
-  return /lobox-shell(\.exe)?/.test(c);
+  return SHELL_PROC_RE.test(c);
 }
 
 function decide(i) {

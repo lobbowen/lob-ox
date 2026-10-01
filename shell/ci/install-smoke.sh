@@ -7,11 +7,17 @@ if [ $# -ne 5 ]; then
 fi
 A=$1 AVER=$2 B=$3 BVER=$4 WORK=$5
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-# systemd 单元名取自跨语言单源（core/src/shared/brand.js），本脚本不再手写服务名。
+# 服务/名字一律取自跨语言单源（core/src/shared/brand.js），本脚本不再手写服务名与二进制名。
 BRAND_JS="$SCRIPT_DIR/../../core/src/shared/brand.js"
 UNIT_FILE=$(node -e 'process.stdout.write(require(process.argv[1]).SYSTEMD_UNIT_FILE)' "$BRAND_JS")
 [ -n "$UNIT_FILE" ] || { echo "读不到 systemd unit 名（单源 $BRAND_JS）"; exit 1; }
+# 装后二进制名（= Tauri 打出来的 Cargo 目标名）与 productName（= .app 目录/安装包名）：期望名一律从单源派生。
+GUI_BIN=$(node -e 'process.stdout.write(require(process.argv[1]).GUI_BIN_NAME)' "$BRAND_JS")
+PRODUCT=$(node -e 'process.stdout.write(require(process.argv[1]).TAURI_PRODUCT_NAME)' "$BRAND_JS")
+[ -n "$GUI_BIN" ] || { echo "读不到壳二进制名（单源 $BRAND_JS）"; exit 1; }
+[ -n "$PRODUCT" ] || { echo "读不到 productName（单源 $BRAND_JS）"; exit 1; }
 OS=$(uname -s)
+case "$OS" in Linux) SMOKE_PLATFORM=linux ;; Darwin) SMOKE_PLATFORM=darwin ;; esac
 STATE=$WORK/state
 FK=$WORK/fake-core
 case "$OS" in Linux | Darwin) ;; *) echo "本脚本不覆盖该平台: $OS"; exit 2 ;; esac
@@ -23,6 +29,18 @@ export DSH_SUPERVISOR_HOME="$STATE"
 
 fail() { echo "H10 判据失败[$1]: $2" >&2; exit 1; }
 hash_of() { (sha256sum "$1" 2>/dev/null || shasum -a 256 "$1") | awk '{print $1}'; }
+
+# 装后名字断言（Linux/macOS）：**实际落盘**的二进制名/.app 名/CFBundleExecutable 必须逐字等于从单源派生的期望名。
+# 为什么必须显式断言：本脚本原先用通配定位装好的壳（`dpkg -L | grep /usr/bin/*`、`find Contents/MacOS | head -1`），
+#   Tauri 若把主二进制打成别的名字，通配照样挑得到一个文件、探针照样跑得起来 ⇒ 这一致性永远查不出来，
+#   而内核按名字找壳/看护壳的一侧（brand.js#PROC_MATCH_GUI）已经失配。判据实现见 ci/installed-name-check.js（四平台共用）。
+# 用法：assert_installed_name <A|B> <实际二进制 basename> [--installer <名>] [--app-dir <名>] [--cf-bundle-executable <名>]
+assert_installed_name() {
+  local tag="$1" actual="$2"
+  shift 2
+  node "$SCRIPT_DIR/installed-name-check.js" --platform "$SMOKE_PLATFORM" --tag "$tag" --actual-exe "$actual" "$@" \
+    || fail name "$tag 的装后名字断言未通过（判据见上一行的 ::error:: ）"
+}
 
 probe() {
   local out id lg want got
@@ -56,29 +74,45 @@ install_linux() {
   fi
   dpkg -l "$PKG_NAME" 2>/dev/null | grep -q "^ii  *$PKG_NAME " || fail install "$PKG_NAME 未被记为已安装"
   PKG_VER=$(dpkg-query -W -f='${Version}' "$PKG_NAME")
-  BIN=$(dpkg -L "$PKG_NAME" | grep -E '^/usr/bin/[^/]+$' | head -1)
-  if [ -z "$BIN" ]; then
+  # 落点按单源派生的名字**精确**取（不再 `grep -E '^/usr/bin/[^/]+$' | head -1`：通配挑到哪个文件都算过）。
+  BIN="/usr/bin/$GUI_BIN"
+  if [ ! -f "$BIN" ]; then
     dpkg -L "$PKG_NAME" >&2
-    fail install "$PKG_NAME 没装出 /usr/bin 下的可执行文件（上面是实际文件清单）"
+    echo "::error::$PKG_NAME 没装出 /usr/bin/$GUI_BIN（名字由 core/src/shared/brand.js#GUI_BIN_NAME 派生；上面是实际文件清单）"
+    fail install "$PKG_NAME 没装出期望的壳可执行文件 /usr/bin/$GUI_BIN"
   fi
+  assert_installed_name "$2" "$(basename "$BIN")" --installer "$(basename "$1")"
 }
 
 install_macos() {
   local mnt="$WORK/mnt-$2" app exe_dir
-  rm -rf "$mnt" "$WORK/apps/lobox.app"; mkdir -p "$mnt" "$WORK/apps"
+  # .app 目录名由 productName 派生（不再 `find -maxdepth 1 -name '*.app' | head -1`：叫什么名的 .app 都能过）。
+  app="$mnt/$PRODUCT.app"
+  rm -rf "$mnt" "$WORK/apps/$PRODUCT.app"; mkdir -p "$mnt" "$WORK/apps"
   hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$1" -quiet || fail install "挂载 $1 失败"
-  app=$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)
-  if [ -z "$app" ]; then
+  if [ ! -e "$app" ]; then
+    find "$mnt" -maxdepth 1 >&2 || true
     hdiutil detach "$mnt" -quiet || true
-    fail install "$1 里没有 .app（dmg 装配有问题）"
+    echo "::error::$1 里没有 $PRODUCT.app（目录名由 shell/src-tauri/tauri.conf.json#productName 派生；上面是 dmg 实际内容）"
+    fail install "$1 里没有期望的 $PRODUCT.app（dmg 装配有问题）"
   fi
   cp -R "$app" "$WORK/apps/"
   hdiutil detach "$mnt" -quiet || fail install "分离 $mnt 失败"
-  exe_dir="$WORK/apps/$(basename "$app")/Contents/MacOS"
+  exe_dir="$WORK/apps/$PRODUCT.app/Contents/MacOS"
   [ -d "$exe_dir" ] || fail install "复制后的 .app 里没有 MacOS 目录: $exe_dir"
-  BIN=$(find "$exe_dir" -maxdepth 1 -type f | head -1)
-  [ -n "$BIN" ] || fail install "$exe_dir 下没有可执行文件"
+  # 主二进制名同样按单源派生精确取（不再 `find "$exe_dir" -type f | head -1`）。
+  BIN="$exe_dir/$GUI_BIN"
+  if [ ! -f "$BIN" ]; then
+    find "$exe_dir" -maxdepth 1 -type f >&2 || true
+    echo "::error::$exe_dir 下没有期望的壳可执行文件 $GUI_BIN（名字由 core/src/shared/brand.js#GUI_BIN_NAME 派生；上面是实际文件清单）"
+    fail install "$exe_dir 下没有期望的壳可执行文件 $GUI_BIN"
+  fi
   PKG_VER=$(plutil -extract CFBundleShortVersionString raw "$exe_dir/../Info.plist")
+  # Info.plist#CFBundleExecutable 必须与同一期望名一致（它是 launchd/用户点开的入口，与文件名分叉则 mac 上起不来）。
+  CF_EXE=$(plutil -extract CFBundleExecutable raw "$exe_dir/../Info.plist") \
+    || fail name "读不到 Info.plist#CFBundleExecutable（$exe_dir/../Info.plist）"
+  assert_installed_name "$2" "$(basename "$BIN")" --installer "$(basename "$1")" \
+    --app-dir "$(basename "$app")" --cf-bundle-executable "$CF_EXE"
 }
 
 chain_linux() {
@@ -115,12 +149,12 @@ chain_plan() {
   printf '%s\n' "$out" | grep -q 'definition_path=' || fail matrix "--platform-matrix 无 definition_path"
 }
 
-if [ "$OS" = Darwin ]; then install_macos "$A" A; else install_linux "$A"; fi
+if [ "$OS" = Darwin ]; then install_macos "$A" A; else install_linux "$A" A; fi
 if [ "$AVER" = "$BVER" ]; then echo "提示：A 与 B 同为 ${AVER}（本次未提升版本），只验覆盖安装与字节替换"; fi
 probe "$BIN" "$AVER" "$PKG_VER" A
 HASH_A=$(hash_of "$BIN")
 
-if [ "$OS" = Darwin ]; then install_macos "$B" B; else install_linux "$B"; fi
+if [ "$OS" = Darwin ]; then install_macos "$B" B; else install_linux "$B" B; fi
 probe "$BIN" "$BVER" "$PKG_VER" B
 HASH_B=$(hash_of "$BIN")
 # 版本串一致而字节未变 = 覆盖安装没真的换掉文件；这是唯一能区分「装上了新的」的独立证据。只在两版号不同时判：同版本构建（未提升版本的 PR）产物可逐字节相同，那条判据不成立。

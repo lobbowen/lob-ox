@@ -139,10 +139,15 @@ pub const WINDOWS_RUN_VALUE: &str = "Lobox";
 pub const SYSTEMD_UNIT_NAME: &str = "lobox";
 /// systemd 用户单元文件名：落点 ~/.config/systemd/user/<该名>。
 pub const SYSTEMD_UNIT_FILE: &str = "lobox.service";
-/// macOS 守卫 LaunchAgent label：plist 文件名与 launchctl bootstrap/bootout/kickstart 的操作对象。
-pub const MACOS_GUARD_LABEL: &str = "com.lobox.core";
-/// macOS 壳 LaunchAgent label：登录自启壳用，内核自启层建立/删除。
-pub const MACOS_GUI_LABEL: &str = "com.lobox.shell";
+/// macOS 守卫 LaunchAgent label：`<identifier>.core`，由 [`TAURI_IDENTIFIER`] 派生（反向域名根只写一次）。
+/// 为什么是求值函数而不是常量：std 没有 const 字符串拼接（`concat!` 只接受字面量），写死字面量等于把根抄第二遍。
+pub fn macos_guard_label() -> String {
+    format!("{}.core", TAURI_IDENTIFIER)
+}
+/// macOS 壳 LaunchAgent label：`<identifier>.shell`，同上派生（内核自启层建立/删除壳的登录项）。
+pub fn macos_gui_label() -> String {
+    format!("{}.shell", TAURI_IDENTIFIER)
+}
 
 // ── 产物名模板 ──────────────────────────────────────────────────────────────
 /// 内核 SEA 产物名：esbuild 打包 bin 的输出文件名。

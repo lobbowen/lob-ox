@@ -144,10 +144,13 @@ const WINDOWS_RUN_VALUE = 'Lobox';
 const SYSTEMD_UNIT_NAME = 'lobox';
 // systemd 用户单元文件名：落点 ~/.config/systemd/user/<该名>。
 const SYSTEMD_UNIT_FILE = 'lobox.service';
-// macOS 守卫 LaunchAgent label：plist 文件名与 launchctl bootstrap/bootout/kickstart 的操作对象。
-const MACOS_GUARD_LABEL = 'com.lobox.core';
-// macOS 壳 LaunchAgent label：登录自启壳用，内核自启层建立/删除。
-const MACOS_GUI_LABEL = 'com.lobox.shell';
+// macOS LaunchAgent label 的**反向域名根只有一处**：TAURI_IDENTIFIER。label = <identifier>.<组件>，
+//   它是 plist 文件名与 launchctl bootstrap/bootout/kickstart/enable/disable 的操作对象（内核与壳两侧都认它）。
+// 为什么是求值函数而不是常量：Rust 侧没有 const 字符串拼接（std 无 const-concat，`concat!` 只吃字面量），
+//   要让两侧**都**从 identifier 派生就只能都走函数；写死两个字面量 = 反向域名根被抄第二遍，改 identifier 必分叉
+//   （波 1 的 `com.lobox.*` vs `dev.bowen.lobox` 正是这么分叉的）。断言见 test/brand-single-source-test.js I 段。
+function macosGuardLabel() { return TAURI_IDENTIFIER + '.core'; }
+function macosGuiLabel() { return TAURI_IDENTIFIER + '.shell'; }
 
 // ── 产物名模板 ──────────────────────────────────────────────────────────────
 // 内核 SEA 产物名：esbuild 打包 bin 的输出文件名。
@@ -294,8 +297,8 @@ module.exports = {
   WINDOWS_RUN_VALUE,
   SYSTEMD_UNIT_NAME,
   SYSTEMD_UNIT_FILE,
-  MACOS_GUARD_LABEL,
-  MACOS_GUI_LABEL,
+  macosGuardLabel,
+  macosGuiLabel,
   SEA_BUNDLE_NAME,
   SEA_VERSION_DEFINE,
   KERNEL_ARCHIVE_TEMPLATE,

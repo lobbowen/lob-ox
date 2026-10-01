@@ -54,6 +54,15 @@ jobs:
       ver: ${{ steps.v.outputs.ver }}
     steps:
       - uses: actions/checkout@v4
+
+      # 本 job 有两处用 `node -p` 读 tauri.conf.json#version（版本单源，下游 build/install-smoke/publish 全靠它），
+      #   因此不能依赖 runner 镜像预装的 node（版本/存在性不受控）：下面三行与同文件 build job 的既有写法**逐字一致**
+      #   （不自行改版本号、不加 cache），步名亦随原文照抄 —— 本 job 的真实用途是读版本单源，不跑 --node-plan。
+      - name: Install Node（--node-plan 冒烟用）
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       # 版本源 = shell/src-tauri/tauri.conf.json#version：本步 cwd=shell/（由 workflow 级 defaults 给定），
       #   故下面 './src-tauri/tauri.conf.json' 一字不改即指向该文件 —— 它是本工作流发布流程实际消费的单源。
       - name: tag ↔ 组件版本对账（仅 tag；不一致即失败）

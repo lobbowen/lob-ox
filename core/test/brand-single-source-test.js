@@ -141,8 +141,6 @@ const EXPECT = {
   WINDOWS_RUN_VALUE: 'Lobox',
   SYSTEMD_UNIT_NAME: 'lobox',
   SYSTEMD_UNIT_FILE: 'lobox.service',
-  MACOS_GUARD_LABEL: 'com.lobox.core',
-  MACOS_GUI_LABEL: 'com.lobox.shell',
   SEA_BUNDLE_NAME: 'core.cjs',
   SEA_VERSION_DEFINE: '__DSH_VERSION__',
   PROC_MATCH_GUARD: '*lobox*',
@@ -538,6 +536,72 @@ const HOME = path.join('H', 'ome');
   } finally {
     fs.rmSync(probe, { recursive: true, force: true });
   }
+}
+
+// ── I. macOS LaunchAgent label：必须从 identifier **派生**（反向域名根全仓只允许一处）──────────
+// 波 1 的缺陷：label 写成 `com.lobox.*`、identifier 是 `dev.bowen.lobox` —— 同一套反向域名根出现两个根。
+// 本节把两件事钉死（A-1 只比「常量名集合」，label 改成求值派生后不再被 A-1 覆盖，故必须在此独立锚定）：
+//   ① 两侧都是**求值派生**（JS 函数 ↔ Rust `format!` + TAURI_IDENTIFIER），值逐字等于冻结字面量；
+//   ② 结构证据：单源两侧反向域名根字面量各只有一处（= identifier 声明），消费点也没有自己再写一份。
+{
+  const FROZEN_IDENTIFIER = 'dev.bowen.lobox'; // 冻结的反向域名根（与单源对偶的独立预言值）
+  const labels = [
+    ['守卫', BRAND.macosGuardLabel(), FROZEN_IDENTIFIER + '.core', 'core'],
+    ['壳', BRAND.macosGuiLabel(), FROZEN_IDENTIFIER + '.shell', 'shell'],
+  ];
+  const bad = [];
+  for (const [what, got, want, suffix] of labels) {
+    if (typeof got !== 'string') { bad.push(what + ' 不是字符串：' + JSON.stringify(got)); continue; }
+    if (got !== want) bad.push(what + '=' + JSON.stringify(got) + ' ≠ 冻结值 ' + JSON.stringify(want));
+    if (got !== BRAND.TAURI_IDENTIFIER + '.' + suffix) {
+      bad.push(what + ' 不是从 TAURI_IDENTIFIER 派生的：' + JSON.stringify(got) + ' ≠ TAURI_IDENTIFIER+".' + suffix + '"');
+    }
+  }
+  check('I-1 两个 macOS label 逐字等于冻结值、且逐字等于 TAURI_IDENTIFIER + 固定后缀（派生而非复制）',
+    bad.length === 0, bad.join(' | '));
+  check('I-2 两个 label 互不相同、都是 identifier 的后代（同一套反向域名根）',
+    labels[0][1] !== labels[1][1]
+    && labels.every(([, got]) => got.indexOf(FROZEN_IDENTIFIER + '.') === 0)
+    && BRAND.TAURI_IDENTIFIER === FROZEN_IDENTIFIER,
+    labels.map(([w, got]) => w + '=' + got).join(' | '));
+
+  // 结构证据①：单源两侧各自只有一处反向域名根字面量（就是 identifier 声明本身）。
+  const jsRoots = (fs.readFileSync(JS_PATH, 'utf8').match(/'dev\.bowen\.[^']*'/g) || []);
+  const rsRoots = (rust.src.match(/"dev\.bowen\.[^"]*"/g) || []);
+  check('I-3 单源两侧各自只有一处反向域名根字面量（= TAURI_IDENTIFIER；label 没有把根抄第二遍）',
+    jsRoots.length === 1 && jsRoots[0] === "'" + FROZEN_IDENTIFIER + "'"
+    && rsRoots.length === 1 && rsRoots[0] === '"' + FROZEN_IDENTIFIER + '"',
+    'js=' + JSON.stringify(jsRoots) + ' rs=' + JSON.stringify(rsRoots));
+
+  // 结构证据②：brand.rs 的两个 label 函数体必须引用 TAURI_IDENTIFIER，字面量只能是一个后缀。
+  const rsFnNorm = (name) => {
+    const at = rust.src.indexOf('fn ' + name + '(');
+    if (at < 0) return '';
+    const rest = rust.src.slice(at);
+    const end = rest.indexOf('\n}');
+    return (end < 0 ? rest : rest.slice(0, end)).replace(/\s+/g, ' ');
+  };
+  const guardFn = rsFnNorm('macos_guard_label');
+  const guiFn = rsFnNorm('macos_gui_label');
+  check('I-4 brand.rs 两个 label 函数体逐字从 TAURI_IDENTIFIER 派生（format! + 单一后缀字面量）',
+    /format!\("\{\}\.core", TAURI_IDENTIFIER\)/.test(guardFn)
+    && /format!\("\{\}\.shell", TAURI_IDENTIFIER\)/.test(guiFn),
+    'guard=' + JSON.stringify(guardFn.slice(0, 110)) + ' gui=' + JSON.stringify(guiFn.slice(0, 110)));
+
+  // 结构证据③：消费点走派生入口，且自己不再写 label 字面量（含波 1 的 com.lobox.* 旧根）。
+  const darwinSrc = fs.readFileSync(path.join(ROOT, 'src', 'platform', 'os', 'autostart', 'darwin.js'), 'utf8');
+  const macosSrc = fs.readFileSync(path.join(ROOT, '..', 'shell', 'src-tauri', 'src', 'platform', 'macos.rs'), 'utf8');
+  check('I-5 消费点走派生入口：darwin.js 调 brand 的 label 函数、macos.rs 调 brand::macos_guard_label',
+    /BRAND\.macosGuardLabel\(\)/.test(darwinSrc) && /BRAND\.macosGuiLabel\(\)/.test(darwinSrc)
+    && /crate::brand::macos_guard_label\(\)/.test(macosSrc),
+    'darwin-call=' + /BRAND\.macos(Guard|Gui)Label\(\)/.test(darwinSrc)
+      + ' macos-rs-call=' + /crate::brand::macos_guard_label\(\)/.test(macosSrc));
+  const labelRoots = [];
+  for (const [rel, src] of [['darwin.js', darwinSrc], ['macos.rs', macosSrc]]) {
+    for (const m of src.matchAll(/(?:com|dev)\.bowen\.[A-Za-z.]*|com\.lobox\.[A-Za-z]*/g)) labelRoots.push(rel + ':' + m[0]);
+  }
+  check('I-6 消费点里没有任何 label 字面量（com.lobox.* / *.bowen.* 皆为 0 命中）',
+    labelRoots.length === 0, labelRoots.join(','));
 }
 
 const failed = results.filter((r) => !r);

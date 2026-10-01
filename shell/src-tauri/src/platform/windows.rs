@@ -476,16 +476,23 @@ impl ServiceControl for Impl {
             Command::new("schtasks").args(["/End", "/TN", GUARD_TASK]),
             SVC_NORMAL,
         );
-                // 守卫镜像名是 node.exe（不是 lobox.exe），按镜像名 taskkill 杀不到它；按命令行含 lobox 精确匹配再杀，绝不误杀 DSH 自身的 node。
+                // 守卫镜像名是 node.exe（不是 lobox.exe），按镜像名 taskkill 杀不到它；按命令行含守卫模式精确匹配再杀，绝不误杀 DSH 自身的 node。
+        // 匹配串取自跨语言单源（brand.rs::PROC_MATCH_GUARD = "*lobox*"，与 brand.js 同名同值）：此处再写一份字面量 = 改名漏一处 ⇒ 停守卫变成空操作。
+        // 为什么不会误杀 DSH 的 node：过滤器先按镜像名钉死 node.exe，再要求命令行含产品名；DSH 侧入口是 `dsh`（B 类外部名，永不含 lobox）。
+        let ps = format!(
+            "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object {{ $_.CommandLine -like '{}' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}",
+            crate::brand::PROC_MATCH_GUARD
+        );
         crate::bounded::run_lossy(
-            Command::new("powershell").args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like '*lobox*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
-            ]),
+            Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                ])
+                .arg(ps.as_str()),
             SVC_NORMAL,
         );
         Ok(())

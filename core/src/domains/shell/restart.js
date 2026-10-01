@@ -2,6 +2,7 @@
 
 const spawnOS = require('../../platform/os/spawn');
 const pidlook = require('../../platform/os/pidlookup');
+const BRAND = require('../../shared/brand');
 
 const { identity } = require('./journal');
 const { exeFromCmdline, isShellProcess } = require('./core');
@@ -30,7 +31,8 @@ async function restartShell(opts) {
   const o = opts || {};
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  const pattern = o.procPattern || 'lobox-shell';
+  // 兜底的进程模式与 watchdog 同源（brand.js#PROC_MATCH_GUI）：默认值分叉 = 一处改名后两条路径找的不是同一个名字。
+  const pattern = o.procPattern || BRAND.PROC_MATCH_GUI;
   let procs = [];
   try { procs = pidlook.pgrepList(pattern) || []; } catch { procs = []; }
   // 与 watchdog 共用 core.js 的 isShellProcess：弱过滤会把 --mirror-plan 等运维自检进程误判为壳并 SIGKILL。
