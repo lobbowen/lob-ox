@@ -30,12 +30,16 @@ const obj = (arr) => arr.reduce((m, v) => { m[v] = {}; return m; }, {});
     channel.pickReleaseVersion(m, { ...OPTS_MINE, canary: true }) === FLOORV);
   check('rollback 与 max 无关（可低于 versions 最高，但须过防降级下限）',
     channel.pickReleaseVersion(meta({ rollback: FLOORV, latest: '9.9.9' }, obj([FLOORV, '9.9.9'])), OPTS_MINE) === FLOORV);
+  // 版本线重置后下限必须低于在发版本：下限一旦高于它，rollback tag 会被静默判为「低于下限」而回落 latest（回退通道失效）。
+  check('下限不拦在发版本线：rollback 指向 0.0.1 → 采纳',
+    channel.pickReleaseVersion(meta({ rollback: '0.0.1', latest: '9.9.9' }, obj(['0.0.1', '9.9.9'])), OPTS_MINE) === '0.0.1');
 }
 
 {
   const attack = meta({ rollback: '0.1.0', latest: '0.2.0' }, obj(['0.1.0', '0.2.0']));
   check('低于下限的 rollback → 忽略，回落 latest（不降级）',
-    channel.pickReleaseVersion(attack, OPTS_MINE) === '0.2.0');
+    channel.pickReleaseVersion(attack, { ...OPTS_MINE, rollbackFloor: '0.1.5' }) === '0.2.0'
+    && channel.pickReleaseVersion(meta({ rollback: '0.0.0-0', latest: '0.2.0' }, obj(['0.0.0-0', '0.2.0'])), OPTS_MINE) === '0.2.0');
   check('边界：rollback == 注入下限 → 采纳（且下限未被绕过）',
     channel.pickReleaseVersion(meta({ rollback: '0.3.0', latest: '0.4.0' }, obj(['0.3.0', '0.4.0'])),
       { ...OPTS_MINE, rollbackFloor: '0.3.0' }) === '0.3.0'
