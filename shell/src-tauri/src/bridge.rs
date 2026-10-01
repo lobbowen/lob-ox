@@ -1,7 +1,8 @@
 //! 面板与壳的消息桥契约：内容 iframe 内 Tauri IPC 仅主帧可用，内核更新请求须经受校验的 postMessage 通道转交壳主帧。版本与消息类型的唯一事实源在此，经 shell_bridge_contract 下发给 shell.html。
 
 /// 协议版本；任何语义变更都必须递增。
-pub const KERNEL_UPDATE_PROTOCOL_VERSION: u32 = 1;
+/// 波 3（契约字段改名）改了消息类型名（换成我方前缀）—— 消息名是**线上值**，改名即语义变更 ⇒ 1 → 2。
+pub const KERNEL_UPDATE_PROTOCOL_VERSION: u32 = 2;
 
 // 消息类型名的**唯一事实源**是 `crate::brand`（与内核 `core/src/shared/brand.js` 逐字一致，由
 //   core/test/brand-single-source-test.js 对账）：面板 bundle 是内核产物、本文件是壳产物，两侧各自独立发布，

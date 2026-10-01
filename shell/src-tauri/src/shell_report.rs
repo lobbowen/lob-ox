@@ -80,7 +80,8 @@ fn records(out: &Outcome, deps: &Snapshot) -> Vec<serde_json::Value> {
 pub fn payload(out: &Outcome, deps: &Snapshot) -> serde_json::Value {
     serde_json::json!({
         "schema": SCHEMA,
-        "writtenBy": format!("lobox-shell@{}", env!("CARGO_PKG_VERSION")),
+        // 署名 = 单源 `GUI_BIN_NAME` + 壳版本；壳四处契约必须同形（J-10 对账）。
+        "writtenBy": format!("{}@{}", crate::brand::GUI_BIN_NAME, env!("CARGO_PKG_VERSION")),
         "node": node_view(out),
         "npm": npm_view(deps),
         "prefix": prefix_view(deps),

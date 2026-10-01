@@ -236,7 +236,9 @@ pub const CONTRACT_SCHEMA: u64 = 3;
 fn contract_doc(m: &Mirrors) -> serde_json::Value {
     serde_json::json!({
         "schema": CONTRACT_SCHEMA,
-        "writtenBy": format!("shell@{}", env!("CARGO_PKG_VERSION")),
+        // 署名 = 单源 `GUI_BIN_NAME` + 壳版本：本处原写死 `shell@`，与壳另外三份契约的 `lobox-shell@`
+        //   并存 ⇒ 用户/日志里出现两个「写入者」。名字在单源里已有，一律派生、不得再写字面量（J-10 对账）。
+        "writtenBy": format!("{}@{}", crate::brand::GUI_BIN_NAME, env!("CARGO_PKG_VERSION")),
         "writtenAt": now_secs(),
         "catalog": m.npm,
         "probe": {

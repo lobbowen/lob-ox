@@ -21,7 +21,8 @@ pub fn write(c: &InstalledCore) {
     let _ = std::fs::create_dir_all(&dir);
     let meta = serde_json::json!({
         "schema": SCHEMA,
-        "writtenBy": format!("lobox-shell@{}", env!("CARGO_PKG_VERSION")),
+        // 署名 = 单源 `GUI_BIN_NAME` + 壳版本；壳四处契约必须同形（J-10 对账）。
+        "writtenBy": format!("{}@{}", crate::brand::GUI_BIN_NAME, env!("CARGO_PKG_VERSION")),
         "bin": c.bin.display().to_string(),
         "prefix": c.prefix.as_ref().map(|p| p.display().to_string()),
         "version": c.version,

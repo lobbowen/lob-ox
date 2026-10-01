@@ -1,7 +1,7 @@
 /** 面板 -> 桌面壳内核更新消息桥：Tauri IPC 只注入主帧，面板在 iframe 内，故经 postMessage 请壳代执行。 */
 
-/** 协议版本：语义变更必须递增，须与壳 src/bridge.rs 常量一致。 */
-export const BRIDGE_PROTOCOL_VERSION = 1;
+/** 协议版本：语义变更必须递增，须与壳 src/bridge.rs 常量一致（两侧由 core/test/brand-single-source-test.js 的 J-9 对账，单边递增必红）。 */
+export const BRIDGE_PROTOCOL_VERSION = 2;
 
 // 消息类型名必须与壳 `shell/src-tauri/src/bridge.rs`（→ 单源 `crate::brand` / `core/src/shared/brand.js`）逐字一致：
 //   面板 bundle 与壳是两个独立发布的产物，改一侧 = 请求超时且无任何报错。面板是浏览器 bundle，

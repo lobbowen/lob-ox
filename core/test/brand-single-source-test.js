@@ -615,7 +615,8 @@ const HOME = path.join('H', 'ome');
 //   ③ J-3：面板 bundle 是浏览器产物，不能 require 内核的 CommonJS 单源 ⇒ 从 TS 源码提取字面量与单源比
 //      —— 这就是「内核侧常量 ↔ 壳侧常量值相等」的值级证据；
 //   ④ J-4/J-5：localStorage 键、面板事件映射表（覆盖内核全部事件常量 + 无旧事件名残留）；
-//   ⑤ J-6..J-8：全仓（含隐藏目录 `.github/`）旧名 0 命中；唯一豁免（CI 工作流名）显式登记且钉死处数。
+//   ⑤ J-6..J-8：全仓（含隐藏目录 `.github/`）旧名 0 命中；CI 工作流名的旧豁免**已随改名作废删除**；
+//   ⑥ J-9/J-10：桥协议版本跨侧一致（单边递增必红）、壳侧四处 writtenBy 署名同形且从单源派生。
 {
   // 旧名（波 3 之前的值）——只作为**判据表**出现在本文件里，故 J-6 扫描把本文件自身列为唯一豁免。
   const OLD_BRIDGE = 'dsh:kernel-update';
@@ -763,17 +764,17 @@ const HOME = path.join('H', 'ome');
       }
       return out;
     };
-    // 唯一豁免：CI 工作流名 `.github/workflows/shell.yml:1` 的 `dsh-shell-build`。
-    //   它是**我们的**串（(a) 语义），但改名会同时动 `concurrency.group`（= github.workflow）与 GitHub 仓
-    //   设置里的 Required status check 名称 ⇒ 归 (c) 待裁，由 CI 专项波次连外部状态一起改。
-    //   豁免显式到「文件 + 恰好 1 处」：清理后本断言会变红，迫使同步删掉这条豁免（与 standards-check 的
-    //   「豁免命中数 0 = 过期豁免判红」同一口径）。
+    // J-6（原样保留其历史）：这里曾是对 CI 工作流名的**唯一豁免** —— 旧工作流名是**我们的**串（(a) 语义），
+    //   但改名会同时动 `concurrency.group`（= github.workflow）与 GitHub 仓设置里的 Required status check 名称，
+    //   故当时归 (c) 待裁。该外部前置已核实（main 无分支保护 / rulesets=0 ⇒ 没有 required check 挂在旧名上）
+    //   并随波 3 收尾改名 ⇒ 按当时写下的约定「清理后必须同步删除本豁免」删掉豁免，倒转成正向断言。
+    //   ⚠ 本工作流**没有** `concurrency:` 块（本仓只有 core.yml 有），故无 group 自引用需要同步。
     const SHELL_YML = path.join(REPO, '.github', 'workflows', 'shell.yml');
     const wfSrc = fs.readFileSync(SHELL_YML, 'utf8');
     const wfHits = wfSrc.match(/dsh-shell/g) || [];
-    check('J-6 唯一豁免（CI 工作流名）恰好 1 处且就是 name: 行；清理后必须同步删除本豁免',
-      wfHits.length === 1 && /^name: dsh-shell-build$/m.test(wfSrc),
-      'hits=' + wfHits.length + ' name行=' + /^name: dsh-shell-build$/m.test(wfSrc));
+    check('J-6 CI 工作流名 = shell-build（旧豁免已作废删除）、且 shell.yml 里旧串 0 命中',
+      /^name: shell-build$/m.test(wfSrc) && wfHits.length === 0,
+      'hits=' + wfHits.length + ' name行=' + /^name: shell-build$/m.test(wfSrc));
 
     const FORBIDDEN = [OLD_BRIDGE, OLD_STORE, OLD_COOKIE, OLD_ASIDE, OLD_RETRY, OLD_SHELL_FIXTURE].concat(OLD_EVENTS);
     const hits = [];
@@ -785,10 +786,9 @@ const HOME = path.join('H', 'ome');
       try { txt = fs.readFileSync(f, 'utf8'); } catch { continue; }
       scanned += 1;
       const rel = path.relative(REPO, f).split(path.sep).join('/');
-      // 豁免只在 shell.yml 里生效，且只抹掉那 1 处工作流名（J-6 已钉死「恰好 1 处」）。
-      const text = rel === '.github/workflows/shell.yml' ? txt.replace(/dsh-shell/g, 'SHELL_BUILD') : txt;
+      // 旧版此处对 shell.yml 的旧工作流名有 1 处豁免；该名已改、J-6 已作废豁免 ⇒ 本扫描不再有任何豁免。
       for (const pat of FORBIDDEN) {
-        if (text.indexOf(pat) >= 0) hits.push(rel + ' ← ' + pat);
+        if (txt.indexOf(pat) >= 0) hits.push(rel + ' ← ' + pat);
       }
     }
     check('J-7 全仓（含隐藏目录 .github/，' + scanned + ' 个文本文件）旧契约名 0 命中',
@@ -807,6 +807,37 @@ const HOME = path.join('H', 'ome');
       .map(([rel, needle]) => rel + ' 缺 ' + needle);
     check('J-8 新名在消费点（壳/面板/内核/让位/cookie）逐处出现（' + need.length + ' 处）',
       absent.length === 0, absent.join(' | '));
+  }
+
+  // ── J-9 桥协议版本：面板 ↔ 壳两侧必须相等、且等于冻结值（任一侧单独递增 = 契约断裂）────────
+  //   为什么要机器判：协议版本是**跨侧**的语义位。面板按新版号发、壳按旧版号收（或反之），帧会被对侧
+  //   静默丢弃 —— 现场只有一句「更新按钮没反应」，没有任何报错。原先只有两侧源码注释互相约定「须一致」，
+  //   没有任何断言 ⇒ 单边递增谁也拦不住；本波改了线上值（消息类型名换前缀），按 bridge.rs:3 自定的规矩
+  //   「任何语义变更都必须递增」1 → 2，故补上本条。
+  {
+    const bridgeRs = fs.readFileSync(path.join(SHELL_SRC, 'bridge.rs'), 'utf8');
+    const bridgeTs = fs.readFileSync(UI_BRIDGE, 'utf8');
+    const rs = Number((/pub const KERNEL_UPDATE_PROTOCOL_VERSION: u32 = (\d+);/.exec(bridgeRs) || [])[1]);
+    const ts = Number((/export const BRIDGE_PROTOCOL_VERSION = (\d+);/.exec(bridgeTs) || [])[1]);
+    check('J-9 桥协议版本：壳 bridge.rs 与面板 kernelUpdateBridge.ts 两侧相等且都等于冻结值 2（单边递增必红）',
+      rs === 2 && ts === 2, '壳=' + rs + ' 面板=' + ts);
+  }
+
+  // ── J-10 壳侧 writtenBy 署名：四处同形，且名字从单源 crate::brand::GUI_BIN_NAME 派生 ──────
+  //   署名是**对外可见**的归属标识（内核 distribution/registry.js 的 catalogSource、面板
+  //   EnvironmentCard 都直接展示它）：同一种东西出现两种形态（`shell@<ver>` 与 `lobox-shell@<ver>`）
+  //   ⇒ 用户与日志里看到两个「写入者」。名字本身（lobox-shell）单源里已有（GUI_BIN_NAME），故一律派生。
+  {
+    const sites = ['mirror.rs', 'shell_report.rs', 'runtime_contract.rs', 'core_contract.rs'];
+    const bad = [];
+    for (const f of sites) {
+      const line = fs.readFileSync(path.join(SHELL_SRC, f), 'utf8')
+        .split('\n').find((l) => l.indexOf('"writtenBy"') >= 0) || '';
+      if (line.indexOf('crate::brand::GUI_BIN_NAME') < 0) bad.push(f + ' 未从单源取名: ' + line.trim().slice(0, 80));
+      if (/"(?:lobox-)?shell@/.test(line)) bad.push(f + ' 仍写字面量署名');
+    }
+    check('J-10 壳侧四处 writtenBy 同形、且名字从单源 crate::brand::GUI_BIN_NAME 派生（0 处字面量）',
+      bad.length === 0, bad.join(' | '));
   }
 }
 

@@ -166,7 +166,8 @@ fn meta(rt: &NodeRuntime) -> serde_json::Value {
     let npm_s = rt.npm.display().to_string();
     serde_json::json!({
         "schema": SCHEMA,
-        "writtenBy": format!("lobox-shell@{}", env!("CARGO_PKG_VERSION")),
+        // 署名 = 单源 `GUI_BIN_NAME` + 壳版本；壳四处契约必须同形（J-10 对账）。
+        "writtenBy": format!("{}@{}", crate::brand::GUI_BIN_NAME, env!("CARGO_PKG_VERSION")),
         "nodeBinDir": bin_s,
         "npmPath": npm_s,
         "npmArgs": rt.npm_prefix,

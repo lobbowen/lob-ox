@@ -1,4 +1,4 @@
-name: dsh-shell-build
+name: shell-build
 
 # 公开壳产线（monorepo 版）：本仓 lob-ox = core/（内核）+ shell/（桌面壳）。
 #
