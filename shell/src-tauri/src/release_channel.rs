@@ -7,8 +7,8 @@ pub const CH_CANARY: &str = "canary";
 pub const CH_LATEST: &str = "latest";
 pub const CH_VERSIONS: &str = "versions";
 
-// 现状：该包尚未在 @lobox 下创建 —— 未创建时拉取失败即视为不命中灰度（非致命，仅留痕）；启用灰度前须先发布它。
-pub const CANARY_ALLOWLIST_PKG: &str = "@lobox/canary-allowlist";
+// 现状：该包尚未在 @lob-ox 下创建 —— 未创建时拉取失败即视为不命中灰度（非致命，仅留痕）；启用灰度前须先发布它。
+pub const CANARY_ALLOWLIST_PKG: &str = "@lob-ox/canary-allowlist";
 
 const CFG_CANARY: &str = "canary";
 const CFG_ALLOWLIST: &str = "canaryAllowlist";

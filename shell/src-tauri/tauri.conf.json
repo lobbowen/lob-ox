@@ -47,8 +47,8 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYzMkFBRjAxMEZCQzFCRkIKUldUN0c3d1BBYThxODVjN2dmZWlrdVR5NWRjMTBNTWtUUUovQ0NWZzhndi9KcGdGdHNkb3poZUQK",
       "endpoints": [
-        "https://unpkg.com/@lobox/shell-release@latest/shell-manifest.json",
-        "https://cdn.jsdelivr.net/npm/@lobox/shell-release@latest/shell-manifest.json"
+        "https://unpkg.com/@lob-ox/shell-release@latest/shell-manifest.json",
+        "https://cdn.jsdelivr.net/npm/@lob-ox/shell-release@latest/shell-manifest.json"
       ],
       "windows": {
         "installMode": "passive"

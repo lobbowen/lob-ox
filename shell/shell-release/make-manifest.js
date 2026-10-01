@@ -59,7 +59,7 @@ function main() {
     notes.push(e.platform);
   }
 
-  const baseTpl = a.base || 'https://unpkg.com/@lobox/shell-__PLATFORM__@__VERSION__/artifact/';
+  const baseTpl = a.base || 'https://unpkg.com/@lob-ox/shell-__PLATFORM__@__VERSION__/artifact/';
   for (const key of Object.keys(platforms)) {
     const p = platforms[key];
     if (!p.url) {

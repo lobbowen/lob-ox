@@ -2,7 +2,7 @@
 
 const { semverCompare } = require('../../shared/version');
 
-const OUR_RELEASE_SCOPE = '@lobox/';
+const OUR_RELEASE_SCOPE = '@lob-ox/';
 
 function isOurReleasePackage(pkg) {
   return typeof pkg === 'string' && pkg.startsWith(OUR_RELEASE_SCOPE);

@@ -78,7 +78,7 @@ function main() {
   if (!ver) { console.error('缺少 --ver'); process.exit(2); }
   if (!bundleDir) { console.error('缺少 --bundle-dir'); process.exit(2); }
 
-  const pkgName = '@lobox/shell-' + plat;
+  const pkgName = '@lob-ox/shell-' + plat;
   const stage = path.join(out, pkgName);
   fs.rmSync(stage, { recursive: true, force: true });
   fs.mkdirSync(path.join(stage, 'artifact'), { recursive: true });

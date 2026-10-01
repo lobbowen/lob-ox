@@ -143,10 +143,10 @@ mod tests {
         std::fs::create_dir_all(&prefix).unwrap();
         let shim = prefix.join("dsh-supervisor.cmd");
         std::fs::write(&shim, b"@echo off\n").unwrap();
-        let internal = prefix.join("node_modules").join("@lobox").join("dsh-core-x").join("bin").join("dsh-supervisor");
+        let internal = prefix.join("node_modules").join("@lob-ox").join("dsh-core-x").join("bin").join("dsh-supervisor");
         std::fs::create_dir_all(internal.parent().unwrap()).unwrap();
         std::fs::write(&internal, b"// js\n").unwrap();
-        let got = normalize_guard(shim.clone(), Some("@lobox/dsh-core-x"));
+        let got = normalize_guard(shim.clone(), Some("@lob-ox/dsh-core-x"));
         assert_eq!(got, internal, "1.1.5 真机缺陷：.cmd 垫片被直接交给 node（EISDIR）");
         let js = prefix.join("bin").join("dsh-supervisor");
         std::fs::create_dir_all(js.parent().unwrap()).unwrap();

@@ -72,7 +72,7 @@ fn find_artifact() -> Option<(PathBuf, PathBuf)> {
 fn build_manifest(artifact: &Path, sig_text: &str, version: &str) -> String {
     let file = artifact.file_name().unwrap().to_string_lossy().to_string();
     let url = format!(
-        "https://unpkg.com/@lobox/shell-linux-x64@{version}/artifact/{file}"
+        "https://unpkg.com/@lob-ox/shell-linux-x64@{version}/artifact/{file}"
     );
     serde_json::json!({
         "version": version,

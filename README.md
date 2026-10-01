@@ -4,7 +4,7 @@ DSH Supervisor —— 内核与桌面壳同仓的项目。
 
 | 组件 | 目录 | 交付物 |
 |---|---|---|
-| **内核** | [`core/`](core/) | npm 子包 `@lobox/dsh-core-{linux-x64,darwin-arm64,darwin-x64,win-x64}` |
+| **内核** | [`core/`](core/) | npm 子包 `@lob-ox/dsh-core-{linux-x64,darwin-arm64,darwin-x64,win-x64}` |
 | **桌面壳** | [`shell/`](shell/) | Tauri 四平台安装包 + npm 壳包 |
 
 ⇒ **发布是一份壳、一份内核**：源码同仓，CI 按目录 path filter 分跑（内核改动不触发壳的四平台打包，反之亦然）。
@@ -16,7 +16,7 @@ DSH Supervisor —— 内核与桌面壳同仓的项目。
 ## 目录
 
 ```
-lobox/
+lob-ox/
 ├─ core/                    内核（Node.js，CommonJS，零运行时依赖）
 │   ├─ src/                 产品代码（domains / app / platform / api / shared）
 │   ├─ test/                测试（entry = test/_runner.js，登记表 = test/manifest.js）

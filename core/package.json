@@ -28,7 +28,7 @@
     "node": ">=18"
   },
   "npmPublish": {
-    "scope": "@lobox",
+    "scope": "@lob-ox",
     "packages": [
       "dsh-core-linux-x64",
       "dsh-core-darwin-arm64",

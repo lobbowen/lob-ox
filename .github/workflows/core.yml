@@ -133,7 +133,7 @@ jobs:
           echo "  版本: $VER"
           MISSING=""
           for p in $(node -e 'const p=require("./package.json");console.log((p.npmPublish&&p.npmPublish.packages||[]).join(" "))'); do
-            if npm view "@lobox/$p@$VER" version >/dev/null 2>&1; then
+            if npm view "@lob-ox/$p@$VER" version >/dev/null 2>&1; then
               echo "    已发布 $p"
             else
               echo "    缺失   $p"
@@ -209,7 +209,7 @@ jobs:
             *) echo "::error::不支持的平台 $PLAT"; exit 1 ;;
           esac
           VER="$(node -p 'require("./package.json").version')"
-          PKG="./dist/npm/@lobox/dsh-core-$OS_TAG-$ARCH"
+          PKG="./dist/npm/@lob-ox/dsh-core-$OS_TAG-$ARCH"
           [ -d "$PKG" ] || { echo "::error::缺少子包目录 $PKG（dry-run 步应已产出）"; exit 1; }
           bash release/scripts/install-smoke-core.sh --pkg "$PKG" --ver "$VER"
 
@@ -250,7 +250,7 @@ jobs:
             linux) OS_TAG=linux ;; darwin) OS_TAG=darwin ;; win32) OS_TAG=win ;;
             *) echo "::error::不支持的平台 $PLAT"; exit 1 ;;
           esac
-          SPEC="@lobox/dsh-core-$OS_TAG-$ARCH@$VER"
+          SPEC="@lob-ox/dsh-core-$OS_TAG-$ARCH@$VER"
           echo "  发布后自证目标: $SPEC（registry=$REGISTRY）"
           # registry 摄取与前置缓存有分钟级延迟（同 published-smoke 的重试理由）⇒ 有限轮重试；
           # 轮次用尽仍未确认即判红。⚠ 末尾不用 `[ ... ] && sleep`：那会让循环体以非零收尾、被 -e 炸掉。
@@ -362,7 +362,7 @@ jobs:
         with:
           node-version: '24'
 
-      - name: 发布后安装包冒烟（npm i -g @lobox/dsh-core-<os>-<arch>@<ver>）
+      - name: 发布后安装包冒烟（npm i -g @lob-ox/dsh-core-<os>-<arch>@<ver>）
         shell: bash
         # 显式关 -e：重试循环要靠 rc 分支决策，不能让中间轮的失败炸掉整个 run block。
         run: |
@@ -374,7 +374,7 @@ jobs:
             *) echo "::error::不支持的平台 $PLAT"; exit 1 ;;
           esac
           VER="${VER_INPUT:-$(node -p 'require("./package.json").version')}"
-          SPEC="@lobox/dsh-core-$OS_TAG-$ARCH@$VER"
+          SPEC="@lob-ox/dsh-core-$OS_TAG-$ARCH@$VER"
           echo "  发布后冒烟目标: $SPEC"
           ATTEMPTS=5
           SLEEP_SEC=75

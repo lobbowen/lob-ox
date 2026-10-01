@@ -1,6 +1,6 @@
 name: dsh-shell-build
 
-# 公开壳产线（monorepo 版）：本仓 lobox = core/（内核）+ shell/（桌面壳）。
+# 公开壳产线（monorepo 版）：本仓 lob-ox = core/（内核）+ shell/（桌面壳）。
 #
 # ── 路径基准三分类（改本文件前先读）──────────────────────────────────────────
 #   ① `run:` 里的相对路径 → 相对 `defaults.run.working-directory`（本文件 = shell），照原样写；
@@ -544,7 +544,7 @@ jobs:
           done
           echo "=== 归拢后的包目录 ==="
           find dist/npm-shell -maxdepth 2 -type d | sort
-          if [ ! -d dist/npm-shell/@lobox/shell-linux-x64 ]; then
+          if [ ! -d dist/npm-shell/@lob-ox/shell-linux-x64 ]; then
             echo "::error::未归拢到 shell-linux-x64，artifact 路径假设可能有误"
             echo "--- dist/artifacts 实际布局 ---"
             find dist/artifacts -maxdepth 4 -type d | head -40
@@ -589,7 +589,7 @@ jobs:
             *-*)    TAG="--tag beta" ;;
             *)      TAG="--tag latest" ;;
           esac
-          for d in dist/npm-shell/@lobox/shell-*; do
+          for d in dist/npm-shell/@lob-ox/shell-*; do
             [ -d "$d" ] || continue
             PKG_NAME=$(node -p "require('./$d/package.json').name")
             echo "== 发布 $PKG_NAME =="
@@ -599,13 +599,13 @@ jobs:
               npm dist-tag add "$PKG_NAME@$VER" rc
             fi
           done
-          REL=dist/npm-shell/@lobox/shell-release
+          REL=dist/npm-shell/@lob-ox/shell-release
           mkdir -p "$REL"
           cp dist/npm-shell/shell-manifest.json "$REL/"
           node -e "
           const fs=require('fs');
           fs.writeFileSync('$REL/package.json', JSON.stringify({
-            name:'@lobox/shell-release', version:'$VER',
+            name:'@lob-ox/shell-release', version:'$VER',
             description:'DSH supervisor desktop shell update manifest (Tauri updater static JSON).',
             license:'MIT', files:['shell-manifest.json']
           }, null, 2) + '\n');

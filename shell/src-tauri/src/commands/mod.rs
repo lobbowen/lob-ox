@@ -180,7 +180,7 @@ pub fn start_node_install(state: tauri::State<Mutex<RunState>>, app: tauri::AppH
 
 #[tauri::command]
 pub async fn core_status(app: tauri::AppHandle) -> serde_json::Value {
-    let pkg = crate::core::package_name().unwrap_or_else(|_| "@lobox/dsh-core-<platform>".into());
+    let pkg = crate::core::package_name().unwrap_or_else(|_| "@lob-ox/dsh-core-<platform>".into());
     let located = tauri::async_runtime::spawn_blocking(move || {
         let a = app.clone();
         crate::domain::coreloc::locate_core_with_version(&a)
