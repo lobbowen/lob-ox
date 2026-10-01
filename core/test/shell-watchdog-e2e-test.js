@@ -56,7 +56,7 @@ const cfg = {
   supervisorLogFile: path.join(swDir, 'guard.log'),
   dshLogFile: path.join(swDir, 'dsh.log'),
   upgradeLogFile: path.join(swDir, 'upgrade.log'),
-  probeIntervalMs: 1000,
+  tickIntervalMs: 1000,
   updateCheckEnabled: false, notifyEnabled: false,
   shellProcPattern: 'dsh-supervisor-gui-watchdog-e2e-only',
   shellWatchdogIntervalMs: 1000,

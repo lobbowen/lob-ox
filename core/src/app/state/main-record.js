@@ -5,7 +5,7 @@ function createMainRecord(deps) {
   const reg = () => (typeof g.getManagedObjects === 'function' ? g.getManagedObjects() : null);
   const logger = () => (typeof g.getLogger === 'function' ? g.getLogger() : null);
   let fallback = null;
-  const DEFAULTS = { restartCount: 0, backoffLevel: 0, backoffUntil: null, crashWindowStart: null, crashWindowRestarts: 0 };
+  const DEFAULTS = { restartCount: 0, startupFailWindowStart: null, startupFailCount: 0 };
   const buffered = new Map();
 
   function entryOf() {
@@ -21,7 +21,7 @@ function createMainRecord(deps) {
         desired: 'running',
         ownership: { ports: [], rootPath: null, unit: null, daemonScript: null, processMode: 'spawn', meta: null },
         phase: 'stopped', lastObserved: null,
-        backoffLevel: 0, backoffUntil: null, crashWindowStart: null, crashWindowRestarts: 0,
+        startupFailWindowStart: null, startupFailCount: 0,
         restartCount: 0, startedAt: null, lastTransitionAt: null,
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
         process: null,
@@ -74,7 +74,6 @@ function createMainRecord(deps) {
       p = e.process = {
         child: null, adoptedPid: null, adopted: false, observedOnly: false,
         startDeadline: null, restartAt: null, spawnBlockedUntil: null, missingNotified: false,
-        failStreak: 0, lastProbeAt: null, lastProbeOk: null, lastProbeHttpOk: null,
         lastFailure: null, lastRestartAt: null,
       };
     }

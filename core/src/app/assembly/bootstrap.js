@@ -28,12 +28,12 @@ function _bootstrap(host) {
       routerMode: null, updateCheck: null, shellWatchdog: null, lastRefresh: null,
     };
     host.tick();
-    host._timer = host.managedObjects ? null : setInterval(() => host.tick(), host.config.probeIntervalMs);
+    host._timer = host.managedObjects ? null : setInterval(() => host.tick(), host.config.tickIntervalMs);
     host._lastHeartbeatAt = Date.now();
     host._heartbeatStalls = 0;
         // 心跳代际：stall 兜底放行下一拍后旧拍迟到结算会清掉新拍标记。
     host._heartbeatBeat = host._heartbeatBeat || 0;
-    const heartbeatIv = host.config.probeIntervalMs || 5000;
+    const heartbeatIv = host.config.tickIntervalMs || 5000;
     host._heartbeatTimer = setInterval(() => {
       if (host._heartbeatBusy) return;
       host._heartbeatBusy = true;
@@ -68,7 +68,7 @@ function _bootstrap(host) {
       host.lan.reconcile().catch(() => {});
       host.lan.syncFrpc();
     }
-    if (!host.managedObjects) host.instances.startTimer(host.config.probeIntervalMs || 5000);
+    if (!host.managedObjects) host.instances.startTimer(host.config.tickIntervalMs || 5000);
     if (!host.lanDaemonEnabled()) {
       for (const inst of host.instances.all()) { if (inst.remoteMode === 'lan' || inst.remoteMode === 'wan') host.lan.syncProxy(inst).catch(() => {}); }
     }

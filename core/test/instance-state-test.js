@@ -17,7 +17,7 @@ const deps = {
   tokens: null,
 };
 function makeInst() {
-  return { id: 't1', name: '测试', domain: 'sandbox', state: { phase: 'STOPPED', restartCount: 0, backoffLevel: 0, lastProbeOk: null } };
+  return { id: 't1', name: '测试', domain: 'sandbox', state: { phase: 'STOPPED', restartCount: 0, backoffLevel: 0 } };
 }
 const now = Date.now();
 
@@ -62,7 +62,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
   const { InstanceManager } = require(path.join(ROOT, 'src', 'domains', 'instance'));
   const mk = (phase, extra) => Object.assign({
     id: 'b15', name: 'B15', domain: 'sandbox', port: 0, guardian: false,
-    state: Object.assign({ phase, restartCount: 2, backoffLevel: 1, lastProbeOk: false }, extra || {}),
+    state: Object.assign({ phase, restartCount: 2, backoffLevel: 1 }, extra || {}),
   }, {});
   const svcCalls = [];
   const fakeService = {

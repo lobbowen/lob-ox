@@ -27,7 +27,8 @@ const THIN_SPEC = {
   main: {
     converge: '_dshConverge',
     decideAction: '_decideMainAction', stateSnapshot: '_mainStateSnapshot',
-    applyHealthCheck: '_applyHealthCheck', bumpCrashWindow: '_bumpCrashWindow',
+    noteStartupFailure: '_noteStartupFailure', retryStartupFailure: '_retryStartupFailure',
+    startWindowMs: 'startWindowMs',
     adopt: '_adopt', adoptObserved: '_adoptObserved',
     applyPort: '_applyMainPort', beginRestart: '_beginRestart', enterRunning: '_enterRunning',
     findManagedPort: '_findManagedDshPort',

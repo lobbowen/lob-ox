@@ -106,17 +106,15 @@ function fakeRegistry() {
 
   const reg = fakeRegistry();
   const st = mk(reg);
-  st.field('restartCount', 5); st.field('backoffLevel', 2); st.field('backoffUntil', 999);
-  st.field('crashWindowStart', 1234); st.field('crashWindowRestarts', 4);
+  st.field('restartCount', 5); st.field('startupFailWindowStart', 1234); st.field('startupFailCount', 4);
   check('M3a 未就绪期草稿写读一致',
-    st.field('restartCount') === 5 && st.field('crashWindowStart') === 1234, 'fallback 直读');
+    st.field('restartCount') === 5 && st.field('startupFailWindowStart') === 1234, 'fallback 直读');
   reg.register({ kind: 'dsh', id: 'main', desired: 'running',
-    restartCount: 0, backoffLevel: 0, backoffUntil: null, crashWindowStart: null, crashWindowRestarts: 0 });
+    restartCount: 0, startupFailWindowStart: null, startupFailCount: 0 });
   const e = st.store();
   check('M3b 真 entry 首见即回填（目录未就绪期计数不再静默丢失）',
-    e.restartCount === 5 && e.backoffLevel === 2 && e.backoffUntil === 999
-    && e.crashWindowStart === 1234 && e.crashWindowRestarts === 4,
-    'r=' + e.restartCount + ' bl=' + e.backoffLevel + ' bu=' + e.backoffUntil);
+    e.restartCount === 5 && e.startupFailWindowStart === 1234 && e.startupFailCount === 4,
+    'r=' + e.restartCount + ' sf=' + e.startupFailCount);
   const reg3 = fakeRegistry();
   const st3 = mk(reg3);
   st3.field('restartCount', 5);

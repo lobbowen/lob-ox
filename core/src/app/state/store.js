@@ -53,9 +53,8 @@ function createStore(deps) {
         if (!registryHasSource) fields.setDesired(raw.desired);
       }
       if (typeof raw.restartCount === 'number') record.fieldOf('restartCount', raw.restartCount, true);
-      if (typeof raw.backoffLevel === 'number') record.fieldOf('backoffLevel', raw.backoffLevel, true);
-      if (typeof raw.crashWindowStart === 'number' || raw.crashWindowStart === null) record.fieldOf('crashWindowStart', raw.crashWindowStart, true);
-      if (typeof raw.crashWindowRestarts === 'number') record.fieldOf('crashWindowRestarts', raw.crashWindowRestarts, true);
+      if (typeof raw.startupFailWindowStart === 'number' || raw.startupFailWindowStart === null) record.fieldOf('startupFailWindowStart', raw.startupFailWindowStart, true);
+      if (typeof raw.startupFailCount === 'number') record.fieldOf('startupFailCount', raw.startupFailCount, true);
       if (typeof raw.lastFailure === 'string' || raw.lastFailure === null) record.procFieldOf('lastFailure', raw.lastFailure, true);
       if (typeof raw.lastRestartAt === 'string' || raw.lastRestartAt === null) record.procFieldOf('lastRestartAt', raw.lastRestartAt, true);
       if (raw.upgradeHold === true) upgradeHold.enter();

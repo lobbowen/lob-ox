@@ -27,6 +27,7 @@ function depsOf(host) {
       writeMainTickActs(v) { host._mainTickActs = v; },
       readLastMainPortRederive() { return host._lastMainPortRederive; },
       writeLastMainPortRederive(v) { host._lastMainPortRederive = v; },
+      writeLastPortUp(v) { host._lastPortUp = v; },
       upgradeHold() { return host._upgradeHold; }, writeUpgradeHold(v) { host._upgradeHold = v; },
       upgradeHoldSince() { return host._upgradeHoldSince; }, writeUpgradeHoldSince(v) { host._upgradeHoldSince = v; },
       manualRestart() { return host.manualRestart; }, writeManualRestart(v) { host.manualRestart = v; },
@@ -39,15 +40,10 @@ function depsOf(host) {
       mStartDeadline() { return host._mStartDeadline(); },
       mSetStartDeadline(v) { return host._mSetStartDeadline(v); },
       mRestartAt() { return host._mRestartAt(); },
-      mBackoffUntil() { return host._mBackoffUntil(); },
-      mSetLastProbeAt(v) { return host._mSetLastProbeAt(v); },
-      mSetLastProbeOk(v) { return host._mSetLastProbeOk(v); },
-      mSetLastProbeHttpOk(v) { return host._mSetLastProbeHttpOk(v); },
       mSetAdoptPid(v) { return host._mSetAdoptPid(v); },
       mSetObservedOnly(v) { return host._mSetObservedOnly(v); },
       mSetSpawnBlockedUntil(v) { return host._mSetSpawnBlockedUntil(v); },
       mSetMissingNotified(v) { return host._mSetMissingNotified(v); },
-      mSetBackoffUntil(v) { return host._mSetBackoffUntil(v); },
       mSetRestartAt(v) { return host._mSetRestartAt(v); },
     };
     DEPS.set(host, d);
@@ -66,16 +62,10 @@ module.exports = {
     d.writeMainTickActs([]);
     let t0 = null;
     try {
-      const probeRes = await monitor.probe(d.config().targetHost, d.config().targetPort, {
-        httpProbeEnabled: d.config().httpProbeEnabled !== false,
-        healthUrl: d.config().healthUrl,
-        httpTimeoutMs: d.config().probeTimeoutMs || 3000,
-      });
-      const portUp = probeRes.up;
-      const healthOk = probeRes.httpOk;
-      d.mSetLastProbeAt(new Date().toISOString());
-      d.mSetLastProbeOk(portUp);
-      d.mSetLastProbeHttpOk(healthOk);
+      // 端口视角只用于「谁在监听这个端口」：孤儿接管与占用告警。存活判据不在这里。
+      const targetView = await monitor.probe(d.config().targetHost, d.config().targetPort);
+      const portUp = targetView.up;
+      d.writeLastPortUp(portUp);
       t0 = d.main().stateSnapshot();
       const host = d.config().targetHost;
       const port = d.config().targetPort;
@@ -135,14 +125,17 @@ module.exports = {
         return;
       }
 
-      if (d.manualRestart()) {
+      // 人工重启（面板 /lifecycle/dsh/restart 或 CLI）：RUNNING/STARTING 走正常重启（不计启动失败）；
+      // FAILED 由下面的 FAILED 分支接（清计数后回到 STARTING）。
+      const manual = d.manualRestart();
+      if (manual) {
         d.writeManualRestart(false);
-        if (d.state().phase() === 'RUNNING' || d.state().phase() === 'STARTING') {
-          d.main().beginRestart('manual', { countCrash: false });
-        } else if (d.state().phase() === 'RESTARTING' || d.state().phase() === 'BACKOFF') {
-          d.mSetBackoffUntil(null);
-          d.mSetRestartAt(Date.now());
-          if (!targetAlive) await d.main().startProcess();
+        const ph = d.state().phase();
+        if (ph === 'RUNNING' || ph === 'STARTING') {
+          d.intents().consume('restart'); d.intents().consume('start');
+          d.main().beginRestart('manual', { manual: true, startupFailure: false });
+        } else if (ph === 'STOPPED') {
+          d.intents().consume('restart'); d.intents().consume('start');
         }
       }
 
@@ -164,11 +157,19 @@ module.exports = {
           break;
         }
         case 'STARTING': {
-          if (portUp && healthOk) d.main().enterRunning();
-          else if (d.mStartDeadline() === null) {
-            d.mSetStartDeadline(Date.now() + d.config().startTimeoutMs);
+          // STARTING = 仍在 startsecs 窗口内（或刚判定重启、等端口释放落点）。
+          // 窗口到点且进程还活着 ⇒ RUNNING；进程退出由 child 的 exit 事件记账（启动失败）。
+          if (!targetAlive) {
+            if (d.mStartDeadline() === null && Date.now() >= d.mRestartAt()) {
+              if (await monitor.isPortListening(host, port, 1000)) {
+                d.daemons().warnOccupied();
+              } else {
+                await d.main().startProcess();
+              }
+            }
+          } else if (d.mStartDeadline() !== null && startDeadlinePassed(d.mStartDeadline(), Date.now())) {
+            d.main().enterRunning();
           }
-          else if (startDeadlinePassed(d.mStartDeadline(), Date.now())) d.main().beginRestart('start_timeout', { countCrash: true });
           break;
         }
         case 'RUNNING': {
@@ -176,41 +177,27 @@ module.exports = {
           if (d.mAdoptPid() !== null && adoptedAlive === false) {
             d.events().append('dsh_exited', { code: null, signal: null, phase: d.state().phase(), adopted: true });
             d.mSetAdoptPid(null);
-            if (guarded) d.main().beginRestart('adopted_exit', { countCrash: true });
+            if (guarded) d.main().beginRestart('adopted_exit', { startupFailure: false });
             else { d.writeCrashHalted(true); d.events().append('guardian_off_exit', { reason: 'adopted_exit 未守护，保持停止' }); d.state().setPhase('STOPPED'); }
           } else if (!childAlive && d.mChild()) {
-            if (guarded) d.main().beginRestart('child_exit', { countCrash: true });
+            if (guarded) d.main().beginRestart('child_exit', { startupFailure: false });
             else { d.writeCrashHalted(true); d.events().append('guardian_off_exit', { reason: 'child_exit 未守护，保持停止' }); d.state().setPhase('STOPPED'); }
-          } else {
-            const healthDecision = d.main().applyHealthCheck(healthOk);
-            if (healthDecision && healthDecision.restart) {
-              d.main().beginRestart(healthDecision.reason || 'http_unhealthy', { countCrash: healthDecision.countCrash === true });
-            }
           }
+          // 除此之外 RUNNING 下没有任何判据会触发重启：不探测、不因“忙/慢”杀进程。
           break;
         }
-        case 'RESTARTING': {
-          if (portUp && healthOk && (!d.mChild() && !adoptedAlive)) {
-            d.main().adopt();
-          } else if (!targetAlive && Date.now() >= d.mRestartAt()) {
-            if (await monitor.isPortListening(host, port, 1000)) {
-              d.daemons().warnOccupied();
-            } else {
-              await d.main().startProcess();
-            }
-          }
-          break;
-        }
-        case 'BACKOFF': {
-          if (portUp && healthOk && (!d.mChild() && !adoptedAlive)) {
-            d.main().adopt();
-          } else if (!targetAlive && Date.now() >= d.mBackoffUntil()) {
-            if (await monitor.isPortListening(host, port, 1000)) {
-              d.daemons().warnOccupied();
-            } else {
-              await d.main().startProcess();
-            }
-          }
+        case 'FAILED': {
+          // 限流停靠：无人干预就不重启。人工重试入口 = /lifecycle/dsh/restart（manualRestart）或 /start（start 意图）。
+          const startIntent = d.intents().consume('start');
+          const restartIntent = d.intents().consume('restart');
+          const wantsRetry = manual || startIntent !== undefined || restartIntent !== undefined;
+          if (!wantsRetry) break;
+          if (d.state().desired() === 'stopped') break;
+          d.main().retryStartupFailure();
+          d.mSetStartDeadline(null);
+          d.mSetRestartAt(null);
+          if (targetAlive) d.main().beginRestart('manual', { manual: true, startupFailure: false });
+          else await d.main().startProcess();
           break;
         }
       }

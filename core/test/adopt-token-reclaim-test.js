@@ -36,7 +36,6 @@ function buildSupervisor(overrides = {}) {
     supervisorLogFile: path.join(TMP, 'sup.log'),
     dshLogFile: path.join(TMP, 'dsh.log'),
     upgradeLogFile: path.join(TMP, 'upg.log'),
-    failThreshold: 1000,
     ...overrides,
   };
   const cfgPath = path.join(TMP, 'cfg-' + Math.random().toString(36).slice(2) + '.json');
@@ -103,12 +102,12 @@ async function main() {
     } finally { sup.state.guardian = realGuardian; }
   }
 
-  console.log('== 阴影排除集：不再豁免任何令牌类 reason，但保留异步钩子豁免 ==');
+  console.log('== 阴影排除集：只豁免异步钩子（进程退出/升级/占用），令牌类与限流类不豁免 ==');
   {
     const sup = buildSupervisor({});
     check('升级钩子仍被排除（排除机制未空转）', sup._shadowExcluded('upgrade_hold') === true);
-    check('假死仍被排除', sup._shadowExcluded('http_unhealthy') === true);
-    check('普通迁移（如 start_timeout）不被排除', sup._shadowExcluded('start_timeout') === false);
+    check('进程退出（异步钩子）仍被排除', sup._shadowExcluded('exit:1') === true);
+    check('普通迁移（如 manual）不被排除', sup._shadowExcluded('manual') === false);
   }
 
   {

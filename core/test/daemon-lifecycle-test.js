@@ -204,7 +204,7 @@ const waitCtl = async (ms = 8000) => { const t0 = Date.now(); while (Date.now() 
   const sup = new Supervisor({
     command: ['node', '-e', '0'],
     healthUrl: 'http://127.0.0.1:1/',
-    probeIntervalMs: 100000, // 不触发 tick 副作用（本段只调重启记账，不 start 定时器）
+    tickIntervalMs: 100000, // 不触发 tick 副作用（本段只调重启记账，不 start 定时器）
     apiHost: '127.0.0.1', apiPort: 31991,
     stateFile: path.join(m8Tmp, 'state.json'),
     logFile: path.join(m8Tmp, 'events.log'),
@@ -224,9 +224,10 @@ const waitCtl = async (ms = 8000) => { const t0 = Date.now(); while (Date.now() 
   const origAppend = sup.events.append.bind(sup.events);
   sup.events.append = (type, data) => { if (type === 'restart_triggered') evs.push(data); return origAppend(type, data); };
   const rcBefore = sup.restartCount;
-  sup._beginRestart('exit:1', { countCrash: true }); sup._beginRestart('manual', { countCrash: false });
+  // 自动重启（进程退出/异常，非人工）计 restartCount；人工重启（manual）发事件但不计数、不计启动失败。
+  sup._beginRestart('exit:1', { startupFailure: false }); sup._beginRestart('manual', { manual: true });
   sup.events.append = origAppend;
-  check('M8 dsh 崩溃收敛发 restart_triggered 且 restartCount +1；计划内重启（manual）发事件但不计数',
+  check('M8 dsh 重启发 restart_triggered 且自动重启 restartCount +1；计划内重启（manual）发事件但不计数',
     evs.length === 2 && evs[0].reason === 'exit:1' && evs[1].reason === 'manual' && sup.restartCount === rcBefore + 1,
     JSON.stringify({ evs, before: rcBefore, after: sup.restartCount }));
 }

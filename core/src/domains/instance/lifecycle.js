@@ -256,7 +256,6 @@ function createLifecycle(deps) {
     const now = Date.now();
     try {
       const st = probe(inst);
-      inst.state.lastProbeOk = st.running;
       if (inst.domain === 'sandbox' && tokens) { try { tokens.ensureCaptured(inst.id); } catch {} }
       const state = inst.state;
       const guarded = guardian.shouldGuard(inst);

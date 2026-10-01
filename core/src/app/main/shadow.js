@@ -53,16 +53,12 @@ module.exports = {
     if (p === 'STOPPED>STARTING') return { action: 'start', reason: 'spawn' };
     if (p === 'STOPPED>RUNNING') return d.mAdopted() === true ? { action: 'adopt', reason: 'adopt' } : { action: 'start', reason: 'spawn+enterRunning' };
     if (p === 'STOPPED>OBSERVED') return { action: 'adoptObserved', reason: 'observe' };
-    if (p === 'STARTING>RUNNING') return { action: 'enterRunning', reason: 'healthy' };
-    if (p === 'STARTING>RESTARTING') return { action: 'restart', reason: 'start_timeout' };
-    if (p === 'STARTING>BACKOFF') return { action: 'restart', reason: 'start_crash' };
-    if (p === 'RUNNING>RESTARTING') return { action: 'restart', reason: 'in_tick_restart' };
-    if (p === 'RUNNING>BACKOFF') return { action: 'restart', reason: 'crash_loop' };
-    if (p === 'RESTARTING>STARTING') return { action: 'start', reason: 'restart_spawn' };
-    if (p === 'RESTARTING>RUNNING') return d.mAdopted() === true ? { action: 'adopt', reason: 'restart_adopt' } : { action: 'enterRunning', reason: 'restart_enter' };
-    if (p === 'RESTARTING>BACKOFF') return { action: 'restart', reason: 'crash_loop' };
-    if (p === 'BACKOFF>STARTING') return { action: 'start', reason: 'backoff_spawn' };
-    if (p === 'BACKOFF>RUNNING') return d.mAdopted() === true ? { action: 'adopt', reason: 'backoff_adopt' } : { action: 'enterRunning', reason: 'backoff_enter' };
+    if (p === 'STARTING>RUNNING') return { action: 'enterRunning', reason: 'startsecs_elapsed' };
+    if (p === 'STARTING>FAILED') return { action: 'restart', reason: 'startup_failed' };
+    if (p === 'STARTING>STOPPED') return { action: 'stop', reason: 'stop' };
+    if (p === 'RUNNING>STARTING') return { action: 'restart', reason: 'in_tick_restart' };
+    if (p === 'RUNNING>STOPPED') return { action: 'stop', reason: 'stop' };
+    if (p === 'FAILED>STARTING') return { action: 'start', reason: 'startup_retry' };
     if (p === 'OBSERVED>RUNNING') return { action: 'adopt', reason: 'observed_promote' };
     if (d.state().desired() === 'stopped' || d.upgradeHold()) {
       return { action: 'stop', reason: d.upgradeHold() ? 'upgrade_hold' : 'desired_stopped' };
@@ -73,7 +69,7 @@ module.exports = {
   _shadowExcluded(reason) {
     if (!reason) return false;
     const r = String(reason);
-    return /^(exit:|spawn_error|http_unhealthy|upgrade|upgrade_hold|port_occupied)/.test(r);
+    return /^(exit:|spawn_error|upgrade|upgrade_hold|port_occupied)/.test(r);
   },
 
   _shadowTickNote(t0) {

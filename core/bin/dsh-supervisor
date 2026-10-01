@@ -427,18 +427,17 @@ function printStatus(s) {
   console.log('phase:            ' + s.phase);
   console.log('dshPid:           ' + (s.dshPid || '—') + (s.adopted ? ' (adopted)' : ''));
   console.log('guardPid:         ' + s.guardPid);
-  console.log('lastProbe:        ' + (s.lastProbeAt || '—') + '  ok=' + s.lastProbeOk);
   console.log('restartCount:     ' + s.restartCount);
   console.log('lastFailure:      ' + (s.lastFailure || '—'));
   console.log('lastRestartAt:    ' + (s.lastRestartAt || '—'));
   if (s.upgradeHold) {
     console.log('upgradeHold:      true（升级安装中，暂停自动拉起）');
   }
-  if (s.backoffLevel > 0 || s.backoffUntil) {
-    console.log('backoff:          level=' + s.backoffLevel + '  until=' + (s.backoffUntil || '—'));
+  if (s.phase === 'FAILED') {
+    console.log('FAILED:           启动反复失败，已停止自动重启；人工重试 dsh-supervisor restart');
   }
-  if (s.crashWindowRestarts > 0) {
-    console.log('crashWindow:      ' + s.crashWindowRestarts + ' restarts since ' + (s.crashWindowStart || '—'));
+  if (s.startupFailCount > 0) {
+    console.log('startupFail:      ' + s.startupFailCount + ' 次（窗口起点 ' + (s.startupFailWindowStart || '—') + '）');
   }
 }
 

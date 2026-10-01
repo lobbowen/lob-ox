@@ -44,7 +44,7 @@ function createRecord(payload, id) {
       privateTmp: true,
       protectHome: payload.protectHome === undefined ? false : !!payload.protectHome,
     },
-    state: { phase: 'STOPPED', restartCount: 0, backoffLevel: 0, lastProbeOk: null },
+    state: { phase: 'STOPPED', restartCount: 0, backoffLevel: 0 },
     createdAt: new Date().toISOString(),
   };
 }

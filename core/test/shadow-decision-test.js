@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 真实门 supervisor.js::_shouldRun() 有三个否决位（desired !== 'running' / _sessionHalting() / _crashHalted），影子 _decideMainAction() 只建模第一个 ⇒ 崩溃停靠时真实 tick 不拉起、影子算出 start ⇒ 每拍 diff，切换门槛（连续零 diff）永久不可达。
+// 声明式决策面必须与真实 tick（app/main/controller.js）同一套判据：
+// 存活 = 进程还在（childAlive / adoptedAlive）；端口视角（portUp）只决定孤儿接管/占用，不再是健康门。
+// 相位集合收敛为 STOPPED / STARTING / RUNNING / FAILED：没有 RESTARTING/BACKOFF，也没有 countCrash。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
@@ -13,12 +15,13 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
 
 const base = () => ({
   phase: 'STOPPED', desired: 'running',
-  probeOk: false, probeHttpOk: false,
+  portUp: false,
   childAlive: false, adoptedAlive: false, adoptedPidSet: false, childPresent: false,
   adopted: false, observedOnly: false,
   upgradeHold: false, manualRestart: false, spawnBlocked: false,
-  startDeadlinePassed: false, restartDue: true, backoffDue: true,
+  startDeadlinePassed: false, restartInFlight: false, restartDue: true,
   crashHalted: false, sessionHalting: false,
+  startupFailWindowStart: null, startupFailCount: 0,
 });
 
 {
@@ -39,9 +42,9 @@ const base = () => ({
 }
 
 {
-  const s = base(); s.crashHalted = true; s.probeOk = true;
+  const s = base(); s.crashHalted = true; s.portUp = true;
   const r = decide(s);
-  check('K5-c crashHalted 优先于 probeOk（不得 adopt）', r.action !== 'start' && r.action !== 'adopt', JSON.stringify(r));
+  check('K5-c crashHalted 优先于端口占用（不得 adopt）', r.action !== 'start' && r.action !== 'adopt', JSON.stringify(r));
 }
 
 {
@@ -51,9 +54,9 @@ const base = () => ({
 }
 
 {
-  const s = base(); s.probeOk = true;
+  const s = base(); s.portUp = true;
   const r = decide(s);
-  check('无否决位 + probeOk → adopt（原有分支未被破坏）', r.action === 'adopt', JSON.stringify(r));
+  check('无否决位 + 端口有主 → adopt（孤儿接管分支保留）', r.action === 'adopt', JSON.stringify(r));
 }
 
 {
@@ -62,13 +65,54 @@ const base = () => ({
     f(null, Date.now() + 1e9) === false && f(undefined, 0) === false, 'null/undefined');
   check('now 严格大于 deadline 才判到期',
     f(1000, 1001) === true && f(1000, 1000) === false, '边界');
-  const s = base(); s.phase = 'STARTING'; s.startDeadlinePassed = true;
+}
+
+{
+  // STARTING = 仍在 startsecs 窗口内：到点且进程或活 ⇒ RUNNING；不再有 start_timeout 崩溃记账。
+  const s = base(); s.phase = 'STARTING'; s.childAlive = true; s.childPresent = true; s.startDeadlinePassed = true;
   const r = decide(s);
-  check('STARTING + 判据到期 → restart 且计崩溃（countCrash）',
-    r.action === 'restart' && r.countCrash === true, JSON.stringify(r));
-  const s2 = base(); s2.phase = 'STARTING';
+  check('STARTING + 窗口到点 + 进程或活 → enterRunning（无健康门、无 countCrash）',
+    r.action === 'enterRunning' && r.countCrash === undefined, JSON.stringify(r));
+  const s2 = base(); s2.phase = 'STARTING'; s2.childAlive = true; s2.childPresent = true;
   const r2 = decide(s2);
-  check('STARTING + 未到期 → none（不误计崩溃）', r2.action === 'none', JSON.stringify(r2));
+  check('STARTING + 未到点 + 进程或活 → none（窗口内静默等待）', r2.action === 'none', JSON.stringify(r2));
+  const s3 = base(); s3.phase = 'STARTING';
+  const r3 = decide(s3);
+  check('STARTING + 无进程 + 落点到 → start（重启即回到 STARTING 再 spawn）',
+    r3.action === 'start' && r3.reason === 'restart_spawn', JSON.stringify(r3));
+  const s4 = base(); s4.phase = 'STARTING'; s4.restartDue = false;
+  check('STARTING + 无进程 + 未到落点 → none（等端口释放）', decide(s4).action === 'none', JSON.stringify(decide(s4)));
+}
+
+{
+  // RUNNING：只有「进程退出」才是重启判据（活过 startsecs，属正常重启，不记启动失败）。
+  const s = base(); s.phase = 'RUNNING'; s.childPresent = true; s.childAlive = false;
+  const r = decide(s);
+  check('RUNNING + child 已退出 → restart/adopted 语义（正常重启，不计启动失败）',
+    r.action === 'restart' && r.reason === 'child_exit' && r.startupFailure === false, JSON.stringify(r));
+  const s2 = base(); s2.phase = 'RUNNING'; s2.childPresent = true; s2.childAlive = true;
+  check('RUNNING + 进程还在（哪怕端口不通/很忙）→ none（不看端口、不做健康门）',
+    decide(s2).action === 'none', JSON.stringify(decide(s2)));
+}
+
+{
+  // FAILED = 限流停靠：无人干预不重启；人工重试（manualRestart）回到 STARTING。
+  const s = base(); s.phase = 'FAILED'; s.startupFailCount = 5;
+  const r = decide(s);
+  check('FAILED + 无干预 → none（停止自动重启，不是无限重试）',
+    r.action === 'none' && r.reason === 'startup_failed_halted', JSON.stringify(r));
+  const s2 = base(); s2.phase = 'FAILED'; s2.manualRestart = true;
+  const r2 = decide(s2);
+  check('FAILED + 人工重试 → start（清计数后回到 STARTING）', r2.action === 'start', JSON.stringify(r2));
+}
+
+{
+  const s = base(); s.phase = 'RUNNING'; s.manualRestart = true; s.childAlive = true; s.childPresent = true;
+  const r = decide(s);
+  check('RUNNING 下的人工重启标记仍是 restart（manual）', r.action === 'restart' && r.manual === true, JSON.stringify(r));
+  const s2 = base(); s2.phase = 'STARTING'; s2.manualRestart = true; s2.childAlive = true;
+  check('STARTING 下的人工重启不当作启动失败（manual 标记）',
+    decide(s2).action === 'restart' && decide(s2).manual === true, JSON.stringify(decide(s2)));
 }
 
 const failed = results.filter((r) => !r);

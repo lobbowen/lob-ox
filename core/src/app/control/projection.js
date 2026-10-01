@@ -16,33 +16,31 @@ function createProjection(deps) {
     const ph = String(st.phase() || '');
     const desiredRunning = st.desired() === 'running';
     const ob = (e && e.lastObserved) || null;
-    const proc = (e && e.process) || null;
-    const portUp = !!(proc && proc.lastProbeOk) || !!(ob && ob.ok);
-    const httpOk = !(proc && proc.lastProbeHttpOk === false);
-    const healthy = portUp && httpOk;
-    const errText = !portUp ? '端口未监听' : (httpOk ? null : 'HTTP 不健康');
-    const at = (proc && proc.lastProbeAt) || (ob && ob.at) || null;
+    // 健康 = 进程还在（登记观测 ok 来自 app/control/scheduler 的进程判据）；没有 HTTP 健康门，也没有端口健康门。
+    const alive = !!(ob && ob.ok);
+    const at = (ob && ob.at) || null;
     if (desiredRunning) {
       dsh.wantRunning();
       dsh._monitoring = true;
+      // lastProbeAt 是面板既有的「最近观测时刻」字段（ui/** 契约不动），喂的是登记观测时间，不是探测结果。
       if (at) dsh.lastProbeAt = at;
       if (ph === 'RUNNING') {
         dsh._setPhase('running');
         dsh.startedAt = dsh.startedAt || new Date().toISOString();
-        dsh.healthy = healthy;
-        dsh.error = errText;
-      } else if (ph === 'STARTING' || ph === 'RESTARTING') {
-        dsh._setPhase('starting');
-        dsh.healthy = healthy;
-        dsh.error = errText;
-      } else if (ph === 'BACKOFF') {
+        dsh.healthy = alive;
+        dsh.error = alive ? null : '进程未运行';
+      } else if (ph === 'STARTING') {
         dsh._setPhase('starting');
         dsh.healthy = false;
-        dsh.error = '启动退避中';
+        dsh.error = '启动中（startsecs 窗口内）';
+      } else if (ph === 'FAILED') {
+        dsh._setPhase('failed');
+        dsh.healthy = false;
+        dsh.error = '启动反复失败：已停止自动重启，等待人工重试';
       } else {
         dsh._setPhase('stopped');
         dsh.healthy = false;
-        dsh.error = errText;
+        dsh.error = alive ? null : '未运行';
       }
     } else {
       dsh.desired = 'stopped';

@@ -52,11 +52,9 @@ class ManagedRegistry {
         if (!o || !kindMeta(o.kind)) continue;
         const e = createEntry({ kind: o.kind, id: o.id, name: o.name, desired: o.desired, ownership: o.ownership });
         if (PHASES.includes(o.phase)) e.phase = o.phase;
-        if (Number.isInteger(o.backoffLevel)) e.backoffLevel = o.backoffLevel;
-        if (typeof o.backoffUntil === 'number' && o.backoffUntil > Date.now()) e.backoffUntil = o.backoffUntil;
         if (Number.isInteger(o.restartCount) && o.restartCount >= 0) e.restartCount = o.restartCount;
-        if (o.crashWindowStart === null || typeof o.crashWindowStart === 'number') e.crashWindowStart = o.crashWindowStart;
-        if (Number.isInteger(o.crashWindowRestarts) && o.crashWindowRestarts >= 0) e.crashWindowRestarts = o.crashWindowRestarts;
+        if (o.startupFailWindowStart === null || typeof o.startupFailWindowStart === 'number') e.startupFailWindowStart = o.startupFailWindowStart;
+        if (Number.isInteger(o.startupFailCount) && o.startupFailCount >= 0) e.startupFailCount = o.startupFailCount;
         if (typeof o.startedAt === 'string') e.startedAt = o.startedAt;
         e.lastTransitionAt = null;
         this._index(e);
@@ -78,11 +76,10 @@ class ManagedRegistry {
           kind: o.kind, id: o.id, name: o.name,
           desired: o.desired,
           ownership: o.ownership,
-          phase: o.phase, backoffLevel: o.backoffLevel,
-          backoffUntil: (o.backoffUntil && o.backoffUntil > Date.now()) ? o.backoffUntil : null,
+          phase: o.phase,
           restartCount: Number.isInteger(o.restartCount) ? o.restartCount : 0,
-          crashWindowStart: o.crashWindowStart || null,
-          crashWindowRestarts: Number.isInteger(o.crashWindowRestarts) ? o.crashWindowRestarts : 0,
+          startupFailWindowStart: o.startupFailWindowStart || null,
+          startupFailCount: Number.isInteger(o.startupFailCount) ? o.startupFailCount : 0,
           startedAt: o.startedAt, createdAt: o.createdAt, updatedAt: o.updatedAt,
         })),
       }, null, 2);

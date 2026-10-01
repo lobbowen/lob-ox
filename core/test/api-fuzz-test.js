@@ -20,8 +20,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const cfg = {
   command: ['node', MOCK, '28021'], healthUrl: 'http://127.0.0.1:28021/',
-  probeIntervalMs: 300, startTimeoutMs: 5000, stopGraceMs: 600, portReleaseWaitMs: 500,
-  crashWindowMs: 28022, crashBurst: 5, backoff: [1500, 3000, 6000],
+  tickIntervalMs: 300, startsecs: 5, stopGraceMs: 600, portReleaseWaitMs: 500,
+  startupFailWindowMs: 60000, startupFailBurst: 5,
   apiHost: '0.0.0.0', apiPort: 28020, // 刻意绑 0.0.0.0：模拟"局域网访问开启"的最暴露面
   stateFile: path.join(TMP, 'state.json'),
   logFile: path.join(TMP, 'events.log'), supervisorLogFile: path.join(TMP, 'guard.log'),

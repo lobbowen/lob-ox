@@ -95,11 +95,11 @@ function composeDomains(host) {
       stateDir: path.dirname(host.config.stateFile),
       tasks: host.tasks,
       hooks: {
-        isDshActive: () => ['STARTING', 'RUNNING', 'RESTARTING', 'BACKOFF'].includes(host._mPhase()),
+        isDshActive: () => ['STARTING', 'RUNNING'].includes(host._mPhase()),
         desiredRunning: () => host._mDesired() === 'running',
         stopForUpgrade: () => host._enterUpgradeHoldAsync(),
         resumeAfterUpgrade: () => host._exitUpgradeHold(true),
-        verifyDeadlineMs: () => Math.max(2 * host.config.startTimeoutMs, 120000),
+        verifyDeadlineMs: () => Math.max(2 * host.config.startsecs * 1000, 120000),
         notify: (t, b) => host.notify(t, b),
       },
     });

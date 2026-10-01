@@ -4,24 +4,24 @@ function shouldGuard(inst) {
   return !!(inst && inst.guardian === true);
 }
 
-// 崩溃窗口：窗口内累计到 crashBurst 次则升一级退避并给出 backoffUntil。
-function bumpCrashWindow(cw, now, cfg) {
-  let start = cw.start;
-  let restarts = cw.restarts;
-  if (start === null || now - start > cfg.crashWindowMs) {
+// 启动失败限流（唯一一条）：windowMs 内累计 burst 次「启动窗口内的退出」⇒ tripped。
+// 没有退避阶梯、没有等级：到点即 FAILED（停止自动重启，等人工重试），否则立刻重试。
+function bumpStartupFailure(w, now, cfg) {
+  const windowMs = cfg && Number(cfg.windowMs) > 0 ? Number(cfg.windowMs) : 60000;
+  const burst = cfg && Number(cfg.burst) >= 1 ? Number(cfg.burst) : 5;
+  let start = w.start;
+  let count = w.count;
+  if (start === null || start === undefined || now - start > windowMs) {
     start = now;
-    restarts = 1;
+    count = 1;
   } else {
-    restarts += 1;
+    count += 1;
   }
-  if (restarts >= cfg.crashBurst) {
-    const level = Math.min((cfg.backoffLevel || 0) + 1, cfg.backoff.length - 1);
-    return { start, restarts, backoffLevel: level, backoffUntil: now + cfg.backoff[level], backoffEntered: true };
-  }
-  return { start, restarts, backoffLevel: cfg.backoffLevel || 0, backoffUntil: null, backoffEntered: false };
+  return { start, count, tripped: count >= burst };
 }
 
-// 实例重启等待：60s 内失败过则线性退避（上限 60s），否则立即重试。
+// 实例（沙箱域）重启等待：60s 内失败过则线性退避（上限 60s），否则立即重试。
+// 与内核主实例的存活监控无关，由 domains/instance 自行消费。
 function instanceRestartDecision(state, now) {
   const crashesQuickly = !!(state.lastFailAt && now - state.lastFailAt < 60000);
   return {
@@ -30,4 +30,4 @@ function instanceRestartDecision(state, now) {
   };
 }
 
-module.exports = { shouldGuard, bumpCrashWindow, instanceRestartDecision };
+module.exports = { shouldGuard, bumpStartupFailure, instanceRestartDecision };

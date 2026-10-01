@@ -1,10 +1,8 @@
 'use strict';
 
 const ENTRY_FIELDS = [
-  ['CrashWindowStart', 'crashWindowStart'],
-  ['CrashWindowRestarts', 'crashWindowRestarts'],
-  ['BackoffLevel', 'backoffLevel'],
-  ['BackoffUntil', 'backoffUntil'],
+  ['StartupFailWindowStart', 'startupFailWindowStart'],
+  ['StartupFailCount', 'startupFailCount'],
   ['RestartCount', 'restartCount'],
 ];
 
@@ -13,14 +11,10 @@ const PROC_FIELDS = [
   ['AdoptPid', 'adoptedPid', false],
   ['Adopted', 'adopted', true],
   ['ObservedOnly', 'observedOnly', true],
-  ['FailStreak', 'failStreak', false],
   ['RestartAt', 'restartAt', false],
   ['StartDeadline', 'startDeadline', false],
   ['SpawnBlockedUntil', 'spawnBlockedUntil', false],
   ['MissingNotified', 'missingNotified', true],
-  ['LastProbeAt', 'lastProbeAt', false],
-  ['LastProbeOk', 'lastProbeOk', false],
-  ['LastProbeHttpOk', 'lastProbeHttpOk', false],
   ['LastFailure', 'lastFailure', false],
   ['LastRestartAt', 'lastRestartAt', false],
 ];

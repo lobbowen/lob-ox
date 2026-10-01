@@ -12,7 +12,7 @@ function depsOf(host) {
       exitIntended: () => host._exitIntended(),
       readLastOrphanAuditAt: () => host._lastOrphanAuditAt,
       writeLastOrphanAuditAt: (v) => { host._lastOrphanAuditAt = v; },
-      mLastProbeOk: () => host._mLastProbeOk(),
+      mainSnapshot: () => host._mainStateSnapshot(),
     };
     DEPS.set(host, d);
   }
@@ -45,9 +45,15 @@ module.exports = {
       }
     } catch (e) { d.logger() && d.logger().debug && d.logger().debug('orphan audit: ' + ((e && e.message) || e)); }
     if (d.eventHub()) { try { await d.eventHub().sync(); } catch (e) { d.logger() && d.logger().debug && d.logger().debug('eventHub sync: ' + ((e && e.message) || e)); } }
+    // 存活 = 进程还在（childAlive / adoptedAlive）；不是端口、不是 HTTP。
+    const snap = d.mainSnapshot();
+    const alive = !!(snap && (snap.childAlive || snap.adoptedAlive));
+    const ph = d.state().phase();
     return {
-      ok: d.mLastProbeOk() === true,
-      error: d.mLastProbeOk() ? null : (d.state().phase() === 'STOPPED' ? '未运行' : '端口未监听/不健康'),
+      ok: alive,
+      error: alive ? null
+        : ph === 'FAILED' ? '启动反复失败：已停止自动重启，等待人工重试'
+          : ph === 'STARTING' ? '启动窗口内进程已退出，等待重启' : '进程未运行',
     };
   },
 

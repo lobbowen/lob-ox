@@ -37,16 +37,14 @@ function makeConfig(apiPort, targetPort, overrides = {}) {
   return {
     command: ['node', MOCK, String(targetPort)],
     healthUrl: `http://127.0.0.1:${targetPort}/`,
-    probeIntervalMs: 300,
-    probeTimeoutMs: 1200,
-    failThreshold: 2,
-    startTimeoutMs: 5000,
+    // 存活判据是进程退出事件；startsecs 是唯一的启动窗口，测试里压到 0.6s。
+    tickIntervalMs: 300,
+    startsecs: 0.6,
+    startupFailWindowMs: 60000,
+    startupFailBurst: 5,
     stopGraceMs: 800,
     killWaitMs: 1500,
     portReleaseWaitMs: 600,
-    crashWindowMs: 10000,
-    crashBurst: 4,
-    backoff: [1500, 3000, 6000],
     apiHost: '127.0.0.1',
     apiPort,
     stateFile: path.join(TMP, `state-${apiPort}.json`),
@@ -92,6 +90,16 @@ async function getEvents(port) {
   return (r && r.events) || [];
 }
 
+async function waitEvent(port, type, timeoutMs = 10000) {
+  const end = Date.now() + timeoutMs;
+  for (;;) {
+    const ev = await getEvents(port);
+    if (ev.some((e) => e.type === type)) return true;
+    if (Date.now() > end) return false;
+    await sleep(200);
+  }
+}
+
 function startDaemon(cfg, env = {}) {
   const cfgPath = path.join(TMP, `cfg-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
@@ -128,17 +136,21 @@ async function main() {
   s = await waitStatus(3900, (x) => x.phase === 'RUNNING' && x.dshPid && x.dshPid !== pid1, 20000);
   check('SIGKILL 后自动重启到新 pid', !!s, JSON.stringify(s));
 
-  console.log('== S3: 纯端口/进程判定——挂起进程端口仍在=健康，不误杀不重启 ==');
+  console.log('== S3: 存活=进程未退出：挂起（忙/慢/SIGSTOP）不判死、不误杀、不重启 ==');
   const pid2 = s.dshPid;
+  const evPreStop3 = await getEvents(3900);
+  const restartsPre3 = evPreStop3.filter((e) => e.type === 'restart_triggered').length;
+  const spawnsPre3 = evPreStop3.filter((e) => e.type === 'spawned').length;
   try {
     process.kill(pid2, 'SIGSTOP');
   } catch {}
-  await sleep(1200);
+  await sleep(2500);
   s = await api(3900, 'GET', '/status');
   ev = await getEvents(3900);
-  check('S3 挂起进程视为健康：同一 pid 仍 RUNNING、未触发重启、未使用 SIGKILL',
+  check('S3 挂起进程未退出 ⇒ 同一 pid 仍 RUNNING、零重启、零新 spawn、未使用 SIGKILL',
     s && s.phase === 'RUNNING' && s.dshPid === pid2
-    && !ev.some((e) => e.type === 'restart_triggered' && /http_unhealthy/.test((e.data && e.data.reason) || ''))
+    && ev.filter((e) => e.type === 'restart_triggered').length === restartsPre3
+    && ev.filter((e) => e.type === 'spawned').length === spawnsPre3
     && !ev.some((e) => e.type === 'sigkill_sent'),
     JSON.stringify(s) + ' ev=' + ev.map((e) => e.type).join(','));
   try {
@@ -177,17 +189,28 @@ async function main() {
   await killDaemon(d1);
   if (s && s.dshPid) { try { process.kill(s.dshPid, 'SIGKILL'); } catch {} }
 
-  console.log('== S7: 崩溃循环退避（启动即挂 ×N → BACKOFF）==');
+  console.log('== S7: 启动窗口内反复失败 → 限流一条规则 → FAILED；人工重试清计数 ==');
   const d2 = startDaemon(
-    makeConfig(3910, 3911, { startTimeoutMs: 700, crashWindowMs: 30000 }),
+    makeConfig(3910, 3911, { startsecs: 1, startupFailWindowMs: 60000, startupFailBurst: 5 }),
     { MOCK_EXIT_ON_START: '1' }
   );
-  s = await waitStatus(3910, (x) => x.phase === 'BACKOFF', 28200);
+  s = await waitStatus(3910, (x) => x.phase === 'FAILED', 40000);
+  check('启动窗口内失败 5 次 → phase=FAILED（停止自动重启）', !!s, JSON.stringify(s));
   ev = await getEvents(3910);
-  check('crash_loop_entered 事件存在', ev.some((e) => e.type === 'crash_loop_entered'));
-  await sleep(2500); // 等退避到期重试并再次失败，验证退避升级
-  s = await waitStatus(3910, (x) => x.backoffLevel >= 1, 15000);
-  check('退避级别升级（backoffLevel >= 1）', !!s, JSON.stringify(s));
+  check('startup_failed 事件带限流计数与重试入口',
+    ev.some((e) => e.type === 'startup_failed' && Number((e.data || {}).count) >= 5
+      && /restart/.test(String((e.data || {}).retry || ''))),
+    JSON.stringify(ev.filter((e) => e.type === 'startup_failed')));
+  const spawnsFailedA = ev.filter((e) => e.type === 'spawned').length;
+  await sleep(2500); // 停靠：不再有空转重启
+  ev = await getEvents(3910);
+  const spawnsFailedB = ev.filter((e) => e.type === 'spawned').length;
+  check('FAILED 后不再自动重启（spawn 数停止增长）', spawnsFailedB === spawnsFailedA,
+    'spawns=' + spawnsFailedB + '/' + spawnsFailedA);
+  await api(3910, 'POST', '/lifecycle/dsh/restart');
+  check('人工重试入口生效（startup_retry 事件：清计数后回到 STARTING）',
+    await waitEvent(3910, 'startup_retry', 10000),
+    JSON.stringify((await getEvents(3910)).map((e) => e.type)));
   await killDaemon(d2);
 
   console.log('== S8: 接管既有实例（adopt）＋ 无主实例恢复 ==');

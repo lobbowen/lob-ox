@@ -31,7 +31,7 @@ const freePort = () => new Promise((res) => { const s = http.createServer(); s.o
     supervisorLogFile: path.join(TMP, 'sup.log'),
     dshLogFile: path.join(TMP, 'dsh.log'),
     upgradeLogFile: path.join(TMP, 'upg.log'),
-    probeIntervalMs: 5000, probeTimeoutMs: 2000,
+    tickIntervalMs: 5000,
   };
   const cfgPath = path.join(TMP, 'cfg.json');
   fs.writeFileSync(cfgPath, JSON.stringify(cfg));

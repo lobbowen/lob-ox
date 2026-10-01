@@ -16,7 +16,7 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   const cfg = {
     command: ['node', '-e', '0'],
     healthUrl: 'http://127.0.0.1:28181/',
-    probeIntervalMs: 100000,
+    tickIntervalMs: 100000,
     apiHost: '127.0.0.1', apiPort: 28180,
     stateFile: path.join(TMP, 'state.json'),
     logFile: path.join(TMP, 'events.log'),

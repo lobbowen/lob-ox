@@ -15,7 +15,7 @@ const FACETS = [
   { name: 'main/process', mod: require('../main/process') },
   { name: 'main/port-rederive', mod: require('../main/port-rederive') },
   { name: 'main/signals', mod: require('../main/signals') },
-  { name: 'main/health-gate', mod: require('../main/health-gate') },
+  { name: 'main/startup-throttle', mod: require('../main/startup-throttle') },
   { name: 'daemons/supervise', mod: require('../daemons/supervise') },
   { name: 'daemons/runtime', mod: require('../daemons/runtime') },
   { name: 'daemons/identity', mod: require('../daemons/identity') },

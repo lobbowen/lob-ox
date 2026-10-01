@@ -442,7 +442,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
 {
   const { Supervisor } = require(path.join(ROOT, 'src', 'supervisor'));
   const s = new Supervisor({
-    command: ['node', '-e', '0'], healthUrl: 'http://127.0.0.1:28031/', probeIntervalMs: 100000,
+    command: ['node', '-e', '0'], healthUrl: 'http://127.0.0.1:28031/', tickIntervalMs: 100000,
     apiHost: '127.0.0.1', apiPort: 28030,
     stateFile: path.join(TMP, 'state.json'), logFile: path.join(TMP, 'e.log'),
     supervisorLogFile: path.join(TMP, 's.log'), dshLogFile: path.join(TMP, 'd.log'), upgradeLogFile: path.join(TMP, 'u.log'),

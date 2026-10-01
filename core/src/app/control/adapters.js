@@ -89,7 +89,8 @@ function registerAll(mgr, deps) {
     if (supervisor.desired === 'running') dsh.wantRunning();
     const ph = String(supervisor.phase || '');
     if (ph === 'RUNNING') { dsh._setPhase('running'); dsh.healthy = true; dsh.startedAt = dsh.startedAt || new Date().toISOString(); }
-    else if (ph === 'STARTING' || ph === 'RESTARTING' || ph === 'BACKOFF') { dsh._setPhase('starting'); }
+    else if (ph === 'STARTING') { dsh._setPhase('starting'); }
+    else if (ph === 'FAILED') { dsh._setPhase('failed'); dsh.error = '启动反复失败：已停止自动重启'; }
     dsh._monitoring = true;
   }
 

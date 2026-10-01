@@ -166,8 +166,8 @@ const up = http.createServer((q, s) => {
   const cfg = {
     command: ['node', '-e', '0'],
     healthUrl: 'http://127.0.0.1:1/',
-    probeIntervalMs: 300, probeTimeoutMs: 1200, failThreshold: 2, startTimeoutMs: 5000,
-    stopGraceMs: 800, killWaitMs: 1500, portReleaseWaitMs: 600, crashWindowMs: 10000, crashBurst: 4, backoff: [1500, 3000, 6000],
+    tickIntervalMs: 300, startsecs: 5,
+    stopGraceMs: 800, killWaitMs: 1500, portReleaseWaitMs: 600, startupFailWindowMs: 60000, startupFailBurst: 5,
     apiHost: '127.0.0.1', apiPort: 31930,
     // 隔离的唯一开关是 stateFile：守卫按 dirname(stateFile) 派生 providers.json / ports.json，必须与本段 providerFile 同址。
     stateFile: path.join(TMP, 'sw', 'state.json'),

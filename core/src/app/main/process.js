@@ -7,9 +7,9 @@ const native = require('../../app/native/command');
 const { findManagedDshPort, applyMainPort } = require('./port-rederive');
 
 const DEPS = new WeakMap();
-const HELPERS = ['MissingNotified', 'SetMissingNotified', 'SetSpawnBlockedUntil', 'SetFailStreak', 'SetChild',
-  'Child', 'SetAdopted', 'SetAdoptPid', 'AdoptPid', 'SetObservedOnly', 'SetStartDeadline', 'SetBackoffLevel',
-  'SetBackoffUntil', 'SetCrashWindowStart', 'SetCrashWindowRestarts', 'SetLastFailure', 'SetLastRestartAt',
+const HELPERS = ['MissingNotified', 'SetMissingNotified', 'SetSpawnBlockedUntil', 'SetChild',
+  'Child', 'SetAdopted', 'SetAdoptPid', 'AdoptPid', 'SetObservedOnly', 'StartDeadline', 'SetStartDeadline',
+  'SetStartupFailWindowStart', 'SetStartupFailCount', 'SetLastFailure', 'SetLastRestartAt',
   'SetRestartCount', 'RestartCount', 'SetRestartAt'];
 function depsOf(host) {
   let d = DEPS.get(host);
@@ -38,6 +38,13 @@ module.exports = {
     return native.nativeCommand(d.config(), d.pluginManager());
   },
 
+  // 启动窗口（毫秒）：唯一的时间常量，spawn 时落成 startDeadline，窗口内退出即「启动失败」。
+  startWindowMs() {
+    const d = depsOf(this);
+    const secs = Number(d.config().startsecs);
+    return Math.max(1, Math.round((Number.isFinite(secs) && secs > 0 ? secs : 10) * 1000));
+  },
+
   async _startProcess() {
     const d = depsOf(this);
     d.main().actNote('start', 'spawn');
@@ -51,7 +58,6 @@ module.exports = {
       }
       d.mSetSpawnBlockedUntil(Date.now() + 60000);
       d.state().setPhase('STOPPED');
-      d.mSetFailStreak(0);
       d.state().write();
       return;
     }
@@ -63,15 +69,16 @@ module.exports = {
     } catch (err) {
       d.events().append('spawn_failed', { message: err.message });
       d.logger().error('spawn failed: ' + err.message);
-      d.beginRestart('spawn_error', { countCrash: true });
+      d.beginRestart('spawn_error', { startupFailure: true });
       return;
     }
     d.logger().info('spawn pid=' + child.pid + ' cmd=' + d.spawnCommand().join(' '));
     d.mSetChild(child);
     d.mSetAdopted(false);
     d.mSetAdoptPid(null);
+    // 计数不在此清零：窗口内连续失败要靠它累计（清零点只有「进入 RUNNING / 接管 / 人工重试 / 显式停止」）。
     d.state().setPhase('STARTING');
-    d.mSetStartDeadline(Date.now() + d.config().startTimeoutMs);
+    d.mSetStartDeadline(Date.now() + d.main().startWindowMs());
     const sanitizeToken = (l) => String(l).replace(/([?&]token=)[A-Za-z0-9_-]+/g, '$1***');
     const outBuf = new LineBuffer((line) => {
       d.tokenService().feedLine('main', line);
@@ -103,7 +110,7 @@ module.exports = {
           d.state().write();
           return;
         }
-        d.beginRestart('spawn_error:' + (err.code || 'unknown'), { countCrash: true });
+        d.beginRestart('spawn_error:' + (err.code || 'unknown'), { startupFailure: true });
       }
     });
     child.on('exit', (code, signal) => {
@@ -114,10 +121,14 @@ module.exports = {
       d.mSetChild(null);
       if (d.stopping()) return;
       if (d.state().desired() !== 'running') return;
-      if (d.state().phase() === 'RUNNING' || d.state().phase() === 'STARTING') {
+      const phase = d.state().phase();
+      // 已经判定重启（等端口释放落点），同一退出不重复记账；否则「杀一次记两次」。
+      if (phase === 'STARTING' && d.mStartDeadline() === null) return;
+      if (phase === 'RUNNING' || phase === 'STARTING') {
         const why = code !== null ? String(code) : 'sig' + signal;
-        if (d.state().phase() === 'STARTING' || d.state().guardian()) {
-          d.beginRestart('exit:' + why, { countCrash: true });
+        const inStartup = phase === 'STARTING';
+        if (inStartup || d.state().guardian()) {
+          d.beginRestart('exit:' + why, { startupFailure: inStartup });
         } else {
           d.writeCrashHalted(true);
           d.events().append('guardian_off_exit', { reason: 'child_exit:' + why + ' 未守护，保持停止' });
@@ -132,16 +143,14 @@ module.exports = {
 
   _enterRunning() {
     const d = depsOf(this);
-    d.main().actNote('enterRunning', 'healthy');
+    d.main().actNote('enterRunning', 'startsecs_elapsed');
     const wasRunning = d.state().phase() === 'RUNNING';
     d.state().setPhase('RUNNING');
     d.mSetAdopted(false);
     if (!wasRunning) {
-      d.mSetFailStreak(0);
-      d.mSetBackoffLevel(0);
-      d.mSetBackoffUntil(null);
-      d.mSetCrashWindowStart(null);
-      d.mSetCrashWindowRestarts(0);
+      // 启动成功：本次限流窗口作废（启动成功即清零，失败链只统计「从未起来」的那串）。
+      d.mSetStartupFailWindowStart(null);
+      d.mSetStartupFailCount(0);
       const pid = d.mChild() ? d.mChild().pid : null;
       d.events().append('running', { pid });
       d.logger().info('RUNNING pid=' + pid);
@@ -157,7 +166,6 @@ module.exports = {
     d.mSetAdopted(true);
     d.mSetObservedOnly(true);
     d.mSetChild(null);
-    d.mSetFailStreak(0);
     d.mSetAdoptPid(pidlook.findListeningPid(d.config().targetPort));
     if (d.mAdoptPid() === null) {
       const found = findManagedDshPort(d.config());
@@ -178,9 +186,8 @@ module.exports = {
     d.mSetAdopted(true);
     d.mSetObservedOnly(false);
     d.mSetChild(null);
-    d.mSetFailStreak(0);
-    d.mSetBackoffLevel(0);
-    d.mSetBackoffUntil(null);
+    d.mSetStartupFailWindowStart(null);
+    d.mSetStartupFailCount(0);
     d.mSetAdoptPid(pidlook.findListeningPid(d.config().targetPort));
     if (d.mAdoptPid() === null) {
       const found = findManagedDshPort(d.config());
@@ -205,21 +212,30 @@ module.exports = {
     d.state().write();
   },
 
+  // 重启：活过 startsecs 后退出（或人工重启）⇒ 正常重启，不记启动失败；窗口内退出 ⇒ 记一次启动失败并由限流裁决。
+  // 相位只有 STARTING / RUNNING / FAILED：重启=回到 STARTING（下一次 spawn 会开新的 startsecs 窗口）。
   _beginRestart(reason, opts) {
     const d = depsOf(this);
-    const countCrash = !!(opts && opts.countCrash);
+    const manual = !!(opts && opts.manual);
+    const phase = d.state().phase();
+    const startupFailure = (opts && opts.startupFailure !== undefined)
+      ? opts.startupFailure === true
+      : (!manual && phase === 'STARTING');
     d.mSetLastFailure(reason);
     d.mSetLastRestartAt(new Date().toISOString());
-    d.events().append('restart_triggered', { reason });
-    d.logger().warn('restart triggered: ' + reason);
+    d.events().append('restart_triggered', { reason, startupFailure, manual });
+    d.logger().warn('restart triggered: ' + reason + (startupFailure ? '（启动窗口内退出，计一次启动失败）' : '（正常重启）'));
     d.tokenService().clear('main');
-    if (countCrash) {
-      d.mSetRestartCount(d.mRestartCount() + 1);
-      d.main().bumpCrashWindow();
+    if (!manual) d.mSetRestartCount(d.mRestartCount() + 1);
+    const throttle = startupFailure ? d.main().noteStartupFailure() : null;
+    if (throttle && throttle.failed) {
+      // 限流到点：不排下一轮，停在 FAILED 等人工重试。
+      d.mSetRestartAt(null);
+    } else {
+      d.state().setPhase('STARTING');
+      d.mSetRestartAt(Date.now() + d.config().portReleaseWaitMs);
     }
-    d.state().setPhase('RESTARTING');
-    d.mSetFailStreak(0);
-    d.mSetRestartAt(Date.now() + d.config().portReleaseWaitMs);
+    d.mSetStartDeadline(null);
     const child = d.mChild();
     if (child && child.exitCode === null) d.main().killSequence(child);
     if (d.mAdoptPid() && pidlook.isAlive(d.mAdoptPid())) {
@@ -240,7 +256,9 @@ module.exports = {
     d.mSetChild(null);
     d.mSetAdopted(false);
     d.mSetAdoptPid(null);
-    d.mSetFailStreak(0);
+    // 显式停止是人的意图：计数作废，下次 start 是干净的一条链。
+    d.mSetStartupFailWindowStart(null);
+    d.mSetStartupFailCount(0);
     try {
       if (child && child.exitCode === null) d.main().killSequence(child);
       else if (adoptedPid) d.main().killAdopted(adoptedPid);

@@ -91,15 +91,10 @@ function composeCore(host, rawConfig, configPath) {
     host._mSetPhase('STOPPED');
     host._mSetDesired('running');
     host._mSetRestartCount(0);
-    host._mSetCrashWindowStart(null);
-    host._mSetCrashWindowRestarts(0);
-    host._mSetBackoffLevel(0);
-    host._mSetBackoffUntil(null);
+    host._mSetStartupFailWindowStart(null);
+    host._mSetStartupFailCount(0);
     host._mSetRestartAt(null);
     host._mSetStartDeadline(null);
-    host._mSetFailStreak(0);
-    host._mSetLastProbeAt(null);
-    host._mSetLastProbeOk(null);
     host._mSetLastFailure(null);
     host._mSetLastRestartAt(null);
     host._mSetAdopted(false);
@@ -124,6 +119,7 @@ function composeCore(host, rawConfig, configPath) {
     host._shellWatchdogTimer = null;
     host._lastOccupiedWarn = 0;
     host._lastMainPortRederive = 0;
+    host._lastPortUp = false;
     host._lastOrphanAuditAt = 0;
     host._lastOrphanKey = null;
     host._lastOrphanAt = 0;

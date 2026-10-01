@@ -20,8 +20,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const cfg = {
   command: ['node', MOCK, '28191'], healthUrl: 'http://127.0.0.1:28191/',
-  probeIntervalMs: 300, startTimeoutMs: 5000, stopGraceMs: 800, portReleaseWaitMs: 600,
-  crashWindowMs: 28192, crashBurst: 5, backoff: [1500, 3000, 6000],
+  tickIntervalMs: 300, startsecs: 5, stopGraceMs: 800, portReleaseWaitMs: 600,
+  startupFailWindowMs: 60000, startupFailBurst: 5,
   apiHost: '127.0.0.1', apiPort: 28190, stateFile: path.join(TMP, 'state.json'),
   logFile: path.join(TMP, 'events.log'), supervisorLogFile: path.join(TMP, 'guard.log'),
   dshLogFile: path.join(TMP, 'dsh.log'), upgradeLogFile: path.join(TMP, 'up.log'),

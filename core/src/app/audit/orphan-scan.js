@@ -34,7 +34,7 @@ function orphanAudit(deps) {
       if (l && l.warn) l.warn('orphan-scan 端口登记段失败: ' + ((e && e.message) || e));
     }
     try {
-      const staleMs = Math.max(3 * (g.getConfig().probeIntervalMs || 5000), 30000);
+      const staleMs = Math.max(3 * (g.getConfig().tickIntervalMs || 5000), 30000);
       for (const e of (reg && typeof reg.list === 'function') ? reg.list() : []) {
         if (e.id === 'main') continue;
         if (e.phase !== 'running' && e.phase !== 'starting') continue;

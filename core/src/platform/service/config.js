@@ -23,16 +23,15 @@ function normalizeExtension(ext) {
 }
 
 const BASE_DEFAULTS = {
-  probeIntervalMs: 5000,
-  probeTimeoutMs: 3000,
-  failThreshold: 2,
-  httpProbeEnabled: true,
-  startTimeoutMs: 30000,
+  // 守卫看护节拍（进程存活只由 child 的 exit/close 事件与平台 pidlookup 判定，见 app/main/*）。
+  tickIntervalMs: 5000,
+  // 启动窗口（秒）：spawn 后 startsecs 内退出 ⇒ 记一次「启动失败」；活过 startsecs 后退出 ⇒ 正常重启，不计失败。
+  startsecs: 10,
+  // 唯一一条限流：startupFailWindowMs 内「启动失败」达 startupFailBurst 次 ⇒ phase=FAILED，停止自动重启，等人工重试。
+  startupFailWindowMs: 60000,
+  startupFailBurst: 5,
   stopGraceMs: 10000,
   portReleaseWaitMs: 10000,
-  crashWindowMs: 600000,
-  crashBurst: 5,
-  backoff: [30000, 60000, 120000, 300000, 600000],
   apiHost: '127.0.0.1',
   apiPort: 36360,
   portPools: null,
@@ -94,6 +93,7 @@ function normalize(raw, ext) {
   cfg.supervisorLogFile = expandHome(cfg.supervisorLogFile);
   cfg.dshLogFile = expandHome(cfg.dshLogFile);
   cfg.upgradeLogFile = expandHome(cfg.upgradeLogFile);
+  // healthUrl 不再作为健康探测目标：它只用来派生 targetHost/targetPort（面板地址与端口占用判定）。
   let u;
   try {
     u = new URL(cfg.healthUrl);
@@ -107,9 +107,11 @@ function normalize(raw, ext) {
   }
   const cmdPort = extractPortFromCommand(cfg.command);
   if (cmdPort !== null) cfg.targetPort = cmdPort;
-  cfg.probeTimeoutMs = Number.isFinite(Number(cfg.probeTimeoutMs)) && Number(cfg.probeTimeoutMs) > 0 ? Number(cfg.probeTimeoutMs) : 3000;
-  cfg.failThreshold = Number.isInteger(Number(cfg.failThreshold)) && Number(cfg.failThreshold) >= 1 ? Number(cfg.failThreshold) : 2;
-  cfg.httpProbeEnabled = cfg.httpProbeEnabled !== false;
+  cfg.tickIntervalMs = Number(cfg.tickIntervalMs) > 0 ? Number(cfg.tickIntervalMs) : 5000;
+  cfg.startsecs = Number(cfg.startsecs) > 0 ? Number(cfg.startsecs) : 10;
+  cfg.startupFailWindowMs = Number(cfg.startupFailWindowMs) > 0 ? Number(cfg.startupFailWindowMs) : 60000;
+  cfg.startupFailBurst = Number.isInteger(Number(cfg.startupFailBurst)) && Number(cfg.startupFailBurst) >= 1
+    ? Number(cfg.startupFailBurst) : 5;
   if (!Array.isArray(cfg.command) || cfg.command.length === 0) {
     throw new Error('config.command 缺失：需要一个命令数组');
   }

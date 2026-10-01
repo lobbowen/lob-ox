@@ -182,7 +182,7 @@ const fakePorts = {
     const sup = new Supervisor({
       command: ['node', '-e', '0'],
       healthUrl: 'http://127.0.0.1:1/',
-      probeIntervalMs: 100000, // 不触发 tick 副作用（本段只做视图同步，不 start 定时器）
+      tickIntervalMs: 100000, // 不触发 tick 副作用（本段只做视图同步，不 start 定时器）
       apiHost: '127.0.0.1', apiPort: 31990,
       stateFile: path.join(lcTmp, 'state.json'),
       logFile: path.join(lcTmp, 'events.log'),

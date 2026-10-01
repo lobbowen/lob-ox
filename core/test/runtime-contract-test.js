@@ -190,7 +190,7 @@ check('R-6 契约 schema 版本 = 2（与壳 handshake）', rc.SUPPORTED_SCHEMA 
     npm: { path: NODE, args: [NPM_CLI], version: '10.9.2' },
   });
   const s = new Supervisor({
-    command: ['node', '-e', '0'], healthUrl: 'http://127.0.0.1:28031/', probeIntervalMs: 100000,
+    command: ['node', '-e', '0'], healthUrl: 'http://127.0.0.1:28031/', tickIntervalMs: 100000,
     apiHost: '127.0.0.1', apiPort: 28030,
     stateFile: path.join(TMP, 'state.json'), logFile: path.join(TMP, 'e.log'),
     supervisorLogFile: path.join(TMP, 's.log'), dshLogFile: path.join(TMP, 'd.log'), upgradeLogFile: path.join(TMP, 'u.log'),
