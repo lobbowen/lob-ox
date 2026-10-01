@@ -8,6 +8,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
 const JS_PATH = path.join(ROOT, 'src', 'shared', 'brand.js');
@@ -177,6 +178,12 @@ const HOME = path.join('H', 'ome');
 }
 
 // ── E. 消费点：state-root.js 的 override 与子目录 ──────────────────────────
+// 三方对账链条（每一环都用**独立预言字面量**，任何一环单独漂移都判红）：
+//   D-1：单源规则 brand.stateRoot ↔ 冻结字面量；E-4/E-5：消费点 sr.root() ↔ 同一批冻结字面量
+//   ⇒ 消费点与单源规则一致。**不拿单源算一遍再和单源比**（那是自证，见 platform-matrix-single-source-test.js:33）。
+// 覆盖位的前提必须**显式建立**：官方跑法 `test/_runner.js` 用 `-r ./test/_preload.js` 起每个测试进程，
+//   而 _preload.js 会注入 DSH_SUPERVISOR_HOME=<mkdtemp 'dsh-test-'>；所以「环境里恰好没有覆盖位」
+//   只在裸跑 `node test/brand-single-source-test.js` 时成立 —— 靠这个巧合的断言在 CI 上必红。
 {
   const sr = require(path.join(ROOT, 'src', 'platform', 'service', 'state-root.js'));
   const saved = process.env[BRAND.ENV_STATE_ROOT];
@@ -185,13 +192,92 @@ const HOME = path.join('H', 'ome');
   const overridden = sr.root();
   const sup = sr.supervisorDir();
   const shl = sr.shellDir();
-  if (saved === undefined) delete process.env[BRAND.ENV_STATE_ROOT];
-  else process.env[BRAND.ENV_STATE_ROOT] = saved;
   check('E-1 覆盖位优先且绝对化', overridden === path.resolve(probe), overridden);
   check('E-2 supervisorDir = <根>/supervisor', sup === path.join(overridden, 'supervisor'), sup);
   check('E-3 shellDir = <根>/shell', shl === path.join(overridden, 'shell'), shl);
-  check('E-4 无覆盖位时与单源规则一致',
-    sr.root() === BRAND.stateRoot(process.platform, process.env, os.homedir()), sr.root());
+
+  // 家目录/基座用注入的冻结字面量，避免断言结果随宿主环境漂移；覆盖位在本段内一律不存在（finally 恢复）。
+  const FROZEN_HOME = path.join('H', 'ome');
+  const ENV_NAMES = ['HOME', 'USERPROFILE', BRAND.STATE_ROOT_WIN_BASE_ENV, BRAND.STATE_ROOT_LINUX_XDG_ENV];
+  const savedEnv = {};
+  for (const name of ENV_NAMES) savedEnv[name] = process.env[name];
+  try {
+    process.env.HOME = FROZEN_HOME;
+    process.env.USERPROFILE = FROZEN_HOME; // Windows 的 os.homedir() 只认 USERPROFILE（不认 HOME）
+    delete process.env[BRAND.STATE_ROOT_WIN_BASE_ENV];
+    delete process.env[BRAND.STATE_ROOT_LINUX_XDG_ENV];
+    delete process.env[BRAND.ENV_STATE_ROOT]; // ← 前提「无覆盖位」在此显式成立（CI 注入的临时根必须被移除）
+
+    // E-4 宿主平台（真实进程，不注入 platform）：基座缺失的回落分支 + 有基座时另一平台变量当诱饵，期望值都是冻结字面量。
+    const DECOY_WIN = path.join('D', 'ecoyWin');
+    const DECOY_XDG = path.join('D', 'ecoyXdg');
+    const HOST_CASES = process.platform === 'win32'
+      ? [
+        ['win32 基座缺失回落家目录', {}, path.join(FROZEN_HOME, 'AppData', 'Local', 'dsh-supervisor')],
+        ['win32 有 LOCALAPPDATA（XDG 为诱饵，不得串台）', { LOCALAPPDATA: path.join('W', 'in'), XDG_STATE_HOME: DECOY_XDG }, path.join('W', 'in', 'dsh-supervisor')],
+      ]
+      : process.platform === 'darwin'
+        ? [
+          ['darwin 恒为 Application Support', {}, path.join(FROZEN_HOME, 'Library', 'Application Support', 'dsh-supervisor')],
+          ['darwin 下 LOCALAPPDATA/XDG 皆为诱饵（不得串台）', { LOCALAPPDATA: DECOY_WIN, XDG_STATE_HOME: DECOY_XDG }, path.join(FROZEN_HOME, 'Library', 'Application Support', 'dsh-supervisor')],
+        ]
+        : [
+          ['linux 基座缺失回落 ~/.local/state', {}, path.join(FROZEN_HOME, '.local', 'state', 'dsh-supervisor')],
+          ['linux 有 XDG_STATE_HOME（LOCALAPPDATA 为诱饵，不得串台）', { XDG_STATE_HOME: path.join('X', 'dg'), LOCALAPPDATA: DECOY_WIN }, path.join('X', 'dg', 'dsh-supervisor')],
+        ];
+    const hostBad = [];
+    const hostSeen = [];
+    for (const [label, base, want] of HOST_CASES) {
+      delete process.env[BRAND.STATE_ROOT_WIN_BASE_ENV];
+      delete process.env[BRAND.STATE_ROOT_LINUX_XDG_ENV];
+      Object.assign(process.env, base);
+      const got = sr.root();
+      hostSeen.push(label + '=' + got);
+      if (got !== want) hostBad.push(label + ': ' + got + ' ≠ ' + want);
+    }
+    check('E-4 无覆盖位时宿主平台状态根逐条对冻结字面量（不拿单源自证）',
+      hostBad.length === 0, (hostBad.length ? hostBad.join(' | ') + '  ||  ' : '') + hostSeen.join('  '));
+
+    // E-5 四平台状态根语义（win-x64 / linux-x64 / darwin-arm64 / darwin-x64；darwin 两 tag 同一分支）：
+    //   子进程注入 process.platform，覆盖位在子进程 env 里同样**显式删除**；期望值逐条独立写出，
+    //   并给「不属于该平台」的基座变量注入诱饵，钉住三平台分支互不串台。
+    const CASES = [
+      ['win32 有 LOCALAPPDATA', 'win32', { LOCALAPPDATA: path.join('L', 'ocal'), XDG_STATE_HOME: DECOY_XDG }, path.join('L', 'ocal', 'dsh-supervisor')],
+      ['win32 基座缺失回落家目录', 'win32', {}, path.join(FROZEN_HOME, 'AppData', 'Local', 'dsh-supervisor')],
+      ['darwin 恒为 Application Support', 'darwin', {}, path.join(FROZEN_HOME, 'Library', 'Application Support', 'dsh-supervisor')],
+      ['darwin 下两平台基座皆为诱饵', 'darwin', { LOCALAPPDATA: DECOY_WIN, XDG_STATE_HOME: DECOY_XDG }, path.join(FROZEN_HOME, 'Library', 'Application Support', 'dsh-supervisor')],
+      ['linux 有 XDG_STATE_HOME', 'linux', { XDG_STATE_HOME: path.join('X', 'dg'), LOCALAPPDATA: DECOY_WIN }, path.join('X', 'dg', 'dsh-supervisor')],
+      ['linux 基座缺失回落 ~/.local/state', 'linux', {}, path.join(FROZEN_HOME, '.local', 'state', 'dsh-supervisor')],
+    ];
+    const SR_PATH = path.join(ROOT, 'src', 'platform', 'service', 'state-root.js');
+    const bad = [];
+    const seen = [];
+    for (const [label, platform, base, want] of CASES) {
+      const env = Object.assign({}, process.env, { HOME: FROZEN_HOME, USERPROFILE: FROZEN_HOME });
+      delete env[BRAND.ENV_STATE_ROOT];
+      delete env[BRAND.STATE_ROOT_WIN_BASE_ENV];
+      delete env[BRAND.STATE_ROOT_LINUX_XDG_ENV];
+      Object.assign(env, base);
+      const code = "Object.defineProperty(process, 'platform', { value: " + JSON.stringify(platform) + " });"
+        + "process.stdout.write(require(" + JSON.stringify(SR_PATH) + ").root());";
+      let got;
+      try {
+        got = execFileSync(process.execPath, ['-e', code], { cwd: ROOT, env, encoding: 'utf8', timeout: 15000 }).trim();
+      } catch (e) { got = 'EXECFAIL:' + ((e && e.message) || e); }
+      seen.push(platform + (Object.keys(base).length ? '有基座' : '无基座') + '=' + got);
+      if (got !== want) bad.push(label + ': ' + got + ' ≠ ' + want);
+    }
+    check('E-5 覆盖位缺席时四平台状态根语义逐条对冻结字面量', bad.length === 0,
+      (bad.length ? bad.join(' | ') + '  ||  ' : '') + seen.join('  '));
+  } finally {
+    for (const name of ENV_NAMES) {
+      if (savedEnv[name] === undefined) delete process.env[name];
+      else process.env[name] = savedEnv[name];
+    }
+    // 覆盖位恢复到本块开始前的样子（savedEnv 是在把它设成 probe **之后**采样的，故单列恢复）。
+    if (saved === undefined) delete process.env[BRAND.ENV_STATE_ROOT];
+    else process.env[BRAND.ENV_STATE_ROOT] = saved;
+  }
 }
 
 // ── F. brand.rs 的状态根规则函数存在（跨语言规则的两端都在）────────────────

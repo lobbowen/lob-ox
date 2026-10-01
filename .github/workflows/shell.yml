@@ -397,6 +397,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 安装冒烟脚本（ci/install-smoke.sh / ci/install-smoke-win.ps1）要用 node -e 读跨语言单源，
+      #   不能依赖 runner 镜像预装的 node（版本/存在性不受控）。
+      - name: Install Node（安装冒烟脚本用）
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       # 结构性无 A（不是缺陷）⇒ notice + exit 0 + has_a=false，后三步各自 if 跳过；候选里存在解析不到
       #   commit / 资产不匹配 ⇒ 真问题，维持 ::error:: exit 1。
       # 候选先按本产线命名空间过滤（白名单只认 shell-*）：Release 空间两条产线共用，内核 core-* 的
