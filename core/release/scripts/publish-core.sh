@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # 内核 npm 子包发布（构建物 = Node launcher）：只在 GitHub CI 内运行，本机不得执行、不得产出发布产物（本机自查上限是纯静态检查）。
 # 版本从仓库根 package.json 单源注入（禁手写，裸版本无 v 前缀）；发布前强制校验 launcher self-check 自报版本 = 单源，产物命名 lobox-<ver>-<plat>-<arch>。
+# ── 发布前必须知道的三条（现状 + 操作要求） ────────────────────────────────
+# ① 版本线重置后内核只能经 rollback dist-tag 投递：只有通道的 rollback 分支才会对「低于当前」的目标动手
+#    （shell/src-tauri/src/core.rs 的 core 定位/更新逻辑）⇒ 防降级下限必须 ≤ 目标版本（现为 0.0.0，见 core/src/platform/distribution/release.js）。
+# ② 0.0.1 / 1.0.0 无预发布后缀 ⇒ dist-tag 打 latest；而 reconcile_latest_tag 只升不降
+#    ⇒ 发布前先人工核对 `npm view <包> dist-tags`（首次发布新包名时无此风险）。
+# ③ 壳的存量机器不会自动降级：tauri-plugin-updater 的判据是 release.version > current_version，未注入 version_comparator
+#    ⇒ 从更高版本线（如 1.2.x）切到重置后的 1.0.0 需人工分发一次。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"

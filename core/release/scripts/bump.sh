@@ -15,7 +15,11 @@ fi
 case "$MODE" in
   --core)
     CUR="$(node -p "require('./package.json').version")"
-    ver_lt "$NEW" "$CUR" && { echo "拒绝回退：$NEW < 当前内核 $CUR"; exit 1; }
+    # 只告警不拒绝：版本线可被有意重置（如重置为 0.0.1），届时「低于当前」是常态；真守卫是发布链自身的 registry 自证。
+    # 判定与信息保留，退出码 0；不用 `&& { ...; }` 形态是为了让 set -e 语义无歧义。
+    if ver_lt "$NEW" "$CUR"; then
+      echo "[warn] 新版本 $NEW 低于当前内核 $CUR（判定基准 = package.json#version）—— 若不是有意重置版本线，请先确认" >&2
+    fi
     node -e "const fs=require('fs');const p='package.json';const j=JSON.parse(fs.readFileSync(p));j.version='$NEW';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
     # package-lock.json 的两处 version 须与 package.json 一致（bump 是唯一写入点）。
     node -e "const fs=require('fs');const p='package-lock.json';const j=JSON.parse(fs.readFileSync(p));j.version='$NEW';j.packages[''].version='$NEW';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"

@@ -12,7 +12,11 @@ ver_lt() {
   node -e "const [a,b]=process.argv.slice(1);const p=(v)=>{const[m,t]=v.split('-');const c=m.split('.').map(Number);const tier=t?(t.startsWith('BETA')?0:1):2;return[c[0],c[1],c[2],tier,t?(Number(t.split('.')[1])||0):0];};const A=p(a),B=p(b);for(let i=0;i<5;i++){if(A[i]<B[i])process.exit(0);if(A[i]>B[i])process.exit(1);}process.exit(1);" "$1" "$2"
 }
 CUR="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-ver_lt "$NEW" "$CUR" && { echo "拒绝回退：$NEW < 当前壳 $CUR"; exit 1; }
+# 只告警不拒绝：版本线可被有意重置（如重置为 1.0.0），届时「低于当前」是常态；真守卫是发布链自身的 registry 自证。
+# 判定与信息保留，退出码 0；用 `if` 而非 `&& { ...; }`，set -e 语义无歧义（同本文件版本校验的 `if !` 写法）。
+if ver_lt "$NEW" "$CUR"; then
+  echo "[warn] 新版本 $NEW 低于当前壳 $CUR（判定基准 = src-tauri/tauri.conf.json#version）—— 若不是有意重置版本线，请先确认" >&2
+fi
 _t="$(mktemp)"; sed -E "s/^version = .*/version = \"$NEW\"/" src-tauri/Cargo.toml > "$_t" && mv "$_t" src-tauri/Cargo.toml
 _t="$(mktemp)"; sed -E "/^name = \"lobox-shell\"$/{n;s/^version = .*/version = \"$NEW\"/}" src-tauri/Cargo.lock > "$_t" && mv "$_t" src-tauri/Cargo.lock
 NEW="$NEW" node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(p));j.version=process.env.NEW;fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
