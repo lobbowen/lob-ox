@@ -123,18 +123,11 @@ function composeCore(host, rawConfig, configPath) {
     host._lastOrphanAuditAt = 0;
     host._lastOrphanKey = null;
     host._lastOrphanAt = 0;
-    host._actWindow = false;
-    host._mainTickActs = null;
     host._portActivesCache = null;
     host._lastLanStateJson = null;
     host._routerFacade = null;
     host._lc = null;
     host._dshMainLive = null;
-    host._shadowSeq = 0;
-    host._shadowConsistentBeats = 0;
-    host._shadowDiffBeats = 0;
-    host._shadowLast = null;
-    host._shadowLoggedSeq = 0;
     const logCore = logcore.init({
       process: 'guard',
       logFile: host.config.supervisorLogFile,

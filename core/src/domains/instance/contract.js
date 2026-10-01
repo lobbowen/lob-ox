@@ -46,6 +46,7 @@ module.exports = {
     systemdTemplatePath: 'systemd 模板单元路径',
     resstats: '进程树资源采样（platform/os/resstats；行为测试注入缝，缺省用真实现）',
     machineFacts: '机器事实供给函数（缺省 governor.machineFacts 读 os；测试注入定死预算）',
+    throttle: '实例域启动失败限流参数 { windowMs, burst }（按域参数化，缺省 10min / 5 次；判定原语与主链同为 shared/guardian.bumpStartupFailure）',
     hooks: {
       onRemoteChange: '实例远程配置变化（compose/observers.js 注入）',
       onRemove: '实例移除（compose/observers.js 注入）',

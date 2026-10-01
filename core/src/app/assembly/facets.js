@@ -11,7 +11,6 @@ const FACETS = [
   { name: 'control/instance-adapter', mod: require('../control/instance-adapter') },
   { name: 'main/decide', mod: require('../main/decide') },
   { name: 'main/controller', mod: require('../main/controller') },
-  { name: 'main/shadow', mod: require('../main/shadow') },
   { name: 'main/process', mod: require('../main/process') },
   { name: 'main/port-rederive', mod: require('../main/port-rederive') },
   { name: 'main/signals', mod: require('../main/signals') },

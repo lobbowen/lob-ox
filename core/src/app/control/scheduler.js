@@ -36,7 +36,6 @@ module.exports = {
     } catch (e) {
       d.logger() && d.logger().warn && d.logger().warn('[dsh] supervise 异常: ' + ((e && e.message) || e));
     }
-    d.main().shadowHeartbeat();
     try {
       const now = Date.now();
       if (!d.readLastOrphanAuditAt() || now - d.readLastOrphanAuditAt() > 60000) {

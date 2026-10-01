@@ -47,7 +47,6 @@ module.exports = {
 
   async _startProcess() {
     const d = depsOf(this);
-    d.main().actNote('start', 'spawn');
     d.writeCrashHalted(false);
     const nst = d.nativeManager() ? d.nativeManager().status() : { installed: true };
     if (!nst.installed) {
@@ -143,7 +142,6 @@ module.exports = {
 
   _enterRunning() {
     const d = depsOf(this);
-    d.main().actNote('enterRunning', 'startsecs_elapsed');
     const wasRunning = d.state().phase() === 'RUNNING';
     d.state().setPhase('RUNNING');
     d.mSetAdopted(false);
@@ -161,7 +159,6 @@ module.exports = {
 
   _adoptObserved() {
     const d = depsOf(this);
-    d.main().actNote('adoptObserved', 'observe');
     d.state().setPhase('OBSERVED');
     d.mSetAdopted(true);
     d.mSetObservedOnly(true);
@@ -181,7 +178,6 @@ module.exports = {
 
   _adopt() {
     const d = depsOf(this);
-    d.main().actNote('adopt', 'adopt');
     d.state().setPhase('RUNNING');
     d.mSetAdopted(true);
     d.mSetObservedOnly(false);
@@ -241,13 +237,11 @@ module.exports = {
     if (d.mAdoptPid() && pidlook.isAlive(d.mAdoptPid())) {
       try { d.main().killAdopted(d.mAdoptPid()); } catch (e) { d.logger().warn('adopt kill during restart: ' + e.message); }
     }
-    d.main().actNote('restart', reason);
     d.state().write();
   },
 
   stopProcess(reason) {
     const d = depsOf(this);
-    d.main().actNote('stop', reason);
     d.events().append('stop', { reason });
     d.logger().info('stop: ' + reason);
     const child = d.mChild();

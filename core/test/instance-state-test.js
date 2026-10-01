@@ -6,6 +6,7 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 const sm = require(path.join(ROOT, 'src', 'domains', 'instance', 'state-machine'));
 const sandbox = require(path.join(ROOT, 'src', 'domains', 'instance', 'sandbox'));
+const guardianMod = require(path.join(ROOT, 'src', 'shared', 'guardian'));
 
 const results = [];
 const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x ? '  ← ' + x : '')); };
@@ -16,43 +17,84 @@ const deps = {
   save() { saves++; },
   tokens: null,
 };
+// 域参数化：实例域限流窗口/次数可由调用方注入（缺省 10min / 5 次）；算法本体只在 shared/guardian。
+const throttleDeps = (windowMs, burst) => Object.assign({}, deps, { throttle: { windowMs, burst } });
 function makeInst() {
-  return { id: 't1', name: '测试', domain: 'sandbox', state: { phase: 'STOPPED', restartCount: 0, backoffLevel: 0 } };
+  return {
+    id: 't1', name: '测试', domain: 'sandbox',
+    state: { phase: 'STOPPED', restartCount: 0, startupFailWindowStart: null, startupFailCount: 0, restartAt: null, startAt: null, lastFailAt: null },
+  };
 }
 const now = Date.now();
 
+// U-5 统一重启策略：启动窗口内失败 ⇒ 记一次 startupFail；窗口内达 N 次 ⇒ FAILED（停靠）；
+// 活过窗口后退出 ⇒ 正常重启不计失败。没有 BACKOFF 相位、没有 backoffLevel/backoffUntil、没有等级等待。
 const i1 = makeInst();
-sm.restart(deps, i1, '启动失败');
-check('restart: 进入 BACKOFF、计数 +1 且已设退避恢复点',
-  i1.state.phase === 'BACKOFF' && i1.state.restartCount === 1 && Number.isFinite(i1.state.backoffUntil)
-  && i1.state.backoffUntil >= now + 5000, JSON.stringify(i1.state));
+sm.restart(deps, i1, '启动失败', { startupFailure: true });
+check('restart: 窗口内失败 ⇒ phase=STARTING + startupFail=1 + 固定端口释放等待落点（无 BACKOFF、无退避字段）',
+  i1.state.phase === 'STARTING' && i1.state.startupFailCount === 1
+  && !('backoffLevel' in i1.state) && !('backoffUntil' in i1.state)
+  && Number.isFinite(i1.state.restartAt) && i1.state.restartAt >= now + sm.RESTART_DELAY_MS, JSON.stringify(i1.state));
 
 const i2 = makeInst();
-i2.state.restartCount = 3; i2.state.backoffLevel = 2; i2.state.lastFailAt = now - 6 * 60 * 1000; // 6 分钟前失败
+i2.state.restartCount = 3; i2.state.startupFailCount = 4; i2.state.startupFailWindowStart = now - 1000;
+i2.state.lastFailAt = now - 6 * 60 * 1000; // 6 分钟前失败
 sm.setRunning(deps, i2, { pid: 123 }, now);
-check('稳定窗(>5min)后 restartCount/backoffLevel 归零且 phase=RUNNING',
-  i2.state.restartCount === 0 && i2.state.backoffLevel === 0 && i2.state.phase === 'RUNNING', JSON.stringify(i2.state));
+check('稳定窗(>5min)后 restartCount 归零；且进 RUNNING 即作废启动失败链（startupFail* 清零）',
+  i2.state.restartCount === 0 && i2.state.startupFailCount === 0 && i2.state.startupFailWindowStart === null
+  && i2.state.phase === 'RUNNING', JSON.stringify(i2.state));
 
 const i3 = makeInst();
-i3.state.restartCount = 3; i3.state.backoffLevel = 1; i3.state.lastFailAt = now - 60 * 1000;
+i3.state.restartCount = 3; i3.state.startupFailCount = 2; i3.state.lastFailAt = now - 60 * 1000;
 sm.setRunning(deps, i3, { pid: 456 }, now);
-check('未过稳定窗(<5min) restartCount 保留', i3.state.restartCount === 3 && i3.state.backoffLevel === 1, JSON.stringify(i3.state));
+check('未过稳定窗(<5min) restartCount 保留，但启动失败链同样作废（起来了就不算失败链）',
+  i3.state.restartCount === 3 && i3.state.startupFailCount === 0 && i3.state.phase === 'RUNNING', JSON.stringify(i3.state));
 
 const i4 = makeInst();
-for (let k = 0; k < 21; k++) sm.restart(deps, i4, '崩溃' + k);
+for (let k = 0; k < 5; k++) sm.restart(throttleDeps(600000, 5), i4, '启动失败' + k, { startupFailure: true });
+check('限流到点：窗口内第 5 次启动失败 ⇒ FAILED（停靠、restartAt 清空、原因可见）',
+  i4.state.phase === 'FAILED' && i4.state.startupFailCount === 5 && i4.state.restartAt === null
+  && /已停止自动重启/.test(i4.state.lastError || ''), i4.state.phase + ' / ' + i4.state.lastError);
+
 const i4b = makeInst();
-for (let k = 0; k < 20; k++) sm.restart(deps, i4b, '崩溃' + k);
-check('重试上限：第 21 次 → FAILED（重试超限），恰 20 次仍 BACKOFF',
-  i4.state.phase === 'FAILED' && /重试超限/.test(i4.state.lastError || '')
-  && i4b.state.phase === 'BACKOFF' && i4b.state.restartCount === 20,
-  i4.state.phase + ' / ' + i4b.state.phase + ' count=' + i4b.state.restartCount);
+for (let k = 0; k < 4; k++) sm.restart(throttleDeps(600000, 5), i4b, '启动失败' + k, { startupFailure: true });
+check('恰 4 次（< burst）仍可自动重试：STARTING + 计数 4',
+  i4b.state.phase === 'STARTING' && i4b.state.startupFailCount === 4, i4b.state.phase + ' count=' + i4b.state.startupFailCount);
+
+const i4c = makeInst();
+for (let k = 0; k < 30; k++) sm.restart(throttleDeps(600000, 5), i4c, '实例进程退出', { startupFailure: false });
+check('删除次数上限：活过窗口后的正常重启无上限（30 次仍 STARTING、不算启动失败、永不 FAILED）',
+  i4c.state.phase === 'STARTING' && i4c.state.restartCount === 30 && i4c.state.startupFailCount === 0,
+  i4c.state.phase + ' n=' + i4c.state.restartCount);
+
+const i4d = makeInst();
+for (let k = 0; k < 2; k++) sm.restart(throttleDeps(60000, 3), i4d, '启动失败', { startupFailure: true });
+const beforeTrip = i4d.state.phase;
+sm.restart(throttleDeps(60000, 3), i4d, '启动失败', { startupFailure: true });
+check('按域参数化：burst=3 时第 3 次即 FAILED（参数来自域，判定仍由同一原语给出）',
+  beforeTrip === 'STARTING' && i4d.state.phase === 'FAILED' && i4d.state.startupFailCount === 3,
+  beforeTrip + '->' + i4d.state.phase + ' count=' + i4d.state.startupFailCount);
+
+{
+  // 「一份实现」证据：实例域记账必须调用 shared/guardian.bumpStartupFailure，而不是自带一份看起来一样的判定。
+  const i7 = makeInst();
+  const orig = guardianMod.bumpStartupFailure;
+  let calls = 0;
+  guardianMod.bumpStartupFailure = function (...a) { calls++; return orig.apply(null, a); };
+  try { sm.restart(deps, i7, '启动失败', { startupFailure: true }); } finally { guardianMod.bumpStartupFailure = orig; }
+  check('一份实现：实例域启动失败记账经 shared/guardian.bumpStartupFailure（同一原语）',
+    calls === 1 && i7.state.startupFailCount === 1, 'calls=' + calls + ' count=' + i7.state.startupFailCount);
+}
 
 const i5 = makeInst();
 sm.fail(deps, i5, '安装失败');
-check('failInstance → FAILED + reason', i5.state.phase === 'FAILED' && i5.state.lastError === '安装失败', JSON.stringify(i5.state));
+check('fail → FAILED + reason + restartAt 清空（停靠不得留自动重试点）',
+  i5.state.phase === 'FAILED' && i5.state.lastError === '安装失败' && i5.state.restartAt === null, JSON.stringify(i5.state));
 const i6 = makeInst();
+i6.state.startupFailCount = 3; i6.state.startupFailWindowStart = now; i6.state.restartAt = now;
 sm.setStopped(deps, i6);
-check('setStopped → STOPPED', i6.state.phase === 'STOPPED', i6.state.phase);
+check('setStopped → STOPPED 且启动失败链作废（显式停止是人的意图）',
+  i6.state.phase === 'STOPPED' && i6.state.startupFailCount === 0 && i6.state.restartAt === null, JSON.stringify(i6.state));
 check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'saves=' + saves);
 
 // supervise 用可注入假 service + 临时目录，端口取 0（pidlookup 必不命中）⇒ 探测恒「未运行」，绝不触碰真实 systemd/进程。
@@ -62,7 +104,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
   const { InstanceManager } = require(path.join(ROOT, 'src', 'domains', 'instance'));
   const mk = (phase, extra) => Object.assign({
     id: 'b15', name: 'B15', domain: 'sandbox', port: 0, guardian: false,
-    state: Object.assign({ phase, restartCount: 2, backoffLevel: 1 }, extra || {}),
+    state: Object.assign({ phase, restartCount: 2, startupFailWindowStart: null, startupFailCount: 0, restartAt: null }, extra || {}),
   }, {});
   const svcCalls = [];
   const fakeService = {
@@ -91,12 +133,14 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
 
   {
     const mgr = mkMgr(fs.mkdtempSync(path.join(os.tmpdir(), 'b15-off-')));
-    const inst = mk('BACKOFF', { backoffUntil: Date.now() - 1 });
+    const inst = mk('RUNNING', { startAt: Date.now() - 5000 });
     mgr.instances = [inst];
     mgr.supervise('b15');
     await new Promise((r) => setImmediate(r));
-    check('BACKOFF+守护关 → STOPPED（不再无限重试）且未触碰 service',
-      inst.state.phase === 'STOPPED' && svcCalls.length === 0, inst.state.phase + ' ' + svcCalls.join(','));
+    // 旧 BACKOFF 相位的「未守护 → STOPPED」断言已随相位删除；等价红线改为从 RUNNING 退出处覆盖。
+    check('RUNNING 退出 + 守护关 → STOPPED（停就停红线）且未触碰 service、失败链作废',
+      inst.state.phase === 'STOPPED' && svcCalls.length === 0 && inst.state.startupFailCount === 0 && inst.state.restartAt === null,
+      inst.state.phase + ' ' + svcCalls.join(','));
   }
   {
     const mgr = mkMgr(fs.mkdtempSync(path.join(os.tmpdir(), 'b15-f-')));
@@ -107,24 +151,31 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
   }
   {
     const mgr = mkMgr(fs.mkdtempSync(path.join(os.tmpdir(), 'b15-on-')));
-    const inst = mk('BACKOFF', { backoffUntil: Date.now() - 1 });
+    const inst = mk('STARTING', { restartAt: Date.now() - 1, startAt: null });
     inst.guardian = true;
     mgr.instances = [inst];
     seedEntry(mgr, inst);
     mgr.supervise('b15');
-    await new Promise((r) => setTimeout(r, 50));
-    const backoffPulled = svcCalls.includes('startTransient') && inst.state.phase === 'STARTING';
+    await new Promise((r) => setTimeout(r, 20));
+    const respawned = svcCalls.includes('startTransient') && inst.state.phase === 'STARTING'
+      && inst.state.restartAt === null && typeof inst.state.startAt === 'number';
 
     svcCalls.length = 0;
     const mgr2 = mkMgr(fs.mkdtempSync(path.join(os.tmpdir(), 'b15-fo-')));
-    const inst2 = mk('FAILED', { installOk: true, lastError: '启动失败:x' });
+    const inst2 = mk('FAILED', { installOk: true, lastError: '启动反复失败 5 次（窗口 600s）：已停止自动重启，等人工重试' });
     inst2.guardian = true;
     mgr2.instances = [inst2];
     seedEntry(mgr2, inst2);
     mgr2.supervise('b15');
-    check('反向：守护开+到期（BACKOFF）/ FAILED+installOk → 均自愈拉起',
-      backoffPulled && svcCalls.includes('startTransient') && inst2.state.phase === 'STARTING',
-      inst.state.phase + ' / ' + inst2.state.phase + ' ' + svcCalls.join(','));
+    const stayedHalted = inst2.state.phase === 'FAILED' && svcCalls.length === 0;
+    // 面板手动重试是 FAILED 的唯一出口：start{manual} 清计数并真正拉起。
+    const rManual = await mgr2.startInstance('b15', { manual: true });
+    await new Promise((r) => setTimeout(r, 20));
+    check('守护开 + STARTING 到期 ⇒ 立刻重新拉起（固定端口释放等待，非阶梯）',
+      respawned, inst.state.phase + ' restartAt=' + inst.state.restartAt + ' startAt=' + inst.state.startAt + ' ' + svcCalls.join(','));
+    check('守护开 + FAILED ⇒ 零自愈（停靠）；人工重试 start{manual} 是唯一出口 → STARTING 且计数清零',
+      stayedHalted && rManual.ok === true && inst2.state.phase === 'STARTING' && inst2.state.startupFailCount === 0,
+      'halted=' + stayedHalted + ' ok=' + rManual.ok + ' ' + inst2.state.phase + ' count=' + inst2.state.startupFailCount);
   }
 
   {
@@ -150,30 +201,41 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
 
   {
     const mgr = mkMgr(fs.mkdtempSync(path.join(os.tmpdir(), 'b26d-')));
-    const inst = mk('FAILED', { restartCount: 21, backoffLevel: 5, lastError: '重试超限(崩溃)', lastFailAt: Date.now() - 1000, backoffUntil: Date.now() - 1 });
+    const inst = mk('FAILED', {
+      restartCount: 21, startupFailCount: 5, startupFailWindowStart: Date.now() - 1000,
+      lastError: '启动反复失败 5 次（窗口 600s）：已停止自动重启，等人工重试',
+      lastFailAt: Date.now() - 1000, restartAt: Date.now() - 1,
+    });
     mgr.instances = [inst];
     seedEntry(mgr, inst);
     const r = await mgr.startInstance('b15', { manual: true });
-    check('D-1 手动启动成功 → 旧链计数作废（restartCount/backoffLevel/backoffUntil 清零）',
-      r.ok === true && inst.state.phase === 'STARTING' && inst.state.restartCount === 0 && inst.state.backoffLevel === 0 && inst.state.backoffUntil === null,
+    check('D-1 手动启动成功 → 旧失败链作废（restartCount/startupFailCount/startupFailWindowStart/restartAt 清零）',
+      r.ok === true && inst.state.phase === 'STARTING' && inst.state.restartCount === 0
+      && inst.state.startupFailCount === 0 && inst.state.startupFailWindowStart === null && inst.state.restartAt === null,
       'ok=' + r.ok + ' ' + JSON.stringify(inst.state));
-    sm.restart(deps, inst, '实例进程退出');
-    check('D-2 手动启动后的失败重新进 BACKOFF 计第 1 次',
-      inst.state.phase === 'BACKOFF' && inst.state.restartCount === 1, inst.state.phase + ' count=' + inst.state.restartCount);
+    sm.restart(deps, inst, '启动失败', { startupFailure: true });
+    check('D-2 手动启动后的窗口内失败重新计第 1 次（回 STARTING，无 BACKOFF 相位）',
+      inst.state.phase === 'STARTING' && inst.state.startupFailCount === 1 && inst.state.restartCount === 1,
+      inst.state.phase + ' count=' + inst.state.startupFailCount);
   }
   {
     const mgr = mkMgr(fs.mkdtempSync(path.join(os.tmpdir(), 'b26d-auto-')));
-    const inst = mk('FAILED', { restartCount: 21, backoffLevel: 5, installOk: true });
+    const inst = mk('FAILED', { restartCount: 21, startupFailCount: 5, installOk: true });
     inst.guardian = true;
     mgr.instances = [inst];
     seedEntry(mgr, inst);
+    svcCalls.length = 0; // 前一段的手动拉起已记账，本段只数「停靠是否还会自愈」
     mgr.supervise('b15');
     await new Promise((r) => setImmediate(r));
-    check('D-3 自动来源拉起（监督拍 installOk 兜底）不开新链：restartCount=21 原样保留',
-      inst.state.restartCount === 21, 'phase=' + inst.state.phase + ' count=' + inst.state.restartCount);
-    sm.restart(deps, inst, '实例进程退出');
-    check('D-3b 自动链超限判定不变：超限后再失败仍 FAILED（超限->手动重启才有出路）',
-      inst.state.phase === 'FAILED' && /重试超限/.test(inst.state.lastError || ''), inst.state.phase);
+    // 理由：旧的「installOk 兜底自愈拉起」是第二套重启策略；统一后 FAILED 一律停靠，
+    // 计数与原因原样保留，唯一出口是人工重试（面板 start → startInstance{manual}）。
+    check('D-3 停靠不再自愈：守护开 + FAILED + installOk=true 仍零拉起、计数原样保留',
+      inst.state.phase === 'FAILED' && inst.state.restartCount === 21 && inst.state.startupFailCount === 5 && svcCalls.length === 0,
+      'phase=' + inst.state.phase + ' count=' + inst.state.startupFailCount + ' calls=' + svcCalls.join(','));
+    const r = await mgr.startInstance('b15', { manual: true });
+    check('D-3b 人工重试是唯一出口：start{manual} → STARTING 且计数清零',
+      r.ok === true && inst.state.phase === 'STARTING' && inst.state.startupFailCount === 0,
+      'ok=' + r.ok + ' phase=' + inst.state.phase);
   }
 
   {
@@ -211,7 +273,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     });
     const govInst = (id, port, state) => ({
       id, name: id.toUpperCase(), domain: 'sandbox', port, guardian: true,
-      state: state || { phase: 'RUNNING', restartCount: 0, backoffLevel: 0, startAt: Date.now() - 5000, allocation: null },
+      state: state || { phase: 'RUNNING', restartCount: 0, startupFailWindowStart: null, startupFailCount: 0, restartAt: null, startAt: Date.now() - 5000, allocation: null },
     });
 
     {
@@ -239,8 +301,9 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
         && stopEntry.ctx.timeoutMs > 0 && stopEntry.ctx.timeoutMs <= 60000
         && Array.isArray(stopEntry.ctx.anchors) && stopEntry.ctx.anchors.includes('--port ' + port),
         stopEntry && JSON.stringify(stopEntry.ctx && { t: stopEntry.ctx.timeoutMs, a: stopEntry.ctx.anchors }));
-      check('7A 处置后走既有退避链：BACKOFF + restartCount=1',
-        inst.state.phase === 'BACKOFF' && inst.state.restartCount === 1, inst.state.phase + ' n=' + inst.state.restartCount);
+      check('7A 处置后按统一策略正常重启：STARTING + restartCount=1，且不计启动失败（活过窗口后退出）',
+        inst.state.phase === 'STARTING' && inst.state.restartCount === 1 && inst.state.startupFailCount === 0,
+        inst.state.phase + ' n=' + inst.state.restartCount + ' sf=' + inst.state.startupFailCount);
       check('7A 违规原因可见（lastFailure 带资源违规）', /资源违规:内存/.test(inst.state.lastFailure || ''), inst.state.lastFailure);
       check('7A 观测行回填（usage.memMb 与 allocation 均已写入，非陈旧空值）',
         !!(inst.state.usage && inst.state.usage.memMb > 0) && !!(inst.state.allocation && inst.state.allocation.memoryMax),
@@ -259,8 +322,8 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
         resstats: { sampleAsync: () => Promise.resolve({ rssBytes: rss, cpuMs: 8000 }) },
         machineFacts: () => ({ totalMemBytes: GiB(16), cpuCount: 8 }),
       });
-      const a = govInst('gb1', pA, { phase: 'RUNNING', restartCount: 0, backoffLevel: 0, startAt: 1000, allocation: null });
-      const b = govInst('gb2', pB, { phase: 'RUNNING', restartCount: 0, backoffLevel: 0, startAt: 2000, allocation: null });
+      const a = govInst('gb1', pA, { phase: 'RUNNING', restartCount: 0, startupFailWindowStart: null, startupFailCount: 0, restartAt: null, startAt: 1000, allocation: null });
+      const b = govInst('gb2', pB, { phase: 'RUNNING', restartCount: 0, startupFailWindowStart: null, startupFailCount: 0, restartAt: null, startAt: 2000, allocation: null });
       mgr.instances = [a, b];
       mgr.supervise('gb1'); mgr.supervise('gb2'); mgr.governSweep(); await sleep(30);
       mgr.supervise('gb1'); mgr.supervise('gb2'); mgr.governSweep(); await sleep(30);
@@ -358,8 +421,8 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
         resstats: { sampleAsync: () => Promise.resolve({ rssBytes: rss, cpuMs: 5000 }) },
         machineFacts: () => ({ totalMemBytes: GiB(16), cpuCount: 8 }),
       });
-      const x = govInst('gf1', p1, { phase: 'RUNNING', restartCount: 0, backoffLevel: 0, startAt: 1000, allocation: null });
-      const y = govInst('gf2', p2, { phase: 'RUNNING', restartCount: 0, backoffLevel: 0, startAt: 2000, allocation: null });
+      const x = govInst('gf1', p1, { phase: 'RUNNING', restartCount: 0, startupFailWindowStart: null, startupFailCount: 0, restartAt: null, startAt: 1000, allocation: null });
+      const y = govInst('gf2', p2, { phase: 'RUNNING', restartCount: 0, startupFailWindowStart: null, startupFailCount: 0, restartAt: null, startAt: 2000, allocation: null });
       mgr.instances = [x, y];
       for (let k = 0; k < 3; k++) { mgr.supervise('gf1'); mgr.supervise('gf2'); mgr.governSweep(); await sleep(10); }
       check('7F 双实例三拍仍不处置（每拍一次 decide）',
@@ -368,9 +431,10 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       mgr.supervise('gf1'); mgr.supervise('gf2'); mgr.governSweep(); await sleep(10);
       const evs = journal.filter((j) => j.kind === 'event' && j.name === 'inst_resource_violation');
       const stops = journal.filter((j) => j.kind === 'stopUnit');
-      check('7F 第 4 拍单扫描同时处置两违规（事件+停单元各 2、双 BACKOFF）',
-        evs.length === 2 && stops.length === 2 && x.state.phase === 'BACKOFF' && y.state.phase === 'BACKOFF'
-        && x.state.restartCount === 1 && y.state.restartCount === 1,
+      check('7F 第 4 拍单扫描同时处置两违规（事件+停单元各 2、双 STARTING 正常重启、均不计启动失败）',
+        evs.length === 2 && stops.length === 2 && x.state.phase === 'STARTING' && y.state.phase === 'STARTING'
+        && x.state.restartCount === 1 && y.state.restartCount === 1
+        && x.state.startupFailCount === 0 && y.state.startupFailCount === 0,
         'ev=' + evs.length + ' stop=' + stops.length + ' ' + x.state.phase + '/' + y.state.phase);
       srv1.close(); srv2b.close();
     }
@@ -430,6 +494,21 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
         JSON.stringify(Object.keys(r)));
       check('normalizeInstance 迁移幂等（二次 normalize 不改结果 = 落盘后无历史态可推）',
         normalizeInstance(r).remoteMode === 'wan', JSON.stringify(normalizeInstance(r)));
+
+      // U-5 老状态迁移归一：旧 'BACKOFF'（等级退避）⇒ 'FAILED'（停靠、等人工重试），退避字段整族删除。
+      const legacy = normalizeInstance(mig({ state: { phase: 'BACKOFF', backoffLevel: 5, backoffUntil: 12345, restartCount: 7 } }));
+      check('normalizeInstance 老状态：BACKOFF/backoffLevel/backoffUntil → FAILED 且字段面切到新语义',
+        legacy.state.phase === 'FAILED' && !('backoffLevel' in legacy.state) && !('backoffUntil' in legacy.state)
+        && legacy.state.startupFailCount === 0 && legacy.state.startupFailWindowStart === null && legacy.state.restartAt === null,
+        JSON.stringify(legacy.state));
+      const malformed = normalizeInstance(mig({ state: { phase: 'BACKOFF', startupFailCount: -3, startupFailWindowStart: 'x', restartAt: 'soon', restartCount: '9' } }));
+      check('normalizeInstance 老状态非法值不读崩：一律回落缺省，phase 仍归一为 FAILED',
+        malformed.state.phase === 'FAILED' && malformed.state.startupFailCount === 0
+        && malformed.state.startupFailWindowStart === null && malformed.state.restartAt === null && malformed.state.restartCount === 0,
+        JSON.stringify(malformed.state));
+      const stillFailed = normalizeInstance(mig({ state: { phase: 'FAILED', lastError: '启动反复失败 5 次' } }));
+      check('normalizeInstance 不再把 FAILED 降级为 STOPPED（停靠必须活过守卫重启，判据与主链一致）',
+        stillFailed.state.phase === 'FAILED' && stillFailed.state.lastError === '启动反复失败 5 次', JSON.stringify(stillFailed.state));
     }
   }
 })().catch((e) => { check('supervise 块无异常', false, e && e.message); }).then(() => {

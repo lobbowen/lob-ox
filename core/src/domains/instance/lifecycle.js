@@ -10,7 +10,9 @@ const execPath = require('../../platform/os/exec-path');
 function createLifecycle(deps) {
   const { store, service, logger, events, tokens, tasks, systemdDir, systemdTemplatePath, hooks, instancesRoot, resstats, machineFacts } = deps;
   const isSandboxSupported = deps.isSandboxSupported;
-  const stateDeps = () => ({ events, logger, save: () => store.save(), tokens });
+  // throttle：实例域的启动失败限流参数（按域参数化 { windowMs, burst }）；
+  // 记账原语与主链同为 shared/guardian.bumpStartupFailure，这里只传参数、不复制判定。
+  const stateDeps = () => ({ events, logger, save: () => store.save(), tokens, throttle: deps.throttle });
   const runtime = new Map();
   const machineFactsNow = () => (typeof machineFacts === 'function' ? machineFacts() : governor.machineFacts());
   function _prepareSystemd() {
@@ -89,12 +91,17 @@ function createLifecycle(deps) {
       }
       inst.state.phase = 'STARTING';
       inst.state.startAt = Date.now();
+      inst.state.restartAt = null;
       inst.state.lastError = null;
-      if (opts && opts.manual) {
-        inst.state.restartCount = 0;
-        inst.state.backoffLevel = 0;
-        inst.state.backoffUntil = null;
+      // 显式启动（面板 manual / 版本升级 fromUpgrade）= 新的一条失败链：旧计数作废（同主链 _retryStartupFailure）。
+      // 自动重试走不带 opts 的内部调用，绝不清零，否则限流永远到不了 N 次。
+      if (opts && (opts.manual || opts.fromUpgrade)) {
+        const hadOldChain = stateMachine.clearStartupFailures(inst);
+        if (opts.manual) inst.state.restartCount = 0;
         inst.state.lastFailAt = null;
+        if (hadOldChain && events) {
+          events.append('inst_startup_retry', { id: inst.id, name: inst.name, manual: !!opts.manual, fromUpgrade: !!opts.fromUpgrade });
+        }
       }
       store.save();
       if (inst.port && hooks.onInstanceStart) hooks.onInstanceStart(inst);
@@ -148,6 +155,8 @@ function createLifecycle(deps) {
       return { ok: false, error: msg };
     }
     inst.state.phase = 'STOPPED';
+    // 显式停止是人的意图：启动失败链作废，下次 start 是干净的一条链（同主链 stopProcess）。
+    stateMachine.clearStartupFailures(inst);
     inst.state.usage = null;
     runtime.delete(inst.id);
     store.save();
@@ -245,7 +254,7 @@ function createLifecycle(deps) {
       } catch (e) {
         logger.warn && logger.warn('[' + target.id + '] 违规停单元异常: ' + (e && e.message));
       }
-      stateMachine.restart(stateDeps(), target, reason);
+      stateMachine.restart(stateDeps(), target, reason, { startupFailure: false });
     }
     store.save();
     return { ok: true, entries: plan.entries.length };
@@ -264,7 +273,7 @@ function createLifecycle(deps) {
           if (st.running) { stateMachine.setRunning(stateDeps(), inst, st, now); break; }
           if (state.installOk === true) {
             const r = _systemdStart(inst);
-            if (!r.ok) stateMachine.restart(stateDeps(), inst, '启动失败:' + r.error);
+            if (!r.ok) stateMachine.restart(stateDeps(), inst, '启动失败:' + r.error, { startupFailure: true });
             break;
           }
           if (state.installOk === false) { stateMachine.fail(stateDeps(), inst, state.installError || '安装失败'); break; }
@@ -284,15 +293,39 @@ function createLifecycle(deps) {
           break;
         }
         case 'STARTING': {
-          if (st.running) stateMachine.setRunning(stateDeps(), inst, st, now);
-          else if (state.startAt && now - state.startAt > 30000) stateMachine.restart(stateDeps(), inst, '启动超时: DSH 未监听端口');
+          // STARTING = 启动窗口内（还没监听端口）。窗口内没起来 ⇒ 记一次启动失败；活过窗口 ⇒ RUNNING。
+          if (st.running) { stateMachine.setRunning(stateDeps(), inst, st, now); break; }
+          if (typeof state.restartAt === 'number') {
+            if (now >= state.restartAt) {
+              // 固定端口释放等待到期：立刻再拉起（无阶梯、无等级、无排队）。
+              // 仍走 start()：governor 准入与「缺 DSH 则安装」前置不因重试而旁路（被拒同样记一次启动失败）。
+              state.restartAt = null;
+              Promise.resolve(start(inst.id)).then((r) => {
+                if (!r || (!r.ok && !r.installing)) {
+                  stateMachine.restart(stateDeps(), inst, '启动失败:' + ((r && r.error) || ''), { startupFailure: true });
+                }
+              }).catch((e) => {
+                stateMachine.restart(stateDeps(), inst, '重试异常:' + ((e && e.message) || ''), { startupFailure: true });
+              });
+            }
+            break; // 还在等端口释放落点
+          }
+          if (!state.startAt) {
+            // 老状态文件/异常路径缺起点（没有 restartAt 也没有 startAt）：不空转，下一拍重新拉起。
+            state.restartAt = now;
+            break;
+          }
+          if (now - state.startAt > stateMachine.STARTUP_WINDOW_MS) {
+            stateMachine.restart(stateDeps(), inst, '启动超时: DSH 未监听端口(' + Math.round(stateMachine.STARTUP_WINDOW_MS / 1000) + 's)', { startupFailure: true });
+          }
           break;
         }
         case 'RUNNING': {
           if (!st.running) {
             runtime.delete(inst.id);
             state.usage = null;
-            if (guarded) stateMachine.restart(stateDeps(), inst, '实例进程退出');
+            // 活过启动窗口后退出 ⇒ 正常重启，不计启动失败、无上限（与主链 exit 记账同款）。
+            if (guarded) stateMachine.restart(stateDeps(), inst, '实例进程退出', { startupFailure: false });
             else stateMachine.setStopped(stateDeps(), inst);
           } else if (inst.domain === 'sandbox') {
             if (tokens) tokens.ensureCaptured(inst.id);
@@ -300,21 +333,9 @@ function createLifecycle(deps) {
           }
           break;
         }
-        case 'BACKOFF': {
-          if (!guarded) { stateMachine.setStopped(stateDeps(), inst); break; }
-          if (state.backoffUntil && now >= state.backoffUntil) {
-            start(inst.id).then((r) => {
-              if (!r || (!r.ok && !r.installing)) stateMachine.restart(stateDeps(), inst, '重试失败:' + ((r && r.error) || ''));
-            }).catch((e) => stateMachine.restart(stateDeps(), inst, '重试异常:' + (e && e.message)));
-          }
-          break;
-        }
         case 'FAILED': {
-          if (!guarded) break;
-          if (state.installOk === true && !st.running && !/重试超限/.test(state.lastError || '')) {
-            const r = _systemdStart(inst);
-            if (!r.ok) stateMachine.restart(stateDeps(), inst, '启动失败:' + r.error);
-          }
+          // 限流停靠（启动反复失败）或安装失败：停止自动重启，零自愈。
+          // 唯一出口是人工重试：面板 start → startInstance(id, { manual: true }) → _systemdStart 清计数回 STARTING。
           break;
         }
         default: break;

@@ -43,9 +43,11 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
 
   {
     const lc = new ManagedLifecycle({ id: 't4', stop: async () => { throw new Error('boom'); } });
-    lc._setPhase('backoff');
+    // 夹具相位由 'backoff' 改为 'draining'：U-5 已把 'backoff' 从 PHASES 删除（等级退避不再存在），
+    // 'draining' 是 stop() 内部真实用到的可恢复相位，断言意图（stop 抛异常 → 相位回滚到原相位）不变。
+    lc._setPhase('draining');
     await lc.stop('user');
-    check('T-b stop 抛异常：phase 恢复为 backoff', lc.phase === 'backoff', lc.phase);
+    check('T-b stop 抛异常：phase 恢复为 stop 前的相位（draining）', lc.phase === 'draining', lc.phase);
   }
 
   {

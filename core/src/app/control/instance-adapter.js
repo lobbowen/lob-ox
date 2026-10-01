@@ -53,7 +53,9 @@ module.exports = {
         return;
       }
       try { d.control().upsert(d.control().sandboxSpec(inst)); } catch (e) { d.logger() && d.logger().warn && d.logger().warn('sandbox upsert: ' + ((e && e.message) || e)); }
-      const map = { STOPPED: 'stopped', INSTALLING: 'installing', STARTING: 'starting', RUNNING: 'running', BACKOFF: 'backoff', FAILED: 'failed' };
+      // 实例域相位（U-5 后只有 STOPPED/INSTALLING/STARTING/RUNNING/FAILED）；老落盘里的 'BACKOFF'（等级退避）
+      // 已删除 ⇒ 归一为 'failed'（停靠、等人工重试），与主链 app/state/phase.js 的 BACKOFF→failed 同向。
+      const map = { STOPPED: 'stopped', INSTALLING: 'installing', STARTING: 'starting', RUNNING: 'running', BACKOFF: 'failed', FAILED: 'failed' };
       const ph = map[(inst.state && inst.state.phase) || 'STOPPED'] || 'stopped';
       try {
         if (entry.phase !== ph) d.managedObjects().setPhase(entry.id, ph);

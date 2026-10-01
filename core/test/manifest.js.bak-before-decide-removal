@@ -34,6 +34,7 @@ const ENTRIES = [
   { file: "test/session-lifecycle-test.js", tier: "L1", os: "all", why: "纯逻辑：会话启停决策" },
   { file: "test/sigterm-desired-test.js", tier: "L2", os: "linux,darwin", why: "pkill + SIGTERM 真进程" },
   { file: "test/managed-lifecycle-failure-test.js", tier: "L1", os: "all", why: "纯逻辑：显式失败语义" },
+  { file: "test/shadow-decision-test.js", tier: "L1", os: "all", why: "纯逻辑：影子决策（无 IO）" },
   { file: "test/uninstall-timeout-behavior-test.js", tier: "L1", os: "all", why: "注入 npmBin 的超时行为面" },
   { file: "test/lan-access-boundary-test.js", tier: "L1", os: "all", why: "纯逻辑：LAN 边界准入矩阵" },
   { file: "test/reconcile-single-flight-test.js", tier: "L1", os: "all", why: "纯逻辑：单飞复用" },

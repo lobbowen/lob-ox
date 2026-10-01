@@ -4,6 +4,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { RouterService } = require('../../../domains/router/index');
 const { InstanceManager } = require('../../../domains/instance/index');
+const { THROTTLE_DEFAULTS } = require('../../../domains/instance/state-machine');
 const { PluginMarket } = require('../../../domains/plugin/market');
 const { PluginManager } = require('../../../domains/plugin');
 const { ManagedRegistry } = require('../../../app/control/registry');
@@ -38,6 +39,8 @@ function composeDomains(host) {
       tasks: host.tasks,
       tokenService: host.tokenService,
       dshBin: host.config.command && host.config.command[1] ? host.config.command[1] : 'dsh',
+      // 实例域限流参数：与主链同一条规则、按域参数化（窗口 600s > 5 × 30s 启动窗口）；单源取自域常量。
+      throttle: THROTTLE_DEFAULTS,
     });
     host.instances.load();
     host._migrateMainRecord();

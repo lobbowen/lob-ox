@@ -102,14 +102,6 @@ async function main() {
     } finally { sup.state.guardian = realGuardian; }
   }
 
-  console.log('== 阴影排除集：只豁免异步钩子（进程退出/升级/占用），令牌类与限流类不豁免 ==');
-  {
-    const sup = buildSupervisor({});
-    check('升级钩子仍被排除（排除机制未空转）', sup._shadowExcluded('upgrade_hold') === true);
-    check('进程退出（异步钩子）仍被排除', sup._shadowExcluded('exit:1') === true);
-    check('普通迁移（如 manual）不被排除', sup._shadowExcluded('manual') === false);
-  }
-
   {
     const { spawn, spawnSync } = require('node:child_process');
     const sup2 = buildSupervisor({ command: ['node', 'adopt-token-reclaim-test.js', 'web'] });

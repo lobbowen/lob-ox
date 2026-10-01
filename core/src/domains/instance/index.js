@@ -25,6 +25,8 @@ class InstanceManager {
     this.systemdTemplatePath = opts.systemdTemplatePath || path.join(this.systemdDir, 'dsh-web@.service');
     this.resstats = opts.resstats || defaultResstats;
     this.machineFacts = opts.machineFacts || null;
+    // 实例域启动失败限流参数（按域参数化；算法本体仍在 shared/guardian.bumpStartupFailure，与主链同源）。
+    this.throttle = opts.throttle || null;
     this.instancesRoot = path.join(this.dir, 'instances');
     this._sandboxSupportedOverride = undefined;
     this._hooks = {};
@@ -35,6 +37,7 @@ class InstanceManager {
       systemdDir: this.systemdDir, systemdTemplatePath: this.systemdTemplatePath,
       instancesRoot: this.instancesRoot, hooks: this._hooks, store: this._store,
       resstats: this.resstats, machineFacts: this.machineFacts,
+      throttle: this.throttle,
       isSandboxSupported: () => this.sandboxSupported,
     };
     ctx.lifecycle = this._lifecycle = createLifecycle(ctx);

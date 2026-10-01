@@ -159,7 +159,7 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
             {lp === "FAILED" ? (
               <div className="flex items-center gap-1.5 text-xs text-destructive">
                 <TriangleAlert className="size-3.5" />
-                <span className="truncate">{it.state?.lastError || "失败"}</span>
+                <span className="truncate">{it.state?.lastError || it.state?.installError || "启动反复失败，已停止自动重启，可手动重试"}</span>
               </div>
             ) : null}
           </div>

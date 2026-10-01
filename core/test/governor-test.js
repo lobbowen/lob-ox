@@ -16,9 +16,10 @@ console.log('== G1 activeCount 拓扑计数 ==');
 {
   const mk = (id, domain, phase) => ({ id, domain, state: { phase } });
   check('G1 空列表/缺省 instances → 1（新起实例自身占一格），自身已 RUNNING 不重复计', activeCount([], 'a') === 1 && activeCount(undefined, 'a') === 1 && activeCount([mk('a', 'sandbox', 'RUNNING')], 'a') === 1, '');
-  check('G1 活跃相位（RUNNING/STARTING）他实例计占用、自实例不重复计；非活跃相位（BACKOFF/FAILED/STOPPED）不计',
+  check('G1 活跃相位（RUNNING/STARTING）他实例计占用、自实例不重复计；非活跃相位（FAILED/STOPPED，以及已删除的 BACKOFF 这类未知相位）不计',
     activeCount([mk('b', 'sandbox', 'RUNNING'), mk('a', 'sandbox', 'STOPPED')], 'a') === 2 && activeCount([mk('b', 'sandbox', 'STARTING')], 'a') === 2
-    && activeCount([mk('b', 'sandbox', 'BACKOFF'), mk('c', 'sandbox', 'FAILED')], 'a') === 1, '');
+    && activeCount([mk('b', 'sandbox', 'FAILED'), mk('c', 'sandbox', 'FAILED')], 'a') === 1
+    && activeCount([mk('b', 'sandbox', 'BACKOFF')], 'a') === 1, '');
   check('G1 native 域不计（限额只发给沙箱单元）；state 缺失的脏记录不计且不抛',
     activeCount([mk('n', 'native', 'RUNNING'), mk('b', 'sandbox', 'RUNNING')], 'a') === 2 && activeCount([{ id: 'x', domain: 'sandbox' }], 'a') === 1, '');
 }

@@ -23,8 +23,6 @@ function depsOf(host) {
       control() { return host.control; },
       readTicking() { return host._ticking; }, writeTicking(v) { host._ticking = v; },
       stopping() { return host._stopping; },
-      writeActWindow(v) { host._actWindow = v; },
-      writeMainTickActs(v) { host._mainTickActs = v; },
       readLastMainPortRederive() { return host._lastMainPortRederive; },
       writeLastMainPortRederive(v) { host._lastMainPortRederive = v; },
       writeLastPortUp(v) { host._lastPortUp = v; },
@@ -58,15 +56,11 @@ module.exports = {
     if (d.readTicking() || d.stopping()) return;
     if (d.exitIntended()) return;
     d.writeTicking(true);
-    d.writeActWindow(true);
-    d.writeMainTickActs([]);
-    let t0 = null;
     try {
       // 端口视角只用于「谁在监听这个端口」：孤儿接管与占用告警。存活判据不在这里。
       const targetView = await monitor.probe(d.config().targetHost, d.config().targetPort);
       const portUp = targetView.up;
       d.writeLastPortUp(portUp);
-      t0 = d.main().stateSnapshot();
       const host = d.config().targetHost;
       const port = d.config().targetPort;
       const childAlive = d.mChild() !== null && d.mChild().exitCode === null && d.mChild().signalCode === null;
@@ -207,9 +201,7 @@ module.exports = {
       d.logger().error('tick error: ' + ((e && e.stack) || e));
     } finally {
       d.writeTicking(false);
-      d.writeActWindow(false);
       if (d.sessionState() === 'starting') d.session().setState('running');
-      try { d.main().shadowTickNote(t0); } catch (e) { d.logger().warn && d.logger().warn('shadow note: ' + (e && e.message)); }
       try { d.control().syncDshView(); } catch (e) { d.logger().warn && d.logger().warn('sync: ' + (e && e.message)); }
     }
   }

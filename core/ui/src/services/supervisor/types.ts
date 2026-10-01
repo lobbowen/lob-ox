@@ -1,7 +1,7 @@
 
 export type DshPhase =
   | "RUNNING" | "STOPPED" | "STARTING" | "RESTARTING"
-  | "BACKOFF" | "OBSERVED" | string;
+  | "OBSERVED" | string;
 
 export type NativeInstallState =
   | "uninstalled" | "installing" | "installed" | "uninstalling" | string;
@@ -54,8 +54,6 @@ export interface SupervisorStatus {
   lastProbeAt?: string | null;
   lastProbeOk?: boolean;
   restartCount?: number;
-  backoffLevel?: number;
-  backoffUntil?: string | null;
   lastFailure?: string | null;
   upgradeHold?: boolean;
   /** 退出管家持久标记：退出后守卫重启不得凭看护把壳拉回。 */
@@ -106,7 +104,7 @@ export interface InstanceState {
   running: boolean;
   isDsh?: boolean;
   phase?: string;
-  lifecyclePhase?: "STARTING" | "RUNNING" | "INSTALLING" | "BACKOFF" | "FAILED" | "STOPPED" | string;
+  lifecyclePhase?: "STARTING" | "RUNNING" | "INSTALLING" | "FAILED" | "STOPPED" | string;
   lastError?: string | null;
   restartCount?: number;
   lastFailure?: string | null;

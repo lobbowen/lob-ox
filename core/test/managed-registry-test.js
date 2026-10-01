@@ -34,6 +34,8 @@ const fakePorts = {
   check('kind 能力', MANAGED_KINDS.dsh.guardable === true && MANAGED_KINDS.plugin.startable === false);
   check('PHASES 含核心相位且无重复',
     ['stopped', 'starting', 'running', 'failed'].every((x) => PHASES.indexOf(x) >= 0) && new Set(PHASES).size === PHASES.length, JSON.stringify(PHASES));
+  check('PHASES 不再含 backoff（U-5 统一重启策略：等级退避已删除，窗口内 N 次失败即 failed）',
+    PHASES.indexOf('backoff') < 0, JSON.stringify(PHASES));
 
   let threw = 0;
   try { reg.register({ kind: 'nope', id: 'x' }); } catch { threw++; }
@@ -61,6 +63,22 @@ const fakePorts = {
     JSON.stringify({ c: reg2.count(), desired: reg2.get('main').desired, phase: reg2.get('main').phase }));
   check('文件带 schema 标记（跨版本读同一文件的格式契约）',
     fs2.readFileSync(file, 'utf8').indexOf('managed-objects@1') >= 0);
+
+  // U-5 老状态迁移：目录文件里残留的 'backoff'（已删除相位）读取时归一到 'failed'，不许读崩、不许回落 stopped。
+  {
+    const legacyFile = path.join(TMP, 'legacy-objects.json');
+    fs2.writeFileSync(legacyFile, JSON.stringify({
+      schema: 'managed-objects@1',
+      objects: [
+        { kind: 'sandbox-instance', id: 'legacy1', name: '老实例', desired: 'running', phase: 'backoff', ownership: { ports: [], rootPath: null, unit: 'dsh-web@legacy1', processMode: 'systemd' } },
+        { kind: 'sandbox-instance', id: 'legacy2', name: '老实例2', desired: 'running', phase: 'failed', ownership: { ports: [], rootPath: null, unit: 'dsh-web@legacy2', processMode: 'systemd' } },
+      ],
+    }));
+    const regLegacy = new ManagedRegistry({ file: legacyFile, logger: null, events: null, ports: fakePorts });
+    check('老状态归一：落盘 phase=backoff ⇒ 读为 failed（不是 stopped，也不是被丢弃）',
+      regLegacy.get('legacy1').phase === 'failed' && regLegacy.get('legacy2').phase === 'failed',
+      JSON.stringify({ l1: regLegacy.get('legacy1').phase, l2: regLegacy.get('legacy2').phase }));
+  }
 
   const before = released.length;
   reg2.unregister('main');

@@ -28,6 +28,7 @@ const BASE_DEFAULTS = {
   // 启动窗口（秒）：spawn 后 startsecs 内退出 ⇒ 记一次「启动失败」；活过 startsecs 后退出 ⇒ 正常重启，不计失败。
   startsecs: 10,
   // 唯一一条限流：startupFailWindowMs 内「启动失败」达 startupFailBurst 次 ⇒ phase=FAILED，停止自动重启，等人工重试。
+  // 不变量：startupFailWindowMs > startupFailBurst × startsecs×1000（60s > 5×10s）；同一规则按域参数化，实例域见 domains/instance/state-machine.js。
   startupFailWindowMs: 60000,
   startupFailBurst: 5,
   stopGraceMs: 10000,

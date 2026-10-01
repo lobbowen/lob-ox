@@ -182,13 +182,14 @@ function fakeRegistry() {
     const ent = (id) => (d8.get(id) || { __absent: true });   // 未登记 -> 判红，不抛
     const sb = (over) => Object.assign({ id: 'd8', name: '沙箱', port: 3901, guardian: false }, over);
     control.upsert(control.sandboxSpec(sb({ state: { phase: 'RUNNING', desired: 'running' } })));
-    control.upsert(control.sandboxSpec(sb({ name: '改名', state: { phase: 'BACKOFF', desired: 'stopped' } })));
-    check('D-8 行为：残留意图翻成 stopped + BACKOFF 观测，裸 upsert 仍不写 desired，name 照常刷新',
+    // 夹具相位 'BACKOFF' → 'FAILED'：U-5 已删除实例域 BACKOFF（等级退避），停靠相位就是 FAILED。
+    control.upsert(control.sandboxSpec(sb({ name: '改名', state: { phase: 'FAILED', desired: 'stopped' } })));
+    check('D-8 行为：残留意图翻成 stopped + 实测相位由同步路径给出，裸 upsert 仍不写 desired，name 照常刷新',
       ent('d8').desired === undefined && ent('d8').name === '改名',
       'desired=' + ent('d8').desired + ' name=' + ent('d8').name);
 
     const d8boot = fakeRegistry();
-    const bootInst = { id: 'boot1', name: '沙箱', port: 3903, guardian: false, state: { phase: 'BACKOFF', desired: 'running' } };
+    const bootInst = { id: 'boot1', name: '沙箱', port: 3903, guardian: false, state: { phase: 'FAILED', desired: 'running' } };
     const ctlBoot = createControlPlane({
       getLifecycleManager: () => ({ get: () => null }),
       getState: () => ctlState,

@@ -26,7 +26,7 @@ const THIN_SPEC = {
   },
   main: {
     converge: '_dshConverge',
-    decideAction: '_decideMainAction', stateSnapshot: '_mainStateSnapshot',
+    stateSnapshot: '_mainStateSnapshot',
     noteStartupFailure: '_noteStartupFailure', retryStartupFailure: '_retryStartupFailure',
     startWindowMs: 'startWindowMs',
     adopt: '_adopt', adoptObserved: '_adoptObserved',
@@ -34,7 +34,6 @@ const THIN_SPEC = {
     findManagedPort: '_findManagedDshPort',
     startProcess: '_startProcess', stopProcess: 'stopProcess',
     isManagedProcess: '_isManagedProcess', killAdopted: '_killAdopted', killSequence: '_killSequence',
-    actNote: '_actNote', shadowHeartbeat: '_shadowHeartbeatBeat', shadowTickNote: '_shadowTickNote',
   },
   views: {
     dshMain: 'dshMainView',

@@ -26,7 +26,6 @@ export const SUP_PHASE_META: Record<string, { label: string; tone: Tone }> = {
   STOPPED: { label: "已停止", tone: "off" },
   STARTING: { label: "启动中", tone: "boot" },
   RESTARTING: { label: "重启中", tone: "warn" },
-  BACKOFF: { label: "退避中", tone: "err" },
   OBSERVED: { label: "运行中（未守护）", tone: "ok" },
 };
 
@@ -34,7 +33,6 @@ export function instancePhaseMeta(lp?: string, running?: boolean): { label: stri
   if (running) return { label: "运行中", tone: "ok" };
   if (lp === "INSTALLING") return { label: "安装中…", tone: "warn" };
   if (lp === "STARTING") return { label: "启动中…", tone: "boot" };
-  if (lp === "BACKOFF") return { label: "重试中…", tone: "warn" };
   if (lp === "FAILED") return { label: "失败", tone: "err" };
   return { label: "已停止", tone: "off" };
 }

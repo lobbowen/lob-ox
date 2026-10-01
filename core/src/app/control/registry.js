@@ -5,7 +5,10 @@ const path = require('node:path');
 const { writeAtomic } = require('../../platform/util/fs');
 const { DESIRED, MANAGED_KINDS, kindMeta, registerKind: registerManagedKind, createEntry, normalizeOwnership } = require('./managed-object');
 
-const PHASES = ['stopped', 'installing', 'starting', 'running', 'draining', 'backoff', 'failed', 'restarting'];
+// 目录相位集合：'backoff' 已随 U-5 统一重启策略删除（全域只有一条：窗口内 N 次失败 ⇒ failed，无阶梯、无等待）。
+const PHASES = ['stopped', 'installing', 'starting', 'running', 'draining', 'failed'];
+// 老状态文件里可能残留已删除的登记相位 ⇒ 读取时归一到新集合（同 app/state/phase.js 的做法），不许读崩。
+const LEGACY_PHASES = { backoff: 'failed' };
 
 const { runHeartbeat } = require('./heartbeat');
 
@@ -51,7 +54,7 @@ class ManagedRegistry {
       try {
         if (!o || !kindMeta(o.kind)) continue;
         const e = createEntry({ kind: o.kind, id: o.id, name: o.name, desired: o.desired, ownership: o.ownership });
-        if (PHASES.includes(o.phase)) e.phase = o.phase;
+        if (PHASES.includes(LEGACY_PHASES[o.phase] || o.phase)) e.phase = LEGACY_PHASES[o.phase] || o.phase;
         if (Number.isInteger(o.restartCount) && o.restartCount >= 0) e.restartCount = o.restartCount;
         if (o.startupFailWindowStart === null || typeof o.startupFailWindowStart === 'number') e.startupFailWindowStart = o.startupFailWindowStart;
         if (Number.isInteger(o.startupFailCount) && o.startupFailCount >= 0) e.startupFailCount = o.startupFailCount;
