@@ -4,33 +4,33 @@
 // 安全段必须同时避开三平台动态端口范围（Linux 32768-60999 / macOS、Windows 49152-65535）与生产池（20000-25999 / 40000-43199）⇒ 上界只能到 32767，取中段 28000-29999。
 
 const BASE = 28000;
+// 登记带**绝对上界**（设计约束，硬写整数、不引用 BASE、不由 SEGMENTS 推导）。
+// ⚠️ 这一点是判据有效性的关键：若上界由 BASE 或 SEGMENTS 推导，则 BASE 一改判据跟着改
+//    ⇒ 判据自证其说、永远不红（已实测两次：先由 SEGMENTS 推导、再由 BASE 推导，突变都不红）。
+const BAND_HI = 28300;
 
 const SEGMENTS = {
   'adopt-token-reclaim': 0,
   'api-contract': 1,
   'api-fuzz': 2,
-  'cross-platform': 3,
   'daemon-lifecycle': 4,
-  'ensure-instance': 5,
   'freeze-recovery': 6,
   'frp-resilience': 7,
-  'guard-update': 8,
   'instance-upgrade': 9,
   'lan-daemon': 10,
-  'p2p-router': 11,
   'ports-capacity': 12,
   'ports-claim': 13,
   'ports-migrate': 14,
   'ports-verify': 15,
   'precheck': 16,
   'router-e2e': 17,
+  'router-test': 27,
   'session-lifecycle': 18,
   'sigterm-desired': 19,
   'smoke': 20,
   'token-boundary': 21,
   'upgrade': 22,
   'shell-watchdog-e2e': 23,
-  'defects-batch-f': 24,
   'instance-state': 25,
   'platform-layer-portability': 26,
 };
@@ -66,7 +66,16 @@ const EPHEMERAL_UNION = [
 ];
 const PROD_POOLS = [[20000, 23999], [24000, 25999], [40000, 43199], [41000, 41999], [42000, 42999]];
 
+// 登记带上界：BASE + 段数 × 10（每段 10 个端口）。登记端口必须落在 [BASE, 上界) 内 ——
+// 这是 _ports.js 自己的设计约束；超出即「未经本表登记的裸端口」，与撞动态段同险。
+// ⚠️ 此前 isSafe 只排除动态段与生产池 ⇒ BASE 溢出（如 29995）时全部判安全，判据形同虚设（已实测）。
+function registrationBand() { return [BASE, BAND_HI]; }
+
 function isSafe(p) {
+  const n = Number(p);
+  if (!Number.isInteger(n)) return false;
+  const [bandLo, bandHi] = registrationBand();
+  if (n < bandLo || n >= bandHi) return false;
   const ranges = EPHEMERAL_UNION.slice();
   try {
     const [lo, hi] = require('node:fs')
@@ -81,4 +90,4 @@ function isSafe(p) {
   return true;
 }
 
-module.exports = { BASE, SEGMENTS, safeBase, safePort, freePort, isSafe };
+module.exports = { BASE, BAND_HI, SEGMENTS, safeBase, safePort, freePort, isSafe };

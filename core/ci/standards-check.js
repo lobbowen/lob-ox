@@ -565,6 +565,64 @@ function checkR12() {
   }
 }
 
+
+// ── R13：测试不得硬编「真会占用端口」的端口（唯一入口 = test/_ports.js#safePort）──────
+// 为什么：硬编端口会撞号（撞动态端口段 / 生产池 / 并行测试）⇒ CI **偶发**红灯，
+// 而偶发红灯最容易被当成"环境问题"忽略 ⇒ 假绿的温床。
+// 判据只管**真会 bind 的那一处**：.listen(<数字>) / new PortRegistry 之外的裸端口。
+// ⚠️ 刻意不管 healthUrl/apiPort 里的常量：那些多是不真 listen 的假数据或有语义的产品默认值
+//    （如 3080 = 产品默认端口）⇒ 一并禁止会制造大片误报、逼人把有意义的常量改成无意义变量（已实测）。
+function checkR13() {
+  const files = walkJs(TEST_DIR, [], (p, n) => n === 'fixtures' || n === 'node_modules');
+  let flagged = 0;
+  for (const f of files) {
+    if (/_ports\.js$/.test(f)) continue; // 单源本身
+    const lines = read(f).split('\n');
+    lines.forEach((l, i) => {
+      if (/safePort|safeBase|freePort/.test(l)) return;      // 已走单源
+      const m = /\.listen\(\s*(\d{2,5})\s*[,)]/.exec(l);
+      if (!m) return;
+      const n = Number(m[1]);
+      const inSafeBand = n >= 28000 && n <= 29999;
+      fail('R13', f, i + 1, '测试硬编监听端口 .listen(' + n + ')'
+        + (inSafeBand ? '（在安全段内但未经 _ports.js 登记 ⇒ 段外同名会撞号）'
+                      : '（落在安全段 28000–29999 之外 ⇒ 可能撞动态端口段 / 生产池 / 并行测试）')
+        + '；改法：用 _ports.js 的 safePort(\'<段名>\', i) 并在 SEGMENTS 登记该段');
+      flagged += 1;
+    });
+  }
+  note('R13 测试端口分配：扫描 ' + files.length + ' 个测试文件，硬编监听端口 ' + flagged + ' 处（唯一入口应为 test/_ports.js#safePort）');
+}
+
+
+// ── R14：端口登记必须落在安全段内（test/_ports.js#isSafe 接进门禁）────────────────
+// isSafe 此前零调用（W4 死代码候选）。但它是**规范**：端口必须避开三平台动态端口段与生产池。
+// 正确处置不是删，而是接进门禁真跑 ⇒ 每次 CI 校验所有登记段（含段内偏移 0..9）都在安全段内。
+function checkR14() {
+  const portsPath = path.join(TEST_DIR, '_ports.js');
+  if (!fs.existsSync(portsPath)) { fail('R14', portsPath, 1, '_ports.js 缺失'); return; }
+  let mod = null;
+  try { mod = require(portsPath); } catch (e) { fail('R14', portsPath, 1, '_ports.js 无法加载: ' + ((e && e.message) || e)); return; }
+  if (typeof mod.isSafe !== 'function') { fail('R14', portsPath, 1, 'isSafe 必须是可调用判据（门禁要读它）'); return; }
+  const segs = mod.SEGMENTS || {};
+  let bad = 0;
+  const badSegs = [];
+  for (const [name, idx] of Object.entries(segs)) {
+    const base = mod.BASE + Number(idx) * 10;
+    const outs = [];
+    for (let i = 0; i < 10; i += 1) if (!mod.isSafe(base + i)) outs.push(base + i);
+    if (outs.length) {
+      // 每段只报一条（含首个/末个越界端口）⇒ 不刷屏；段内全越界也能一眼看出。
+      fail('R14', portsPath, 1, '登记段 ' + name + ' 有 ' + outs.length + '/10 个端口不在安全段内'
+        + '（' + outs[0] + (outs.length > 1 ? '…' + outs[outs.length - 1] : '') + '）⇒ 会撞动态端口段或生产池');
+      bad += outs.length;
+      badSegs.push(name);
+    }
+  }
+  note('R14 端口安全段：' + Object.keys(segs).length + ' 个登记段 × 10 个偏移全部落在 ['
+    + mod.BASE + ', ' + mod.BAND_HI + ') 内（越界 ' + bad + ' 个端口' + (badSegs.length ? '：' + badSegs.join(', ') : '') + '）');
+}
+
 function main() {
   console.log('== standards-check：R1..R10 中可机器判定的部分（只读）==');
   checkR2();
@@ -575,6 +633,8 @@ function main() {
   checkR10();
   checkR11();
   checkR12();
+  checkR13();
+  checkR14();
 
   console.log('');
   notes.forEach((n) => console.log('  OK   ' + n));

@@ -32,6 +32,21 @@ if (ONLY.length) {
     process.exit(2);
   }
   picked = picked.filter((e) => want.has(norm(e.file)));
+  // --only 是「CI 等价复现」入口（R2），但它此前**跳过 os 过滤** ⇒ 在本机能选中 CI 上根本不跑的
+  // POSIX-only 测试（如 sigterm-desired-test.js）⇒ 红灯被误读成"代码坏了"，实为平台不适用（已实测）。
+  // 正解：--only 也按宿主过滤，并显式告知被跳过者（不静默丢掉，避免"以为跑了其实没跑"）。
+  if (ONLY.length) {
+    const before = picked.length;
+    picked = picked.filter((e) => MANIFEST.osSet(e).indexOf(process.platform) >= 0);
+    if (picked.length !== before) {
+      const skipped = ONLY.filter((o) => !picked.some((e) => norm(e.file) === norm(o)));
+      console.error('::notice::--only 中 ' + skipped.length + ' 个条目在本宿主（' + process.platform + '）不适用，未执行: ' + skipped.join(', '));
+    }
+    if (!picked.length) {
+      console.error('::error::--only 的所有条目在本宿主（' + process.platform + '）均不适用（见 manifest 的 os 过滤）⇒ 无从复现');
+      process.exit(2);
+    }
+  }
 }
 
 const results = [];

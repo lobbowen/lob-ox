@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
+const { safePort } = require('./_ports');
 
 const ROOT = path.join(__dirname, '..');
 const CLI = path.join(ROOT, 'bin', 'lobox');
@@ -226,17 +227,17 @@ async function main() {
 
   console.log('== S9: 端口被不健康进程占用：不硬抢、只告警（§12 用例7）==');
   const occupier = http.createServer((req, res) => { res.writeHead(500); res.end('no'); });
-  await new Promise((r) => occupier.listen(3961, '127.0.0.1', r));
-  const d9 = startDaemon(makeConfig(3960, 3961));
-  ev = await getEvents(3960);
+  await new Promise((r) => occupier.listen(safePort('smoke', 4), '127.0.0.1', r));
+  const d9 = startDaemon(makeConfig(safePort('smoke', 3), safePort('smoke', 4)));
+  ev = await getEvents(safePort('smoke', 3));
   {
     const deadline = Date.now() + 20000;
     while (Date.now() < deadline && !ev.some((e) => e.type === 'port_occupied_unhealthy')) {
       await sleep(250);
-      ev = await getEvents(3960);
+      ev = await getEvents(safePort('smoke', 3));
     }
   }
-  s = await api(3960, 'GET', '/status');
+  s = await api(safePort('smoke', 3), 'GET', '/status');
   check(
     '端口被占时守卫不 spawn、只记 port_occupied_unhealthy，且保持 STOPPED 等待',
     ev.some((e) => e.type === 'port_occupied_unhealthy') && !ev.some((e) => e.type === 'spawned') && s.phase === 'STOPPED',

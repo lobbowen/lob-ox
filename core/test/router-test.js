@@ -3,6 +3,7 @@
 
 
 const path = require('node:path');
+const { safePort } = require('./_ports');
 const fs = require('node:fs');
 const os = require('node:os');
 const http = require('node:http');
@@ -152,7 +153,7 @@ function req(port, method, reqPath, headers = {}) {
         }
       });
     });
-    await new Promise((r) => kUp.listen(3993, '127.0.0.1', r));
+    await new Promise((r) => kUp.listen(safePort('router-test', 0), '127.0.0.1', r));
 
     const ksvc = new RouterService({
       config: {},
@@ -162,7 +163,7 @@ function req(port, method, reqPath, headers = {}) {
       logger: { info() {}, warn() {}, error() {} },
       events: null,
     });
-    const kpr = ksvc.addDirectProvider({ name: 'T', baseUrl: 'http://127.0.0.1:3993/v1' });
+      const kpr = ksvc.addDirectProvider({ name: 'T', baseUrl: 'http://127.0.0.1:' + safePort('router-test', 0) + '/v1' });
     const kdp = ksvc.getProvider(kpr.id);
     kdp.accounts.push({ key: 'sk_aaaaaaaaaaaa', keyId: 'k1', maskedKey: '...aaaa', status: 'ready', quota: { rolling: { percent: 10, status: 'ok' }, weekly: { percent: 20, status: 'ok' }, monthly: { percent: 30, status: 'ok' } }, cooldownUntil: null, registeredAt: Date.now() });
     kdp.accounts.push({ key: 'sk_bbbbbbbbbbbb', keyId: 'k2', maskedKey: '...bbbb', status: 'ready', quota: { rolling: { percent: 10, status: 'ok' }, weekly: { percent: 20, status: 'ok' }, monthly: { percent: 30, status: 'ok' } }, cooldownUntil: null, registeredAt: Date.now() });

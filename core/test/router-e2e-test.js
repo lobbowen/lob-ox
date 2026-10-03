@@ -6,6 +6,7 @@ const http = require('node:http');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
+const { safePort } = require('./_ports');
 
 const ROOT = path.join(__dirname, '..');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'router-e2e-'));
@@ -36,7 +37,7 @@ function registerLocalUpstreamPreset() {
   PROVIDER_PRESETS.push({
     id: 'test-local-upstream',
     name: 'Local Upstream (测试)',
-    baseUrl: 'http://127.0.0.1:28170/v1',
+    baseUrl: 'http://127.0.0.1:' + safePort('router-e2e', 0) + '/v1',
     plan: null,
     adapter: { quota: { type: 'window-usage', usagePath: '/usage' } },
     pricing: {},
@@ -89,7 +90,7 @@ const up = http.createServer((q, s) => {
 });
 
 (async () => {
-  await new Promise((r) => up.listen(28170, '127.0.0.1', r));
+  await new Promise((r) => up.listen(safePort('router-e2e', 0), '127.0.0.1', r));
   const { RouterService } = require(path.join(ROOT, 'src', 'domains', 'router'));
   const providerFile = path.join(TMP, 'providers.json');
   const svcs = [];
@@ -101,7 +102,7 @@ const up = http.createServer((q, s) => {
   check('A1 预设添加直连', rA.ok === true, JSON.stringify(rA));
   const dp = svc.getProvider(rA.id);
   check('A2 preset 注入 baseUrl/adapter（丢失则直连无法转发）', !!dp.baseUrl && !!dp.adapter, dp.baseUrl);
-  dp.baseUrl = 'http://127.0.0.1:28170/v1';
+  dp.baseUrl = 'http://127.0.0.1:' + safePort('router-e2e', 0) + '/v1';
   const aGood = await dp.addAccount('sk-good-001');
   const aFull = await dp.addAccount('sk-full-001');
   check('A4 满额账号 → 直接 frozen 且带恢复点（满额账号不入池）', aFull.ok === true && aFull.limited === 'window' && aFull.account.status === 'frozen' && !!aFull.account.nextResetAt, JSON.stringify({ limited: aFull.limited, status: aFull.account && aFull.account.status, at: aFull.account && aFull.account.nextResetAt }));
