@@ -266,10 +266,29 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       mgr._ctx.install = async () => ({ ok: false, error: 'stub：绝不真实安装' });
       return { mgr, journal, transient };
     };
-    const listen = (port) => new Promise((resolve, reject) => {
-      const srv = net.createServer((s) => s.destroy());
-      srv.once('error', reject);
-      srv.listen(port, '127.0.0.1', () => resolve(srv));
+    // 夹具必须**真的站成实例进程**：存活判据（H-02）比对的是监听者 cmdline 里的实例启动锚点，
+    // 只起一个裸 socket 不够 —— 端口有监听者但身份不匹配 ⇒ 守卫判实例已退出并重启 ⇒ 治理断言全部空转。
+    // 故起真子进程，并把该实例 launchCtx 的锚点原样写进它的 argv（与 startTransient 下发的是同一份）。
+    const { spawn } = require('node:child_process');
+    const listenLike = (mgr, inst) => new Promise((resolve, reject) => {
+      const anchors = require(path.join(ROOT, 'src', 'domains', 'instance', 'sandbox.js'))
+        .launchCtx(mgr.instancesRoot, mgr.dshBin, inst).anchors;
+      const code = 'require("net").createServer(function(s){s.destroy();}).listen(' + inst.port + ',"127.0.0.1");setInterval(function(){},1000);';
+      const kid = spawn(process.execPath, ['-e', code].concat(anchors), { stdio: 'ignore', windowsHide: true });
+      const close = () => { try { kid.kill('SIGKILL'); } catch (e) { /* 尽力 */ } };
+      const t0 = Date.now();
+      const poll = () => {
+        const sock = net.connect({ host: '127.0.0.1', port: inst.port });
+        sock.setTimeout(500);
+        sock.once('connect', () => { sock.destroy(); resolve({ close }); });
+        const again = () => {
+          if (Date.now() - t0 > 10000) { close(); reject(new Error('夹具子进程未在 10s 内监听 ' + inst.port)); }
+          else setTimeout(poll, 100);
+        };
+        sock.once('timeout', () => { sock.destroy(); again(); });
+        sock.once('error', () => { sock.destroy(); again(); });
+      };
+      setTimeout(poll, 150);
     });
     const govInst = (id, port, state) => ({
       id, name: id.toUpperCase(), domain: 'sandbox', port, guardian: true,
@@ -278,7 +297,6 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
 
     {
       const port = safePort('instance-state', 0);
-      const srv = await listen(port);
       const rss = Math.round(30000 * 1024 * 1024); // 30000MB：burst 顶满（16384M）仍超限
       const { mgr, journal } = mkGovMgr({
         resstats: { sampleAsync: () => Promise.resolve({ rssBytes: rss, cpuMs: 5000 }) },
@@ -286,6 +304,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       });
       const inst = govInst('g1', port);
       mgr.instances = [inst];
+      const srv = await listenLike(mgr, inst);
       for (let k = 0; k < 3; k++) { mgr.supervise('g1'); mgr.governSweep(); await sleep(10); }
       check('7A 迟滞爬升中不处置（内存计数未触顶即不停单元）',
         inst.state.phase === 'RUNNING' && !journal.some((j) => j.kind === 'stopUnit'), inst.state.phase);
@@ -315,8 +334,6 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     {
       const pA = safePort('instance-state', 1);
       const pB = safePort('instance-state', 2);
-      const srvA = await listen(pA);
-      const srvB = await listen(pB);
       const rss = 7000 * 1024 * 1024; // 预留 5734.4M 之上且差额越过 10% 死区（22%），池充裕
       const { mgr } = mkGovMgr({
         resstats: { sampleAsync: () => Promise.resolve({ rssBytes: rss, cpuMs: 8000 }) },
@@ -325,6 +342,8 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       const a = govInst('gb1', pA, { phase: 'RUNNING', restartCount: 0, startupFailWindowStart: null, startupFailCount: 0, restartAt: null, startAt: 1000, allocation: null });
       const b = govInst('gb2', pB, { phase: 'RUNNING', restartCount: 0, startupFailWindowStart: null, startupFailCount: 0, restartAt: null, startAt: 2000, allocation: null });
       mgr.instances = [a, b];
+      const srvA = await listenLike(mgr, a);
+      const srvB = await listenLike(mgr, b);
       mgr.supervise('gb1'); mgr.supervise('gb2'); mgr.governSweep(); await sleep(30);
       mgr.supervise('gb1'); mgr.supervise('gb2'); mgr.governSweep(); await sleep(30);
       check('7B 有需求实例补到真实用量（两实例同值、非占位空值）',
@@ -357,13 +376,13 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     }
     {
       const port = safePort('instance-state', 3);
-      const srv = await listen(port);
       const { mgr, journal } = mkGovMgr({
         resstats: { sampleAsync: () => Promise.resolve(null) },
         machineFacts: () => ({ totalMemBytes: GiB(16), cpuCount: 8 }),
       });
       const inst = govInst('gd1', port);
       mgr.instances = [inst];
+      const srv = await listenLike(mgr, inst);
       for (let k = 0; k < 6; k++) { mgr.supervise('gd1'); mgr.governSweep(); await sleep(5); }
       check('7D 采样恒失败 -> 无证据不处置（六拍仍 RUNNING、零违规事件）',
         inst.state.phase === 'RUNNING' && !journal.some((j) => j.name === 'inst_resource_violation'), inst.state.phase);
@@ -393,13 +412,13 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
         su && JSON.stringify({ t: su.ctx.timeoutMs, a: su.ctx.anchors }));
 
       const port2 = safePort('instance-state', 5);
-      const srv2 = await listen(port2);
       const g2 = mkGovMgr({
         resstats: { sampleAsync: () => Promise.resolve({ rssBytes: 6000 * 1024 * 1024, cpuMs: 1000 }) },
         machineFacts: () => ({ totalMemBytes: GiB(16), cpuCount: 8 }),
       });
       const inst2 = govInst('ge2', port2);
       g2.mgr.instances = [inst2];
+      const srv2 = await listenLike(g2.mgr, inst2);
       g2.mgr.supervise('ge2'); g2.mgr.governSweep(); await sleep(10);
       const sl = g2.journal.find((j) => j.kind === 'setLimits');
       check('7E RUNNING 拍 alloc 变化即下发 setLimits（运行期动态化，不等重启）',
@@ -414,8 +433,6 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     {
       const p1 = safePort('instance-state', 6);
       const p2 = safePort('instance-state', 7);
-      const srv1 = await listen(p1);
-      const srv2b = await listen(p2);
       const rss = Math.round(30000 * 1024 * 1024);
       const { mgr, journal } = mkGovMgr({
         resstats: { sampleAsync: () => Promise.resolve({ rssBytes: rss, cpuMs: 5000 }) },
@@ -424,6 +441,8 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       const x = govInst('gf1', p1, { phase: 'RUNNING', restartCount: 0, startupFailWindowStart: null, startupFailCount: 0, restartAt: null, startAt: 1000, allocation: null });
       const y = govInst('gf2', p2, { phase: 'RUNNING', restartCount: 0, startupFailWindowStart: null, startupFailCount: 0, restartAt: null, startAt: 2000, allocation: null });
       mgr.instances = [x, y];
+      const srv1 = await listenLike(mgr, x);
+      const srv2b = await listenLike(mgr, y);
       for (let k = 0; k < 3; k++) { mgr.supervise('gf1'); mgr.supervise('gf2'); mgr.governSweep(); await sleep(10); }
       check('7F 双实例三拍仍不处置（每拍一次 decide）',
         x.state.phase === 'RUNNING' && y.state.phase === 'RUNNING' && !journal.some((j) => j.kind === 'stopUnit'),

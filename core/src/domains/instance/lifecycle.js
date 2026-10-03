@@ -168,7 +168,11 @@ function createLifecycle(deps) {
     if (events) events.append('inst_stopped', { id: inst.id });
     return { ok: true };
   }
-  function probe(inst) { return monitor.probeInstance(inst); }
+  // 存活判据带实例自己的启动锚点（cmd 入口 + --port）：身份判定吃锚点，不猜产品名（见 monitor.probeInstance）。
+  // 锚点取自 sandbox.launchCtx（与 startTransient/stopUnit 下发的同一份 ⇒ 归属判据与动作同源，不会漂）。
+  function probe(inst) {
+    return monitor.probeInstance(inst, { anchors: sandbox.launchCtx(instancesRoot, deps.dshBin, inst).anchors });
+  }
   function probeInstance(id) {
     const inst = store.instances.find((i) => i.id === id);
     if (!inst) return { pid: null, running: false, isDsh: false, portTaken: false, identityUnknown: false, phase: 'STOPPED' };
