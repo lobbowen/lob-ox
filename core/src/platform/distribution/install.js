@@ -11,6 +11,12 @@ const ref = require('./registry-ref');
 const policies = require('./policies');
 const input = require('../util/input');
 
+// 安全不变量（W2/O-16 收口）：安装期一律禁用生命周期脚本。
+// 此前 `--ignore-scripts` 只出现在「无 commandTemplate」分支 ⇒ 用户配了 commandTemplate 时安全姿态**静默消失**，
+// 同一行为两条路径给出不同安全语义（典型补丁逻辑）。现提升为两条路径共用的强制常量：
+// 模板分支若已显式写了该开关（或用户显式写了 --no-ignore-scripts）则尊重用户，否则补上。
+const IGNORE_SCRIPTS_FLAG = '--ignore-scripts';
+
 const PKG_NAME_RE = input.PKG_NAME_RE;
 const BAD_ARGV_CHAR_RE = input.ARGV_UNSAFE_RE;
 const WIN_DRIVE_ABS_RE = input.WIN_ABS_PATH_RE;
@@ -50,6 +56,8 @@ function runNpmInstall(opts) {
     if (!fromTemplate && launcher.source === 'path' && bin === 'npm' && !execPath.resolveExecutable('npm')) {
       return fail('runNpmInstall: 未找到可执行的 npm（commandTemplate[0]="npm" 解析失败）');
     }
+    // 安全不变量对模板分支同样成立：未显式声明则补上（用户显式写了 --no-ignore-scripts 则尊重用户）。
+    if (!argv.includes(IGNORE_SCRIPTS_FLAG) && !argv.includes('--no-ignore-scripts')) argv.push(IGNORE_SCRIPTS_FLAG);
     for (const a of argv) {
       // win32 盘符绝对路径整体豁免（反斜杠为路径分隔符），其余项零豁免。
       if (BAD_ARGV_CHAR_RE.test(String(a)) && !WIN_DRIVE_ABS_RE.test(String(a))) {
@@ -59,7 +67,7 @@ function runNpmInstall(opts) {
   } else {
     argv = [...launcher.args, action, '-g'];
     if (action === 'install') argv.push('--no-audit', '--no-fund');
-    argv.push('--ignore-scripts');
+    argv.push(IGNORE_SCRIPTS_FLAG);
     if (o.prefix) {
       const pv = input.prefixViolation(o.prefix);
       if (pv) return fail('runNpmInstall: ' + pv);

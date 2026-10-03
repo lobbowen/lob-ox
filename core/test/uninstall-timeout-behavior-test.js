@@ -116,6 +116,47 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     check('D-10 反向：pid 文件已写出（子进程真的启动过）', childPid > 0, 'pid=' + childPid);
   }
 
+
+  {
+    // W2/O-16：安装期禁用生命周期脚本是**安全姿态**，必须在所有安装路径上都成立。
+    // 此前 --ignore-scripts 只写在默认分支 ⇒ 用户配了 commandTemplate 就静默失去该保护（两条路径两套语义）。
+    // 这里钉**行为**：两条路径实跑，各自断言 argv 里确有该标志（源码形态由 R12 管，行为由本测试管）。
+    const runFake = async (opts) => {
+      const { spawnSync } = require('node:child_process');
+      // 直接调 install.js 并让 fake-npm 回吐 argv
+      process.env.FAKE_MODE = 'argv';
+      let out;
+      try {
+        const p = installMod.runNpmInstall(Object.assign({
+          pkg: '@deepseek-ai/dsh', version: '9.9.9',
+          commandTemplate: [process.execPath, path.join(ROOT, 'test', 'fake-npm.js')], timeoutMs: 30000,
+        }, opts || {}));
+        const r = await p;
+        out = (r && r.output ? r.output.join('\n') : '');
+      } finally { delete process.env.FAKE_MODE; }
+      const m = /FAKE-ARGV (\{.*\})/.exec(out);
+      return m ? JSON.parse(m[1]).argv : null;
+    };
+    // 路径A：commandTemplate（模板分支）
+    const argvTpl = await runFake({ commandTemplate: [process.execPath, path.join(ROOT, 'test', 'fake-npm.js')] });
+    // 路径B：无模板（默认分支）⇒ 用 launcher 注入，走 fake-npm 作 npm
+    const argvDefault = await runFake({
+      commandTemplate: null,
+      launcher: { program: process.execPath, args: [path.join(ROOT, 'test', 'fake-npm.js')] },
+    });
+    check('W2-A 模板分支：安装命令含 --ignore-scripts（安全姿态不得因用户配模板而消失）',
+      Array.isArray(argvTpl) && argvTpl.includes('--ignore-scripts'), JSON.stringify(argvTpl));
+    check('W2-B 默认分支：安装命令含 --ignore-scripts（既有行为不变）',
+      Array.isArray(argvDefault) && argvDefault.includes('--ignore-scripts'), JSON.stringify(argvDefault));
+    // 反向：用户显式写了 --no-ignore-scripts ⇒ 尊重用户，不得再补 --ignore-scripts（不覆盖人的明确意图）。
+    const argvExplicit = await runFake({
+      commandTemplate: [process.execPath, path.join(ROOT, 'test', 'fake-npm.js'), '--no-ignore-scripts'],
+    });
+    check('W2-C 反向：用户显式 --no-ignore-scripts 时尊重用户（不补 --ignore-scripts、不覆盖明确意图）',
+      Array.isArray(argvExplicit) && argvExplicit.includes('--no-ignore-scripts')
+      && !argvExplicit.includes('--ignore-scripts'), JSON.stringify(argvExplicit));
+  }
+
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
 
   const failed = results.filter((r) => !r);

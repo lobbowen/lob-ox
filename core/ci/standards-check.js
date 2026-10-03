@@ -545,6 +545,26 @@ function checkR11() {
   }
   note('R11 域契约一致性：' + checked + '/' + DOMAINS.length + ' 个域已逐条对账（exports / classApi / pure / exempt 双向零差）');
 }
+
+// ── R12：安全不变量不得只在一条路径上成立（防「两条路径两套语义」）───────────────
+// 判据：安装期禁用生命周期脚本是安全姿态，必须在**所有安装路径**上都生效。
+// 此前 --ignore-scripts 只写在「无 commandTemplate」分支 ⇒ 用户配了模板就静默失去该保护。
+// 这里不逐路径硬编码，而是判定：install.js 的安全标志必须被**两条分支共同引用**（出现次数 ≥ 2 且至少一处是常量声明）。
+function checkR12() {
+  const f = path.join(CORE, 'src', 'platform', 'distribution', 'install.js');
+  if (!fs.existsSync(f)) { fail('R12', f, 1, 'install.js 缺失：无法判定安装期安全不变量'); return; }
+  const src = read(f);
+  const declConst = /const\s+IGNORE_SCRIPTS_FLAG\s*=\s*'--ignore-scripts'/.test(src);
+  const uses = (src.match(/IGNORE_SCRIPTS_FLAG/g) || []).length;
+  if (!declConst) {
+    fail('R12', f, 1, '安全标志必须声明为共用常量（IGNORE_SCRIPTS_FLAG），不得逐分支写字面量 ⇒ 否则必有一处漏改');
+  } else if (uses < 3) {
+    fail('R12', f, 1, '安全标志需被两条安装路径共同引用（声明 + 模板分支 + 默认分支），实到 ' + uses + ' 处 ⇒ 仍有路径未覆盖');
+  } else {
+    note('R12 安装期安全不变量：--ignore-scripts 由两条路径共用同一常量（' + uses + ' 处引用，含声明）');
+  }
+}
+
 function main() {
   console.log('== standards-check：R1..R10 中可机器判定的部分（只读）==');
   checkR2();
@@ -554,6 +574,7 @@ function main() {
   checkR9();
   checkR10();
   checkR11();
+  checkR12();
 
   console.log('');
   notes.forEach((n) => console.log('  OK   ' + n));
