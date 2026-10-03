@@ -5,7 +5,6 @@ const { normalize } = require('../../platform/service/config');
 const { LanManager } = require('./ops');
 const ports = require('../../platform/service/ports').shared;
 const { createCtlServer } = require('../../platform/ctl/server');
-const hub = require('../../platform/service/log/hub');
 const logcore = require('../../platform/service/log/logcore');
 
 const path = require('node:path');
@@ -31,7 +30,8 @@ function main() {
   const config = loadConfig();
   const swDir = config.stateFile ? path.dirname(path.resolve(config.stateFile)) : stateRoot.supervisorDir();
   const stateFile = path.join(swDir, 'lan-state.json');
-  hub.registerSource("lan-daemon", { key: "lan" });
+  // W5：此处的 hub.registerSource 是空调用 —— 两个 daemon 进程都不构造 EventHub
+  // （logcore.init 未传 enableHub/stateDir）⇒ 注册进 sources 的源永无人读取。
   const core = logcore.init({
     process: 'lan-daemon',
     logFile: config.lanLogFile || path.join(swDir, 'log', 'lan-daemon.log'),

@@ -30,10 +30,6 @@ function hasTool(name, args) {
   _toolCache[name] = ok ? true : { at: Date.now() };
   return ok;
 }
-function dataDir() {
-  return path.join(os.homedir(), '.dsh');
-}
-
 function supervisorDir() {
   return stateRoot.supervisorDir();
 }
@@ -71,7 +67,7 @@ environment.bind({ capabilities });
 
 module.exports = {
   PLATFORM, ARCH, isLinux, isMac, isWindows,
-  dataDir, supervisorDir, capabilities, capabilityProfile, hasTool,
+  supervisorDir, capabilities, capabilityProfile, hasTool,
   processControl: require('./process'),
   pidlookup: require('./pidlookup'),
   execPath,

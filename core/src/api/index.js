@@ -2,6 +2,6 @@
 
 const { createServer } = require('./transport/server');
 
-const { originAllowed, isLoopbackHost, isShellOrigin } = require('./security');
+const { originAllowed, isShellOrigin } = require('./security');
 
-module.exports = { createServer, originAllowed, isLoopbackHost, isShellOrigin };
+module.exports = { createServer, originAllowed, isShellOrigin };

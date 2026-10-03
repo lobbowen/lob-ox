@@ -155,8 +155,6 @@ module.exports = {
   keyFingerprint,
   maskKey,
   normalizeResetTs: quota.normalizeResetTs,
-  fmtClock: quota.fmtClock,
-  monthlyResetAtOf: quota.monthlyResetAtOf,
   isQuotaCreditsLow: quota.isQuotaCreditsLow,
   quotaOverallStatus: quota.quotaOverallStatus,
   classifyUpstreamLimited: quota.classifyUpstreamLimited,

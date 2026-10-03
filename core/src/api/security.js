@@ -6,11 +6,6 @@ const { isPrivateIpv4 } = require('./identity');
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
-function isLoopbackHost(h) {
-  if (!h) return false;
-  return LOOPBACK_HOSTS.has(String(h).toLowerCase());
-}
-
 function isLocalOrLanHost(h) {
   if (!h) return false;
   const s = String(h).toLowerCase();
@@ -75,4 +70,4 @@ function requestHasAccessKey(req, key) {
   return false;
 }
 
-module.exports = { originAllowed, isLocalOrLanHost, isShellOrigin, isLoopbackHost, requestHasAccessKey };
+module.exports = { originAllowed, isLocalOrLanHost, isShellOrigin, requestHasAccessKey };

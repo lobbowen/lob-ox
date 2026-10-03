@@ -143,7 +143,6 @@ class PluginMarket {
 
     if (prev && prev.plugins && prev.plugins.length > 0 && plugins.length < prev.plugins.length * 0.5) {
       const freshSources = new Set(plugins.map((pp) => pp.source));
-      const prevByKey = new Map(prev.plugins.map((pp) => [pp.name, pp]));
       const keepPrev = prev.plugins.filter((pp) => !freshSources.has(pp.source));
       for (const kp of keepPrev) { if (!seen.has(kp.name)) { seen.add(kp.name); plugins.push(kp); } }
       this.logger.warn && this.logger.warn('market index partial build: ' + plugins.length + ' (prev ' + prev.plugins.length + ') — 失败源已沿用旧缓存');

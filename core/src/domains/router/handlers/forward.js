@@ -23,7 +23,9 @@ function createForwarder(deps) {
   const getPricing = d.getPricing || (() => null);
   const readBody = d.readBody || parse.readBody;
   const agents = d.agents || {};
-  const callUpstream = d.forwardOnceImpl || ((...a) => forwardOnce(...a));
+  // W5：此前这里是 `d.forwardOnceImpl ||` 的注入缝，但全仓零处传入 ⇒ 缝永不生效。
+  // 直接调 forwardOnce：死缝会误导读者以为存在可替换的上游实现。
+  const callUpstream = (...a) => forwardOnce(...a);
 
   function endInflight(acc, prov) {
     const inst = parse.instOf(prov, acc);

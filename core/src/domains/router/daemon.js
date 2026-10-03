@@ -6,7 +6,6 @@ const { DistributionManager } = require('../../platform/distribution/index');
 const { TaskRegistry } = require('../../platform/service/tasks');
 const stateRoot = require('../../platform/service/state-root');
 const { guardVersion } = require('../../platform/service/version');
-const hub = require('../../platform/service/log/hub');
 const logcore = require('../../platform/service/log/logcore');
 const { createCtlServer } = require('../../platform/ctl/server');
 
@@ -18,7 +17,8 @@ function main() {
 
   const config = loadConfig();
   const swDir = config.stateFile ? path.dirname(path.resolve(config.stateFile)) : stateRoot.supervisorDir();
-  hub.registerSource("router-daemon", { key: "router" });
+  // W5：此处的 hub.registerSource 是空调用 —— 两个 daemon 进程都不构造 EventHub
+  // （logcore.init 未传 enableHub/stateDir）⇒ 注册进 sources 的源永无人读取。
   const core = logcore.init({
     process: 'router-daemon',
     logFile: config.routerLogFile || path.join(swDir, 'log', 'router-daemon.log'),

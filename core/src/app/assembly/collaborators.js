@@ -26,7 +26,6 @@ const THIN_SPEC = {
   },
   main: {
     converge: '_dshConverge',
-    stateSnapshot: '_mainStateSnapshot',
     noteStartupFailure: '_noteStartupFailure', retryStartupFailure: '_retryStartupFailure',
     startWindowMs: 'startWindowMs',
     adopt: '_adopt', adoptObserved: '_adoptObserved',
@@ -81,27 +80,13 @@ function installState(host) {
   });
   host.state = state;
 
-  host._legacyToEntryPhase = (ph) => state.legacyToEntryPhase(ph);
-  host._entryToLegacyPhase = (ph) => state.entryToLegacyPhase(ph);
   host._mPhase = () => state.phase();
   host._mSetPhase = (u) => { state.setPhase(u); return host; };
-  host._mGuardian = () => state.guardian();
   host.mainGuardian = () => state.mainGuardian();
   host._mDesired = () => state.desired();
   host._mSetDesired = (v) => { state.setDesired(v); return host; };
-  host._dshEntry = () => state.dshEntry();
-  host._persistCrashField = () => state.persistCrashField();
-  host._mStore = () => state.store();
-  host._mField = function (name, v) {
-    return arguments.length >= 2 ? state.field(name, v) : state.field(name);
-  };
-  host._mProcField = function (name, v) {
-    return arguments.length >= 2 ? state.procField(name, v) : state.procField(name);
-  };
-  host._dshMainFile = () => state.mainMetaFile();
   host._registryFileName = () => state.registryFileName();
   host._readDshMain = () => state.readMainMeta();
-  host._readDshMainFile = () => state.readMainMetaFile();
   host.writeState = (force) => state.write(force);
   host.loadState = () => state.loadState();
   host._migrateMainRecord = () => state.migrateMainRecord();
@@ -127,7 +112,6 @@ function installSession(host) {
   host._sessionHalting = () => session.halting();
   host._exitIntended = () => !!(host._stopping || session.halting());
   host._shellExitIntended = () => !!(host._exitIntended() || host._shellHalted);
-  host._shouldRun = () => session.shouldRun();
   Object.defineProperty(host, '_sessionState', {
     get: () => session.state(),
     set: (s) => { session.setState(s); },
@@ -152,7 +136,6 @@ function installControl(host) {
   host._managedSandboxSpec = (inst) => control.sandboxSpec(inst);
   host._upsertManaged = (spec) => control.upsert(spec);
   host._unregisterManaged = (id) => control.unregister(id);
-  host._managedMainSpec = () => control.mainSpec();
   host._syncManagedRegistry = () => control.syncManagedRegistry();
 }
 
