@@ -33,6 +33,7 @@ const R9_EXEMPT = [
   },
 ];
 
+let MANIFEST_REG = null;
 const violations = [];
 const notes = [];
 const exemptShown = [];
@@ -674,10 +675,73 @@ function checkR16() {
   note('R16 假绿防线：扫描 ' + files.length + ' 个测试文件，`!X ||` 恒真断言 ' + flagged + ' 处');
 }
 
+
+// ── R17：登记表的 tier/os 不得与测试真实宿主依赖矛盾 ────────────────────────────
+// 形态：标 L1（只在 ubuntu 跑一遍）却含宿主依赖（process.platform 分支 / 真跑子进程 / 读写真实家目录）
+//   ⇒ 该测试在 win32/darwin **从未执行**，而登记表声称它已覆盖（why 里还写"纯逻辑"）。
+// 这正是审计说的「H-10/H-11 在 win32/darwin 永不执行」的根因，且登记表是单写者文件 ⇒ 必须让机器持续盯住。
+// R17 豁免表（唯一豁免出口；每次运行都列出；命中数为 0 = 过期豁免 ⇒ 判红，防"豁免留着不修"）。
+// 当前条目：brand-single-source-test.js 标 L1 却真跑 bin/lobox 子进程 + 按平台分支 ⇒
+//   H-10/H-11 在 win32/darwin 从未执行。正解是改 manifest 的 tier 为 L2（manifest.js 是 R8 单写者文件，
+//   代理不得代改）⇒ 在单写者改动之前，以此豁免显式登记该事实，改动后本豁免自然过期并被判红。
+const R17_HIT = new Set();
+const R17_EXEMPT = [
+  {
+    file: 'test/brand-single-source-test.js',
+    why: '登记表标 L1 但测试真跑 bin/lobox daemon 子进程且按 platform 分支 ⇒ H-10/H-11 在 win32/darwin 未执行；'
+      + '应由单写者把 manifest 的 tier 改 L2、os 改 all 并修正 why（R8：代理不得改 manifest.js）。'
+      + '改完 tier 后本豁免即失效（届时判红提示移除）。',
+  },
+];
+
+function checkR17() {
+  if (!MANIFEST_REG) return;
+  let flagged = 0;
+  for (const e of MANIFEST_REG.ENTRIES) {
+    const f = path.join(CORE, e.file);
+    if (!fs.existsSync(f)) continue;
+    const src = read(f);
+    // 只抓「被测行为随宿主改变」：平台分支决定期望值 / 真跑子进程。
+    // ⚠️ 排除「仅为跨平台构造夹具文件名」（如 `process.platform === 'win32' ? 'node.exe' : 'node'`）——
+    //    那恰恰使测试在所有平台都能跑，不是宿主依赖（已实测误报：runtime-contract-test.js）。
+    // 判据再收窄到「平台分支决定**期望值**」：即同一断言在不同平台下验的是不同东西，
+    //   或不同平台走不同分支 ⇒ 标 L1（只 ubuntu 跑）时其余平台的分支从未执行。
+    // ⚠️ 只看赋值/期望上下文里的 platform 三元式，不看夹具文件名构造，也不看起了本地假二进制
+    //   （已实测：runtime-contract-test.js 只是跨平台构造 node.exe/npm.cmd 夹具，四平台都跑得起来）。
+    const lines = src.split('\n');
+    let branchCases = 0;
+    for (const l of lines) {
+      if (!/process\.platform/.test(l)) continue;
+      // 夹具形态：三元式只用于拼可执行文件名/后缀 ⇒ 不算
+      if (/\?\s*['\"][^'\"]*(?:\.exe|\.cmd|\.sh)['\"]\s*:\s*['\"][^'\"]*['\"]/.test(l)) continue;
+      if (/path\.join\([^)]*process\.platform/.test(l)) continue;
+      // 注入形态：把宿主平台作为依赖传给被测代码（如 `PLATFORM: process.platform`）⇒ 测试在任何平台都跑，不算依赖。
+      if (/:\s*process\.platform\s*[,}]/.test(l)) continue;
+      branchCases += 1;
+    }
+    if (e.tier === 'L1' && branchCases > 0) {
+      const ex = R17_EXEMPT.find((x) => x.file === e.file);
+      if (ex) {
+        R17_HIT.add(e.file);
+        exemptShown.push('R17 豁免 ' + e.file + ' —— ' + ex.why);
+      } else {
+        fail('R17', f, 1, '登记表标 L1/unix-only，但测试含宿主依赖（platform 分支决定期望值）⇒ 在 win32/darwin 永不执行；'
+          + '应改标 L2 并修正 why（manifest.js 是 R8 单写者文件 ⇒ 需由单写者改）');
+        flagged += 1;
+      }
+    }
+  }
+  for (const x of R17_EXEMPT) {
+    if (!R17_HIT.has(x.file)) fail('R17', path.join(CORE, x.file), 1, 'R17 豁免已过期（不再命中任何 L1+宿主依赖）: ' + x.file + ' ⇒ 该改的已改，请移除豁免');
+  }
+  note('R17 登记表↔宿主依赖一致性：L1 却有宿主依赖 ' + flagged + ' 处（豁免 ' + R17_HIT.size + ' 处，均已在上面列出）');
+}
+
 function main() {
   console.log('== standards-check：R1..R10 中可机器判定的部分（只读）==');
   checkR2();
   const manifest = loadManifest();
+  MANIFEST_REG = manifest || null;
   if (manifest) { checkR5(manifest, path.join(TEST_DIR, 'manifest.js')); checkR6(manifest); }
   checkR3();
   checkR9();
@@ -688,6 +752,7 @@ function main() {
   checkR14();
   checkR15();
   checkR16();
+  checkR17();
 
   console.log('');
   notes.forEach((n) => console.log('  OK   ' + n));
