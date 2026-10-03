@@ -57,6 +57,7 @@ const ENTRIES = [
   { file: "test/platform-parsers-and-commands-test.js", tier: "L2", os: "all", why: "真 node -e 子进程 + 真 FS 探测" },
   { file: "test/platform-layer-portability-test.js", tier: "L2", os: "all", why: "真 listen/spawn 的服务与自启层" },
   { file: "test/win32-gui-autostart-test.js", tier: "L1", os: "all", why: "假 exec 注入：win32 GUI 自启必须真执行 schtasks、失败与缺依赖都不得谎报 ok:true" },
+  { file: "test/sandbox-target-layout-test.js", tier: "L2", os: "all", why: "真 FS 夹具 + 平台注入：win32 沙箱目标不得因布局硬编而静默消失" },
   { file: "test/native-port-invariant-test.js", tier: "L1", os: "all", why: "纯函数：native 端口权威与 healthUrl 不变量（升级等错端口会回滚健康实例）" },
   { file: "test/lan-start-honesty-test.js", tier: "L1", os: "all", why: "注入 fake lan/frp 与事件汇：start/投影/端口更正三处不得谎报成功" },
   { file: "test/four-platform-behavior-matrix-test.js", tier: "L2", os: "all", why: "四平台行为矩阵 + P-6 arch 契约" },

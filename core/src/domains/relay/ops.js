@@ -140,7 +140,6 @@ class LanManager {
   reconcile() {
     if (this._reconcileInFlight) return this._reconcileInFlight;
     this._reconcileInFlight = this._reconcileOnce()
-      .then((v) => ({ ok: true, result: v === undefined ? null : v }))
       .catch((e) => { this.logger.warn && this.logger.warn('[reconcile] ' + ((e && e.message) || e)); return { ok: false, error: (e && e.message) || String(e) }; })
       .finally(() => { this._reconcileInFlight = null; });
     return this._reconcileInFlight;
