@@ -528,6 +528,20 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       const stillFailed = normalizeInstance(mig({ state: { phase: 'FAILED', lastError: '启动反复失败 5 次' } }));
       check('normalizeInstance 不再把 FAILED 降级为 STOPPED（停靠必须活过守卫重启，判据与主链一致）',
         stillFailed.state.phase === 'FAILED' && stillFailed.state.lastError === '启动反复失败 5 次', JSON.stringify(stillFailed.state));
+
+      // W3 单源：任务终态→视图态曾有三份（instance/plugin/router 各一份），合并后**没有任何测试钉它**
+      // （突变 canceled→done 时全部测试仍绿 ⇒ 判据无人看管）。此处直接钉映射，并证三域同一函数对象。
+      const tsShared = require(path.join(ROOT, 'src', 'shared', 'task-state'));
+      const tsInst = require(path.join(ROOT, 'src', 'domains', 'instance', 'model'));
+      const tsPlugin = require(path.join(ROOT, 'src', 'domains', 'plugin', 'model'));
+      check('W3-A 任务终态→视图态：succeeded/skipped → done；failed/canceled → failed；其余 → running',
+        tsShared.taskStateToView('succeeded') === 'done' && tsShared.taskStateToView('skipped') === 'done'
+        && tsShared.taskStateToView('failed') === 'failed' && tsShared.taskStateToView('canceled') === 'failed'
+        && tsShared.taskStateToView('running') === 'running' && tsShared.taskStateToView(undefined) === 'running',
+        JSON.stringify(['succeeded','skipped','failed','canceled','running',undefined].map((v) => tsShared.taskStateToView(v))));
+      check('W3-B 单源：instance/plugin 两域导出的是 shared 的**同一函数对象**（不再各存一份）',
+        tsInst.taskStateToView === tsShared.taskStateToView && tsPlugin.taskStateToJobState === tsShared.taskStateToView,
+        'instance=' + (tsInst.taskStateToView === tsShared.taskStateToView) + ' plugin=' + (tsPlugin.taskStateToJobState === tsShared.taskStateToView));
     }
   }
 })().catch((e) => { check('supervise 块无异常', false, e && e.message); }).then(() => {

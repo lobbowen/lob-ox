@@ -3,6 +3,8 @@
 const { PROXY_APPS } = require('../proxy-apps');
 const { invalidatePkgCache } = require('../providers/pkg-cache');
 const { semverCompare } = require('../../../shared/version');
+// W3：任务终态→视图态取 shared 单源（此前本处内联抄了一份）。
+const { taskStateToView } = require('../../../shared/task-state');
 
 function createAppsRegistryOps(deps) {
   const d = deps || {};
@@ -135,7 +137,7 @@ function createAppsRegistryOps(deps) {
     const t = tasks ? tasks.list('proxy-app').find((x) => x.target.id === appId) : null;
     if (t) {
       return {
-        state: (t.state === 'succeeded' || t.state === 'skipped') ? 'done' : (t.state === 'failed' || t.state === 'canceled') ? 'failed' : 'running',
+        state: taskStateToView(t.state),
         restarted: (t.steps.filter((s) => s.state === 'done')).length,
         errors: t.state === 'failed' ? 1 : 0,
         startedAt: t.startedAt, finishedAt: t.finishedAt,

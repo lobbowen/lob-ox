@@ -360,6 +360,17 @@ const homePatchFile = (profileDir) => path.join(path.dirname(path.dirname(profil
       midSeq.length === 1 && midSeq[0] === 'set:start' && seq.join(',') === 'set:start,set:end,scrub:start', JSON.stringify(seq));
   }
 
+
+  {
+    // W3：plugin 域的任务态映射此前自带一份（taskStateToJobState），现已转调 shared 单源。
+    // 钉住「plugin 域看到的映射 = shared 的映射」：合并后若有人把本域改回私有副本，此条即红。
+    const tsShared = require(path.join(ROOT, 'src', 'shared', 'task-state'));
+    const tsPlugin = require(path.join(ROOT, 'src', 'domains', 'plugin', 'model'));
+    check('W3-C plugin 域任务态映射 = shared 同一函数（canceled→failed，不是 done）',
+      tsPlugin.taskStateToJobState === tsShared.taskStateToView && tsPlugin.taskStateToJobState('canceled') === 'failed',
+      'canceled=' + tsPlugin.taskStateToJobState('canceled'));
+  }
+
   const failed = results.filter((r) => !r);
   console.log(String.fromCharCode(10) + '结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');
   process.exit(failed.length ? 1 : 0);

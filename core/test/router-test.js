@@ -194,6 +194,49 @@ function req(port, method, reqPath, headers = {}) {
     await new Promise((r) => kUp.close(r));
   }
 
+
+  {
+    // W3：router 域（ops/apps-registry.js）此前内联抄了一份三元式，现已取 shared 单源。
+    // 该域没有别的测试钉这条映射 ⇒ 在此钉住，并证源码里内联副本已零残留。
+    const tsShared = require(path.join(ROOT, 'src', 'shared', 'task-state'));
+    const src = fs.readFileSync(path.join(ROOT, 'src', 'domains', 'router', 'ops', 'apps-registry.js'), 'utf8');
+    const inlineLeft = (src.match(/t\.state === 'succeeded'/g) || []).length;
+    check('W3-D router 域不再内联任务态三元式（零残留）且映射取 shared 单源',
+      inlineLeft === 0 && /shared\/task-state/.test(src) && tsShared.taskStateToView('canceled') === 'failed',
+      'inline=' + inlineLeft + ' requires=' + /shared\/task-state/.test(src));
+  }
+
+
+  {
+    // W3：账号拆除曾有四份（process-pool 的 onDiscardAccount 钩子 + admin.js 两处手写），
+    // 手写版绕过钩子 ⇒ 已实际分叉（漏摘 instances、漏 account_discarded 事件）。
+    // 合并后没有任何测试走过这条路径（突变 teardown 成空操作 ⇒ 全部测试仍绿）⇒ 在此钉住。
+    const { createAdminOps } = require(path.join(ROOT, 'src', 'domains', 'router', 'ops', 'admin'));
+    const hookCalls = [];
+    const mkP = (withHook) => ({
+      _hooks: withHook ? { onDiscardAccount: (acc) => hookCalls.push(acc.keyId) } : {},
+      accounts: [{ keyId: 'k1', maskedKey: '***k1', instance: { port: 3999 } }],
+      instances: [{ keyId: 'k1', port: 3999 }],
+      supports: () => true,
+      stopInstance() {}, _persist() {},
+    });
+    const ops = createAdminOps({ findProvider: () => mkP(true), save: () => {}, maskKey: (k) => k });
+    // 走 removeProxyKey：必须经钩子拆实例（而不是自己手写一遍 stop/unregister）
+    const p1 = mkP(true);
+    const ops1 = createAdminOps({ findProvider: () => p1, save: () => {}, maskKey: (k) => k });
+    const r1 = ops1.removeProxyKey('any', 'k1');
+    check('W3-E 账号拆除统一经 onDiscardAccount 钩子（不再手写一份 stop/unregister）',
+      r1.ok === true && hookCalls.length === 1 && hookCalls[0] === 'k1' && p1.accounts.length === 0,
+      'hook=' + JSON.stringify(hookCalls) + ' accounts=' + p1.accounts.length);
+    // 无钩子（直连供应商）：不得抛错，且仍把账号摘掉、实例表清干净（不因缺钩子而漏收尾）
+    const p2 = mkP(false);
+    const ops2 = createAdminOps({ findProvider: () => p2, save: () => {}, maskKey: (k) => k });
+    const r2 = ops2.removeProxyKey('any', 'k1');
+    check('W3-F 无钩子（直连供应商）拆除不抛错：账号摘除且实例表清干净（不对直连误触 stopInstance）',
+      r2.ok === true && p2.accounts.length === 0 && p2.instances.length === 0,
+      JSON.stringify({ ok: r2.ok, accounts: p2.accounts.length, instances: p2.instances.length }));
+  }
+
   const failed = results.filter((r) => !r);
   console.log('\n结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');
   process.exit(failed.length ? 1 : 0);

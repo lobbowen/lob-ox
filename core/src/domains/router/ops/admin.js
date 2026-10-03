@@ -4,9 +4,21 @@ function createAdminOps(deps) {
   const d = deps || {};
   const findProvider = d.findProvider || (() => null);
   const save = d.save || (() => {});
-  const ports = d.ports;
   const maskKey = d.maskKey || ((k) => k);
   const logger = d.logger || null;
+
+  // 账号拆除（W3 单源）：实例停止 + 端口注销 + 实例摘除。
+  // W3 前这份逻辑有四份：providers/process-pool.js 的 onDiscardAccount 钩子（权威版）与 admin.js 两处手写
+  // （setProviderKeys 的批量分支、removeProxyKey 的单条分支），后者**绕过钩子** ⇒ 已实际分叉：
+  // 手写版漏掉按引用摘除 instances 与 account_discarded 事件。
+  // 统一走钩子：钩子只在 supports('instanceLifecycle') 时才安装（process-pool.js），非反代供应商上没有它
+  // ⇒ 与原先 `if (p.supports(...))` 的守卫等价，不会对直连供应商误触 stopInstance。
+  function teardownAccount(p, acc) {
+    const hook = p._hooks && typeof p._hooks.onDiscardAccount === 'function' ? p._hooks.onDiscardAccount : null;
+    if (hook) { try { hook(acc); } catch (e) { /* 钩子异常不阻断拆除 */ } return; }
+    if (acc.instance) acc.instance.port = null;
+    p.instances = (p.instances || []).filter((i) => i.keyId !== acc.keyId);
+  }
 
   async function setProviderKeys(id, opts) {
     const p = findProvider(id);
@@ -14,20 +26,7 @@ function createAdminOps(deps) {
     const rm = new Set((opts && opts.removeMasked) || []);
     const before = (p.accounts || []).length;
     const doomed = (p.accounts || []).filter((a) => rm.has(a.maskedKey));
-    if (p.supports('instanceLifecycle')) {
-      for (const a of doomed) {
-        if (a.instance) {
-          try { p.stopInstance(a.instance, true); } catch {}
-          try { ports.unregister('proxy:' + a.keyId); } catch {}
-          a.instance.port = null;
-        }
-      }
-    }
-    p.accounts = (p.accounts || []).filter((a) => !rm.has(a.maskedKey));
-    if (p.supports('instanceLifecycle')) {
-      const gone = new Set(doomed.map((a) => a.keyId));
-      p.instances = (p.instances || []).filter((i) => !gone.has(i.keyId));
-    }
+    for (const a of doomed) teardownAccount(p, a);
     const removed = before - p.accounts.length;
     const candidates = ((opts && opts.add) || [])
       .map((k) => String(k).trim())
@@ -90,13 +89,8 @@ function createAdminOps(deps) {
     if (!p) return { ok: false, error: '供应商不存在' };
     const idx = (p.accounts || []).findIndex((a) => a.keyId === keyId);
     if (idx < 0) return { ok: false, error: '账号不存在' };
-    if (p.supports('instanceLifecycle') && p.accounts[idx].instance) {
-      try { p.stopInstance(p.accounts[idx].instance, true); } catch {}
-      try { ports.unregister('proxy:' + keyId); } catch {}
-      p.accounts[idx].instance.port = null;
-    }
+    teardownAccount(p, p.accounts[idx]);
     p.accounts.splice(idx, 1);
-    if (p.supports('instanceLifecycle')) p.instances = (p.instances || []).filter((i) => i.keyId !== keyId);
     save();
     return { ok: true };
   }

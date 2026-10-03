@@ -1,9 +1,9 @@
 'use strict';
 
 const { semverCompare } = require('../../shared/version');
-function taskStateToView(s) {
-  return (s === 'succeeded' || s === 'skipped') ? 'done' : (s === 'failed' || s === 'canceled') ? 'failed' : 'running';
-}
+// W3：任务终态→视图态收敛为 shared 单源（此前 instance/plugin/router 三域各一份）。
+// 保留同名导出：调用方（upgrade.js 两处）不变，且契约里它是本域的公开面。
+const { taskStateToView } = require('../../shared/task-state');
 
 function normalizeInstance(inst) {
   if (Object.prototype.hasOwnProperty.call(inst, 'dshToken')) delete inst.dshToken;
