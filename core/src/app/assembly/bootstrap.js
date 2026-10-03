@@ -1,6 +1,7 @@
 'use strict';
 
 const execPath = require('../../platform/os/exec-path');
+const policies = require('../native/policies');
 const BRAND = require('../../shared/brand');
 
 const path = require('node:path');
@@ -204,7 +205,8 @@ function _bindNativeDshCommand(host) {
     try {
       const cmd = Array.isArray(host.config.command) ? host.config.command.slice() : [];
       const cur = cmd[1];
-      const isBare = !cur || cur === 'dsh' || cur === 'dsh.cmd' || (!/[\\/]/.test(cur) && !String(cur).startsWith('~'));
+      // 判据取 native/policies.isBareCommand 的单源（W1）：此处曾内联抄一遍同样的四个条件 ⇒ 改判据必漏一处。
+      const isBare = policies.isBareCommand(cur);
       if (!isBare) return;
       const d = execPath.resolveDsh();
       if (!d || !d.bin) return;

@@ -1,6 +1,7 @@
 'use strict';
 
 const pidlook = require('../../platform/os/pidlookup');
+const { childAlive: childAliveOf, adoptedAlive: adoptedAliveOf } = require('../main/decide');
 
 function createUpgradeHold(deps) {
   const g = deps || {};
@@ -18,9 +19,8 @@ function createUpgradeHold(deps) {
     setSince(Date.now());
     const child = fields.child();
     const adoptPid = fields.adoptPid();
-    const targetAlive =
-      (child && child.exitCode === null && child.signalCode === null) ||
-      (adoptPid !== null && adoptPid !== undefined && pidlook.isAlive(adoptPid));
+    // 同上：存活判据取 app/main/decide 的单源（W1），不再在本文件第三遍手写。
+    const targetAlive = childAliveOf(child) || adoptedAliveOf(adoptPid);
     if (targetAlive) {
       stopProcess('upgrade');
     } else if (fields.phase() !== 'STOPPED') {
@@ -33,7 +33,7 @@ function createUpgradeHold(deps) {
   async function enterAsync() {
     const refs = { child: fields.child(), adoptedPid: fields.adoptPid() };
     enter();
-    if (refs.child && refs.child.exitCode === null && refs.child.signalCode === null) {
+    if (childAliveOf(refs.child)) {
       await new Promise((resolve) => {
         let settled = false;
         const done = () => { if (!settled) { settled = true; resolve(); } };

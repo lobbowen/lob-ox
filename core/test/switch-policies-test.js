@@ -67,16 +67,31 @@ const { decideFailure, headerRetryMs, bodyResetMs } = require(path.join(ROOT, 's
 }
 
 {
+  // H-04：原先这段是「为双实现而生的对账测试」——它只证两份实现彼此一致，
+  // 却不钉住任何一方的行为（两份同时漂移它也绿）。双实现已合并（providers 转调生产单源），
+  // 对账对象随之作废 ⇒ 改成直接钉生产实现的判据（秒 / HTTP-date / epoch / 相对时长 / 取不到）。
+  const httpDate = new Date(Date.now() + 90 * 1000).toUTCString();
+  check('S2-A headerRetryMs：秒数 → 毫秒；HTTP-date → 到该时刻的剩余 ms；空 → 0',
+    headerRetryMs({ 'retry-after': '120' }) === 120000
+    && headerRetryMs({ 'retry-after': httpDate }) > 80000 && headerRetryMs({ 'retry-after': httpDate }) < 100000
+    && headerRetryMs({}) === 0,
+    String(headerRetryMs({ 'retry-after': '120' })) + '/' + String(headerRetryMs({ 'retry-after': httpDate })));
+  const epMs = headerRetryMs({ 'x-ratelimit-reset-ms': String(Date.now() + 5000) });
+  check('S2-B headerRetryMs：x-ratelimit-reset-ms（绝对 epoch 毫秒）→ 剩余 ms 且不久于 5s',
+    epMs > 0 && epMs <= 5000, String(epMs));
+  const iso = new Date(Date.now() + 2 * 3600 * 1000).toISOString();
+  const isoMs = bodyResetMs('resets at ' + iso);
+  check('S2-C bodyResetMs："resets at <ISO>" → 精确到绝对时刻（≈+2h，非默认 +5h）',
+    isoMs > 1.8 * 3600 * 1000 && isoMs < 2.2 * 3600 * 1000, String(isoMs));
+  check('S2-D bodyResetMs：相对时长 min / sec → 300000 / 30000；无时间信息 → 0',
+    bodyResetMs('resets in 5 min') === 300000 && bodyResetMs('retry in 30 sec') === 30000
+    && bodyResetMs('no time info') === 0,
+    String(bodyResetMs('resets in 5 min')) + '/' + String(bodyResetMs('retry in 30 sec')));
+  // 单源证据：providers 侧不再自带一份，而是转调生产（同一函数对象）
   const base = require(path.join(ROOT, 'src', 'domains', 'router', 'providers', 'base'));
-  // 绝对时刻样本两侧各自调 Date.now()，毫秒抖动会偶发假红；容差 50ms 远小于任何语义差异，不掩盖真实漂移。
-  const sameMs = (x, y) => (x === y) ||
-    (typeof x === 'number' && typeof y === 'number' && Math.abs(x - y) <= 50);
-  const h = { 'retry-after': '120' };
-  check('S2 headerRetryMs 与 providers/base 一致（数字样本）',
-    sameMs(headerRetryMs(h), base.headerRetryMs(h)), String(headerRetryMs(h)));
-  for (const b of ['resets in 5 min', 'no time info']) {
-    check('S2 bodyResetMs 与 base 一致 ' + JSON.stringify(b), sameMs(bodyResetMs(b), base.bodyResetMs(b)), b);
-  }
+  check('S2-E 单源：providers/base 转出的 headerRetryMs / bodyResetMs 与生产**同一函数对象**（不再各存一份）',
+    base.headerRetryMs === headerRetryMs && base.bodyResetMs === bodyResetMs,
+    'header=' + (base.headerRetryMs === headerRetryMs) + ' body=' + (base.bodyResetMs === bodyResetMs));
 }
 
 const failed = results.filter((r) => !r);

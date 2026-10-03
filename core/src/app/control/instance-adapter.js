@@ -41,6 +41,13 @@ module.exports = {
       }
       const running = !!(st && st.running);
       try { d.syncSandboxRegistryEntry(entry); } catch (e) { d.logger() && d.logger().warn && d.logger().warn('sandbox entry sync: ' + ((e && e.message) || e)); }
+      // 存活=身份匹配（H-02）。端口被占但听者不是本实例时 running=false，需与「端口空着」区分开报：
+      // 前者是外来占用（人工介入），后者是实例没起来（守卫去重拉）。
+      if (!running && st && st.portTaken) {
+        const why = st.identityUnknown ? '端口监听者身份不可读' : '端口被非 DSH 进程占用';
+        return { ok: false, error: '沙箱实例未运行：端口 ' + (entry && entry.port) + ' ' + why
+          + '（pid=' + st.pid + '），不按本实例在跑处置' };
+      }
       return { ok: running, error: running ? null : '沙箱实例未运行' };
     },
     _syncSandboxRegistryEntry(entry) {

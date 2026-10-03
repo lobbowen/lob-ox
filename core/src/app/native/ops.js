@@ -111,9 +111,8 @@ async function install(host, version) {
 }
 
 function startInstall(host, version) {
-  if (host.installing) return { ok: false, error: '安装已在进行中' };
-  if (host.uninstalling) return { ok: false, error: '卸载进行中，请稍后再装' };
-  if (policies.busy(host)) return { ok: false, error: '升级进行中，请稍后再装（state=' + host.upgradeState + '）' };
+  const g = policies.assertNotBusy(host, 'install');
+  if (g) return g;
   if (!policies.isValidVersion(version)) return { ok: false, error: '非法版本号: ' + version };
   install(host, version).then(() => {}).catch((e) => {
     host.installing = null;
@@ -131,9 +130,8 @@ function startInstall(host, version) {
 }
 
 function startUninstall(host) {
-  if (host.installing) return { ok: false, error: '安装进行中，无法卸载' };
-  if (host.uninstalling) return { ok: false, error: '卸载已在进行中' };
-  if (policies.busy(host)) return { ok: false, error: '升级进行中，无法卸载（state=' + host.upgradeState + '）' };
+  const g = policies.assertNotBusy(host, 'uninstall');
+  if (g) return g;
   uninstall(host).then(() => {}).catch((e) => {
     host.uninstalling = null;
     host.lastUninstall = { ok: false, removed: [], error: e.message, at: new Date().toISOString() };
@@ -144,10 +142,8 @@ function startUninstall(host) {
 }
 
 async function uninstall(host) {
-  if (host.tasks && host.tasks.isBusy('native', 'main')) return { ok: false, error: '已有任务在进行中' };
-  if (host.installing) return { ok: false, error: '安装进行中，无法卸载' };
-  if (host.uninstalling) return { ok: false, error: '卸载已在进行中' };
-  if (policies.busy(host)) return { ok: false, error: '升级进行中，无法卸载（state=' + host.upgradeState + '）' };
+  const g = policies.assertNotBusy(host, 'uninstall');
+  if (g) return g;
 
   host.uninstalling = true;
   try {

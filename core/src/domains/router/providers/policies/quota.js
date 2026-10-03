@@ -13,43 +13,11 @@ function classifyUpstreamLimited(status, text) {
   return 'none';
 }
 
-function headerRetryMs(headers) {
-  const h = headers || {};
-  const epMs = h['x-ratelimit-reset-ms'];
-  if (epMs !== undefined && String(epMs).trim() !== '') {
-    const n = parseInt(String(epMs), 10);
-    if (Number.isFinite(n) && n > 0) return Math.max(0, n - Date.now());
-  }
-  const raw = String(h['retry-after'] || '').trim();
-  if (!raw) return 0;
-  const n = parseInt(raw, 10);
-  if (Number.isFinite(n) && n > 0) return n * 1000;
-  // HTTP-date 绝对时刻（RFC 7231）。
-  const at = Date.parse(raw);
-  return Number.isFinite(at) && at > Date.now() ? at - Date.now() : 0;
-}
-
-function bodyResetMs(text) {
-  const t = String(text || '');
-  const lower = t.toLowerCase();
-  const m = /(?:resets?|retry|try again|after|available)\s+in\s+(\d+)\s*(min|sec|second|s|hour|hr)?/.exec(lower);
-  if (m) {
-    const n = parseInt(m[1], 10);
-    if (Number.isFinite(n) && n > 0) {
-      const unit = m[2] || '';
-      return unit.startsWith('min') ? n * 60000
-        : (unit.startsWith('hour') || unit.startsWith('hr')) ? n * 3600000
-        : n * 1000;
-    }
-  }
-  const iso = /(\d{4}-\d{2}-\d{2}[T ][0-9:.]+(?:Z|[+-]\d{2}:?\d{2})?)/.exec(t);
-  if (iso) {
-    const at = normalizeResetTs(iso[1]);
-    if (at && at > Date.now()) return at - Date.now();
-    if (at && at <= Date.now()) return 0;
-  }
-  return 0;
-}
+// 上游限流重试时长（H-04）：headerRetryMs / bodyResetMs 曾在 providers 侧与生产各存一份（逐字近似的两份实现）。
+// 已实测两实现**行为完全等价**（ISO 分支：两侧同一条正则，且正则捕获串永不匹配 normalizeResetTs 的 epoch 分支
+// ⇔ 恒走 Date.parse ⇒ 与生产同值）⇒ 合并为生产单源，此处只转调、不再自带一份。
+// 方向：providers（下层）依赖 policies（上层、zero-dep 的纯策略层），不反向。
+const { headerRetryMs, bodyResetMs } = require('../../policies/failure');
 
 function normalizeResetTs(v) {
   if (v === undefined || v === null || v === '') return null;

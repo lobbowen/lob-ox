@@ -170,6 +170,43 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
       'writes=' + writes + ' embedded=' + emb + ' desired=' + mgr3.get('router').desired);
   }
 
+  {
+    // W1 单源：主链存活判据（进程还在 ⇒ 活着）曾在 decide/controller/upgrade-hold 三处各写一遍。
+    // 现收敛为 app/main/decide 的 childAlive/adoptedAlive/targetAlive —— 此处直接钉它，
+    // 因为合并本身没有既有回归保护（突变 childAlive 的 signalCode 判据时，原有测试全绿 ⇒ 判据无人看管）。
+    const decide = require(path.join(ROOT, 'src', 'app', 'main', 'decide'));
+    check('W1-A 单源导出：decide 提供 childAlive / adoptedAlive / targetAlive（三处调用点共用同一份）',
+      typeof decide.childAlive === 'function' && typeof decide.adoptedAlive === 'function'
+      && typeof decide.targetAlive === 'function', 'ok');
+    const ALIVE = { exitCode: null, signalCode: null };
+    const deadByCode = { exitCode: 1, signalCode: null };
+    const deadBySignal = { exitCode: null, signalCode: 'SIGTERM' };
+    check('W1-B childAlive：exit/signal 均未置位 ⇒ 活；任一置位 ⇒ 死；无 child ⇒ 死（不因缺对象谎报活）',
+      decide.childAlive(ALIVE) === true && decide.childAlive(deadByCode) === false
+      && decide.childAlive(deadBySignal) === false && decide.childAlive(null) === false,
+      JSON.stringify([decide.childAlive(ALIVE), decide.childAlive(deadByCode), decide.childAlive(deadBySignal), decide.childAlive(null)]));
+    const SELF = process.pid;
+    check('W1-C adoptedAlive：活 pid ⇒ 活；null/undefined ⇒ 死；不存在的极大 pid ⇒ 死',
+      decide.adoptedAlive(SELF) === true && decide.adoptedAlive(null) === false
+      && decide.adoptedAlive(undefined) === false && decide.adoptedAlive(4000000) === false,
+      JSON.stringify([decide.adoptedAlive(SELF), decide.adoptedAlive(null), decide.adoptedAlive(undefined), decide.adoptedAlive(4000000)]));
+    check('W1-D targetAlive = childAlive ∨ adoptedAlive（两者皆无 ⇒ 死，不谎报活）',
+      decide.targetAlive(ALIVE, null) === true && decide.targetAlive(null, SELF) === true
+      && decide.targetAlive(null, null) === false,
+      JSON.stringify([decide.targetAlive(ALIVE, null), decide.targetAlive(null, SELF), decide.targetAlive(null, null)]));
+    // 三处调用点必须真的都走 helper（否则单源是名义的）：任一处残留手写判定都会在突变下静默漂移。
+    const decSrc = fs.readFileSync(path.join(ROOT, 'src', 'app', 'main', 'decide.js'), 'utf8');
+    const ctlSrc = fs.readFileSync(path.join(ROOT, 'src', 'app', 'main', 'controller.js'), 'utf8');
+    const uhSrc = fs.readFileSync(path.join(ROOT, 'src', 'app', 'state', 'upgrade-hold.js'), 'utf8');
+    const handWritten = /exitCode === null[\s\S]{0,120}?signalCode === null/g;
+    const decHand = (decSrc.match(handWritten) || []).length;
+    const ctlHand = (ctlSrc.match(handWritten) || []).length;
+    const uhHand = (uhSrc.match(handWritten) || []).length;
+    check('W1-E 三处调用点均不再手写存活判定（controller / upgrade-hold 零残留；decide 仅 helper 本体一份）',
+      ctlHand === 0 && uhHand === 0 && decHand === 1,
+      'controller=' + ctlHand + ' upgrade-hold=' + uhHand + ' decide=' + decHand);
+  }
+
   const failed = results.filter((r) => !r);
   console.log('\n结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');
   process.exit(failed.length ? 1 : 0);

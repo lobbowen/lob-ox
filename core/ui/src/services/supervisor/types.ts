@@ -103,6 +103,8 @@ export interface InstanceState {
   pid?: number | null;
   running: boolean;
   isDsh?: boolean;
+  portTaken?: boolean;
+  identityUnknown?: boolean;
   phase?: string;
   lifecyclePhase?: "STARTING" | "RUNNING" | "INSTALLING" | "FAILED" | "STOPPED" | string;
   lastError?: string | null;

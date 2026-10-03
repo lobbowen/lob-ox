@@ -75,30 +75,24 @@ class NativeManager {
   upgradeStatus() { return { ...policies.upgradeBrief(this), logTail: this.upgradeLog.slice(-40) }; }
 
   async install(version) {
-    if (this.tasks && this.tasks.isBusy('native', 'main')) return { ok: false, error: '已有任务在进行中' };
-    if (this.installing) return { ok: false, error: '安装已在进行中' };
-    if (this.uninstalling) return { ok: false, error: '卸载进行中，请稍后再装' };
-    if (this.busy()) return { ok: false, error: '升级进行中，请稍后再装（state=' + this.upgradeState + '）' };
+    const g = policies.assertNotBusy(this, 'install');
+    if (g) return g;
     return ops.install(this, version);
   }
 
   startInstall(version) { return ops.startInstall(this, version); }
 
   async upgrade(requestedVersion) {
-    if (this.tasks && this.tasks.isBusy('native', 'main')) return { ok: false, error: '已有任务在进行中' };
-    if (this.busy()) return { ok: false, error: 'upgrade already in progress (state=' + this.upgradeState + ')' };
-    if (this.installing) return { ok: false, error: '安装/升级已在进行中' };
-    if (this.uninstalling) return { ok: false, error: '卸载进行中，请稍后再试' };
+    const g = policies.assertNotBusy(this, 'upgrade');
+    if (g) return g;
     return upgradeOps.upgrade(this, requestedVersion);
   }
 
   startUninstall() { return ops.startUninstall(this); }
 
   async uninstall() {
-    if (this.tasks && this.tasks.isBusy('native', 'main')) return { ok: false, error: '已有任务在进行中' };
-    if (this.installing) return { ok: false, error: '安装进行中，无法卸载' };
-    if (this.uninstalling) return { ok: false, error: '卸载已在进行中' };
-    if (this.busy()) return { ok: false, error: '升级进行中，无法卸载（state=' + this.upgradeState + '）' };
+    const g = policies.assertNotBusy(this, 'uninstall');
+    if (g) return g;
     return ops.uninstall(this);
   }
 }

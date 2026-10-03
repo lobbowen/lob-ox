@@ -75,7 +75,9 @@ function createLifecycle(deps) {
         logger.warn && logger.warn('[' + inst.id + '] ' + msg);
         return { ok: false, error: msg };
       }
-      if (probe(inst).running) return { ok: false, error: '端口 ' + inst.port + ' 已被占用' };
+      // 占用守卫只看「端口上有监听者」，不看身份：外来进程蹲着同样会让本实例 bind 失败（H-02）。
+      // 存活（身份匹配）是另一件事，喂相位迁移/资源采样，不喂这里。
+      if (probe(inst).portTaken) return { ok: false, error: '端口 ' + inst.port + ' 已被占用' };
       const alloc = governor.currentAllocation(store.instances, inst.id, machineFactsNow());
       inst.state.allocation = alloc;
       const props = sandbox.unitProps(inst, alloc);
@@ -169,7 +171,7 @@ function createLifecycle(deps) {
   function probe(inst) { return monitor.probeInstance(inst); }
   function probeInstance(id) {
     const inst = store.instances.find((i) => i.id === id);
-    if (!inst) return { pid: null, running: false, isDsh: false, phase: 'STOPPED' };
+    if (!inst) return { pid: null, running: false, isDsh: false, portTaken: false, identityUnknown: false, phase: 'STOPPED' };
     return probe(inst);
   }
   function _sandboxRoster() {

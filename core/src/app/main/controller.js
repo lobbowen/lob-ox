@@ -3,7 +3,7 @@
 const pidlook = require('../../platform/os/pidlookup');
 const monitor = require('../../platform/service/monitor');
 const BRAND = require('../../shared/brand');
-const { startDeadlinePassed } = require('./decide');
+const { startDeadlinePassed, childAlive: childAliveOf, adoptedAlive: adoptedAliveOf } = require('./decide');
 
 const DEPS = new WeakMap();
 function depsOf(host) {
@@ -64,8 +64,10 @@ module.exports = {
       d.writeLastPortUp(portUp);
       const host = d.config().targetHost;
       const port = d.config().targetPort;
-      const childAlive = d.mChild() !== null && d.mChild().exitCode === null && d.mChild().signalCode === null;
-      const adoptedAlive = d.mAdoptPid() !== null && pidlook.isAlive(d.mAdoptPid());
+      // 存活判据取自 app/main/decide 的单源（W1）：此前本处重算一遍 child/adopt 的存活，
+      // 与 _mainStateSnapshot 的同名判定逐字重复 ⇒ 改口径必漂一处。controller 侧的 m* 读数就是快照的同一批来源。
+      const childAlive = childAliveOf(d.mChild());
+      const adoptedAlive = adoptedAliveOf(d.mAdoptPid());
       const targetAlive = childAlive || adoptedAlive;
 
       if (!portUp && d.state().desired() !== 'stopped' && (childAlive || adoptedAlive || d.mObservedOnly())) {
