@@ -79,6 +79,8 @@ const ENTRIES = [
   { file: "test/router-oauth-callback-rounds-test.js", tier: "L2", os: "all", why: "OAuth 回调轮次" },
   { file: "test/external-open-test.js", tier: "L2", os: "all", why: "平台层外部打开（探测/分发依据/计划/执行/证据；四条真机事故回归）" },
   { file: "test/cookie-attributes-test.js", tier: "L2", os: "all", why: "/open 的 SameSite=Strict 与门卫 cookie 的 SameSite=Lax（安全面）" },
+  { file: "test/instance-liveness-criterion-test.js", tier: "L1", os: "all", why: "注入 pidlookup 桩：存活判据须区分「端口被占」与「身份匹配」，外来占用不得冒充实例在跑" },
+
 ];
 
 const ALL_OS = ['linux', 'darwin', 'win32'];
