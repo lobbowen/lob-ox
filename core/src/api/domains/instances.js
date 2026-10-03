@@ -29,6 +29,14 @@ function owns(pathname) {
   return pathname === '/open' || pathname === '/instances' || pathname.startsWith('/instances/');
 }
 
+// 实例/主实例查表（W3 单源）：`main` 是原生主实例的保留 id，不在 instances 表里，须走 dshMainView()。
+// 此前这段判定抄了两份（handleOpen 与 POST /instances/open-web），逐字相同 ⇒ 改口径必漏一处。
+// 第三处（list 的 render）只要主实例视图、不做 id 分支，保留原样（它不是同一条规则的副本）。
+function findInstanceOrMain(sup, id) {
+  if (id === 'main' && sup.dshMainView && typeof sup.dshMainView === 'function') return sup.dshMainView();
+  return (sup.instances.list() || []).find((x) => x.id === id) || null;
+}
+
 function handleOpen(ctx) {
   const { sup, req, res, identity, originAllowed, tokOf } = ctx;
   const url = new URL(req.url, 'http://localhost');
@@ -39,9 +47,7 @@ function handleOpen(ctx) {
   if (!originAllowed(req, apiPort)) return deny(403, 'origin not allowed');
   const rec = consumeOpenWebCode(code);
   if (!rec) return deny(code ? 400 : 404, code ? '授权码无效或已过期' : '缺少授权码');
-  const it = (rec.id === 'main' && sup.dshMainView && typeof sup.dshMainView === 'function')
-    ? sup.dshMainView()
-    : ((sup.instances.list() || []).find((x) => x.id === rec.id) || null);
+  const it = findInstanceOrMain(sup, rec.id);
   if (!it) return deny(404, '实例不存在');
   const tok = tokOf(rec.id);
   if (!tok) return deny(400, '实例令牌不可用');
@@ -160,9 +166,7 @@ function handle(ctx) {
           if (act === 'stop' && j.id) { const r = sup.instances.stopInstance(j.id); return send(r && r.ok ? 200 : 400, r); }
           if (act === 'open-web' && j.id) {
             try {
-              const it = (j.id === 'main' && sup.dshMainView && typeof sup.dshMainView === 'function')
-                ? sup.dshMainView()
-                : ((sup.instances.list() || []).find((x) => x.id === j.id) || null);
+              const it = findInstanceOrMain(sup, j.id);
               if (!it) return send(404, { ok: false, error: '实例不存在' });
               if (!(Number(it.port) > 0)) return send(400, { ok: false, error: '非法端口' });
               const code = issueOpenWebCode(j.id);

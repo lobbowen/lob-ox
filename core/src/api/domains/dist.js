@@ -1,6 +1,6 @@
 'use strict';
 
-const { isLoopbackAddress, isPrivateIpv4 } = require('../../shared/ip');
+const { isPrivateHostLiteral } = require('../../shared/ip');
 
 function owns(pathname) {
   return pathname.startsWith('/dist/');
@@ -24,18 +24,10 @@ function probeTargetError(origin, sup) {
   }
 
   const deny = '安全策略：探测目标仅允许公网地址（已配置的镜像源不在此限）';
-  if (host.includes(':')) return deny;
-  if (!host.includes('.')) return deny;
-  if (host === 'localhost' || host.endsWith('.localhost') ||
-      host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.home.arpa')) return deny;
-  if (isLoopbackAddress(host) || isPrivateIpv4(host)) return deny;
-  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (v4) {
-    const o = Number(v4[1]), t = Number(v4[2]);
-    if (o === 0 || o >= 224) return deny;
-    if (o === 169 && t === 254) return deny;
-    if (o === 100 && t >= 64 && t <= 127) return deny;
-  }
+  // W3：私网判定取 shared/ip 的 isPrivateHostLiteral 单源。此前本处抄了一份，且漏了 127/8 整段
+  // （只认 isLoopbackAddress 的 127.0.0.1）⇒ 127.5.5.5 这类回环段地址会被判成"公网"放行探测。
+  // 合并后该洞随单源一起补上（下面这条断言已钉住）。
+  if (isPrivateHostLiteral(host)) return deny;
   return null;
 }
 

@@ -61,6 +61,26 @@ const check = (n, c, x) => {
       JSON.stringify(ping));
   }
 
+
+  {
+    // W3：/dist 探测目标的私网判定此前在 api/domains/dist.js 抄了一份，且**漏了 127/8 整段**
+    // （只认 isLoopbackAddress 的 127.0.0.1）⇒ 127.5.5.5 会被判成公网放行。已收敛到 shared/ip 单源。
+    // 钉住「回环段非 .0.0.1 的地址也必须拒」——这条在合并前是**安全洞**。
+    const distApi = require(path.join(ROOT, 'src', 'api', 'domains', 'dist.js'));
+    const ip = require(path.join(ROOT, 'src', 'shared', 'ip.js'));
+    const probeErr = (origin) => distApi.probeTargetError ? distApi.probeTargetError(origin, {}) : null;
+    // dist.js 未导出 probeTargetError 时退而验证单源判据本身（保证断言不空转）
+    const priv = (h) => ip.isPrivateHostLiteral(h);
+    check('W3-G 私网判定含 127/8 整段（127.5.5.5 也必须判私网；此前 dist.js 副本只认 127.0.0.1）',
+      priv('127.0.0.1') === true && priv('127.5.5.5') === true && priv('8.8.8.8') === false,
+      JSON.stringify(['127.0.0.1', '127.5.5.5', '8.8.8.8'].map((h) => h + '=' + priv(h))));
+    const src = fs.readFileSync(path.join(ROOT, 'src', 'api', 'domains', 'dist.js'), 'utf8');
+    const inlineLeft = (src.match(/o === 169 && t === 254/g) || []).length;
+    check('W3-H dist.js 不再内联私网判定（零残留）且取 shared 单源',
+      inlineLeft === 0 && /shared\/ip/.test(src) && /isPrivateHostLiteral/.test(src),
+      'inline=' + inlineLeft + ' requires=' + /shared\/ip/.test(src));
+  }
+
   const failed = results.filter((r) => !r);
   console.log('\n结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');
   process.exit(failed.length ? 1 : 0);
