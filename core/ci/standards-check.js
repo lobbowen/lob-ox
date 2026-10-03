@@ -787,6 +787,38 @@ function checkR19() {
   note('R19 跨目录重复脚本：检查 ' + names.length + ' 个同名脚本，重复 ' + flagged + ' 处');
 }
 
+
+// ── R20：lockfile 的 resolved 必须指向官方 registry（可复现构建）───────────────
+// 背景：core/ui/package-lock.json 曾把 mirrors.tencent.com / npmmirror 的 URL 硬编进 `resolved`。
+// npm ci **按 resolved 精确取包** ⇒ 该镜像不可达时构建直接失败（Windows 腿曾 ETIMEDOUT 导致 win-x64 未发布）。
+// lockfile 应对 registry 中立：只留 integrity 做校验，取包地址交由 npm 配置决定。
+function checkR20() {
+  const files = [];
+  const walkLocks = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (['node_modules', '.git', 'dist', 'target'].indexOf(e.name) >= 0) continue; walkLocks(p); }
+      else if (/package-lock\.json$/.test(e.name)) files.push(p);
+    }
+  };
+  walkLocks(CORE);
+  let flagged = 0;
+  for (const p of files) {
+    const src = read(p);
+    let n = 0;
+    src.split('\n').forEach((l, i) => {
+      const m = /"resolved":\s*"(https?:\/\/[^/]+)\//.exec(l);
+      if (!m) return;
+      if (m[1] !== 'https://registry.npmjs.org') {
+        if (n === 0) fail('R20', p, i + 1, 'lockfile 的 resolved 指向非官方 registry: ' + m[1] + ' ⇒ 该镜像不可达时 npm ci 构建失败（应统一为 https://registry.npmjs.org/）');
+        n += 1;
+      }
+    });
+    flagged += n;
+  }
+  note('R20 lockfile 可复现性：' + files.length + ' 个 package-lock.json，非官方 resolved ' + flagged + ' 处');
+}
+
 function main() {
   console.log('== standards-check：R1..R10 中可机器判定的部分（只读）==');
   checkR2();
@@ -805,6 +837,7 @@ function main() {
   checkR17();
   checkR18();
   checkR19();
+  checkR20();
 
   console.log('');
   notes.forEach((n) => console.log('  OK   ' + n));
