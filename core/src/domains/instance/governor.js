@@ -1,6 +1,7 @@
 'use strict';
 
 const os = require('node:os');
+const platform = require('../../platform/os/index');
 
 const HEADROOM = 0.7;
 const MEM_FLOOR_MB = 512;
@@ -165,10 +166,20 @@ function budgetSnapshot(instances, facts) {
   };
 }
 
+// 沙箱能力判定（有副作用：读平台能力表）⇒ 刻意**不**放在 sandbox.js ——
+// sandbox.js 在契约里声明为 pure（纯路径计算），不得碰平台层。
+function sandboxSupported(override) {
+  if (override !== undefined && override !== null) return override === true;
+  try {
+    const caps = platform.capabilities();
+    return !!(caps && caps.sandboxLaunch === true);
+  } catch { return false; }
+}
+
 module.exports = {
   HEADROOM, MEM_FLOOR_MB, CPU_FLOOR_PERCENT,
   BURST_TRIGGER_RATIO, BURST_MAX_MULT, MEM_HIGH_RATIO,
   DEADBAND, MAX_STEP, MEM_VIOLATION_TICKS, CPU_VIOLATION_TICKS,
   machineFacts, activeCount, allocation, currentAllocation, hysteresis,
-  decide, admission, budgetSnapshot,
+  decide, admission, budgetSnapshot, sandboxSupported,
 };

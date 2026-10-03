@@ -54,7 +54,8 @@ class InstanceManager {
   find(id) { return this._store.instances.find((i) => i.id === id); }
   map(fn) { return this._store.instances.map(fn); }
 
-  get sandboxSupported() { return sandbox.supported(this._sandboxSupportedOverride); }
+  // 能力判定读平台表（有副作用）⇒ 从 governor 取，不经 pure 的 sandbox.js。
+  get sandboxSupported() { return governor.sandboxSupported(this._sandboxSupportedOverride); }
   _setSandboxSupportedForTest(v) { this._sandboxSupportedOverride = (v === null ? null : v === true); }
 
   get onRemoteChange() { return this._hooks.onRemoteChange || null; }

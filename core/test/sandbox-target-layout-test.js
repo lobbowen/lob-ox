@@ -9,7 +9,7 @@ const ROOT = path.join(__dirname, '..');
 const results = [];
 const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x !== undefined ? '  <- ' + x : '')); };
 
-const PL = path.join(ROOT, 'src', 'platform', 'os', 'index.js');
+const PL = path.join(ROOT, 'src', 'shared', 'platform.js'); // 平台三态单源（注入缝须指向被测层真正读的那份）
 const TG = path.join(ROOT, 'src', 'domains', 'plugin', 'targets.js');
 const SB = path.join(ROOT, 'src', 'domains', 'instance', 'sandbox.js');
 

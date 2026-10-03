@@ -1,16 +1,17 @@
 'use strict';
 
-const platform = require('../../platform/os/index');
 const dshCli = require('../../platform/contract/dsh-cli');
 
 const path = require('node:path');
+// 平台三态取 shared 单源（本文件被契约声明为 pure，不能依赖有副作用的 platform/os）。
+const { isWindows } = require('../../shared/platform');
 function root(rootDir, inst) { return path.join(rootDir, inst.id); }
 function dataDir(rootDir, inst) { return path.join(root(rootDir, inst), 'data'); }
 function installDir(rootDir, inst) { return path.join(root(rootDir, inst), 'install'); }
 // npm -g --prefix 布局分平台：POSIX=<prefix>/lib/node_modules，win32=<prefix>/node_modules。
 function nodeModulesDir(rootDir, inst) {
   const install = installDir(rootDir, inst);
-  return platform.isWindows ? path.join(install, 'node_modules') : path.join(install, 'lib', 'node_modules');
+  return isWindows ? path.join(install, 'node_modules') : path.join(install, 'lib', 'node_modules');
 }
 function dshEntry(rootDir, inst) {
   return path.join(nodeModulesDir(rootDir, inst), '@deepseek-ai', 'dsh', 'lib', 'bin.js');
@@ -67,21 +68,13 @@ function sandboxEnv(rootDir, inst) {
     env.NODE_PATH = nodeModulesDir(rootDir, inst);
     // 临时目录：POSIX 认 TMPDIR，win32 只认 TMP/TEMP。
     env.TMPDIR = tmpDir(rootDir, inst);
-    if (platform.isWindows) { env.TMP = env.TMPDIR; env.TEMP = env.TMPDIR; }
+    if (isWindows) { env.TMP = env.TMPDIR; env.TEMP = env.TMPDIR; }
     workingDir = data;
   }
   return { env, workingDir };
 }
 
-function supported(override) {
-  if (override !== undefined && override !== null) return override === true;
-  try {
-    const caps = platform.capabilities();
-    return !!(caps && caps.sandboxLaunch === true);
-  } catch { return false; }
-}
-
 module.exports = {
   root, dataDir, installDir, nodeModulesDir, dshEntry, tmpDir, runPidFile, launchCtx,
-  effectiveCommand, unitProps, sandboxEnv, supported,
+  effectiveCommand, unitProps, sandboxEnv,
 };

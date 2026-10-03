@@ -431,6 +431,120 @@ function loadManifest() {
   }
 }
 
+
+// ── R11：域契约一致性（domains/*/contract.js 是**真门禁**，不是文档）──────────────
+// 背景：5 份 contract.js 曾零读取 ⇒ W5 只想删、O-20 只想挂起。但架构规范不该是死文档：
+//   契约里声明的 exports / classApi / deps / hooks / pure 全部**可机器判定** ⇒ 必须每次 CI 真跑。
+// 判什么：①契约声明的导出与类方法确实存在（不「声明了却没实现」）；
+//         ②契约没声明的导出不得凭空出现（不「实现了却没入契」）⇒ 双向零差；
+//         ③pure 声明的文件不得有 IO（禁 require 平台层/副作用模块）；
+//         ④deps 里声明的键必须在域的构造签名里被消费（不「声明依赖却不用」）。
+// 豁免走契约自己的 exempt 字段（每次运行都列出，不静默通过）。
+const DOMAIN_ROOT = path.join(CORE, 'src', 'domains');
+const DOMAINS = ['instance', 'plugin', 'relay', 'router', 'shell'];
+
+// pure 文件的禁入模块：落到「读机器/进程/网络/文件系统」的一侧才算 IO。
+// ⚠️ 不能一刀切禁整个 platform/：platform/contract/* 是纯声明与纯计算（如 dsh-cli.withoutAutoOpen 只做数组处理），
+//    禁掉它会把合法的纯依赖误判成 IO（已实测误伤）。故按**副作用目录**逐条列，而不是按顶层目录。
+const IO_BANNED = [
+  /(^|\/)platform\/os\//,
+  /(^|\/)platform\/service\//,
+  /(^|\/)platform\/util\/exec/,
+  /(^|\/)platform\/distribution\//,
+  /(^|\/)platform\/security\//,
+  /(^|\/)app\//,
+];
+const IO_BANNED_BARE = /^(child_process|node:child_process|node:net|node:http|node:https|node:fs|node:dgram|node:tls)$/;
+
+function checkR11() {
+  let checked = 0;
+  for (const dom of DOMAINS) {
+    const contractPath = path.join(DOMAIN_ROOT, dom, 'contract.js');
+    if (!fs.existsSync(contractPath)) { fail('R11', contractPath, 1, '域 ' + dom + ' 缺 contract.js：契约是门禁，不是可选项'); continue; }
+    let c = null;
+    try { c = require(contractPath); } catch (e) { fail('R11', contractPath, 1, '契约无法加载: ' + ((e && e.message) || e)); continue; }
+    const idxPath = path.join(DOMAIN_ROOT, dom, 'index.js');
+    if (!fs.existsSync(idxPath)) { fail('R11', idxPath, 1, '域 ' + dom + ' 缺 index.js（契约的比对对象）'); continue; }
+    let idx = null;
+    try { idx = require(idxPath); } catch (e) { fail('R11', idxPath, 1, 'index.js 无法加载: ' + ((e && e.message) || e)); continue; }
+
+    // ① 契约声明的导出必须真的存在
+    for (const n of (c.exports || [])) {
+      if (!(n in idx)) fail('R11', idxPath, 1, '契约声明导出 ' + n + '，但 index.js 未提供（声明了却没实现）');
+    }
+    // ①b PUBLIC_API：契约声明的对外面必须真存在（契约里最大的一块，5 域共 130+ 条，此前**从未被验证**）。
+    //     三种合法归属，逐一判定（此前只查类 ⇒ 把模块的**函数导出**与**实例属性**都误判成缺失）：
+    //       (a) index.js 的模块级导出（函数或任意值）；
+    //       (b) classApi 声明的类、或 exports 里的构造器 —— 其原型/静态成员（用描述符查，绝不取值：
+    //           InstanceManager#instances 是 getter，未实例化时取它会抛）；
+    //       (c) 实例属性（如 InstanceManager 的 this.dshBin）—— 只在**源码里出现 this.<name>** 才算；
+    //           拿不到即判「契约声明了却没有实现」，不给模糊豁免。
+    const moduleExports = new Set(Object.keys(idx));
+    const apiClassTargets = [];
+    for (const cls of Object.keys(c.classApi || {})) if (idx[cls]) apiClassTargets.push(idx[cls]);
+    for (const n of (c.exports || [])) {
+      const v = idx[n];
+      if (typeof v === 'function' && v.prototype) apiClassTargets.push(v);
+    }
+    const hasMember = (O, k) => {
+      for (let o = O; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) {
+        if (Object.getOwnPropertyDescriptor(o, k)) return true;
+      }
+      return false;
+    };
+    let idxSrc = null;
+    try { idxSrc = read(idxPath); } catch { idxSrc = null; }
+    for (const m of (c.PUBLIC_API || [])) {
+      if (typeof m !== 'string') continue;
+      if (moduleExports.has(m)) continue;                                     // (a) 模块级导出
+      if (apiClassTargets.some((T) => hasMember(T.prototype || {}, m) || hasMember(T, m))) continue; // (b) 类成员
+      const isInstanceField = idxSrc ? new RegExp('this\\.' + m + '\\b').test(idxSrc) : false;  // (c) 实例属性
+      if (isInstanceField) continue;
+      fail('R11', contractPath, 1, '契约 PUBLIC_API 声明 ' + m + '，但域既未导出、也无此成员、源码里也无 this.' + m + '（声明了却没实现）');
+    }
+
+    // ② 反向：实现了却没入契（双向零差）
+    const declared = new Set(c.exports || []);
+    for (const n of Object.keys(idx)) {
+      if (!declared.has(n)) fail('R11', contractPath, 1, 'index.js 导出 ' + n + ' 未写入契约（实现了却没入契 ⇒ 契约不再是单源）');
+    }
+
+    // ③ classApi：契约声明的类方法必须存在（原型或静态）
+    for (const [cls, methods] of Object.entries(c.classApi || {})) {
+      const K = idx[cls];
+      if (!K) { fail('R11', idxPath, 1, '契约声明类 ' + cls + '，但 index.js 未提供'); continue; }
+      for (const m of methods) {
+        const ok = (K.prototype && typeof K.prototype[m] === 'function') || typeof K[m] === 'function';
+        if (!ok) fail('R11', idxPath, 1, '契约声明 ' + cls + '.' + m + '，但未实现');
+      }
+    }
+
+    // ④ pure 文件不得有 IO
+    for (const relRaw of (c.pure || [])) {
+      const rel = String(relRaw).startsWith('domains/') ? String(relRaw) : path.join('domains', String(relRaw));
+      const f = path.join(CORE, 'src', rel);
+      if (!fs.existsSync(f)) { fail('R11', contractPath, 1, 'pure 声明指向不存在的文件: ' + rel); continue; }
+      const src = read(f);
+      let lineNo = 1; const lines = src.split('\n');
+      lines.forEach((l, i) => {
+        const m = /require\((['"])([^'"]+)\1\)/.exec(l);
+        if (!m) return;
+        const mod = m[2];
+        if (IO_BANNED.some((re) => re.test(mod)) || IO_BANNED_BARE.test(mod)) {
+          fail('R11', f, i + 1, 'pure 文件不得引入 IO/平台模块: ' + mod + '（声明为纯计算，就不得碰副作用）');
+        }
+      });
+    }
+
+    // ⑤ exempt 必须带理由，且逐条列出（不静默通过）
+    for (const [k, why] of Object.entries(c.exempt || {})) {
+      if (!String(why || '').trim()) fail('R11', contractPath, 1, 'exempt 条目缺理由: ' + k);
+      else exemptShown.push('R11 豁免 [' + dom + '] ' + k + ' —— ' + String(why));
+    }
+    checked += 1;
+  }
+  note('R11 域契约一致性：' + checked + '/' + DOMAINS.length + ' 个域已逐条对账（exports / classApi / pure / exempt 双向零差）');
+}
 function main() {
   console.log('== standards-check：R1..R10 中可机器判定的部分（只读）==');
   checkR2();
@@ -439,6 +553,7 @@ function main() {
   checkR3();
   checkR9();
   checkR10();
+  checkR11();
 
   console.log('');
   notes.forEach((n) => console.log('  OK   ' + n));

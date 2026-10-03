@@ -10,12 +10,8 @@ const desktop = require('./desktop');
 const CAPABILITY_PROFILES = require('./capability-profile');
 const environment = require('./environment');
 
-const PLATFORM = process.platform;
-const ARCH = process.arch;
-
-const isLinux = PLATFORM === 'linux';
-const isMac = PLATFORM === 'darwin';
-const isWindows = PLATFORM === 'win32';
+// W6/单源：平台三态转调 shared/platform.js（此前本文件一份、sandbox.js 抄一份 ⇒ 同一事实两份）。
+const { PLATFORM, ARCH, isLinux, isMac, isWindows } = require('../../shared/platform');
 
 const _toolCache = {};
 const _NEG_TTL_MS = 60000;
