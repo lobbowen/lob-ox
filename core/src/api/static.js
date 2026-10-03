@@ -2,13 +2,15 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+// W6：环境变量名取 brand.js 单源（此前硬编 'DSH_UI_DIR'；brand.js 的 ENV_UI_DIR 曾零 JS 消费者 ⇒ 改名必漏这一处）。
+const { ENV_UI_DIR } = require('../shared/brand');
 
 function resolveUiDir() {
   const exeDir = (function () {
     try { return path.dirname(process.execPath); } catch { return __dirname; }
   })();
   const candidates = [
-    process.env.DSH_UI_DIR || null,
+    process.env[ENV_UI_DIR] || null,
     path.join(__dirname, 'ui-react'),
     path.join(exeDir, 'ui-react'),
     path.join(exeDir, '..', 'ui-react'),
@@ -22,7 +24,7 @@ function resolveUiDir() {
 }
 const UI_DIR = resolveUiDir();
 if (!UI_DIR) {
-  console.error('[ui] 未找到新 React UI 产物（期望 supervisor.html；候选：ui-react / ui/dist / $DSH_UI_DIR）。');
+  console.error('[ui] 未找到新 React UI 产物（期望 supervisor.html；候选：ui-react / ui/dist / $' + ENV_UI_DIR + '）。');
   console.error('[ui] 请先执行 release/scripts/build-ui.sh（或开发态在 ui 目录 npm run build）。');
 }
 const MIME = {

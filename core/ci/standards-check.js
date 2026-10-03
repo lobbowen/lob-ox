@@ -737,6 +737,56 @@ function checkR17() {
   note('R17 登记表↔宿主依赖一致性：L1 却有宿主依赖 ' + flagged + ' 处（豁免 ' + R17_HIT.size + ' 处，均已在上面列出）');
 }
 
+
+// ── R18：壳镜像探测集必须覆盖内核默认 registries（跨语言上下流契约）─────────────
+// 背景：审计把 config.js#registries 与 mirror.rs#NPM_PRESETS 当成"顺序相反的重复"。实测两者语义不同：
+//   内核侧 = 运行时默认配置；壳侧 = 装机前探测候选（机器上还没有内核，壳必须先跑完探测）。
+// ⇒ 强行改成同一份会破坏上下游（壳探测集更大是有意的）。真实不变量是**覆盖关系**：
+//   内核默认用到的每个 registry，壳都必须探测过（否则装机首启可能选到未探测的源）。
+// 顺序无关（壳并行探测全部候选 + 取可达源中最高版本 ⇒ 顺序不影响正确性）。
+function checkR18() {
+  const cfgPath = path.join(CORE, 'src', 'platform', 'service', 'config.js');
+  const mirPath = path.join(CORE, '..', 'shell', 'src-tauri', 'src', 'mirror.rs');
+  if (!fs.existsSync(cfgPath) || !fs.existsSync(mirPath)) return;
+  const cfg = read(cfgPath); const mir = read(mirPath);
+  const m1 = /registries:\s*\[([\s\S]*?)\]/.exec(cfg);
+  const m2 = /pub const NPM_PRESETS: \[&str; \d+\] = \[([\s\S]*?)\];/.exec(mir);
+  if (!m1 || !m2) { fail('R18', cfgPath, 1, '无法定位 registries / NPM_PRESETS ⇒ 无从判定覆盖关系'); return; }
+  const norm = (x) => String(x).replace(/\/+$/, '');
+  const js = [...m1[1].matchAll(/['"]([^'"]+)['"]/g)].map((x) => norm(x[1]));
+  const rs = new Set([...m2[1].matchAll(/"([^"]+)"/g)].map((x) => norm(x[1])));
+  const missing = js.filter((r) => !rs.has(r));
+  if (missing.length) {
+    fail('R18', mirPath, 1, '壳 NPM_PRESETS 未覆盖内核默认 registries: ' + missing.join(', ') + ' ⇒ 装机首启可能选到未探测源');
+  }
+  note('R18 镜像源上下流契约：壳探测集(' + rs.size + ') ⊇ 内核默认 registries(' + js.length + ')' + (missing.length ? '，缺 ' + missing.length : ''));
+}
+
+
+// ── R19：跨目录重复脚本必须收为单源（合仓后不得再有"同一判据两份"）───────────────
+// 背景：core/ci/check-glibc.sh 与 shell/ci/check-glibc.sh 曾逻辑逐行相同（仅措辞/缩进不同）。
+// 合仓后这类"同仓两份"最容易漏改 ⇒ 用门禁持续盯住：
+//   判据 = 两个同名脚本若规范化后（去注释/空行/emoji/缩进）逐行相同，即判为重复。
+function checkR19() {
+  const names = ['check-glibc.sh'];
+  const normSh = (t) => t.split(/\r?\n/).filter((l) => l.trim() && !l.trim().startsWith('#')).map((l) => l.replace(/[\u2705\u274c]/g, '').trim());
+  let flagged = 0;
+  for (const n of names) {
+    const a = path.join(CORE, 'ci', n);
+    const b = path.join(CORE, '..', 'shell', 'ci', n);
+    if (!fs.existsSync(a) || !fs.existsSync(b)) continue;
+    const la = normSh(read(a)); const lb = normSh(read(b));
+    // 转发器（exec 单源）不算重复：它只有路径透传逻辑
+    const isDelegate = (ls) => ls.some((l) => l.indexOf('exec bash') >= 0);
+    if (isDelegate(lb) || isDelegate(la)) { note('R19 重复脚本：' + n + ' 已收为单源（另一侧为转发器）'); continue; }
+    if (la.length === lb.length && la.every((l, i) => l === lb[i])) {
+      fail('R19', b, 1, n + ' 与 core/ci/' + n + ' 逻辑逐行相同 ⇒ 同一判据两份，改一处必漏另一处；请改为转发单源');
+      flagged += 1;
+    }
+  }
+  note('R19 跨目录重复脚本：检查 ' + names.length + ' 个同名脚本，重复 ' + flagged + ' 处');
+}
+
 function main() {
   console.log('== standards-check：R1..R10 中可机器判定的部分（只读）==');
   checkR2();
@@ -753,6 +803,8 @@ function main() {
   checkR15();
   checkR16();
   checkR17();
+  checkR18();
+  checkR19();
 
   console.log('');
   notes.forEach((n) => console.log('  OK   ' + n));
