@@ -221,8 +221,11 @@ const EVENT_HARNESS_GUARDIAN_CHANGED = 'harness_guardian_changed';
 const EVENT_HARNESS_REMOTE_CHANGED = 'harness_remote_changed';
 const EVENT_HARNESS_REMOTE_TOKEN_CHANGED = 'harness_remote_token_changed';
 const EVENT_LAN_HARNESS_TOKEN_UPDATED = 'lan_harness_token_updated';
-const EVENT_SHADOW_HARNESS_ACTION = 'shadow_harness_action';
 const EVENT_UPGRADE_STOPPING_HARNESS = 'upgrade_stopping_harness';
+// 壳（shell/*）事件：此前在 api/domains/shell.js 里以裸字面量出现（事件词表第三份拷贝）⇒ 登记进单源。
+const EVENT_SHELL_UPDATE_PENDING = 'shell_update_pending';
+const EVENT_SHELL_UPDATE_CHECKED = 'shell_update_checked';
+const EVENT_SHELL_RESTART_REQUESTED = 'shell_restart_requested';
 
 // systemd 模板让位后缀：模板名 `dsh-web@.service` 属**被监管产品**（不改），后缀是**我方**加的标记
 //   （我们把阻挡 systemd-run 的模板改名保留，而不是删除）。
@@ -370,8 +373,10 @@ module.exports = {
   EVENT_HARNESS_REMOTE_CHANGED,
   EVENT_HARNESS_REMOTE_TOKEN_CHANGED,
   EVENT_LAN_HARNESS_TOKEN_UPDATED,
-  EVENT_SHADOW_HARNESS_ACTION,
   EVENT_UPGRADE_STOPPING_HARNESS,
+  EVENT_SHELL_UPDATE_PENDING,
+  EVENT_SHELL_UPDATE_CHECKED,
+  EVENT_SHELL_RESTART_REQUESTED,
   SYSTEMD_TEMPLATE_ASIDE_SUFFIX,
   corePackageName,
   stateRoot,

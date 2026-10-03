@@ -47,15 +47,15 @@ const { freePort } = require('./_ports');
     const ge = new Events(path.join(TMP, 'guard2.events.log'), 1 << 20, { process: 'guard' });
     const hub = new EventHub({ stateDir: path.join(TMP, 's2'), aggBase: 'state', guardEvents: ge, guardLogFile: '', dshLogFile: '', upgradeLogFile: '', daemonLogs: {}, ctlPorts: {}, eventsMaxBytes: 1 << 20, logger: { debug() {} } });
     ge.attachHub(hub);
-    ge.append('shadow_harness_action', { diff: false });
+    ge.append('managed_object_created', { diff: false });
     ge.append('managed_object_updated', { kind: 'dsh' });
     ge.append('router_daemon_supervised', { pid: 9 });
     ge.append('running', { pid: 1 });
     const all = hub.read(0, 20);
     check('内部簿记名单判定+打标+默认过滤后只剩业务事件',
-      isInternalEvent('shadow_harness_action') && isInternalEvent('managed_object_updated') && isInternalEvent('router_daemon_supervised')
+      isInternalEvent('managed_object_created') && isInternalEvent('managed_object_updated') && isInternalEvent('router_daemon_supervised')
       && !isInternalEvent('running')
-      && all.find((e) => e.type === 'shadow_harness_action').internal === true && all.find((e) => e.type === 'running').internal === false
+      && all.find((e) => e.type === 'managed_object_created').internal === true && all.find((e) => e.type === 'running').internal === false
       && all.filter((e) => !e.internal).map((e) => e.type).join(',') === 'running');
     hub.writer.appendRaw({ ts: new Date().toISOString(), type: 'managed_object_updated', data: {}, source: 'guard', srcSeq: 1 });
     hub.writer.appendRaw({ ts: new Date().toISOString(), type: 'running', data: {}, source: 'guard', srcSeq: 2 });
@@ -105,12 +105,12 @@ const { freePort } = require('./_ports');
   }
   {
     const { EventReader } = require(path.join(ROOT, 'src', 'platform', 'service', 'log', 'hub'));
-    const fakeEvents = { seq: 7, readAll: () => ([{ seq: 1, type: 'a' }, { seq: 2, type: 'shadow_beat' }]), readSince: (a, l) => [{ seq: 1, type: 'a' }] };
+    const fakeEvents = { seq: 7, readAll: () => ([{ seq: 1, type: 'a' }, { seq: 2, type: 'managed_object_beat' }]), readSince: (a, l) => [{ seq: 1, type: 'a' }] };
     const rd = new EventReader(fakeEvents);
     const ifaceOk = ['seq', 'read', 'readVisible', 'readFiltered', 'tailLog', 'exportLines', 'metrics', 'sync']
       .every((m) => (m === 'seq' ? typeof rd[m] !== 'undefined' : typeof rd[m] === 'function'));
     check('P4-C EventReader 实现完整读接口', ifaceOk, 'ok');
-    check('P4-D EventReader.readVisible 过滤 internal 且同 EventHub 语义', rd.readVisible(0, 50).every((e) => e.type !== 'shadow_beat'), JSON.stringify(rd.readVisible(0, 50)));
+    check('P4-D EventReader.readVisible 过滤 internal 且同 EventHub 语义', rd.readVisible(0, 50).every((e) => e.type !== 'managed_object_beat'), JSON.stringify(rd.readVisible(0, 50)));
     check('P4-E EventReader.seq 透传本地事件流', rd.seq === 7, 'seq=' + rd.seq);
   }
   console.log('\n结果: ' + passed + ' passed, ' + failed + ' failed');

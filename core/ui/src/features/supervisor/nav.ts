@@ -122,10 +122,12 @@ export const EVENT_LABELS: Record<string, string> = {
   proxy_instance_hang_restart: "反代挂起重启", proxy_instance_log: "反代日志",
   proxy_instance_start_port_busy: "反代端口占用", proxy_instance_survivor_reclaimed: "残留反代回收",
   router_daemon_started: "中转守护启动", router_daemon_stopped: "中转守护停止",
-  router_daemon_supervised: "中转守护接管", shadow_harness_action: "影子状态同步",
+  router_daemon_supervised: "中转守护接管",
   harness_guardian_changed: "守护变更", harness_remote_changed: "远程变更",
   harness_remote_token_changed: "远程令牌变更", guardian_off_exit: "未守护退出",
   inst_guardian_changed: "实例守护变更", inst_remote_changed: "实例远程变更",
   inst_remote_token_changed: "实例令牌变更",
   legacy_state_root_detected: "检测到旧版状态根（不迁移）",
+  shell_update_pending: "壳更新待应用", shell_update_checked: "壳更新已检查",
+  shell_restart_requested: "壳请求重启",
 };

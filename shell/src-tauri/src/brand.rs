@@ -225,10 +225,14 @@ pub const EVENT_HARNESS_REMOTE_CHANGED: &str = "harness_remote_changed";
 pub const EVENT_HARNESS_REMOTE_TOKEN_CHANGED: &str = "harness_remote_token_changed";
 /// 见 [`EVENT_HARNESS_EXITED`]：LAN 代理持有的 harness 会话令牌已刷新。
 pub const EVENT_LAN_HARNESS_TOKEN_UPDATED: &str = "lan_harness_token_updated";
-/// 见 [`EVENT_HARNESS_EXITED`]：影子状态同步动作（内部簿记，按 `shadow_` 前缀过滤）。
-pub const EVENT_SHADOW_HARNESS_ACTION: &str = "shadow_harness_action";
 /// 见 [`EVENT_HARNESS_EXITED`]：为升级而停止 harness。
 pub const EVENT_UPGRADE_STOPPING_HARNESS: &str = "upgrade_stopping_harness";
+/// 见 [`EVENT_HARNESS_EXITED`]：壳更新待应用（壳侧事件，与内核单源同名同值）。
+pub const EVENT_SHELL_UPDATE_PENDING: &str = "shell_update_pending";
+/// 见 [`EVENT_HARNESS_EXITED`]：壳更新已检查。
+pub const EVENT_SHELL_UPDATE_CHECKED: &str = "shell_update_checked";
+/// 见 [`EVENT_HARNESS_EXITED`]：壳请求重启。
+pub const EVENT_SHELL_RESTART_REQUESTED: &str = "shell_restart_requested";
 
 /// systemd 模板让位后缀：模板名 `dsh-web@.service` 属被监管产品（不改），后缀是我方加的标记。
 pub const SYSTEMD_TEMPLATE_ASIDE_SUFFIX: &str = ".disabled-by-lobox-";

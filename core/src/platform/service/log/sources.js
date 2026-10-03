@@ -39,7 +39,7 @@ function setInternalTypes(list) { _internalTypes.clear(); for (const t of (Array
 
 function isInternalEvent(type) {
   const t = String(type || '');
-  if (t.startsWith('shadow_') || t.startsWith('managed_object_')) return true;
+  if (t.startsWith('managed_object_')) return true;
   return _internalTypes.has(t);
 }
 

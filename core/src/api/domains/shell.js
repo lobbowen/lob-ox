@@ -1,5 +1,7 @@
 'use strict';
 
+const BRAND = require('../../shared/brand');
+
 function owns(pathname) {
   return pathname === '/shell/status' || pathname.startsWith('/shell/');
 }
@@ -31,7 +33,7 @@ function handle(ctx) {
       try { j = body ? JSON.parse(body) : {}; } catch {}
       try {
         const rec = shell.markPending(j.from || null, j.to || null);
-        if (sup.events) sup.events.append('shell_update_pending', { from: rec.from, to: rec.to });
+        if (sup.events) sup.events.append(BRAND.EVENT_SHELL_UPDATE_PENDING, { from: rec.from, to: rec.to });
         return send(200, { ok: true, journal: rec });
       } catch (e) { return send(500, { ok: false, error: e.message }); }
     });
@@ -43,7 +45,7 @@ function handle(ctx) {
     return Promise.resolve(shell.checkUpdate(sup.dist, { authoritative: true }))
       .then((r) => {
         if (sup.events) {
-          sup.events.append('shell_update_checked', { installed: r.installed, latest: r.latest, updateAvailable: r.updateAvailable });
+          sup.events.append(BRAND.EVENT_SHELL_UPDATE_CHECKED, { installed: r.installed, latest: r.latest, updateAvailable: r.updateAvailable });
         }
         return send(200, r);
       })
@@ -61,7 +63,7 @@ function handle(ctx) {
       shouldAbort: () => (typeof sup._sessionHalting === 'function' && sup._sessionHalting()),
     }))
       .then((r) => {
-        if (sup.events) sup.events.append('shell_restart_requested', { ok: r.ok, killed: r.killed || [], pid: r.pid || null });
+        if (sup.events) sup.events.append(BRAND.EVENT_SHELL_RESTART_REQUESTED, { ok: r.ok, killed: r.killed || [], pid: r.pid || null });
         return send(r.ok ? 200 : 500, r);
       })
       .catch((e) => send(500, { ok: false, error: e.message }));

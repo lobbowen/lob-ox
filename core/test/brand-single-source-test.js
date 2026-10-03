@@ -646,8 +646,10 @@ const HOME = path.join('H', 'ome');
     EVENT_HARNESS_REMOTE_CHANGED: 'harness_remote_changed',
     EVENT_HARNESS_REMOTE_TOKEN_CHANGED: 'harness_remote_token_changed',
     EVENT_LAN_HARNESS_TOKEN_UPDATED: 'lan_harness_token_updated',
-    EVENT_SHADOW_HARNESS_ACTION: 'shadow_harness_action',
     EVENT_UPGRADE_STOPPING_HARNESS: 'upgrade_stopping_harness',
+    EVENT_SHELL_UPDATE_PENDING: 'shell_update_pending',
+    EVENT_SHELL_UPDATE_CHECKED: 'shell_update_checked',
+    EVENT_SHELL_RESTART_REQUESTED: 'shell_restart_requested',
     SYSTEMD_TEMPLATE_ASIDE_SUFFIX: '.disabled-by-lobox-',
   };
   {
@@ -657,8 +659,9 @@ const HOME = path.join('H', 'ome');
     }
     check('J-1 契约字段等于冻结字面量（' + Object.keys(JEXPECT).length + ' 项）', bad.length === 0, bad.join(' | '));
     const eventVals = Object.keys(JEXPECT).filter((k) => k.indexOf('EVENT_') === 0).map((k) => JEXPECT[k]);
-    check('J-1b 12 个事件类型名两两不同（不得与既有事件名撞车，如 lan_token_updated / harness_* 家族）',
-      new Set(eventVals).size === eventVals.length && eventVals.length === 12,
+    // 条数不再硬编（曾写死 12 ⇒ 增删事件后必假红）；改为与冻结表对齐 + 下限守卫（防表被清空后判据空转）。
+    check('J-1b 事件类型名两两不同（不得与既有事件名撞车，如 lan_token_updated / harness_* 家族）',
+      new Set(eventVals).size === eventVals.length && eventVals.length >= 12,
       'unique=' + new Set(eventVals).size + ' of ' + eventVals.length);
   }
 
@@ -730,17 +733,17 @@ const HOME = path.join('H', 'ome');
     const MAPPED_FROZEN = [
       'harness_command_missing', 'harness_not_installed', 'harness_exited',
       'harness_token_captured', 'harness_guardian_changed', 'harness_remote_changed',
-      'harness_remote_token_changed', 'lan_harness_token_updated', 'shadow_harness_action',
+      'harness_remote_token_changed', 'lan_harness_token_updated',
       'upgrade_stopping_harness',
     ];
     const missing = MAPPED_FROZEN.filter((v) => navSrc.indexOf(v + ':') < 0);
     const brandEventValues = Object.keys(JEXPECT)
       .filter((k) => k.indexOf('EVENT_') === 0).map((k) => JEXPECT[k]);
-    const panelKeys = (navSrc.match(/(?:^|[\s,{])((?:harness|lan_harness|shadow_harness|upgrade_stopping_harness)[a-z0-9_]*):/g) || [])
+    const panelKeys = (navSrc.match(/(?:^|[\s,{])((?:harness|lan_harness|upgrade_stopping_harness)[a-z0-9_]*):/g) || [])
       .map((s) => s.replace(/^[\s,{]/, '').replace(/:$/, ''));
     const orphans = panelKeys.filter((k) => brandEventValues.indexOf(k) < 0);
     const stale = OLD_EVENTS.filter((e) => navSrc.indexOf(e) >= 0);
-    check('J-5 面板映射表：改名后的 10 个既有映射逐条到位（冻结表）+ 无孤儿键 + 0 处旧事件名',
+    check('J-5 面板映射表：改名后的 12 个既有映射逐条到位（冻结表）+ 无孤儿键 + 0 处旧事件名',
       missing.length === 0 && orphans.length === 0 && stale.length === 0,
       (missing.length ? '缺: ' + missing.join(',') : '') + (orphans.length ? ' 孤儿: ' + orphans.join(',') : '')
         + (stale.length ? ' 旧名: ' + stale.join(',') : '') + ' panelKeys=' + panelKeys.length);
