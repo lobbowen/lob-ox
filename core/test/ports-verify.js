@@ -12,11 +12,7 @@ const check = (name, cond, extra) => { results.push({ name, ok: !!cond, extra })
 
 (async () => {
   const { Supervisor } = require(path.join(ROOT, 'src', 'supervisor'));
-  const freePort = () => new Promise((res) => {
-    const srv = http.createServer();
-    srv.on('error', () => res(0));
-    srv.listen(0, '127.0.0.1', () => { const p = srv.address().port; srv.close(() => res(p)); });
-  });
+const { freePort } = require('./_ports');
   const apiPort = await freePort(), targetPort = await freePort(), okPort = await freePort();
   const stateDir = path.join(TMP, 'sup');
   fs.mkdirSync(stateDir, { recursive: true });

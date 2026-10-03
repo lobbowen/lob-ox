@@ -21,7 +21,7 @@ function check(name, cond, extra) {
   if (cond) { passed++; console.log('  PASS ' + name); }
   else { failed++; console.log('  FAIL ' + name + (extra !== undefined ? '  ← ' + JSON.stringify(extra) : '')); }
 }
-const freePort = () => new Promise((res) => { const s = http.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
+const { freePort } = require('./_ports');
 
 (async () => {
   {

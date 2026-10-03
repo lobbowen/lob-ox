@@ -13,7 +13,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'main-port-'));
 const MOCK = path.join(ROOT, 'test', 'fixtures', 'dsh-mock.js');
 const results = [];
 const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x !== undefined ? '  ← ' + x : '')); };
-const freePort = () => new Promise((res) => { const s = http.createServer(); s.on('error', () => res(0)); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
+const { freePort } = require('./_ports');
 
 (async () => {
   const { Supervisor } = require(path.join(ROOT, 'src', 'supervisor'));

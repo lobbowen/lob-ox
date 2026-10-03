@@ -248,11 +248,7 @@ async function main() {
     const { DistributionManager } = require(path.join(ROOT, 'src', 'platform', 'distribution', 'index'));
     const logger = { info() {}, warn() {}, error() {}, debug() {} };
     const dist = new DistributionManager({ logger });
-    const freePort = () => new Promise((resolve, reject) => {
-      const s = net.createServer();
-      s.once('error', reject);
-      s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); });
-    });
+const { freePort } = require('./_ports');
     const port = await freePort();
     const srv = net.createServer((s) => { s.on('error', () => {}); try { s.end('ok'); } catch {} });
     srv.on('error', () => {}); // 兜底：即使监听失败也不炸掉测试进程

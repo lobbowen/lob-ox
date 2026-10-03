@@ -623,6 +623,24 @@ function checkR14() {
     + mod.BASE + ', ' + mod.BAND_HI + ') 内（越界 ' + bad + ' 个端口' + (badSegs.length ? '：' + badSegs.join(', ') : '') + '）');
 }
 
+
+// ── R15：取空闲端口的唯一实现 = _ports.js#freePort（测试不得各自重写）────────────
+// 此前 4 个测试各写一份（且行为各异：用 http / 用 net / 出错返回 0）⇒ 同一件事四份实现。
+function checkR15() {
+  const files = walkJs(TEST_DIR, [], (p, n) => n === 'fixtures' || n === 'node_modules');
+  let flagged = 0;
+  for (const f of files) {
+    if (/_ports\.js$/.test(f)) continue;
+    read(f).split('\n').forEach((l, i) => {
+      if (/const\s+freePort\s*=/.test(l)) {
+        fail('R15', f, i + 1, '测试自行实现 freePort ⇒ 同一件事多份实现（且行为会漂移）；改用 require(\'./_ports\').freePort');
+        flagged += 1;
+      }
+    });
+  }
+  note('R15 空闲端口实现：' + files.length + ' 个测试文件中本地重写 ' + flagged + ' 处（唯一实现应为 _ports.js#freePort）');
+}
+
 function main() {
   console.log('== standards-check：R1..R10 中可机器判定的部分（只读）==');
   checkR2();
@@ -635,6 +653,7 @@ function main() {
   checkR12();
   checkR13();
   checkR14();
+  checkR15();
 
   console.log('');
   notes.forEach((n) => console.log('  OK   ' + n));
