@@ -20,8 +20,7 @@
     "release:guard": "bash release/scripts/release.sh",
     "build:launcher": "bash release/scripts/build-launcher.sh",
     "verify:versions": "node release/scripts/verify-versions.js --core",
-    "publish:core": "bash release/scripts/publish-core.sh",
-    "build:launcher:all": "bash release/scripts/build-launcher.sh --all-platforms"
+    "publish:core": "bash release/scripts/publish-core.sh"
   },
   "_uninstallTests": "卸载类测试政策：native-test.js 刻意不入 test/manifest.js 登记表（它真起 npm 子进程，Windows 上建符号链接需特权/开发者模式）；本字段不指向任何单一事实源。承担卸载行为面的是 uninstall-timeout-behavior-test.js（npmBin 注入）与 api-contract-test.js、plugin-change-restart-test.js。",
   "engines": {

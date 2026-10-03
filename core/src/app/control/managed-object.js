@@ -10,6 +10,10 @@ const MANAGED_KINDS = {
   plugin:           { label: '插件（聚合）',    startable: false, guardable: false },
 };
 
+// 自定义 kind 扩展点（W5 裁定：**保留，不删**）。
+// 全仓 registerKind 零调用 ⇒ _customKinds 永不写入、kindMeta 的自定义回退永不命中（确属死路径）。
+// 但它是「新增受管对象类型」的唯一入口：删掉等于永久关闭该扩展能力。
+// 处置：保留实现 + 在此标注现状（后续若产品明确不需要扩展，再单独立项删除）。
 let _customKinds = {};
 
 function kindMeta(kind) {

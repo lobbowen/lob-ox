@@ -107,11 +107,6 @@ const PREFIXES = [
   { prefix: '/tasks/',       domain: 'tasks',     category: 'public',      consumers: ['UI'], note: '/tasks/{id}' },
 ];
 
-function summary() {
-  const byCat = {};
-  for (const c of CATEGORIES) byCat[c] = 0;
-  for (const e of SURFACE) byCat[e.category] = (byCat[e.category] || 0) + 1;
-  return { exact: SURFACE.length, prefixes: PREFIXES.length, byCategory: byCat };
-}
-
-module.exports = { SURFACE, PREFIXES, CATEGORIES, summary };
+// W5：summary() 零消费者已删。SURFACE 仍被 shell-safety-net-test.js 断言；
+// PREFIXES / CATEGORIES 是 SURFACE 的分类词表，随 SURFACE 一同导出（供契约读者核对分类）。
+module.exports = { SURFACE, PREFIXES, CATEGORIES };

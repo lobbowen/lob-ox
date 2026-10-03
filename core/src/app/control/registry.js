@@ -113,6 +113,8 @@ class ManagedRegistry {
     if (i >= 0) this._objects.splice(i, 1);
   }
 
+  // 自定义 kind 扩展点：零调用但刻意保留（见 managed-object.js 的说明）——
+  // 它是「新增受管对象类型」的唯一入口，删除等于永久关闭扩展能力。
   registerKind(kind, meta) {
     registerManagedKind(kind, meta);
     return this;

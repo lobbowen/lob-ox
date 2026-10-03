@@ -59,6 +59,7 @@ class NativeManager {
   checkUpdate() { return ops.checkUpdate(this); }
   checkEnvironment() { return npm.checkEnvironment(this); }
   _manifest() { return manifest.read(this); }
+  // W5：生产零调用，仅 native-test.js 使用（写 manifest 的夹具入口）。保留为测试缝。
   _saveManifest(m) { return manifest.save(this, m); }
   async _recordManifest(version, dataPaths) {
     return manifest.record(this, version, dataPaths, this.npmRoot || await npm.resolveNpmRoot(this));

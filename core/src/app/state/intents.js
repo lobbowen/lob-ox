@@ -19,6 +19,8 @@ class IntentLedger {
     return p;
   }
 
+  // W5：生产零调用，仅 session-lifecycle-test.js 用于「模拟重启后内存态为空」的夹具。
+  // 保留（它是一个合理的测试缝），不视为待删死代码。
   clear() {
     this._pending.clear();
   }
