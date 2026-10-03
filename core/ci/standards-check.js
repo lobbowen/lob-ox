@@ -641,6 +641,39 @@ function checkR15() {
   note('R15 空闲端口实现：' + files.length + ' 个测试文件中本地重写 ' + flagged + ' 处（唯一实现应为 _ports.js#freePort）');
 }
 
+
+// ── R16：禁止「恒真断言」式假绿（环境不具备条件必须 SKIP，不得伪装成 PASS）──────────
+// 形态：check(..., !X || <真判据>, ...) —— X 不成立时整条恒真 ⇒ 计入 PASS，但判据**从未执行**。
+// 最危险的是 X 依赖宿主环境（LAN 地址、/proc、平台）⇒ CI 上永远绿、永远没验。
+// 正解：条件成立才 check，否则 skip（skip 必须显式统计并打印，不得静默）。
+function checkR16() {
+  const files = walkJs(TEST_DIR, [], (p, n) => n === 'fixtures' || n === 'node_modules');
+  let flagged = 0;
+  for (const f of files) {
+    const src = read(f);
+    const hasSkip = /\bskip\s*\(|\bskipped\b/.test(src);
+    src.split('\n').forEach((l, i) => {
+      if (!/\bcheck\s*\(/.test(l)) return;
+      const m = /\bcheck\s*\(\s*(['"\`])(?:[^\\]|\\.)*?\1\s*,\s*([\s\S]*)$/.exec(l);
+      if (!m) return;
+      const rest = m[2];
+      let depth = 0; let cut = -1;
+      for (let k = 0; k < rest.length; k += 1) {
+        const c = rest[k];
+        if (c === '(' || c === '[' || c === '{') depth += 1;
+        else if (c === ')' || c === ']' || c === '}') { depth -= 1; if (depth < 0) { cut = k; break; } }
+        else if (c === ',' && depth === 0) { cut = k; break; }
+      }
+      const cond = cut >= 0 ? rest.slice(0, cut) : rest;
+      if (/![A-Za-z_$][\w$.]*\s*\|\|/.test(cond)) {
+        fail('R16', f, i + 1, '断言判据含 `!X ||` ⇒ X 不成立时恒真（判据从未执行却计入 PASS）；改法：if (X) check(...) else skip(...)' + (hasSkip ? '' : '（本文件尚无 skip，需先加 SKIP 语义与统计）'));
+        flagged += 1;
+      }
+    });
+  }
+  note('R16 假绿防线：扫描 ' + files.length + ' 个测试文件，`!X ||` 恒真断言 ' + flagged + ' 处');
+}
+
 function main() {
   console.log('== standards-check：R1..R10 中可机器判定的部分（只读）==');
   checkR2();
@@ -654,6 +687,7 @@ function main() {
   checkR13();
   checkR14();
   checkR15();
+  checkR16();
 
   console.log('');
   notes.forEach((n) => console.log('  OK   ' + n));

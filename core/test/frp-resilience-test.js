@@ -73,7 +73,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
     await sleep(2600);
     const second = m.child;
-    check('R2-d 退避到期后自动重拉（新 pid，非原进程）', !!second && Number.isInteger(second.pid) && (!first || second.pid !== first.pid), 'pid=' + (second && second.pid));
+    // 显式断言「重拉 = 新进程」：first 存在时 pid 必须不同；first 缺失本身即异常（不该静默放行）。
+    check('R2-d 退避到期后自动重拉（新 pid，非原进程）',
+      !!second && Number.isInteger(second.pid) && !!first && second.pid !== first.pid,
+      'first=' + (first && first.pid) + ' second=' + (second && second.pid));
 
     m.stop();
     await sleep(300);

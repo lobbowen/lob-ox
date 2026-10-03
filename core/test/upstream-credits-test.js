@@ -67,7 +67,7 @@ async function main() {
     acc.quota.monthlyRemaining = 6;
     acc.status = 'frozen'; acc.limit = null; acc.nextResetAt = Date.now() - 1000;
     p.applyDetection(acc, { ok: true, quota: { rolling: { status: 'ok', percent: 1 }, weekly: { status: 'ok', percent: 1 }, monthlyRemaining: 6 } });
-    check('余额恢复 → 解冻 ready 且 limit 清空', acc.status === 'ready' && (!acc.limit || !acc.limit.kind), acc.status + ' limit=' + JSON.stringify(acc.limit));
+    check('余额恢复 → 解冻 ready 且 limit 清空', acc.status === 'ready' && (acc.limit === null || acc.limit === undefined), acc.status + ' limit=' + JSON.stringify(acc.limit));
     acc.status = 'ready'; acc.limit = null; acc.nextResetAt = null; acc.quota.monthlyRemaining = 0;
     p.applyDetection(acc, { ok: true, quota: { rolling: { status: 'ok', percent: 1 }, weekly: { status: 'ok', percent: 1 }, monthlyRemaining: 0 } });
     check('仍余额不足 → 保持 frozen 且 limit.kind=credits poll', acc.status === 'frozen' && acc.limit && acc.limit.kind === 'credits' && acc.limit.recovery.type === 'poll', acc.status + ' ' + JSON.stringify(acc.limit));

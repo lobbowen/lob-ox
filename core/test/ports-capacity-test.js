@@ -8,7 +8,10 @@ const fs = require('node:fs');
 const ROOT = path.join(__dirname, '..');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ports-capacity-'));
 const results = [];
+const skipped = [];
 const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x !== undefined ? '  ← ' + x : '')); };
+// 环境不具备验证条件时必须 SKIP，不得让判据恒真后计入 PASS（非 Linux 无 /proc ⇒ overlaps 恒 false，曾伪装成通过）。
+const skip = (n, why) => { skipped.push(n); console.log('SKIP ' + n + (why ? '  ← ' + why : '')); };
 
 (async () => {
   const { PortRegistry, DEFAULT_POOLS, SEGMENT_POOL } = require(path.join(ROOT, 'src', 'platform', 'service', 'ports'));
@@ -24,11 +27,18 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
       return (Number.isInteger(lo) && Number.isInteger(hi)) ? { lo, hi } : null;
     } catch { return null; }
   })();
-  const overlaps = (p) => !!ephemeral && !(p.base + p.count - 1 < ephemeral.lo || p.base > ephemeral.hi);
-  check('默认池避开 OS 动态端口范围且在合法端口区间(1024-65535)',
-    !Object.values(DEFAULT_POOLS).some(overlaps)
-    && Object.values(DEFAULT_POOLS).every((p) => p.base >= 1024 && p.base + p.count - 1 <= 65535),
-    ephemeral ? ('ephemeral=' + ephemeral.lo + '-' + ephemeral.hi + ' pools=' + JSON.stringify(DEFAULT_POOLS)) : 'no /proc (skip range)');
+  // 合法区间(1024-65535)任何平台都能验 ⇒ 永远真检；
+  // 「避开 OS 动态端口范围」只有读到 /proc 才能验 ⇒ 读不到就 SKIP（此前写成恒真，非 Linux 上等于没验）。
+  check('默认池落在合法端口区间(1024-65535)',
+    Object.values(DEFAULT_POOLS).every((p) => p.base >= 1024 && p.base + p.count - 1 <= 65535),
+    'pools=' + JSON.stringify(DEFAULT_POOLS));
+  if (ephemeral) {
+    const overlaps = (p) => !(p.base + p.count - 1 < ephemeral.lo || p.base > ephemeral.hi);
+    check('默认池避开 OS 动态端口范围', !Object.values(DEFAULT_POOLS).some(overlaps),
+      'ephemeral=' + ephemeral.lo + '-' + ephemeral.hi + ' pools=' + JSON.stringify(DEFAULT_POOLS));
+  } else {
+    skip('默认池避开 OS 动态端口范围', '无 /proc/sys/net/ipv4/ip_local_port_range（非 Linux）⇒ 无法比对');
+  }
 
   console.log('== 2) 供应商规模弹性（旧固定 32 上限）==');
   const reg = new PortRegistry({ file: path.join(TMP, 'ports.json') });
@@ -79,6 +89,7 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   check('池外端口允许为实例端口', allowed, errMsg || ('registered at ' + outsidePort));
 
   const failed = results.filter((r) => !r);
-  console.log('\n结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');
+  console.log('\n结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed, ' + skipped.length + ' skipped');
+  if (skipped.length) { console.log('  未验证（环境不具备条件，不计入通过）:'); for (const n of skipped) console.log('    - ' + n); }
   process.exit(failed.length ? 1 : 0);
 })().catch((e) => { console.error('ERR', e); process.exit(1); });

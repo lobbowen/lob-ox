@@ -10,7 +10,11 @@ const http = require('node:http');
 const ROOT = path.join(__dirname, '..');
 const API_PORT = 28010;
 const results = [];
+const skipped = [];
+// 环境不具备验证条件时必须 SKIP，不得用「!条件 ||」写成恒真的 PASS ——
+// 那会让 CI 上**从未验证过**的安全属性计入通过（本文件 5 条 LAN 断言曾如此，见 LAN_IP 说明）。
 const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x ? '  ← ' + x : '')); };
+const skip = (n, why) => { skipped.push(n); console.log('SKIP ' + n + (why ? '  ← ' + why : '')); };
 
 // 维度名单从内核源码取，不抄第二份；取不到即抛，不静默降级成硬编码名单。
 const SRC_SECTION_ORDER = (() => {
@@ -386,8 +390,9 @@ function reqH(method, p, headers, body) {
     !!instLoopback && instLoopback.remoteToken === 'lan-gate-token-1' && instLoopback.tokenSet === true,
     JSON.stringify(instLoopback && { r: instLoopback.remoteToken, s: instLoopback.tokenSet }));
   instR = LAN_IP ? await req('GET', '/instances', null, LAN_IP + ':' + API_PORT, null, 'lan') : { code: 0, body: {} };
-  check('F1 LAN（真实非回环 socket）未配置密钥 → 401（fail-closed）',
-    !LAN_IP || instR.code === 401, LAN_IP ? (instR.code + '') : '（无 LAN 地址，跳过）');
+  // 真检：无 LAN 地址时 SKIP（不计入通过），不再写 `!LAN_IP ||` 让它恒真。
+  if (LAN_IP) check('F1 LAN（真实非回环 socket）未配置密钥 → 401（fail-closed）', instR.code === 401, instR.code + '');
+  else skip('F1 LAN（真实非回环 socket）未配置密钥 → 401（fail-closed）', '本机无非回环 IPv4 ⇒ 无法建立真实 LAN socket');
 
   const KEY = 'test-access-key-123456';
   const KEY_PORT = API_PORT + 1;
@@ -437,22 +442,27 @@ function reqH(method, p, headers, body) {
   check('F2 回环身份豁免（无 key 放行）', kr.code === 200, kr.code + '');
   kr = await reqKey('GET', '/instances', null, { Authorization: 'Bearer ' + KEY }, 'lan');
   const instLanAuthed = kr.body && kr.body.native;
-  check('F2 已认证 LAN GET /instances → 200 且不下发 token（安全属性转移自 F1）',
-    !LAN_IP || (kr.code === 200 && !!instLanAuthed && instLanAuthed.authUrl.indexOf('token=') < 0 && instLanAuthed.tokenPresent === false),
-    LAN_IP ? (kr.code + ' ' + JSON.stringify(instLanAuthed && instLanAuthed.authUrl)) : '（无 LAN 地址，跳过）');
-  check('F2 已认证 LAN GET /instances → 有 tokenSet 布尔但零 remoteToken 明文',
-    !LAN_IP || (kr.code === 200 && !!instLanAuthed && instLanAuthed.tokenSet === true
+  if (LAN_IP) {
+    check('F2 已认证 LAN GET /instances → 200 且不下发 token（安全属性转移自 F1）',
+      kr.code === 200 && !!instLanAuthed && instLanAuthed.authUrl.indexOf('token=') < 0 && instLanAuthed.tokenPresent === false,
+      kr.code + ' ' + JSON.stringify(instLanAuthed && instLanAuthed.authUrl));
+    check('F2 已认证 LAN GET /instances → 有 tokenSet 布尔但零 remoteToken 明文',
+      kr.code === 200 && !!instLanAuthed && instLanAuthed.tokenSet === true
       && instLanAuthed.remoteToken === undefined
-      && JSON.stringify(instLanAuthed).indexOf('lan-gate-token-1') < 0),
-    LAN_IP ? JSON.stringify(instLanAuthed) : '（无 LAN 地址，跳过）');
+      && JSON.stringify(instLanAuthed).indexOf('lan-gate-token-1') < 0,
+      JSON.stringify(instLanAuthed));
+  } else {
+    skip('F2 已认证 LAN GET /instances → 200 且不下发 token', '本机无非回环 IPv4');
+    skip('F2 已认证 LAN GET /instances → 有 tokenSet 但零明文', '本机无非回环 IPv4');
+  }
   kr = await reqKey('POST', '/env/open-url', null, { Authorization: 'Bearer ' + KEY }, 'lan');
-  check('OU 非回环来源 → 403 且给出可复制地址的说法',
-    !LAN_IP || (kr.code === 403 && kr.body.ok === false && /复制/.test(String(kr.body.error))),
-    LAN_IP ? (kr.code + ' ' + JSON.stringify(kr.body)) : '（无 LAN 地址，跳过）');
+  if (LAN_IP) check('OU 非回环来源 → 403 且给出可复制地址的说法',
+    kr.code === 403 && kr.body.ok === false && /复制/.test(String(kr.body.error)),
+    kr.code + ' ' + JSON.stringify(kr.body));
+  else skip('OU 非回环来源 → 403 且给出可复制地址的说法', '本机无非回环 IPv4');
   kr = await reqKey('GET', '/env/environment', null, { Authorization: 'Bearer ' + KEY }, 'lan');
-  check('EF 已认证非回环来源 GET /env/environment → 200（只读面与动作面的来源闸不同级）',
-    !LAN_IP || kr.code === 200,
-    LAN_IP ? String(kr.code) : '（无 LAN 地址，跳过）');
+  if (LAN_IP) check('EF 已认证非回环来源 GET /env/environment → 200（只读面与动作面的来源闸不同级）', kr.code === 200, String(kr.code));
+  else skip('EF 已认证非回环来源 GET /env/environment → 200', '本机无非回环 IPv4');
   serverKey.close();
 
   {
