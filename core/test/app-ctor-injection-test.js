@@ -127,7 +127,8 @@ function fakeRegistry() {
   const reg = fakeRegistry();
   reg.register({ kind: 'dsh', id: 'main', desired: 'running', phase: 'running' });
   const lcMap = new Map();
-  const mkLc = (id) => ({ id, desired: 'stopped', phase: 'stopped', _monitoring: false, _setPhase(p) { this.phase = p; }, wantRunning() { this.desired = 'running'; } });
+  // snapshot() 模拟真实的 ManagedLifecycle：登记表读数可得（healthy 因此源自真实数据，而不是写死 true）。
+  const mkLc = (id) => ({ id, desired: 'stopped', phase: 'stopped', _monitoring: false, _setPhase(p) { this.phase = p; }, wantRunning() { this.desired = 'running'; }, snapshot() { return { detail: { count: 0, running: 0 } }; } });
   const routerLc = mkLc('router'); routerLc.desired = 'running'; lcMap.set('router', routerLc);
   lcMap.set('instances', mkLc('instances'));
   lcMap.set('dsh', mkLc('dsh'));

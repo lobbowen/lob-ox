@@ -1,4 +1,5 @@
 'use strict';
+const { FALLBACK_REGISTRIES } = require('../../platform/distribution/policies');
 
 const { RouterService } = require('./index');
 const { DistributionManager } = require('../../platform/distribution/index');
@@ -29,7 +30,7 @@ function main() {
   const events = core.events;
   const logger = core.logger;
   const dist = new DistributionManager({
-    registries: (config.registries && config.registries.length) ? config.registries : ['https://registry.npmjs.org'],
+    registries: (config.registries && config.registries.length) ? config.registries : FALLBACK_REGISTRIES,
     registryFile: path.join(swDir, 'registry.json'),
     registryChoiceFile: path.join(swDir, 'registry-choice.json'),
     events,

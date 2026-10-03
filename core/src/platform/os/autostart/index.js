@@ -54,7 +54,7 @@ function setAutostart(on) {
 function setGuiAutostart(on, platform) {
   const pl = platform || process.platform;
   if (pl === 'darwin') return darwin.setGuiAutostart(on, DEPS);
-  if (pl === 'win32') return win32.setGuiAutostart(on);
+  if (pl === 'win32') return win32.setGuiAutostart(on, DEPS);
   if (pl !== 'linux') return { ok: false, unsupported: true, platform: pl, enabled: false, error: '未知平台' };
   return linux.setGuiAutostart(on, DEPS);
 }

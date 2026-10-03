@@ -1,4 +1,5 @@
 'use strict';
+const { FALLBACK_REGISTRIES } = require('../../../platform/distribution/policies');
 
 const path = require('node:path');
 const platform = require('../../../platform/os/index');
@@ -158,7 +159,7 @@ function composeCore(host, rawConfig, configPath) {
     });
     const swDir = path.dirname(host.config.stateFile);
     host.dist = new DistributionManager({
-      registries: (host.config.registries && host.config.registries.length) ? host.config.registries : ['https://registry.npmjs.org'],
+      registries: (host.config.registries && host.config.registries.length) ? host.config.registries : FALLBACK_REGISTRIES,
       registryFile: path.join(swDir, 'registry.json'),
       registryChoiceFile: path.join(swDir, 'registry-choice.json'),
       events: host.events,

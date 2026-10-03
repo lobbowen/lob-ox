@@ -53,7 +53,13 @@ const DEFAULT_CONFIG = Object.assign(
   buildDefaults(domainConfigExtension()),
   { command: ['node', 'dsh', 'web'], healthUrl: 'http://127.0.0.1:3080/' }
 );
-const STATE_FILE = path.join(SUPERVISOR_DIR, 'state.json');
+// stateFile 落点：与 logFilePaths() 同口径——尊重 cfg.stateFile（~ 展开），读不到配置才回落到默认。
+function stateFilePath() {
+  const cfgPath = findConfigPath();
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(cfgPath || USER_CONFIG, 'utf8')); } catch {}
+  return cfg.stateFile ? cfg.stateFile.replace(/^~/, os.homedir()) : path.join(SUPERVISOR_DIR, 'state.json');
+}
 const EVENTS_FILE = path.join(SUPERVISOR_DIR, 'events', 'guard.events.log');
 // 跨平台命令行入口：Unix 为 ~/.local/bin/lobox（软链到包内脚本，无扩展名）；
 //   Windows 为 %APPDATA%\npm 下的 .cmd 垫片 —— 可执行须有扩展名，且创建符号链接需管理员/开发者模式
@@ -456,7 +462,7 @@ function cmdStatus() {
     if (r.error) {
       // fallback: 读状态文件
       try {
-        const s = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+        const s = JSON.parse(fs.readFileSync(stateFilePath(), 'utf8'));
         printStatus(s);
       } catch {
         console.log('daemon 未运行且无状态文件');

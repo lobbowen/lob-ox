@@ -37,10 +37,18 @@ function applyMainPort(host, newPort, pid) {
   }
   try { if (oldPort !== newPort) ports.release(oldPort, 'system:dsh-main'); } catch {}
   host.config.targetPort = newPort;
-  try { host.config.healthUrl = 'http://' + host.config.targetHost + ':' + newPort + '/'; } catch {}
-  host.events.append('main_port_adopted', { from: oldPort, to: newPort, pid });
-  host.logger.warn && host.logger.warn('[main] DSH 真实端口 ' + newPort + '（原配置 ' + oldPort + '），已更正注册与 relay 目标');
-  try { host.daemons.syncLanState(); } catch {}
+  host.config.healthUrl = 'http://' + host.config.targetHost + ':' + newPort + '/';
+  // relay/LAN 同步结果必须可见：此前 catch{} 吞掉失败却仍打印"已更正注册与 relay 目标"（假断言）。
+  let lanSync = 'failed';
+  try {
+    if (host.daemons && typeof host.daemons.syncLanState === 'function') host.daemons.syncLanState();
+    lanSync = 'ok';
+  } catch (e) {
+    host.logger.warn && host.logger.warn('[main] 端口已改用 ' + newPort + '，但 relay/LAN 目标同步失败: ' + ((e && e.message) || e));
+  }
+  host.events.append('main_port_adopted', { from: oldPort, to: newPort, pid, lanSync });
+  host.logger.warn && host.logger.warn('[main] DSH 真实端口 ' + newPort + '（原配置 ' + oldPort + '）'
+    + (lanSync === 'ok' ? '，已更正注册与 relay 目标' : '，注册已改但 relay/LAN 同步未确认'));
   return true;
 }
 

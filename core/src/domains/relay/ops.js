@@ -114,7 +114,8 @@ class LanManager {
     return this._allManaged().some((x) => normalizeRemoteMode(x.remoteMode) === 'wan');
   }
   syncFrpc() {
-    if (!this.frp) return;
+    // 返回同步结果：此前结果被整体丢弃 ⇒ 上层无从知道隧道是否建成（frpAction 对同类失败早已是 ok:false+error）。
+    if (!this.frp) return { ok: false, error: 'frpmgr 不可用' };
     try {
       const all = this.lanInstances || [];
       const safe = all.filter((inst) => {
@@ -129,14 +130,18 @@ class LanManager {
       });
       const r = this.frp.syncFromInstances(safe);
       if (r && r.needInstall) this.logger.info && this.logger.info('frpc not installed; WAN exposure pending install');
+      if (r && r.ok === false) return { ok: false, error: r.error || 'frpc 同步失败', needInstall: !!r.needInstall, proxies: r.proxies };
+      return { ok: true, proxies: r ? r.proxies : 0, running: !!(r && r.running) };
     } catch (e) {
       this.logger.warn && this.logger.warn('frpc sync failed: ' + e.message);
+      return { ok: false, error: e.message };
     }
   }
   reconcile() {
     if (this._reconcileInFlight) return this._reconcileInFlight;
     this._reconcileInFlight = this._reconcileOnce()
-      .catch((e) => { this.logger.warn && this.logger.warn('[reconcile] ' + ((e && e.message) || e)); })
+      .then((v) => ({ ok: true, result: v === undefined ? null : v }))
+      .catch((e) => { this.logger.warn && this.logger.warn('[reconcile] ' + ((e && e.message) || e)); return { ok: false, error: (e && e.message) || String(e) }; })
       .finally(() => { this._reconcileInFlight = null; });
     return this._reconcileInFlight;
   }

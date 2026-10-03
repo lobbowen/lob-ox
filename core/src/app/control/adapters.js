@@ -38,7 +38,16 @@ function registerAll(mgr, deps) {
       kind: 'lan',
       name: '远程控制',
       logger,
-      start: async () => { try { lan.reconcile().catch(()=>{}); lan.syncFrpc(); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; } },
+      // start 的结果必须来自真实执行：reconcile/syncFrpc 各自如实返回 ok，任一失败即 ok:false（此前恒 true）。
+      start: async () => {
+        try {
+          const rec = await lan.reconcile();
+          if (rec && rec.ok === false) return { ok: false, error: 'reconcile: ' + (rec.error || '未知失败') };
+          const fr = lan.syncFrpc ? lan.syncFrpc() : { ok: true };
+          if (fr && fr.ok === false) return { ok: false, error: fr.error || 'frpc 同步失败', needInstall: !!fr.needInstall };
+          return { ok: true, proxies: fr && fr.proxies };
+        } catch (e) { return { ok: false, error: e.message }; }
+      },
       stop: async () => {
         if (deps && deps.supervisor && deps.supervisor._stopping) return { ok: true, already: true, reason: 'guard-shutdown 不停 lan' };
         try { lan.shutdown(); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; }

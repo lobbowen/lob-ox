@@ -108,6 +108,9 @@ function normalize(raw, ext) {
   }
   const cmdPort = extractPortFromCommand(cfg.command);
   if (cmdPort !== null) cfg.targetPort = cmdPort;
+  // 不变量：healthUrl 端口必须等于 targetPort（真实 spawn 端口），否则以 targetPort 校正。
+  // port-rederive 改端口时同步写两者，反证二者本应恒等；此前无人强制 ⇒ 升级可能等错端口。
+  if (u.port && Number(u.port) !== cfg.targetPort) { u.port = String(cfg.targetPort); cfg.healthUrl = u.toString(); }
   cfg.tickIntervalMs = Number(cfg.tickIntervalMs) > 0 ? Number(cfg.tickIntervalMs) : 5000;
   cfg.startsecs = Number(cfg.startsecs) > 0 ? Number(cfg.startsecs) : 10;
   cfg.startupFailWindowMs = Number(cfg.startupFailWindowMs) > 0 ? Number(cfg.startupFailWindowMs) : 60000;

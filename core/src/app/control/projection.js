@@ -86,12 +86,21 @@ function createProjection(deps) {
     if (!lc) return;
     lc.wantRunning();
     lc._monitoring = true;
-    lc.healthy = true;
-    lc.error = null;
+    // healthy 来自登记表读数本身（adapters 的 status 读失败即 null）：读数不可用时面板须显示降级，不得无条件绿灯。
+    const snap = typeof lc.snapshot === 'function' ? lc.snapshot() : null;
+    const detail = snap ? snap.detail : null;
     lc.lastProbeAt = new Date().toISOString();
-    if (lc.phase !== 'running') {
-      lc._setPhase('running');
-      lc.startedAt = lc.startedAt || new Date().toISOString();
+    if (detail) {
+      lc.healthy = true;
+      lc.error = null;
+      if (lc.phase !== 'running') {
+        lc._setPhase('running');
+        lc.startedAt = lc.startedAt || new Date().toISOString();
+      }
+    } else {
+      lc.healthy = false;
+      lc.error = '实例登记表读数不可用';
+      if (lc.phase !== 'stopped') lc._setPhase('stopped');
     }
   }
 
