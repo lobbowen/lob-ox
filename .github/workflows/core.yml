@@ -258,7 +258,7 @@ jobs:
             *) echo "::error::不支持的平台 $PLAT"; exit 1 ;;
           esac
           SPEC="@lob-ox/core-$OS_TAG-$ARCH@$VER"
-          echo "  发布后自证目标: $SPEC（registry=$REGISTRY）"
+          echo "  发布后自证目标: ${SPEC} registry=${REGISTRY}"
           # registry 摄取与前置缓存有分钟级延迟（同 published-smoke 的重试理由）⇒ 有限轮重试；
           # 轮次用尽仍未确认即判红。⚠ 末尾不用 `[ ... ] && sleep`：那会让循环体以非零收尾、被 -e 炸掉。
           PROBE_ATTEMPTS=5
@@ -270,7 +270,7 @@ jobs:
             if OUT="$(npm view "$SPEC" version --registry="$REGISTRY" --prefer-online 2>&1)"; then
               OUT="${OUT//$'\r'/}"
               case "$OUT" in
-                *"$VER"*) echo "  ✓ registry 已确认 $SPEC"; rc=0; break ;;
+                *"$VER"*) echo "  registry 已确认 ${SPEC}"; rc=0; break ;;
                 *) echo "  第 $i/$PROBE_ATTEMPTS 轮 npm view 返回与 $VER 不符: $OUT" ;;
               esac
             else
@@ -280,7 +280,7 @@ jobs:
             if [ "$i" -lt "$PROBE_ATTEMPTS" ]; then sleep "$PROBE_SLEEP_SEC"; fi
           done
           if [ "$rc" != 0 ]; then
-            echo "::error::发布后自证失败：$PROBE_ATTEMPTS 轮后 registry 仍未确认 $SPEC —— job 不得以此收场（产物并未真正发布）"
+            echo "::error::发布后自证失败：${PROBE_ATTEMPTS} 轮后 registry 仍未确认 ${SPEC} - job 不得以此收场（产物并未真正发布）"
             exit 1
           fi
 
