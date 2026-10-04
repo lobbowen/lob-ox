@@ -161,10 +161,30 @@ pub(crate) fn cli_service_plan() -> i32 {
 }
 
 pub(crate) fn cli_run_guard() -> i32 {
-    let Some((rt, guard)) = crate::domain::guardctl::resolve_local(None) else {
+    // 诊断留痕：此前只报一句"未找到"，无法区分是 runtime 契约缺失还是内核候选全部取不到版本。
+    // 真机上两者文件都在却仍失败 ⇒ 必须分别报告，否则排障只能靠推理。
+    let rt = crate::runtime_contract::ensure();
+    let cands = crate::domain::coreloc::locate_core_candidates(None);
+    let picked = crate::domain::coreloc::pick_highest(cands.clone());
+    crate::update::log(&format!(
+        "[run-guard] 诊断: runtime={} 候选数={} 选中={}",
+        if rt.is_some() { "ok" } else { "缺失/失效" },
+        cands.len(),
+        picked.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "无".to_string())
+    ));
+    for c in &cands {
+        crate::update::log(&format!(
+            "[run-guard] 候选 {} 版本={}",
+            c.display(),
+            crate::core::installed_version(c).unwrap_or_else(|| "取不到".to_string())
+        ));
+    }
+    let Some((rt2, guard)) = crate::domain::guardctl::resolve_local(None) else {
         eprintln!("[run-guard] 本地检测失败：未找到可用的 node 或内核守卫");
         return 1;
     };
+    let _ = rt;
+    let _ = rt2;
     eprintln!("[run-guard] node={} guard={}", rt.node.display(), guard.display());
     let spec = match crate::platform::LaunchSpec::from_runtime(&rt, guard) {
         Ok(s) => s,
