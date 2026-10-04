@@ -261,13 +261,20 @@ pub fn api_port() -> u16 {
 pub fn discovered_api_port() -> Option<u16> {
     let s = std::fs::read_to_string(supervisor_dir().join("ports.json")).ok()?;
     let v: serde_json::Value = serde_json::from_str(&s).ok()?;
-    valid_api_port(
+    let port = valid_api_port(
         v.get("records")?
             .as_array()?
             .iter()
             .filter(|r| r.get("role").and_then(|x| x.as_str()) == Some("supervisor-api"))
             .max_by_key(|r| r.get("createdAt").and_then(|x| x.as_u64()).unwrap_or(0)),
-    )
+    )?;
+        // 弃用端口同样不得采信：ports.json 里那条可能是**老产品**写的
+        // （实证：36360 由 dsh-supervisor 的守卫登记并常驻）。照单全收会让壳
+        // 用 36360 判「在服役」、却用 37360 导航（api_base_url 已迁移）⇒ 两个端口不一致 ⇒ 面板拒绝连接。
+    if is_deprecated_api_port(port) {
+        return None;
+    }
+    Some(port)
 }
 
 fn valid_api_port(rec: Option<&serde_json::Value>) -> Option<u16> {
@@ -370,6 +377,43 @@ mod tests {
     }
 
     #[test]
+    /// 弃用端口不得从 ports.json 被采信：那条记录可能是老产品写的（实证：36360 常驻）。
+    /// 若照单全收 ⇒ 用旧端口判"在服役"、用新端口导航 ⇒ 面板拒绝连接。
+    #[test]
+    fn a5_discovered_port_ignores_deprecated() {
+        let dir = std::env::temp_dir().join(format!("dsh-a5-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("supervisor")).unwrap();
+        let saved = std::env::var_os("HOME");
+        let saved_ur = std::env::var_os("USERPROFILE");
+        std::env::set_var("HOME", &dir);
+        std::env::set_var("USERPROFILE", &dir);
+        // 写入一条登记弃用端口的 ports.json（模拟老产品留下的记录）
+        let ports = serde_json::json!({
+            "records": [{ "port": 36360u16, "role": "supervisor-api", "createdAt": 1u64 }]
+        });
+        std::fs::write(
+            dir.join("supervisor").join("ports.json"),
+            serde_json::to_string(&ports).unwrap(),
+        )
+        .unwrap();
+        let got = discovered_api_port();
+        // 还原环境
+        match &saved {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+        match &saved_ur {
+            Some(v) => std::env::set_var("USERPROFILE", v),
+            None => std::env::remove_var("USERPROFILE"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            got, None,
+            "A-5 FAIL ports.json 登记的弃用端口被采信 ⇒ 壳会用旧端口判服役、新端口导航"
+        );
+    }
+
     fn a3_default_port_constant_value_and_url_derivation() {
         // 端口常量冻结：改端口须同步改此处，并同步 core/src/platform/service/config.js#apiPort（两处单源）。
         // 37360 而非 36360：老产品 dsh-supervisor 的守卫常驻 36360，新产品原会命中「守卫在服役·跳过启动」。
