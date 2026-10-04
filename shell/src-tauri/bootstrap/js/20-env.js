@@ -100,10 +100,28 @@
   function afterEnv(st) {
     if (st.busy) { NS.setStep(0); NS.status(st.status || '正在准备 Node.js 运行环境…'); return NS.stepNodeWait(); }
     if (!st.installed) {
-      NS.setStep(0);
-      return NS.probeMirrorThen(function () {
-        NS.install.begin('node', '未检测到 Node.js · 正在补全运行环境…');
-        return NS.core.invoke('start_node_install').then(function () { return NS.stepNodeWait('node'); });
+          // 有界轮询（900ms）没探到 ≠ 系统真的没有 Node。
+          // 首装场景实测：探测要枚举落点 + 扫 PATH + 逐个执行 node --version，900ms 内跑不完 ⇒ installed=null；
+          // 于是"系统有达标 Node 却重装"，装完第二次才识别（观感：重启一次才稳）。
+          // 故决定安装前，先用**完备探测**确认一次（system_node_ready），真的没有才装。
+      NS.status('正在完备探测系统 Node…');
+      return NS.withTimeout(NS.core.invoke('system_node_ready'), 30000, '完备探测无响应').then(function (full) {
+        var f = full || {};
+        if (f.installed && f.minOk !== false && f.npmOk === true) {
+          NS.status('环境就绪 · Node ' + NS.versionLabel(f.installed) + '（系统自带，已复用）');
+          return NS.stepNodeDone();
+        }
+        NS.setStep(0);
+        return NS.probeMirrorThen(function () {
+          var why = (!f.installed) ? '未检测到 Node.js'
+            : (f.minOk === false ? ('Node.js ' + f.installed + ' 低于最低要求（' + (f.minRequired || 'v22.12') + '）')
+              : ('缺少/不可用的 npm' + (f.npmWhy ? '（' + f.npmWhy + '）' : '')));
+          NS.install.begin('node', why + ' · 正在补全运行环境…');
+          return NS.core.invoke('start_node_install').then(function () { return NS.stepNodeWait('node'); });
+        });
+      }).catch(function (e) {
+        NS.fail('系统 Node 完备探测失败：' + NS.errText(e));
+        return null;
       });
     }
         // 必须校验**最低门槛**：后端一直回传 minOk（DSH 要求 Node >= v22.12），而前端曾长期忽略它 —— 装了旧版 Node 也照常放行，直到内核启动才失败。

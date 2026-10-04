@@ -132,6 +132,45 @@ pub fn finish_boot(app: tauri::AppHandle) -> ShellResult<()> {
     Ok(())
 }
 
+/// 系统 Node 的**完备判定**（供引导决定"要不要装"）。
+///
+/// 与 `node_status` 的分工必须分清：
+///   - `node_status` 是**有界轮询**（budget 900ms，未完成即 probing=true），服务 UI 每 400ms 刷新；
+///   - 判定"系统有没有可用 Node"必须用**完备探测**（`probe_system_node`），否则首次启动时探测跑不完 ⇒ installed=null
+///     ⇒ 系统明明有达标 Node 却重装一遍，装完第二次才识别成功（用户观感："重启一次才稳定"）。
+/// 返回：{ installed, minOk, minRequired, npmOk, npmWhy, nodePath } —— 与 node_status 同名同义，便于前端复用。
+#[tauri::command]
+pub async fn system_node_ready() -> serde_json::Value {
+    let found = match tauri::async_runtime::spawn_blocking(|| crate::env::probe_system_node()).await {
+        Ok(v) => v,
+        Err(_) => None,
+    };
+    let Some((path, version)) = found else {
+        return serde_json::json!({
+            "installed": serde_json::Value::Null,
+            "minOk": false,
+            "minRequired": crate::node::MIN_NODE,
+            "npmOk": serde_json::Value::Null,
+            "nodePath": serde_json::Value::Null,
+        });
+    };
+    let min_ok = crate::node::meets_minimum(Some(&version));
+    // npm 必须与 node 同源且真实可用（与 node_status 同一判据），否则装内核时会失败。
+    let usable = crate::runtime_contract::probe_npm_usable(&path, path.parent().unwrap_or(std::path::Path::new("")));
+    let (npm_ok, npm_why) = match &usable {
+        Ok(u) => (true, None),
+        Err(e) => (false, Some(e.clone())),
+    };
+    serde_json::json!({
+        "installed": version,
+        "minOk": min_ok,
+        "minRequired": crate::node::MIN_NODE,
+        "npmOk": npm_ok,
+        "npmWhy": npm_why,
+        "nodePath": path.display().to_string(),
+    })
+}
+
 /// 互斥锁中毒恢复的**统一约定**：全部 `RunState` 加锁点用 `.unwrap_or_else(|e| e.into_inner())`。锁内是普通状态快照（不承载跨字段不变式），中毒后仍可用 —— 一次 panic 不应让整个应用的功能不可恢复地失效。
 #[tauri::command]
 pub fn start_node_install(state: tauri::State<Mutex<RunState>>, app: tauri::AppHandle) -> ShellResult<()> {
