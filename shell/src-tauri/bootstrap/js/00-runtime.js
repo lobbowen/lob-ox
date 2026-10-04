@@ -37,6 +37,10 @@ window.__BOOT_NS = window.__BOOT_NS || {};
   };
 
   function showFatal(text) {
+        // 致命错误**必须每次都留痕**（此前只记录 phase=error，且 fatalShown 后连文案都丢弃 ⇒ 排障无据）。
+        // 显示层仍幂等（不刷屏），但日志层与 lastFatal 始终更新 —— 真错误后至时不能沉默。
+    try { if (NS.core && NS.core.invoke) NS.core.invoke("boot_trace", { line: "fatal: " + String(text) }); } catch (e) {}
+    NS.lastFatal = String(text);
     if (NS.fatalShown) return;
     NS.fatalShown = true;
     try {
