@@ -20,6 +20,7 @@ mod platform;
 mod update;
 mod update_plan;
 mod release_channel;
+mod state_reconcile;
 
 use std::sync::Mutex;
 use tauri::Manager;
@@ -61,6 +62,8 @@ pub(crate) fn log(state: &RunState) -> serde_json::Value {
 fn shell_update_plan_text() -> String {
     let v = env!("CARGO_PKG_VERSION").to_string();
     let id = update::init_identity(&v);
+    // 状态根调和：版本戳变化即对账易变条目（在线更新只换二进制，状态根不会自己跟上）。
+    crate::state_reconcile::reconcile_once(&v);
     let mut out = String::new();
     out.push_str(&format!("shell_version={}", id.get("version").and_then(|x| x.as_str()).unwrap_or("?")));
     out.push_str(&format!(" platform={}", id.get("platform").and_then(|x| x.as_str()).unwrap_or("?")));
