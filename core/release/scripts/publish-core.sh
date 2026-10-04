@@ -197,5 +197,12 @@ if [ "$PUBLISH" = 1 ]; then
 else
   echo "== npm publish --dry-run（确认无误后加 --publish 真发）${DIST_TAG:+ → 将打 tag=${DIST_TAG#--tag }} → $REGISTRY =="
   echo "   真发布后另有一步通道回补：本次版本高于 latest 时把 latest 指到 $VER"
+  # 已发布过的版本上 npm 的 dry-run 会以 EPUBLISHCONFLICT 失败（同一版本不可覆盖）。
+  # 那是**预期状态**而非故障：本平台这一版已在 registry 上 ⇒ 如实说明并视为通过，
+  # 绝不把它吞成成功（要说清"因已存在而跳过"），也不让脚本以非零退出污染整条产线。
+  if npm view "$PKG_NAME@$VER" version --registry="$REGISTRY" >/dev/null 2>&1; then
+    echo "   本平台 $PKG_NAME@$VER 已存在于 registry ⇒ dry-run 无需重跑（同版本不可覆盖）"
+    exit 0
+  fi
   npm publish --dry-run --registry="$REGISTRY" $DIST_TAG
 fi
