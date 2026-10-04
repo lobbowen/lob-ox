@@ -243,7 +243,7 @@ pub fn reconcile_node_layout() -> Outcome {
         return Outcome::Skipped(format!("私有 Node 迁移到全局失败：{}", e));
     }
     // 位置契约必须跟着改：否则 core.json 仍指向已搬走的私有路径 ⇒ 守卫起不来。
-    crate::domain::core_contract::retarget_prefix(&priv_root, &global);
+    crate::core_contract::retarget_prefix(&priv_root, &global);
     crate::runtime_contract::retarget_prefix(&priv_root, &global);
     Outcome::Rewritten(format!(
         "私有 Node 已迁到全局：{} -> {}（并同步内核/运行时位置契约）",
