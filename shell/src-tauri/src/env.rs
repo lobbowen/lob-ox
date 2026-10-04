@@ -208,6 +208,12 @@ fn config_json() -> Option<serde_json::Value> {
 }
 
 /// 守卫本地 API 基址：**与就绪判据同一个端口源**（优先 ports.json 的实际登记，其次 config.json 的 apiPort，最后落回默认常量）—— 守卫因占用顺延过端口时必然失配，导航侧不许留着第二套答案。
+pub const DEPRECATED_API_PORTS: &[u16] = &[36360];
+
+pub fn is_deprecated_api_port(port: u16) -> bool {
+    DEPRECATED_API_PORTS.contains(&port)
+}
+
 pub fn api_base_url() -> String {
     let default_port = DEFAULT_API_PORT;
     let from_config = || {
@@ -217,6 +223,11 @@ pub fn api_base_url() -> String {
             .map(|n| n as u16)
     };
     let port = discovered_api_port().or_else(from_config).unwrap_or(default_port);
+    // 弃用端口迁移：36360 由老产品 dsh-supervisor 的守卫长期占用，
+    // 新产品若沿用会命中「守卫在服役 · 跳过启动」⇒ 自己的守卫永不起来。
+    // 仅改 DEFAULT_API_PORT 对**已有 config.json** 无效（配置优先于常量），
+    // 故对已落盘的旧端口必须显式迁移，否则存量用户升级后依旧撞端口。
+    let port = if is_deprecated_api_port(port) { default_port } else { port };
     format!("http://127.0.0.1:{}/", port)
 }
 
@@ -338,6 +349,25 @@ pub fn home() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    /// 弃用端口必须被迁移：老产品守卫常驻 36360，若沿用 ⇒ 新产品守卫永不起来。
+    /// 且仅改 DEFAULT_API_PORT 对已有 config.json 无效（配置优先），故必须显式迁移。
+    #[test]
+    fn a4_deprecated_ports_are_migrated() {
+        for p in DEPRECATED_API_PORTS {
+            assert!(
+                is_deprecated_api_port(*p),
+                "A-4 FAIL 弃用端口 {} 未被识别（存量用户升级后会撞上老产品守卫）",
+                p
+            );
+        }
+        assert!(
+            !is_deprecated_api_port(DEFAULT_API_PORT),
+            "A-4 FAIL 默认端口自身落在弃用名单里 ⇒ 每次启动都会被迁走"
+        );
+        assert!(!is_deprecated_api_port(37361), "A-4 FAIL 正常端口被误判为弃用");
+    }
 
     #[test]
     fn a3_default_port_constant_value_and_url_derivation() {
