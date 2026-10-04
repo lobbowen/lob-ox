@@ -161,6 +161,15 @@ pub async fn system_node_ready() -> serde_json::Value {
         Ok(u) => (true, None),
         Err(e) => (false, Some(e.clone())),
     };
+    // 判定留痕：此前曾用 file mtime + 面板快照反推探测过程，结论自相矛盾（下载时间早于决定安装的时间）。
+    // 故把判定依据本身写进壳日志 —— 下次复现时直接读事实，不再推断。
+    {
+        let why = npm_why.clone().unwrap_or_else(|| "无".to_string());
+        crate::update::log(&format!(
+            "system_node_ready 判定: installed={} nodePath={} npmOk={} npmWhy={}",
+            version, path.display(), npm_ok, why
+        ));
+    }
     serde_json::json!({
         "installed": version,
         "minOk": min_ok,
@@ -169,6 +178,14 @@ pub async fn system_node_ready() -> serde_json::Value {
         "npmWhy": npm_why,
         "nodePath": path.display().to_string(),
     })
+}
+
+/// 引导判定留痕：把前端的判定依据写进壳日志（与 `update::log` 同一落点）。
+/// 存在理由：此前排查"系统有 Node 却重装"时只能靠文件 mtime 与面板快照反推，
+/// 结论自相矛盾（下载时间早于决定安装的时间），因为没有**判定当时**的事实记录。
+#[tauri::command]
+pub fn boot_trace(line: String) {
+    crate::update::log(&format!("[boot-trace] {}", line));
 }
 
 /// 互斥锁中毒恢复的**统一约定**：全部 `RunState` 加锁点用 `.unwrap_or_else(|e| e.into_inner())`。锁内是普通状态快照（不承载跨字段不变式），中毒后仍可用 —— 一次 panic 不应让整个应用的功能不可恢复地失效。

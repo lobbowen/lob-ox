@@ -107,6 +107,8 @@
       NS.status('正在完备探测系统 Node…');
       return NS.withTimeout(NS.core.invoke('system_node_ready'), 30000, '完备探测无响应').then(function (full) {
         var f = full || {};
+            // 判定依据留痕到壳日志：此前靠文件时间与面板快照反推，结论自相矛盾（下载早于决定安装）。
+        NS.core.invoke('boot_trace', { line: 'afterEnv 决定前有界轮询 installed=' + st.installed + ' probing=' + st.probing + '；完备探测 installed=' + f.installed + ' minOk=' + f.minOk + ' npmOk=' + f.npmOk + ' nodePath=' + f.nodePath }).catch(function () {});
         if (f.installed && f.minOk !== false && f.npmOk === true) {
           NS.status('环境就绪 · Node ' + NS.versionLabel(f.installed) + '（系统自带，已复用）');
           return NS.stepNodeDone();
