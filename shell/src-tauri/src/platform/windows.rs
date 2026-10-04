@@ -658,9 +658,12 @@ mod toolchain_tests {
             .unwrap_or_else(|| panic!("{} 解出来后 npm 不可用：node={}", choice.version, node.display()));
         let v = rt.npm_version.clone().expect("真实执行过 npm，必须回读到版本号");
         assert!(!v.is_empty());
+        // 位置受控（守护语义不变）：全局化后安装必须落在**全局安装根**；
+        // 老布局（状态根下已装过）仍允许 —— node_install_target 会优先复用，不硬搬既有用户。
+        let global_root = crate::env::global_install_root();
         assert!(
-            node.starts_with(&home),
-            "安装必须落在 DSH_SUPERVISOR_HOME 下，实际：{}",
+            node.starts_with(&global_root) || node.starts_with(&home),
+            "安装必须落在全局安装根（或老布局状态根）下，实际：{}",
             node.display()
         );
         let _ = std::fs::remove_dir_all(&home);
