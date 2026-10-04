@@ -148,6 +148,7 @@ pub fn reconcile_once(shell_version: &str) -> Vec<(&'static str, Outcome)> {
     let entries: Vec<(&'static str, fn() -> Outcome)> = vec![
         ("api-port", reconcile_api_port),
         ("runtime-node", reconcile_runtime_node),
+        ("node-layout", reconcile_node_layout),
     ];
     for (name, f) in entries {
         let o = f();
@@ -206,4 +207,47 @@ mod tests {
         let _ = reconcile_runtime_node();
         let _ = reconcile_api_port();
     }
+}
+
+/// 对账条目③：把**私有 Node 布局**迁到用户级全局目录（产品决策：不做私有化）。
+///
+/// 为什么必须迁：私有化 ⇒ 工具链只有本产品自己看得见（靠运行时自造 PATH），
+/// 于是每套产品各装一份 Node、彼此不通；而本产品定位就是"替用户解决环境问题"，
+/// 装完必须真正在全局可用。
+///
+/// 为什么是"移动"而不是"重装"：私有目录里可能已装了内核（@lob-ox/core-*）与 npm，
+/// 重装会丢；移动后必须同步位置契约（core.json / runtime.json），否则守卫找不到入口。
+pub fn reconcile_node_layout() -> Outcome {
+    let priv_root = crate::env::node_install_root();
+    let global = crate::env::global_install_root();
+    if !priv_root.is_dir() {
+        return Outcome::Unchanged;
+    }
+    let exe = crate::platform::current().node_exe_name();
+    if !priv_root.join(exe).is_file() {
+        return Outcome::Unchanged;
+    }
+    if global.is_dir() {
+        return Outcome::Skipped(format!(
+            "全局目录已存在（{}），保留现状（不覆盖既有全局安装）",
+            global.display()
+        ));
+    }
+    // 全局目录的父级（%APPDATA%\lobox）必须先存在
+    if let Some(parent) = global.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return Outcome::Skipped(format!("创建全局父目录失败：{}", e));
+        }
+    }
+    if let Err(e) = std::fs::rename(&priv_root, &global) {
+        return Outcome::Skipped(format!("私有 Node 迁移到全局失败：{}", e));
+    }
+    // 位置契约必须跟着改：否则 core.json 仍指向已搬走的私有路径 ⇒ 守卫起不来。
+    crate::domain::core_contract::retarget_prefix(&priv_root, &global);
+    crate::runtime_contract::retarget_prefix(&priv_root, &global);
+    Outcome::Rewritten(format!(
+        "私有 Node 已迁到全局：{} -> {}（并同步内核/运行时位置契约）",
+        priv_root.display(),
+        global.display()
+    ))
 }

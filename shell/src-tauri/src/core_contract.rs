@@ -39,6 +39,36 @@ pub fn write(c: &InstalledCore) {
     }
 }
 
+/// 私有 Node 迁到全局后，**位置契约必须跟着改**：core.json 若仍指向已搬走的私有路径，
+/// 守卫就找不到内核入口（这正是"迁移后起不来"的形态）。只重写落在旧前缀下的条目。
+pub fn retarget_prefix(from: &std::path::Path, to: &std::path::Path) -> bool {
+    let Some(cur) = read() else { return false; };
+    let cur_txt = cur.bin.to_string_lossy().to_string();
+    let from_txt = from.to_string_lossy().to_string();
+    if !cur_txt.starts_with(&from_txt) {
+        return false;
+    }
+    let new_txt = cur_txt.replacen(&from_txt, &to.to_string_lossy().to_string(), 1);
+    let prefix_txt = cur
+        .prefix
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string())
+        .map(|s| {
+            if s.starts_with(&from_txt) {
+                s.replacen(&from_txt, &to.to_string_lossy().to_string(), 1)
+            } else {
+                s
+            }
+        });
+    write(&InstalledCore {
+        bin: std::path::PathBuf::from(new_txt),
+        prefix: prefix_txt.map(std::path::PathBuf::from),
+        version: cur.version,
+        source: cur.source,
+    });
+    true
+}
+
 pub fn read() -> Option<InstalledCore> {
     let s = std::fs::read_to_string(path()).ok()?;
     let v: serde_json::Value = serde_json::from_str(&s).ok()?;

@@ -849,7 +849,19 @@ function checkR21() {
       flagged += 1;
     }
   }
-  note('R21 全局落点一致性：常量 ' + need.length + ' 个 + 平台安装落点，问题 ' + flagged + ' 处');
+    // node_install_target 必须**一律返回全局根**：
+  // 此前写成"老布局已装则复用" ⇒ 全局化对既有用户永不生效，Node 依旧私有。
+  const envRs = path.join(CORE, '..', 'shell', 'src-tauri', 'src', 'env.rs');
+  if (fs.existsSync(envRs)) {
+    const src = read(envRs);
+    const m = /pub fn node_install_target\(\) -> PathBuf \{([\s\S]*?)\n\}/.exec(src);
+    if (!m) { fail('R21', envRs, 1, '缺 node_install_target()（Node 落点必须由它决定）'); flagged += 1; }
+    else if (!/global_install_root\(\)/.test(m[1]) || /node_install_root\(\)/.test(m[1])) {
+          fail('R21', envRs, 1, 'node_install_target() 未一律返回全局根（不得因"老布局已装"而停留在私有状态根）');
+      flagged += 1;
+    }
+  }
+  note('R21 全局落点一致性：常量 ' + need.length + ' 个 + 平台安装落点 + 迁移目标，问题 ' + flagged + ' 处');
 }
 
 function main() {

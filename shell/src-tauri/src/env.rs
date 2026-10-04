@@ -126,18 +126,16 @@ pub fn node_install_root() -> PathBuf {
     state_root().join("node")
 }
 
-/// 全局 Node 落点（新布局）：优先取全局根，回落到状态根（老布局已装时不动）。
+/// Node 落点：**一律取用户级全局根**（产品决策：不做私有化）。
+///
+/// 此前写成"老布局已装则复用" —— 那会让全局化对既有用户永远不生效，
+/// Node 依旧私有在状态根里，只有本产品自己看得见。这与产品定位冲突
+/// （本产品就是替用户解决环境问题，装完必须真全局可用）。
+/// 老布局的迁移由 state_reconcile::reconcile_node_layout 负责（移动 + 同步契约）。
 pub fn node_install_target() -> PathBuf {
-    let old_root = node_install_root();
-    if old_root.join(node_exe_name_platform()).is_file() {
-        return old_root;
-    }
     global_install_root()
 }
 
-fn node_exe_name_platform() -> &'static str {
-    crate::platform::current().node_exe_name()
-}
 
 pub fn known_install_node_path() -> Option<PathBuf> {
     let p = crate::platform::current().node_bin_after_install();

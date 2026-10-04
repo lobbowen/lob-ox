@@ -216,6 +216,45 @@ fn from_meta(v: &serde_json::Value) -> Option<NodeRuntime> {
     })
 }
 
+/// 私有 Node 迁到全局后，运行时契约的路径也必须改写（node / binDir / npm / npmArgs）。
+/// 不改写 ⇒ ensure() 判定 is_file 失败 ⇒ 守卫拉不起来。
+pub fn retarget_prefix(from: &Path, to: &Path) -> bool {
+    let Some(cur) = read_node() else { return false; };
+    let from_txt = from.to_string_lossy().to_string();
+    let to_txt = to.to_string_lossy().to_string();
+    let fix = |p: &Path| -> PathBuf {
+        let s = p.to_string_lossy().to_string();
+        if s.starts_with(&from_txt) {
+            PathBuf::from(s.replacen(&from_txt, &to_txt, 1))
+        } else {
+            p.to_path_buf()
+        }
+    };
+    let node = fix(&cur.node);
+    let node_bin_dir = fix(&cur.node_bin_dir);
+    let npm = fix(&cur.npm);
+    let npm_prefix: Vec<String> = cur
+        .npm_prefix
+        .iter()
+        .map(|s| {
+            if s.starts_with(&from_txt) {
+                s.replacen(&from_txt, &to_txt, 1)
+            } else {
+                s.clone()
+            }
+        })
+        .collect();
+    write(&NodeRuntime {
+        node,
+        node_bin_dir,
+        npm,
+        npm_prefix,
+        version: cur.version,
+        npm_version: cur.npm_version,
+    });
+    true
+}
+
 /// 原子写契约（tmp + rename）。保留旧键供内核兼容读取。权限：契约只有路径、无机密，且所在目录已 0700 —— 顶层模块因此不做平台权限分支。
 pub fn write(rt: &NodeRuntime) {
     let dir = crate::env::supervisor_dir();
