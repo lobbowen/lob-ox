@@ -245,6 +245,14 @@ export function EnvironmentCard() {
               {sections?.runtime?.data ? (
                 <div className="grid gap-0.5 text-xs text-muted-foreground">
                   <span>{entryText(sections?.runtime?.data?.node)} · {entryText(sections?.runtime?.data?.npm)} · {entryText(sections?.runtime?.data?.git)}</span>
+                  {(sections?.runtime?.data?.node as any)?.min ? (
+                    <span className="break-all">
+                      Node 门槛：{(sections?.runtime?.data?.node as any).min}
+                      {(sections?.runtime?.data?.node as any).meets === false
+                        ? " ⇒ 本机版本低于门槛，不采纳现有 Node（会安装达标的官方版本）"
+                        : " ⇒ 已达门槛"}
+                    </span>
+                  ) : null}
                   <span>
                     镜像源：{sections?.runtime?.data?.registry?.origin || "未读出"}
                     {sections?.runtime?.data?.registry?.mode ? "（" + sections.runtime.data.registry.mode + "）" : ""}

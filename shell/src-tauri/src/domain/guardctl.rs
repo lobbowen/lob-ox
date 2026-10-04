@@ -226,7 +226,10 @@ pub(crate) fn ensure_started(
         }
     }
 
-    step("服务管理器未能拉起守卫 · 改用直接启动兜底…");
+        // Run 键通道（定义写在 HKCU 自启项）下 start() 明确返回 Err —— 它确实不支持即时启动。
+        // 但**不能因此跳过就绪确认**：直接拉起后若不等 /healthz，就把「拉起了但没确认就绪」当成成功路径，
+        // 面板随后连不上守卫会表现为「127.0.0.1 拒绝连接」。故直接启动后一律走同一段就绪等待。
+    step("服务管理器未能拉起守卫 · 改用直接启动…");
     let evidence = launch.evidence();
     match crate::platform::service().spawn_daemon(spec) {
         Ok(mut child) => {
