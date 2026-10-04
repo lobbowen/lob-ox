@@ -345,6 +345,21 @@ fn detect() -> (Option<PathBuf>, Option<String>, Option<String>) {
     }
     set_summary(format!("{}（进行中：① 已试）", summarize(&out)));
 
+        // ① 之后、② 之前先问系统 PATH：用户**显式装在系统里**的 Node 才是本意。
+        // 此前顺序是 ①记录 → ②已知落点（ProgramFiles/choco/nvm/scoop 等固定猜测）→ ③PATH，
+        // 而装在自定义目录（如 <root>\node，只在 PATH 上、不在任何"已知落点"）的 Node 只能靠③命中；
+        // 一旦①②耗时把预算吃掉，③跑不到 ⇒ 判"未安装" ⇒ 明明系统有达标 Node 却重装一遍。
+        // 故把 PATH 提问提前：先认用户装的，再退回收录的猜测落点。
+    stage("①b 询问系统 PATH 上的 Node");
+    if let Some(p) = crate::env::find_in_path(crate::env::node_exe()) {
+        if add("PATH", p.clone(), &mut out) {
+            if let Some(v) = try_probe("PATH", &p) {
+                set_summary(summarize(&out));
+                return (Some(p), Some(v), None);
+            }
+        }
+    }
+
     stage("② 枚举已知安装落点");
     for (src, p) in known_locations() {
         if !add(&src, p.clone(), &mut out) {

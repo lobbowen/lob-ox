@@ -273,9 +273,16 @@ impl Platform for Impl {
 impl Impl {
         /// 建立/更新守卫计划任务，返回成功所用的方式。用户态守卫不需要最高权限，故不请求 `/RL HIGHEST`：非提权进程带这一项必被拒。同名任务由更高权限持有时先 `/Delete` 再建一次；连删都拒绝，就把「谁持有它」说清并交回调用方换通道。
     fn create_guard_task(&self, action: &str) -> Result<&'static str, String> {
+        // 触发器刻意用 MINUTE（与看护任务同一类），不用 ONLOGON：
+        //   实测多台受限机器（组策略/非管理员）上 `/SC ONLOGON` 与 `/SC ONSTART` 直接 "Access is denied"，
+        //   而 MINUTE / HOURLY / DAILY / WEEKLY / MONTHLY 都能建 —— 于是守卫定义被逼降级到 HKCU Run 键，
+        //   而 Run 键不支持即时启动 ⇒ 每次启动都只能"直接拉起"，服务管理器路径形同虚设（用户观感：一直走兜底）。
+        //   周期触发对守卫是正确的语义：看护本就每 5 分钟把守卫拉回（崩溃自愈），守卫任务与之同族即可。
         let build = || {
             let mut c = Command::new("schtasks");
-            c.args(["/Create", "/TN", GUARD_TASK, "/SC", "ONLOGON", "/F", "/TR", action]);
+            c.args([
+                "/Create", "/TN", GUARD_TASK, "/SC", "MINUTE", "/MO", "5", "/F", "/TR", action,
+            ]);
             c
         };
         let mut first = build();
