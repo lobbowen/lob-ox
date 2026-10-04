@@ -341,7 +341,9 @@ mod tests {
 
     #[test]
     fn a3_default_port_constant_value_and_url_derivation() {
-        assert_eq!(DEFAULT_API_PORT, 3636 * 10, "A-3 FAIL 默认端口常量值被改动");
+        // 端口常量冻结：改端口须同步改此处，并同步 core/src/platform/service/config.js#apiPort（两处单源）。
+        // 37360 而非 36360：老产品 dsh-supervisor 的守卫常驻 36360，新产品原会命中「守卫在服役·跳过启动」。
+        assert_eq!(DEFAULT_API_PORT, 3736 * 10, "A-3 FAIL 默认端口常量值被改动");
         static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let saved = std::env::var_os("HOME");
