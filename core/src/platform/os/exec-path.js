@@ -36,6 +36,23 @@ function firstExecutable(dir, base, platform) {
   return null;
 }
 
+// 全局工具链落点单源（与 shell/src-tauri/src/env.rs#global_install_root 逐字对应，R7 门禁锁一致性）。
+// 决策：产品不做私有化 —— 工具链装到用户级全局目录并登记进 PATH，使终端与其它产品都能看见。
+// 机器级目录（Program Files / /usr/local）无管理员时不可写，故只取用户级。
+const GLOBAL_APP_DIRNAME = 'lobox';
+const GLOBAL_BIN_DIRNAME = 'bin';
+
+function globalInstallRoot(platform, home, env) {
+  const pl = platform || process.platform;
+  const h = home || os.homedir();
+  const e = env || process.env;
+  if (pl === 'win32') {
+    const appdata = e.APPDATA || path.join(h, 'AppData', 'Roaming');
+    return path.join(appdata, GLOBAL_APP_DIRNAME, GLOBAL_BIN_DIRNAME);
+  }
+  return path.join(h, '.local', GLOBAL_BIN_DIRNAME);
+}
+
 function standardDirs(platform, home, env) {
   const pl = platform || process.platform;
   const h = home || os.homedir();
@@ -129,6 +146,10 @@ function resolveDsh(opts) {
     return { runtime: null, bin: hit, isJs: false, launcher: hit };
   }
   if (o.npmRoot) { const js = dshJsIn(o.npmRoot); if (isFile(js)) return asJs(js, null); }
+  // 全局落点必须也查：工具链改为全局安装后，DSH 装在全局 prefix，
+  // 只看 npmRoot（私有 prefix）会永远判「未安装」—— 这正是此前 DSH 检测不到的根因。
+  const gRoot = globalInstallRoot(pl, undefined, env);
+  { const js = dshJsIn(gRoot); if (isFile(js)) return asJs(js, null); }
   return null;
 }
 
@@ -192,4 +213,5 @@ function commandEntryViolation(cmdArr, opts) {
 module.exports = {
   resolveExecutable, candidateNames, standardDirs, npmBin, npxBin,
   resolveDsh, dshJsIn, knownDshEntries, commandEntryViolation, isExecutableFile,
+  globalInstallRoot, GLOBAL_APP_DIRNAME, GLOBAL_BIN_DIRNAME,
 };

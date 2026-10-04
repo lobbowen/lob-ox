@@ -156,7 +156,7 @@ impl Platform for Impl {
     }
 
     fn node_bin_after_install(&self) -> PathBuf {
-        crate::env::node_install_root().join(self.node_exe_name())
+        crate::env::node_install_target().join(self.node_exe_name())
     }
 
     fn is_usable_executable(&self, cand: &Path) -> bool {
@@ -172,7 +172,7 @@ impl Platform for Impl {
 
     fn install_node(&self, file: &Path) -> Result<PathBuf, String> {
                 // 用户级解包（zip），零权限：MSI+UAC 路径提权后常读不到用户 profile 下的 .msi（msiexec 1619），且 canonicalize() 返回的 \\?\ 前缀 msiexec 不认；zip 解包两条问题都不存在。
-        let root = crate::env::node_install_root();
+        let root = crate::env::node_install_target();
         let staging = root.with_file_name("node.extract");
         let extractors: [(&str, fn(&Path, &Path) -> Result<(), String>); 2] = [
             ("tar.exe", extract_with_tar),

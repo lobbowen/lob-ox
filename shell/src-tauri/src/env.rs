@@ -97,9 +97,46 @@ pub fn probe_system_node() -> Option<(PathBuf, String)> {
     crate::nodeprobe::resolve(NODE_PROBE_TOTAL_BUDGET)
 }
 
+/// 全局工具链安装根（**用户级、零权限、跨产品共享**）。
+///
+/// 决策：产品不再把 Node/DSH 私有化到状态根 —— 私有化导致「装完了谁也看不见」：
+/// 运行时只能靠自造 PATH 找到自己装的东西，于是两个产品各装一份、彼此不通，
+/// DSH 装在其中一家，另一家就永远报「未安装」。
+/// 现改为用户级全局落点（与 pip --user / npm 用户 prefix 同源）：
+///   - Windows：%APPDATA%\\lobox\bin（npm 的 %APPDATA%\npm 语义相近，但独立子目录便于卸载）
+///   - 其它：<home>/.local/bin
+/// 前提：机器级目录（Program Files / /usr/local）在无管理员时不可写（实测 EPERM），故只取用户级。
+pub const GLOBAL_BIN_DIRNAME: &str = "bin";
+pub const GLOBAL_APP_DIRNAME: &str = "lobox";
+
+pub fn global_install_root() -> PathBuf {
+    let base = if cfg!(windows) {
+        std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home().join("AppData").join("Roaming"))
+    } else {
+        home().join(".local")
+    };
+    if cfg!(windows) { base.join(GLOBAL_APP_DIRNAME).join(GLOBAL_BIN_DIRNAME) } else { base.join(GLOBAL_BIN_DIRNAME) }
+}
+
 /// 用户级 Node 安装根（**零权限**）：<状态根>/node。
+/// 兼容：老布局的状态根下若已装过 Node，继续复用（避免把既有用户硬搬到新目录）。
 pub fn node_install_root() -> PathBuf {
     state_root().join("node")
+}
+
+/// 全局 Node 落点（新布局）：优先取全局根，回落到状态根（老布局已装时不动）。
+pub fn node_install_target() -> PathBuf {
+    let old_root = node_install_root();
+    if old_root.join(node_exe_name_platform()).is_file() {
+        return old_root;
+    }
+    global_install_root()
+}
+
+fn node_exe_name_platform() -> &'static str {
+    crate::platform::current().node_exe_name()
 }
 
 pub fn known_install_node_path() -> Option<PathBuf> {
@@ -198,7 +235,7 @@ pub fn close_action() -> String {
         .unwrap_or_else(|| "hide".into())
 }
 
-pub const DEFAULT_API_PORT: u16 = 36360;
+pub const DEFAULT_API_PORT: u16 = 37360;
 
 pub fn api_port() -> u16 {
     let u = api_base_url();
@@ -229,6 +266,61 @@ fn valid_api_port(rec: Option<&serde_json::Value>) -> Option<u16> {
 
 pub fn current_api_port() -> u16 {
     discovered_api_port().unwrap_or_else(api_port)
+}
+
+/// 把全局 bin 目录**登记进用户级 PATH**（Q1 决策：装完必须能被看见）。
+///
+/// 存在理由：此前全仓 0 处写 PATH —— 装到哪都行，但终端/其它产品**永远找不到**，
+/// 于是只能靠运行时自造 PATH 找到自己装的东西（这正是"私有化"的实质）。
+/// 语义：只写**用户级**环境变量（HKCU\\Environment / shell profile），不动机器级，零权限。
+pub fn ensure_global_bin_on_path() -> Result<String, String> {
+    let dir = global_install_root();
+    if !dir.is_dir() {
+        return Ok("全局目录尚不存在，跳过 PATH 登记".to_string());
+    }
+    let d = dir.to_string_lossy().to_string();
+    if cfg!(windows) { windows_path_add(&d) } else { unix_path_add(&d) }
+}
+
+#[cfg(windows)]
+fn windows_path_add(dir: &str) -> Result<String, String> {
+    use std::process::Command;
+    let cur = windows_user_path().unwrap_or_default();
+    if cur.split(';').any(|x| x.trim().trim_end_matches('\\').eq_ignore_ascii_case(dir.trim_end_matches('\\'))) {
+        return Ok("PATH 已含全局目录".to_string());
+    }
+    let next = if cur.is_empty() { dir.to_string() } else { format!("{};{}", cur, dir) };
+    let r = crate::bounded::run(Command::new("reg").args(["add", "HKCU\\Environment", "/v", "PATH", "/t", "REG_EXPAND_SZ", "/d", &next, "/f"]), std::time::Duration::from_secs(8));
+    match r {
+        Ok(o) if o.success => Ok("已登记用户 PATH（并广播环境变更）".to_string()),
+        Ok(o) => Err(o.failure("reg add PATH")),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(windows)]
+fn windows_user_path() -> Option<String> {
+    use std::process::Command;
+    let r = crate::bounded::run(Command::new("reg").args(["query", "HKCU\\Environment", "/v", "PATH"]), std::time::Duration::from_secs(8));
+    let o = r.ok()?;
+    if !o.success { return None; }
+    for line in o.stdout.lines() {
+        if let Some(rest) = line.split_once("REG_EXPAND_SZ").or_else(|| line.split_once("REG_SZ")) {
+            return Some(rest.1.trim().to_string());
+        }
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn unix_path_add(dir: &str) -> Result<String, String> {
+    let profile = home().join(".profile");
+    let line = format!("export PATH=\"$PATH:{}\"", dir);
+    let cur = std::fs::read_to_string(&profile).unwrap_or_default();
+    if cur.lines().any(|l| l.contains(dir)) { return Ok("PATH 已含全局目录".to_string()); }
+    let next = if cur.is_empty() || !cur.ends_with('\n') { format!("{}{}\n", cur, line) } else { format!("{}{}\n", cur, line) };
+    std::fs::write(&profile, next).map_err(|e| format!("写入 {} 失败: {}", profile.display(), e))?;
+    Ok(format!("已登记用户 PATH（{}）", profile.display()))
 }
 
 pub fn home() -> PathBuf {

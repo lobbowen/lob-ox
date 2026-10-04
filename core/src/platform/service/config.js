@@ -34,7 +34,7 @@ const BASE_DEFAULTS = {
   stopGraceMs: 10000,
   portReleaseWaitMs: 10000,
   apiHost: '127.0.0.1',
-  apiPort: 36360,
+  apiPort: 37360,
   portPools: null,
   stateFile: path.join(SUP, 'state.json'),
   logFile: path.join(SUP, 'events', 'guard.events.log'),

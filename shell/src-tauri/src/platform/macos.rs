@@ -89,7 +89,7 @@ impl Platform for Impl {
     }
 
     fn node_bin_after_install(&self) -> PathBuf {
-        crate::env::node_install_root().join("bin").join("node")
+        crate::env::node_install_target().join("bin").join("node")
     }
 
     fn is_usable_executable(&self, cand: &Path) -> bool {
@@ -97,7 +97,7 @@ impl Platform for Impl {
     }
 
     fn install_node(&self, file: &Path) -> Result<PathBuf, String> {
-        let root = crate::env::node_install_root();
+        let root = crate::env::node_install_target();
         let staging = root.with_file_name("node.extract");
         let _ = std::fs::remove_dir_all(&staging);
         std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;

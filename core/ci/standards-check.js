@@ -819,6 +819,39 @@ function checkR20() {
   note('R20 lockfile 可复现性：' + files.length + ' 个 package-lock.json，非官方 resolved ' + flagged + ' 处');
 }
 
+
+// ── R21：全局工具链落点跨语言一致（全局化后不得再漂回私有布局）─────────────
+// 决策：产品不做私有化 —— Node/DSH 装到用户级全局目录并登记 PATH。
+// 落点定义有两处（内核 exec-path.js / 壳 env.rs），任一处漂移都会让「装到 A、找 B」。
+function checkR21() {
+  const js = path.join(CORE, 'src', 'platform', 'os', 'exec-path.js');
+  const rs = path.join(CORE, '..', 'shell', 'src-tauri', 'src', 'env.rs');
+  if (!fs.existsSync(js) || !fs.existsSync(rs)) { note('R21 全局落点：源文件缺失，跳过'); return; }
+  const a = read(js); const b = read(rs);
+  const need = ['GLOBAL_APP_DIRNAME', 'GLOBAL_BIN_DIRNAME'];
+  let flagged = 0;
+  for (const k of need) {
+    const inJs = new RegExp("const\\s+" + k + "\\s*=\\s*'([^']+)'").exec(a) || new RegExp("const\\s+" + k + "\\s*:\\s*&str\\s*=\\s*\"([^\"]+)\"").exec(a);
+    const inRs = new RegExp("pub const " + k + "\\s*:\\s*&str\\s*=\\s*\"([^\"]+)\"").exec(b);
+    if (!inJs || !inRs) { fail('R21', js, 1, k + ' 未在两处定义（内核/壳必须各有一份，值须逐字相同）'); flagged += 1; continue; }
+    if (inJs[1] !== inRs[1]) {
+      fail('R21', js, 1, k + ' 跨语言不一致：内核=' + inJs[1] + ' 壳=' + inRs[1] + ' ⇒ 会装到一处、找另一处');
+      flagged += 1;
+    }
+  }
+  // 全局化后，安装必须指向全局目标（不得仍指向私有状态根）
+  const installs = ['platform/windows.rs', 'platform/linux.rs', 'platform/macos.rs'].map((x) => path.join(CORE, '..', 'shell', 'src-tauri', 'src', x));
+  for (const p of installs) {
+    if (!fs.existsSync(p)) continue;
+    const src = read(p);
+    if (/node_install_root\(\)/.test(src)) {
+      fail('R21', p, 1, '平台安装仍用 node_install_root()（私有状态根）⇒ 应改用 node_install_target()（全局落点）');
+      flagged += 1;
+    }
+  }
+  note('R21 全局落点一致性：常量 ' + need.length + ' 个 + 平台安装落点，问题 ' + flagged + ' 处');
+}
+
 function main() {
   console.log('== standards-check：R1..R10 中可机器判定的部分（只读）==');
   checkR2();
@@ -838,6 +871,7 @@ function main() {
   checkR18();
   checkR19();
   checkR20();
+  checkR21();
 
   console.log('');
   notes.forEach((n) => console.log('  OK   ' + n));

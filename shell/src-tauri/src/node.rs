@@ -301,6 +301,12 @@ pub fn finalize_install(
   }
     if let Some(rt) = crate::runtime_contract::derive_usable(node_bin, &v) {
         crate::runtime_contract::write(&rt);
+        // 装完必须**登记到用户 PATH**：否则只有本进程自造的 PATH 能找到它，
+        // 终端与其它产品一概看不见 —— 那正是「私有化」的实质（Q1 决策：全局）。
+        match crate::env::ensure_global_bin_on_path() {
+            Ok(how) => crate::update::log(&format!("全局 PATH 登记：{}", how)),
+            Err(e) => crate::update::log(&format!("全局 PATH 登记失败（不阻断本次安装）：{}", e)),
+        }
         return Ok(rt);
     }
   crate::update::log("官方分发包未提供可用 npm，正在重新执行官方安装（幂等）…");
