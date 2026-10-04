@@ -279,7 +279,12 @@ pub fn ensure_global_bin_on_path() -> Result<String, String> {
         return Ok("全局目录尚不存在，跳过 PATH 登记".to_string());
     }
     let d = dir.to_string_lossy().to_string();
-    if cfg!(windows) { windows_path_add(&d) } else { unix_path_add(&d) }
+    // 平台分支必须走**编译期** #[cfg]：若用运行时 cfg!()，非目标平台的分支函数不会被编译，
+    // 在 Linux/macOS 上直接 E0425（找不到函数）—— CI 四平台编译会全红。
+    #[cfg(windows)]
+    { return windows_path_add(&d); }
+    #[cfg(not(windows))]
+    { return unix_path_add(&d); }
 }
 
 #[cfg(windows)]
