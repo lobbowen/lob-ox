@@ -82,10 +82,6 @@ pub fn write_stamp(shell_version: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 当前代码认为"此刻应有的"版本戳（比对用，不落盘）。
-pub fn expected_stamp(shell_version: &str) -> serde_json::Value {
-    serde_json::json!({ "schema": SCHEMA, "shellVersion": shell_version })
-}
 
 /// 是否需要对账：版本戳缺失或壳版本变化。
 pub fn needs_reconcile(shell_version: &str) -> bool {
