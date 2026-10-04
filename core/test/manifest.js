@@ -81,6 +81,8 @@ const ENTRIES = [
   { file: "test/cookie-attributes-test.js", tier: "L2", os: "all", why: "/open 的 SameSite=Strict 与门卫 cookie 的 SameSite=Lax（安全面）" },
   { file: "test/instance-liveness-criterion-test.js", tier: "L1", os: "all", why: "注入 pidlookup 桩：存活判据须区分「端口被占」与「身份匹配」，外来占用不得冒充实例在跑" },
 
+  { file: "test/config-reconcile-test.js", tier: "L1", os: "all", why: "在线更新不迁状态根：已落盘的弃用配置值必须由默认值覆盖（实证：apiPort=36360 跨三版未更新）" },
+
 ];
 
 const ALL_OS = ['linux', 'darwin', 'win32'];
