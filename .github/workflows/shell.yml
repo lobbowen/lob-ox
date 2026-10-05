@@ -317,7 +317,8 @@ jobs:
           # 注册表必须落在**产品状态根**下，而不是任何 OS 服务目录。
           REG="$STATE/shell/monitor.json"
           [ -f "$REG" ] || { echo "登记表未落在产品状态根下: $REG"; exit 1; }
-          grep -q 'lobox-shell.exe" --run-guard' "$REG" \
+          # 登记表是 JSON：命令里的引号被转义成 \" ⇒ 按 JSON 转义形态匹配（写裸引号必假红）。
+          grep -q 'lobox-shell.exe\\" --run-guard' "$REG" \
             || { echo "登记表里没有稳定入口（壳 + --run-guard）"; cat "$REG"; exit 1; }
           # 只观测那条「将写入的定义」行：verbatim 前缀只可能出现在这一行上，扫全文必假阳。
           if grep -E '^(建立结果|将写入的定义)' <<<"$OUT" | grep -q '\\\\?'; then
