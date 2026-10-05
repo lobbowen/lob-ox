@@ -208,47 +208,65 @@ jobs:
         working-directory: shell/src-tauri
 
       # 用伪内核而非真内核：本步要验的是壳的判据链，只需一个「按实际端口绑定 + 持久化 ports.json +
-      #   回 /healthz 200」的最小 node 进程。状态根隔离到 RUNNER_TEMP：--watchdog 与它拉起的守卫
-      #   共用 DSH_SUPERVISOR_HOME，整条链在同一次进程继承里。
-      - name: Linux 启动链真机冒烟（--watchdog 端到端判就绪）
+      #   回 /healthz 200」的最小 node 进程。状态根隔离到 RUNNER_TEMP。
+      # ★ 语义（唯一权威：仓库根 STANDARDS.md）：--watchdog 是**监控**入口，只观测、不拉起。
+      #   故被管对象由本步自己起（node 直接跑伪内核），--watchdog 只负责回答「此刻是否在服役」。
+      #   断言因此落在观测结论上：在服役时判「在服役」，不在服役时判「不在服役」且**没有**新进程被拉起。
+      - name: Linux 监控观测真机冒烟（--watchdog 只观测，不拉起）
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -u
-          # systemd 单元名取自跨语言单源（core/src/shared/brand.js），本步不再手写服务名。
-          BRAND_JS="$GITHUB_WORKSPACE/core/src/shared/brand.js"
-          UNIT_FILE="$(node -e 'process.stdout.write(require(process.argv[1]).SYSTEMD_UNIT_FILE)' "$BRAND_JS")"
-          [ -n "$UNIT_FILE" ] || { echo "读不到 systemd unit 名（单源 $BRAND_JS）"; exit 1; }
           BIN=./target/debug/lobox-shell
-          STATE="$RUNNER_TEMP/shell-chain-state"
-          PKG="$RUNNER_TEMP/shell-chain-fake-core"
+          STATE="$RUNNER_TEMP/shell-monitor-state"
+          PKG="$RUNNER_TEMP/shell-monitor-fake-core"
           rm -rf "$STATE" "$PKG"
           mkdir -p "$STATE/supervisor" "$PKG/bin"
           printf '{"apiPort":39111}\n' > "$STATE/supervisor/config.json"
           printf '{"name":"lobox-fake","version":"9.9.9"}\n' > "$PKG/package.json"
-          # 夹具随仓携带（ci/fake-core.js）：启动链冒烟与安装冒烟必须用同一份伪内核。
-          # ③ 类路径：$GITHUB_WORKSPACE 是**仓库根**，夹具在 shell/ci/ 下 → 必须显式带 shell/。
+          # 夹具随仓携带（ci/fake-core.js）：与本仓其它冒烟共用同一份伪内核。
           cp "$GITHUB_WORKSPACE/shell/ci/fake-core.js" "$PKG/bin/lobox"
           chmod +x "$PKG/bin/lobox"
-          printf '{"schema":1,"bin":"%s","version":"9.9.9","source":"ci-fake"}\n' "$PKG/bin/lobox" \
-            > "$STATE/supervisor/core.json"
           export DSH_SUPERVISOR_HOME="$STATE"
-          # 兜底 spawn 的守卫是脱离本进程的 node：unit 带 Restart=always，故连服务管理器一侧一起停
-          #   并删定义（残留进程会在这一步之后继续被拉起，干扰后面的计数断言）。
-          trap 'pkill -f "$PKG/bin/lobox" 2>/dev/null || true;
-                systemctl --user disable --now "$UNIT_FILE" 2>/dev/null || true;
-                rm -f "$HOME/.config/systemd/user/$UNIT_FILE"' EXIT
-          if ! "$BIN" --watchdog; then
-            echo "第一步：拉起后未在预算内判为就绪（详见上方 shell.log 与 $STATE/shell/guard.log）"
-            cat "$STATE/shell/shell.log" 2>/dev/null || true
-            cat "$STATE/shell/guard.log" 2>/dev/null || true
-            exit 1
-          fi
-          grep -q '"supervisor-api"' "$STATE/supervisor/ports.json" || { echo "ports.json 缺 supervisor-api 记录"; exit 1; }
+          # 被管对象由本步显式拉起（监控器不代劳）；退出时清干净，避免残留进程干扰后续步骤。
+          trap 'pkill -f "$PKG/bin/lobox" 2>/dev/null || true' EXIT
+
+          # ① 未起被管对象 ⇒ 监控必须判「不在服役」，且不得把它拉起来。
           "$BIN" --watchdog
-          grep -c '\[fake-core\] healthz' "$STATE/shell/guard.log" | grep -q '^1$' \
-            || { echo "第二次 --watchdog 重复拉起了守卫（就绪判据未短路）"; exit 1; }
-          echo "Linux 启动链冒烟通过：解析守卫 → 组装规格 → 拉起 → /healthz 判就绪 → 复用"
+          grep -q '在服役=false' "$STATE/shell/shell.log" \
+            || { echo "① 未起被管对象却判为在服役（观测失真）"; cat "$STATE/shell/shell.log"; exit 1; }
+          pgrep -f "$PKG/bin/lobox" >/dev/null \
+            && { echo "① 监控把未起的对象拉起来了（违反只观测）"; exit 1; }
+          [ ! -f "$STATE/supervisor/ports.json" ] \
+            || { echo "① 监控在只观测的一拍里写下了 ports.json（有副作用）"; exit 1; }
+
+          # ② 起被管对象 ⇒ 它自己登记真实端口；监控在同一端口上判「在服役」。
+          node "$PKG/bin/lobox" >"$STATE/fake-core.out" 2>&1 &
+          FAKE_PID=$!
+          for _ in $(seq 1 40); do
+            [ -f "$STATE/supervisor/ports.json" ] && break
+            sleep 0.5
+          done
+          [ -f "$STATE/supervisor/ports.json" ] \
+            || { echo "② 伪内核未就绪，ports.json 未落盘"; cat "$STATE/fake-core.out"; exit 1; }
+          grep -q '"supervisor-api"' "$STATE/supervisor/ports.json" \
+            || { echo "② ports.json 缺 supervisor-api 记录"; cat "$STATE/supervisor/ports.json"; exit 1; }
+          # 端口是「接管时探测」来的，不预设：取内核自报的那条，而不是写死 39111。
+          PORT="$(node -e 'const j=require(process.argv[1]);const r=(j.records||[]).filter(x=>x.role==="supervisor-api").pop();process.stdout.write(String(r.port))' "$STATE/supervisor/ports.json")"
+          [ -n "$PORT" ] || { echo "② 读不到受管对象自报端口"; exit 1; }
+          "$BIN" --watchdog
+          tail -n 5 "$STATE/shell/shell.log" | grep -q "在服役=true" \
+            || { echo "② 已起被管对象却判为不在服役（端口=$PORT）"; cat "$STATE/shell/shell.log"; exit 1; }
+
+          # ③ 幂等：连续两拍观测不得产生副作用（不重复拉起、不重复写日志判定行之外的东西）。
+          BEFORE="$(wc -l < "$STATE/shell/shell.log")"
+          "$BIN" --watchdog
+          AFTER="$(wc -l < "$STATE/shell/shell.log")"
+          [ "$AFTER" -gt "$BEFORE" ] || { echo "③ 第二拍未留下观测记录（观测未执行）"; exit 1; }
+          pgrep -cf "$PKG/bin/lobox" | grep -q '^1$' \
+            || { echo "③ 观测把受管对象重复拉起了（应有且仅有 1 个实例）"; pgrep -af "$PKG/bin/lobox"; exit 1; }
+          kill "$FAKE_PID" 2>/dev/null || true
+          echo "Linux 监控冒烟通过：未起则判不在服役且不拉起 → 已起则按实际端口判在服役 → 连续观测无副作用"
         working-directory: shell/src-tauri
 
       # Windows 的「服务定义」是计划任务：定义内容（引号、verbatim 前缀、/RL HIGHEST 是否被拒）在单元
