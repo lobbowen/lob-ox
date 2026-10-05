@@ -8,6 +8,8 @@ use std::process::Command;
 use super::service::ServiceControl;
 use super::{home_dir, Capabilities, LaunchSpec, Platform};
 
+pub const NAME: &str = "linux";
+
 const INSTALL_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 /// Linux 可用提权通道（按优先级）。单一事实源，只由 `has_privilege_channel()` 使用：提权唯一消费者是壳自更新（deb 落系统目录），探测与实际执行必须同源；Node 安装刻意不经过这里（解到用户级状态目录，零权限）。
