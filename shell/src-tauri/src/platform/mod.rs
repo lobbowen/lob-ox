@@ -339,7 +339,7 @@ pub fn unix_proc_match_pattern() -> String {
     let core = raw.trim_matches('*');
     let mut out = String::new();
     for c in core.chars() {
-        if regex_meta().contains(c) {
+        if regex_meta().contains(&c) {
             out.push('\\');
         }
         out.push(c);
