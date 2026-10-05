@@ -369,9 +369,10 @@ mod tests {
 
     #[test]
     fn exec_record_failure_renders_command_and_code_once() {
+            // 命令原文刻意用中性程序：本仓不得再出现 OS 服务机制（schtasks/systemctl/launchctl）的字样。
         let r = ExecRecord {
-            program: "schtasks".into(),
-            args: vec!["/Run".into(), "/TN".into(), crate::brand::WINDOWS_GUARD_TASK.into()],
+            program: "lobox-shell".into(),
+            args: vec!["--run-guard".into()],
             timed_out: false,
             timeout_secs: 10,
             code: Some(1),
@@ -382,7 +383,7 @@ mod tests {
         let msg = r.failure("服务管理器启动");
         assert!(msg.contains("服务管理器启动 失败"), "{}", msg);
         assert!(msg.contains("退出码 1"), "{}", msg);
-        assert!(msg.contains(&format!("schtasks /Run /TN {}", crate::brand::WINDOWS_GUARD_TASK)), "缺命令原文: {}", msg);
+        assert!(msg.contains("lobox-shell --run-guard"), "缺命令原文: {}", msg);
         assert!(msg.ends_with("系统找不到指定的文件。"), "{}", msg);
         let fallback = ExecRecord { stdout: "only-stdout".into(), stderr: String::new(), ..r };
         assert_eq!(fallback.detail(), "only-stdout");

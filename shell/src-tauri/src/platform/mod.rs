@@ -234,7 +234,8 @@ impl LaunchSpec {
     }
 }
 
-/// 把稳定入口组装成一行**服务定义命令**（值内部自带引号）：systemd 的 `ExecStart`、launchd 的 `ProgramArguments`、schtasks 的 `/TR` 三处对引号/数组的要求不同，但「命令 = 壳 + --run-guard」这一事实必须单源。
+/// 把稳定入口组装成一行命令（值内部自带引号）：命令 = 壳 + --run-guard 这一事实必须单源。
+/// 仅用于**产品自身的登记表与直接拉起**，不写进任何 OS 服务定义（本产品不借用系统通道）。
 pub fn service_exec_line(shell: &std::path::Path, args: &[&str]) -> String {
     let mut s = format!("\"{}\"", shell.display());
     for a in args {
@@ -242,6 +243,111 @@ pub fn service_exec_line(shell: &std::path::Path, args: &[&str]) -> String {
         s.push_str(a);
     }
     s
+}
+
+/// 监控器登记表的内容（产品自身的事实，非 OS 定义）。
+///
+/// 端口字段记录的是**接管时探测到的**当前端口（`env::current_api_port()`），不是预设值：
+/// 受管对象因占用顺延端口时登记表必须跟着走，锁死端口会让监控永远打在没人监听的端口上。
+pub fn monitor_record_json(
+    port: u16,
+    shell: &std::path::Path,
+    args: &[&str],
+    state_root: &std::path::Path,
+) -> String {
+    let mut s = String::new();
+    s.push_str("{\n  \"schema\": 1,\n");
+    s.push_str(&format!("  \"port\": {},\n", port));
+    s.push_str(&format!("  \"command\": {:?},\n", service_exec_line(shell, args)));
+    s.push_str(&format!("  \"stateRoot\": {:?}\n", state_root.display().to_string()));
+    s.push_str("}\n");
+    s
+}
+
+/// 停止本产品自己接管的受管对象进程（进程管理的唯一实现，三平台共用）。
+///
+/// 刻意**不**调用任何 OS 服务机制：服务管理器是产品自身的机制，与操作系统无关。
+/// 匹配串取自跨语言单源（`brand::PROC_MATCH_GUARD`）：此处再写一份字面量 = 改名漏一处
+/// ⇒ 停止变空操作。
+///
+/// 注意两侧语义不同：`PROC_MATCH_GUARD` 是 **WMI `-like` 通配符**（`*lobox*`），而 Unix 侧
+/// `pkill -f` 吃的是 ERE。直接把 `*lobox*` 交给 pkill 会退化成正则 `*` ⇒ 匹配任意命令行
+/// ⇒ 把整台机器的进程都杀掉。故 Unix 侧在此**显式转换**为 ERE（`lobox`），且先按镜像名
+/// 钉死 node，绝不误杀 DSH 自身的 node（DSH 侧入口永不含本产品名）。
+pub fn kill_managed_processes() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let ps = format!(
+            "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object {{ $_.CommandLine -like '{}' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}",
+            crate::brand::PROC_MATCH_GUARD
+        );
+        let out = crate::bounded::run(
+            std::process::Command::new("powershell").args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &ps,
+            ]),
+            SVC_NORMAL,
+        );
+        return match out {
+            Ok(o) if o.success => Ok(()),
+            Ok(o) => Err(format!("终止受管对象进程失败: {}", o.stderr.trim())),
+            Err(e) => Err(format!("终止受管对象进程超时/失败: {}", e)),
+        };
+    }
+    #[cfg(not(windows))]
+    {
+        let script = managed_stop_script();
+        let out = crate::bounded::run(
+            std::process::Command::new("sh").args(["-c", &script]),
+            SVC_NORMAL,
+        );
+        match out {
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!("终止受管对象进程超时/失败: {}", e)),
+        }
+    }
+}
+
+/// Unix 侧停止受管对象的脚本文本（纯函数、可单测、可断言）。
+///
+/// 为什么不是一句 `pkill -f lobox`：产品名同时出现在**壳自身**（`lobox-shell`）与
+/// 受管对象（node 跑的内核）的命令行里，按 `pkill -f lobox` 会把自己也杀掉。
+/// 故只杀镜像名为 `node` 且命令行含产品名的进程，并显式排除本进程与本次 pkill 自身。
+pub fn managed_stop_script() -> String {
+    format!(
+        "for p in $(ps -eo pid=,comm=,args= | awk '$2 ~ /(^|\\/)node$/ && $0 ~ /{pat}/ {{print $1}}'); do \
+         [ \"$p\" = \"{me}\" ] || kill \"$p\" 2>/dev/null || true; done; exit 0",
+        pat = unix_proc_match_pattern(),
+        me = std::process::id()
+    )
+}
+
+/// `PROC_MATCH_GUARD`（WMI 形态）→ Unix `pkill -f` 的 ERE 形态。
+/// 纯函数、可单测：剥掉 WMI 的 `*`，剩下的字面量按正则元字符转义。
+pub fn unix_proc_match_pattern() -> String {
+    let raw = crate::brand::PROC_MATCH_GUARD;
+    let core = raw.trim_matches('*');
+    let mut out = String::new();
+    for c in core.chars() {
+        if regex_meta().contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn regex_meta() -> [char; 14] {
+    ['.', '\\', '+', '?', '[', ']', '^', '$', '(', ')', '{', '}', '|', '/']
+}
+
+/// 单引号包裹（POSIX shell）：内部单引号按 `'\''` 转义，闭合后再续。
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 /// 以守卫身份运行：`--run-guard` 解析出 node/guard 后调用。Unix 用 `execvp` 替换当前进程（systemd/launchd 直接追踪真实 node）；Windows 分离启动不等待（计划任务实例即结束，保活由看护任务按端口负责）。平台分支只允许在本层。
@@ -437,6 +543,56 @@ mod tests {
             _ => None,
         };
         assert_eq!(got, want, "core_platform_tag 必须与构建 target 一致");
+    }
+
+        /// 服务管理器**不得**借用操作系统服务机制（唯一权威：STANDARDS.md）。
+        /// 判据落在登记表内容与停止脚本的**文本**上：这两个产物是服务管理器对外的全部输出，
+        /// 只要它们不含 schtasks / systemctl / launchctl / LaunchAgents / plist，就没有走系统通道。
+    #[test]
+    fn monitor_outputs_never_reference_os_service_mechanisms() {
+        let shell = std::path::Path::new("/opt/My App/lobox-shell");
+        let json = super::monitor_record_json(37360, shell, &["--run-guard"], std::path::Path::new("/state"));
+        let mut all = json.clone();
+        all.push_str(&super::managed_stop_script());
+        all.push_str(&super::service_exec_line(shell, &["--run-guard"]));
+        for banned in ["schtasks", "systemctl", "systemd", "launchctl", "launchd", "LaunchAgents", ".plist"] {
+            assert!(
+                !all.to_lowercase().contains(&banned.to_lowercase()),
+                "服务管理器产物不得出现 OS 服务机制（{}）：{}",
+                banned,
+                all
+            );
+        }
+    }
+
+        /// 登记表里的端口必须是「接管时探测到的」当前端口，不是预设常量：
+        /// 传 39111 就必须写 39111 —— 写成别的等于把受管对象的真实端口锁死。
+    #[test]
+    fn monitor_record_carries_the_adopted_port_not_a_hardcoded_one() {
+        let j = super::monitor_record_json(39111, std::path::Path::new("/s"), &["--run-guard"], std::path::Path::new("/state"));
+        let v: serde_json::Value = serde_json::from_str(&j).expect("登记表必须是合法 JSON");
+        assert_eq!(v.get("port").and_then(|x| x.as_u64()), Some(39111), "端口必须照抄接管时探测值: {}", j);
+        assert_eq!(v.get("schema").and_then(|x| x.as_u64()), Some(1));
+    }
+
+        /// Unix 停止脚本必须**只**杀 node 且带产品名，并排除本进程 ——
+        /// 否则 `pkill -f lobox` 会把壳自身（lobox-shell）一起杀掉。
+    #[test]
+    fn managed_stop_script_targets_only_managed_node_and_excludes_self() {
+        let s = super::managed_stop_script();
+        assert!(s.contains("comm=") && s.contains("node"), "必须按镜像名钉死 node: {}", s);
+        assert!(s.contains(&super::unix_proc_match_pattern()), "必须带产品名匹配串: {}", s);
+        assert!(s.contains(&std::process::id().to_string()), "必须排除本进程: {}", s);
+        assert!(!s.contains("pkill"), "不得用 pkill（无法排除自身与壳）: {}", s);
+    }
+
+        /// WMI 通配符 → ERE 的转换必须真的剥掉 `*`：把 `*lobox*` 原样交给 pkill -f
+        /// 会退化成匹配任意命令行 ⇒ 杀掉整台机器。
+    #[test]
+    fn unix_proc_match_pattern_strips_wmi_wildcards() {
+        let p = super::unix_proc_match_pattern();
+        assert!(!p.contains('*'), "不得残留 WMI 通配符: {}", p);
+        assert!(p.contains("lobox"), "必须保留产品名字面量: {}", p);
     }
 }
 

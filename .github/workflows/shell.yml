@@ -269,37 +269,38 @@ jobs:
           echo "Linux 监控冒烟通过：未起则判不在服役且不拉起 → 已起则按实际端口判在服役 → 连续观测无副作用"
         working-directory: shell/src-tauri
 
-      # Windows 的「服务定义」是计划任务：定义内容（引号、verbatim 前缀、/RL HIGHEST 是否被拒）在单元
-      #   测试里无法验证，真机 schtasks 才是判据。只到「建立 + 回读现存」：稳定入口只写 --run-guard，
-      #   定义里不携带状态根，而计划任务进程用任务计划程序里的用户环境，拿不到本步设的
-      #   DSH_SUPERVISOR_HOME ⇒ 被拉起的一侧在默认状态根里找不到伪内核。
-      - name: Windows 服务定义真机冒烟（--service-plan --service-apply）
+      # ★ 语义（唯一权威：STANDARDS.md）：服务管理器是**产品自身的监控器**，与 OS 无关。
+      #   故本步验的是「登记表落在产品状态根下 + 内容是稳定入口 + 无 OS 机制痕迹」，
+      #   不再建立计划任务、不再有「用系统通道投递」这个选项。
+      - name: Windows 监控登记真机冒烟（--service-plan --service-apply）
         if: runner.os == 'Windows'
         shell: bash
         run: |
           set -u
-          # 计划任务名取自跨语言单源（core/src/shared/brand.js），本步不再手写任务名。
-          BRAND_JS="$GITHUB_WORKSPACE/core/src/shared/brand.js"
-          GUARD_TASK="$(node -e 'process.stdout.write(require(process.argv[1]).WINDOWS_GUARD_TASK)' "$BRAND_JS")"
-          WATCHDOG_TASK="$(node -e 'process.stdout.write(require(process.argv[1]).WINDOWS_WATCHDOG_TASK)' "$BRAND_JS")"
-          { [ -n "$GUARD_TASK" ] && [ -n "$WATCHDOG_TASK" ]; } || { echo "读不到计划任务名（单源 $BRAND_JS）"; exit 1; }
           BIN=./target/debug/lobox-shell.exe
-          STATE="$RUNNER_TEMP/windows-service-state"
+          STATE="$RUNNER_TEMP/windows-monitor-state"
           rm -rf "$STATE"; mkdir -p "$STATE"
           export DSH_SUPERVISOR_HOME="$STATE"
-          # 服务定义本身不引用 DSH_GUARD_BIN，给一个存在的占位文件即可。
+          # 登记表本身不引用 DSH_GUARD_BIN，给一个存在的占位文件即可。
           GUARD="$STATE/fake-guard.js"; : > "$GUARD"; export DSH_GUARD_BIN="$GUARD"
           if ! OUT=$("$BIN" --service-plan --service-apply 2>&1); then
-            printf '%s\n' "$OUT"; echo "建立服务定义失败（退出码非零）"; exit 1
+            printf '%s\n' "$OUT"; echo "建立监控登记失败（退出码非零）"; exit 1
           fi
           printf '%s\n' "$OUT"
-          grep -q '^建立后现存    = 是' <<<"$OUT" || { echo "schtasks /Create 后 /Query 回读为「否」"; exit 1; }
-          grep -E '^建立结果.*-> "[^"]*lobox-shell\.exe" --run-guard' <<<"$OUT" >/dev/null \
-            || { echo "建立结果里没有可核对的服务定义行"; exit 1; }
-          # verbatim 前缀只可能出现在「写进定义的那一行」上，扫全文必假阳。
-          if grep -E '^建立结果' <<<"$OUT" | grep -q '\\\\?'; then
-            echo "服务定义含 verbatim 前缀（schtasks 不接受）"; exit 1
+          grep -q '^建立后现存    = 是' <<<"$OUT" || { echo "登记表写入后回读为「否」"; exit 1; }
+          # 注册表必须落在**产品状态根**下，而不是任何 OS 服务目录。
+          REG="$STATE/shell/monitor.json"
+          [ -f "$REG" ] || { echo "登记表未落在产品状态根下: $REG"; exit 1; }
+          grep -q 'lobox-shell.exe" --run-guard' "$REG" \
+            || { echo "登记表里没有稳定入口（壳 + --run-guard）"; cat "$REG"; exit 1; }
+          # 只观测那条「将写入的定义」行：verbatim 前缀只可能出现在这一行上，扫全文必假阳。
+          if grep -E '^(建立结果|将写入的定义)' <<<"$OUT" | grep -q '\\\\?'; then
+            echo "登记表含 verbatim 前缀（外部工具不接受）"; exit 1
           fi
+          # 服务管理器产物不得引用任何 OS 服务机制。
+          for bad in schtasks 'CurrentVersion\\Run' systemctl launchctl LaunchAgents; do
+            grep -qi "$bad" "$REG" && { echo "登记表出现 OS 服务机制（$bad）"; cat "$REG"; exit 1; }
+          done
           if ! OUT2=$("$BIN" --service-plan 2>&1); then
             printf '%s\n' "$OUT2"; echo "只读自检失败"; exit 1
           fi
@@ -307,12 +308,7 @@ jobs:
           grep -q '^现存          = 是' <<<"$OUT2" || { echo "只读自检仍报「现存 = 否」"; exit 1; }
           grep -q '^将写入的定义  = "' <<<"$OUT2" || { echo "只读自检未产出定义行"; exit 1; }
           grep -q '未写盘' <<<"$OUT2" || { echo "只读自检走了写盘分支"; exit 1; }
-          # 计划任务是机器级状态，隔离不到 RUNNER_TEMP ⇒ 显式清理。
-          export MSYS2_ARG_CONV_EXCL='*'
-          for t in "$GUARD_TASK" "$WATCHDOG_TASK"; do
-            schtasks /Delete /TN "$t" /F 2>&1 | tail -2 || echo "警告：清理 $t 失败（不影响本步判定）"
-          done
-          echo "Windows 服务定义冒烟通过：装配定义行 → schtasks /Create → /Query 回读现存"
+          echo "Windows 监控登记冒烟通过：装配登记行 → 写入产品状态根 → 回读现存 → 无 OS 机制痕迹"
         working-directory: shell/src-tauri
 
       - name: Build + bundle (Tauri)

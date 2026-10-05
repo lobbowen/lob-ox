@@ -1,16 +1,12 @@
-//! Linux 平台实现（systemd --user）。本文件是 Linux 的**全部**平台知识 —— 其它任何文件都不应出现 `target_os = "linux"`。
+//! Linux 平台实现。本文件是 Linux 的**全部**平台知识 —— 其它任何文件都不应出现 `target_os = "linux"`。
+//! 服务管理由产品自身的监控器承担（见 `super::service`）：本文件**不调用** systemd / systemctl
+//! —— 操作系统服务机制与本产品无关，也不存在「用系统通道投递」的选项。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::service::ServiceControl;
-use super::{home_dir, user_name, Capabilities, LaunchSpec, Platform, SVC_NORMAL, SVC_QUICK};
-
-pub const NAME: &str = "linux";
-
-/// systemd 用户单元的短名与文件名：本文件是这两个名字在 Rust 侧的消费点（服务定义、enable、start/stop 走同一对常量）。
-const UNIT_NAME: &str = crate::brand::SYSTEMD_UNIT_NAME;
-const UNIT_FILE: &str = crate::brand::SYSTEMD_UNIT_FILE;
+use super::{home_dir, Capabilities, LaunchSpec, Platform};
 
 const INSTALL_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
@@ -142,89 +138,57 @@ impl Platform for Impl {
 
 impl ServiceControl for Impl {
     fn kind(&self) -> &'static str {
-        "systemd"
+        "process"
     }
 
+    /// 监控器登记表落点（产品状态根下）。**不是**任何 OS 服务定义的位置。
     fn definition_path(&self) -> PathBuf {
-        home_dir()
-            .join(".config")
-            .join("systemd")
-            .join("user")
-            .join(UNIT_FILE)
+        crate::env::shell_dir().join("monitor.json")
     }
 
-        /// 建立 systemd 用户单元（幂等，且内容过时时自愈）：先算期望内容与磁盘比对，不存在则写入并首次启用、不同则只重写定义、一致则不触碰。
+    /// 登记受管对象（幂等，且内容过时时自愈）：登记的是「产品自己在管谁」，
+    /// 不含任何 OS 投递语义 —— 没有 enable、没有 daemon-reload、没有 linger。
     fn ensure_defined(&self, spec: &LaunchSpec) -> Result<String, String> {
         let path = self.definition_path();
-                // 模板内嵌（不依赖外部 systemd/*.service 文件）。ExecStart 的可执行路径必须自带引号：systemd 对第一个参数按 shell-like 规则解析，未加引号的空格会把含空格的家目录拆成两段。ExecStart 只指向稳定入口 <壳> --run-guard；node/guard 不写进 unit，由 --run-guard 每次启动重新检测。
         let (shell, args) = spec.service_command();
-        let exec_start = crate::platform::service_exec_line(shell, args);
-        let body = "[Unit]\nDescription=@NAME@ - DSH lifecycle guard\nAfter=network.target\nStartLimitIntervalSec=600\nStartLimitBurst=3\n\n[Service]\nType=simple\nEnvironment=\"DSH_SUPERVISOR_HOME=@ROOT@\"\nExecStart=@EXEC@\nRestart=always\nRestartSec=5\nKillMode=process\n\n[Install]\nWantedBy=default.target\n"
-            .replace("@NAME@", UNIT_NAME)
-            .replace("@ROOT@", &spec.state_root.display().to_string())
-            .replace("@EXEC@", &exec_start);
+        let body = crate::platform::monitor_record_json(
+            crate::env::current_api_port(),
+            shell,
+            args,
+            &spec.state_root,
+        );
         let existing = std::fs::read_to_string(&path).ok();
-        let needs_write = match &existing {
-            Some(cur) => cur != &body,
-            None => true,
-        };
-        if !needs_write {
+        if existing.as_deref() == Some(body.as_str()) {
             return Ok(format!("已存在且为最新 {}", path.display()));
         }
         let is_update = existing.is_some();
         if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("创建 systemd 目录失败: {}", e))?;
+            std::fs::create_dir_all(dir).map_err(|e| format!("创建监控登记目录失败: {}", e))?;
         }
-        std::fs::write(&path, &body).map_err(|e| format!("写入 unit 失败: {}", e))?;
-        crate::bounded::run_lossy(
-            Command::new("systemctl").args(["--user", "daemon-reload"]),
-            SVC_QUICK,
-        );
-                // 自愈重写只换定义，绝不重放 enable/enable-linger：自启开关的唯一写者是内核面板。在升级路径上重放 = 用户关掉自启后，任何一次模板演进都会把它偷偷打开。
-        if is_update {
-            return Ok(format!("已更新定义（自启位未改动） {}", path.display()));
-        }
-        let en = crate::bounded::run(
-            Command::new("systemctl").args(["--user", "enable", UNIT_FILE]),
-            SVC_NORMAL,
-        );
-        crate::bounded::run_lossy(
-            Command::new("loginctl").arg("enable-linger").arg(user_name()),
-            SVC_NORMAL,
-        );
-        match en {
-            Ok(o) if o.success => Ok(format!("已建立并启用 {}", path.display())),
-            Ok(o) => Ok(format!(
-                "已建立（enable 未成功：{}，start 时重试）{}",
-                o.stderr.trim(),
-                path.display()
-            )),
-            Err(e) => Ok(format!(
-                "已建立（enable 超时/失败：{}，start 时重试）{}",
-                e,
-                path.display()
-            )),
-        }
+        std::fs::write(&path, &body).map_err(|e| format!("写入监控登记失败: {}", e))?;
+        Ok(format!(
+            "{} {}",
+            if is_update { "已更新监控登记" } else { "已建立监控登记" },
+            path.display()
+        ))
     }
 
+    /// 启动受管对象：产品自己拉起进程（`--run-guard` 稳定入口），不向 OS 投递。
     fn start(&self) -> Result<(), String> {
-        crate::bounded::run_checked(
-            Command::new("systemctl").args(["--user", "start", UNIT_NAME]),
-            SVC_NORMAL,
-            &format!("systemctl --user start {}", UNIT_NAME),
-        )
-        .map(|_| ())
+        let mut cmd = Command::new(crate::platform::self_exe()?);
+        cmd.arg("--run-guard");
+        crate::platform::guard_stdio(&mut cmd);
+        crate::bounded::prepare(&mut cmd);
+        cmd.spawn()
+            .map_err(|e| format!("启动受管对象失败: {}", e))
+            .map(|_| ())
     }
 
+    /// 停止受管对象：按产品自己的进程匹配终止，绝不调用 systemctl。
+    /// 匹配串取自跨语言单源（brand.rs::PROC_MATCH_GUARD），避免改名漏一处 ⇒ 停止变空操作。
     fn stop(&self) -> Result<(), String> {
-        crate::bounded::run_checked(
-            Command::new("systemctl").args(["--user", "stop", UNIT_NAME]),
-            SVC_NORMAL,
-            "systemctl --user stop",
-        )
-        .map(|_| ())
+        crate::platform::kill_managed_processes()
     }
-
 }
 
 #[cfg(test)]

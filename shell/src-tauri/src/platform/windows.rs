@@ -1,16 +1,16 @@
-//! Windows 平台实现（计划任务 schtasks）。本文件是 Windows 的**全部**平台知识。
+//! Windows 平台实现。本文件是 Windows 的**全部**平台知识。
+//! 服务管理由产品自身的监控器承担（见 `super::service`）：本文件**不调用** schtasks、
+//! 也不写 HKCU 登录自启项 —— 操作系统服务机制与本产品无关，也不存在「用系统通道投递」的选项。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::service::ServiceControl;
-use super::{home_dir, Capabilities, LaunchSpec, Platform, SVC_NORMAL, SVC_QUICK};
+use super::{home_dir, Capabilities, LaunchSpec, Platform};
 
 pub const NAME: &str = "windows";
-pub const GUARD_TASK: &str = crate::brand::WINDOWS_GUARD_TASK;
-pub const WATCHDOG_TASK: &str = crate::brand::WINDOWS_WATCHDOG_TASK;
 
-/// 「守卫活着吗」不得只看 TCP 端口存活；GUI 自愈的唯一所有者是守卫（内核 `domains/shell/watchdog`：进程实存 + 宽限 + 更新相位时效），看护任务只剩：守卫没就绪时把它拉起来 —— 见 `domain::cli::cli_watchdog`。
+/// 无头监控入口的参数（`--watchdog`）：只观测（在不在 / 端口 / 版本 / 健康），不拉起、不强杀。
 pub const WATCHDOG_ARGS: &[&str] = &["--watchdog"];
 
 fn ps_quote(s: &str) -> String {
@@ -270,241 +270,69 @@ impl Platform for Impl {
     }
 }
 
+/// 服务管理由产品自身的监控器承担：本文件**不再**建立计划任务、登录自启项或看护任务
+/// —— 操作系统服务机制与本产品无关，也不存在「用系统通道投递」的选项。
+/// 因此本层也不再保留「改换投递通道」一类的东西（原 Channel / 动作记录 / 权限类判定），
+/// 它们只服务于「向 OS 投递」这条已被删除的路径。
 impl Impl {
-        /// 建立/更新守卫计划任务，返回成功所用的方式。用户态守卫不需要最高权限，故不请求 `/RL HIGHEST`：非提权进程带这一项必被拒。同名任务由更高权限持有时先 `/Delete` 再建一次；连删都拒绝，就把「谁持有它」说清并交回调用方换通道。
-    fn create_guard_task(&self, action: &str) -> Result<&'static str, String> {
-        // 触发器刻意用 MINUTE（与看护任务同一类），不用 ONLOGON：
-        //   实测多台受限机器（组策略/非管理员）上 `/SC ONLOGON` 与 `/SC ONSTART` 直接 "Access is denied"，
-        //   而 MINUTE / HOURLY / DAILY / WEEKLY / MONTHLY 都能建 —— 于是守卫定义被逼降级到 HKCU Run 键，
-        //   而 Run 键不支持即时启动 ⇒ 每次启动都只能"直接拉起"，服务管理器路径形同虚设（用户观感：一直走兜底）。
-        //   周期触发对守卫是正确的语义：看护本就每 5 分钟把守卫拉回（崩溃自愈），守卫任务与之同族即可。
-        let build = || {
-            let mut c = Command::new("schtasks");
-            c.args([
-                "/Create", "/TN", GUARD_TASK, "/SC", "MINUTE", "/MO", "5", "/F", "/TR", action,
-            ]);
-            c
-        };
-        let mut first = build();
-        let r = crate::bounded::run(&mut first, SVC_NORMAL)?;
-        if r.success {
-            return Ok("普通权限");
-        }
-        let why = r.failure("schtasks /Create");
-        if !is_access_denied(&why) {
-            return Err(why);
-        }
-        let mut delcmd = Command::new("schtasks");
-        delcmd.args(["/Delete", "/TN", GUARD_TASK, "/F"]);
-        let del = crate::bounded::run(&mut delcmd, SVC_NORMAL)?;
-        if !del.success {
-            return Err(format!(
-                "{}（同名任务由更高权限持有，删不掉也无法覆盖：{}）",
-                why,
-                del.stderr.trim()
-            ));
-        }
-        let mut retry = build();
-        let again = crate::bounded::run(&mut retry, SVC_NORMAL)?;
-        if again.success {
-            return Ok("普通权限，先删除了旧任务");
-        }
-        Err(again.failure("schtasks /Create"))
-    }
-
-    fn ensure_run_key(&self, action: &str) -> Result<(), String> {
-        let mut cmd = Command::new("reg");
-        cmd.args(["add", RUN_KEY, "/v", RUN_VALUE, "/t", "REG_SZ", "/d", action, "/f"]);
-        let r = crate::bounded::run(&mut cmd, SVC_NORMAL)?;
-        if r.success {
-            return Ok(());
-        }
-        Err(r.failure("reg add 登录自启项"))
-    }
-
-        /// 壳拥有的 Windows 看护任务：计划任务直接指向稳定入口的无头模式。幂等：每次 ensure_defined 都 `/Create /F`（覆盖语义），故不会因守卫任务「已是最新」而被跳过。
-    fn watchdog_status(&self, spec: &LaunchSpec) -> String {
-        match self.ensure_watchdog(spec) {
-            Ok(s) => format!("；{}", s),
-            Err(e) => format!("；看护未建立（{}）", e),
-        }
-    }
-
-    fn ensure_watchdog(&self, spec: &LaunchSpec) -> Result<String, String> {
-        let stale = crate::env::supervisor_dir().join("watchdog.ps1");
-        if stale.exists() {
-            let _ = std::fs::remove_file(&stale);
-        }
-        let (shell, args) = (spec.shell.as_path(), WATCHDOG_ARGS);
-        let tr = super::service_exec_line(shell, args);
-        let r = crate::bounded::run(
-            Command::new("schtasks").args([
-                "/Create", "/TN", WATCHDOG_TASK, "/SC", "MINUTE", "/MO", "5", "/F", "/TR", &tr,
-            ]),
-            SVC_NORMAL,
-        )?;
-        if r.success {
-            Ok(format!("看护任务 {} 已建立", WATCHDOG_TASK))
-        } else {
-            Err(r.failure("schtasks 建立看护任务"))
-        }
-    }
-
 }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Channel {
-    Task,
-    RunKey,
-}
-
-impl Channel {
-    fn tag(self) -> &'static str {
-        match self {
-            Channel::Task => "task",
-            Channel::RunKey => "runkey",
-        }
-    }
-
-    fn parse(s: &str) -> Option<Channel> {
-        match s {
-            "task" => Some(Channel::Task),
-            "runkey" => Some(Channel::RunKey),
-            _ => None,
-        }
-    }
-}
-
-fn read_action_record(path: &Path) -> (Option<Channel>, String) {
-    let raw = match std::fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(_) => return (None, String::new()),
-    };
-    let raw = raw.trim_end_matches(|c| c == '\r' || c == '\n');
-    match raw.split_once('\t') {
-        Some((chan, action)) => (Channel::parse(chan), action.to_string()),
-        None => (Some(Channel::Task), raw.to_string()),
-    }
-}
-
-fn write_action_record(path: &Path, channel: Channel, action: &str) -> Result<(), String> {
-    std::fs::write(path, format!("{}\t{}", channel.tag(), action))
-        .map_err(|e| format!("写入动作记录失败: {}", e))
-}
-
-/// 权限类失败：只有这一类值得换通道，参数/策略类失败重试同一条命令不会变好。中英 Windows 的同一事实（`schtasks` 的 stderr 已由 bounded 按控制台码页解码）。
-fn is_access_denied(text: &str) -> bool {
-    let t = text.to_lowercase();
-    text.contains("拒绝访问") || t.contains("access is denied") || t.contains("access denied")
-}
-
-const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-// Run 键里的值名（登录自启的兜底通道，schtasks 不可用时用）：与计划任务名同属「我们的服务标识」，
-// 故取自跨语言单源（User 可见于任务管理器「启动」页）。
-const RUN_VALUE: &str = crate::brand::WINDOWS_RUN_VALUE;
 
 impl ServiceControl for Impl {
     fn kind(&self) -> &'static str {
-        "schtasks"
+        "process"
     }
 
+    /// 监控器登记表落点（产品状态根下）。**不是**计划任务，也不是 HKCU Run 键。
     fn definition_path(&self) -> PathBuf {
-                // 计划任务不是文件；返回标识串供日志/诊断。正因如此，**不能**用 `definition_path().is_file()` 判断「定义是否存在」（恒 false，会让 --service-plan 自检误报）—— 见下面的 is_defined 覆写。
-        PathBuf::from(format!("schtasks://{}", GUARD_TASK))
+        crate::env::shell_dir().join("monitor.json")
     }
 
     fn is_defined(&self) -> bool {
-        matches!(
-            crate::bounded::run(
-                Command::new("schtasks").args(["/Query", "/TN", GUARD_TASK]),
-                SVC_QUICK,
-            ),
-            Ok(o) if o.success
-        )
+        self.definition_path().is_file()
     }
 
-        /// 建立守卫定义（幂等，且动作或通道过时时自愈）。计划任务本身回读不到动作串，故本地留一份动作记录比对；若以「Query 成功即返回」当完成，修复永远到不了已装用户。
+    /// 登记受管对象（幂等，且内容过时时自愈）：登记的是「产品自己在管谁」，
+    /// 不含任何 OS 投递语义 —— 不建计划任务、不写 Run 键、不建看护任务。
     fn ensure_defined(&self, spec: &LaunchSpec) -> Result<String, String> {
-        let task_exists = self.is_defined();
+        let path = self.definition_path();
         let (shell, args) = spec.service_command();
-        let action = super::service_exec_line(shell, args);
-        let record = crate::env::supervisor_dir().join("guard-task.action");
-        if let Some(dir) = record.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("创建状态目录失败: {}", e))?;
+        let body = crate::platform::monitor_record_json(
+            crate::env::current_api_port(),
+            shell,
+            args,
+            &spec.state_root,
+        );
+        let existing = std::fs::read_to_string(&path).ok();
+        if existing.as_deref() == Some(body.as_str()) {
+            return Ok(format!("已存在且为最新 {}", path.display()));
         }
-        let (channel, recorded) = read_action_record(&record);
-        if task_exists && channel == Some(Channel::Task) && recorded == action {
-            let wd = self.watchdog_status(spec);
-            return Ok(format!("已存在且为最新 计划任务 {}{}", GUARD_TASK, wd));
+        let is_update = existing.is_some();
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("创建监控登记目录失败: {}", e))?;
         }
-        let verb = if task_exists { "已更新" } else { "已建立" };
-        match self.create_guard_task(&action) {
-            Ok(how) => {
-                write_action_record(&record, Channel::Task, &action)?;
-                Ok(format!(
-                    "{} 计划任务 {}（{}）-> {}{}",
-                    verb, GUARD_TASK, how, action, self.watchdog_status(spec)
-                ))
-            }
-            Err(e) => match self.ensure_run_key(&action) {
-                Ok(()) => {
-                    write_action_record(&record, Channel::RunKey, &action)?;
-                    Ok(format!(
-                        "计划任务不可用（{}）；已改用登录自启项 {} -> {}{}",
-                        e, RUN_VALUE, action, self.watchdog_status(spec)
-                    ))
-                }
-                Err(e2) => Err(format!("计划任务与登录自启项都建立不了：{}；{}", e, e2)),
-            },
-        }
+        std::fs::write(&path, &body).map_err(|e| format!("写入监控登记失败: {}", e))?;
+        Ok(format!(
+            "{} {}",
+            if is_update { "已更新监控登记" } else { "已建立监控登记" },
+            path.display()
+        ))
     }
 
+    /// 启动受管对象：产品自己拉起进程（`--run-guard` 稳定入口），不向任务计划程序投递。
     fn start(&self) -> Result<(), String> {
-                // 定义写在哪个通道，就向哪个通道请求启动：对只存在于 Run 键的守卫发 `/Run`，得到的是「找不到任务」，那会把兜底通道伪装成服务管理器故障。
-        let (channel, _) = read_action_record(&crate::env::supervisor_dir().join("guard-task.action"));
-        if channel == Some(Channel::RunKey) {
-            return Err("定义通道是登录自启项（HKCU Run），它不支持即时启动".to_string());
-        }
-        crate::bounded::run_checked(
-            Command::new("schtasks").args(["/Run", "/TN", GUARD_TASK]),
-            SVC_NORMAL,
-            "schtasks /Run",
-        )
-        .map(|_| ())
+        let mut cmd = Command::new(crate::platform::self_exe()?);
+        cmd.arg("--run-guard");
+        crate::platform::guard_stdio(&mut cmd);
+        crate::bounded::prepare(&mut cmd);
+        cmd.spawn()
+            .map_err(|e| format!("启动受管对象失败: {}", e))
+            .map(|_| ())
     }
 
+    /// 停止受管对象：产品自己的进程管理，绝不调用 schtasks /End 或 /Delete。
     fn stop(&self) -> Result<(), String> {
-                // 看护任务必须 /Delete 整条计划：/End 只结束本次实例，/SC MINUTE /MO 5 的计划仍会在 5 分钟内再次触发把守卫拉回来。删除后下次 ensure_defined 幂等重建。全部有界：退出流程也要能在服务管理器无响应时走完。
-        crate::bounded::run_lossy(
-            Command::new("schtasks").args(["/Delete", "/TN", WATCHDOG_TASK, "/F"]),
-            SVC_NORMAL,
-        );
-        crate::bounded::run_lossy(
-            Command::new("schtasks").args(["/End", "/TN", GUARD_TASK]),
-            SVC_NORMAL,
-        );
-                // 守卫镜像名是 node.exe（不是 lobox.exe），按镜像名 taskkill 杀不到它；按命令行含守卫模式精确匹配再杀，绝不误杀 DSH 自身的 node。
-        // 匹配串取自跨语言单源（brand.rs::PROC_MATCH_GUARD = "*lobox*"，与 brand.js 同名同值）：此处再写一份字面量 = 改名漏一处 ⇒ 停守卫变成空操作。
-        // 为什么不会误杀 DSH 的 node：过滤器先按镜像名钉死 node.exe，再要求命令行含产品名；DSH 侧入口是 `dsh`（B 类外部名，永不含 lobox）。
-        let ps = format!(
-            "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object {{ $_.CommandLine -like '{}' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}",
-            crate::brand::PROC_MATCH_GUARD
-        );
-        crate::bounded::run_lossy(
-            Command::new("powershell")
-                .args([
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                ])
-                .arg(ps.as_str()),
-            SVC_NORMAL,
-        );
-        Ok(())
+        crate::platform::kill_managed_processes()
     }
-
 }
 
 #[cfg(target_os = "windows")]
@@ -672,42 +500,27 @@ mod toolchain_tests {
 
 #[cfg(test)]
 mod definition_tests {
-
-    use super::{is_access_denied, read_action_record, write_action_record, Channel};
-
-    fn tmp_record(tag: &str) -> std::path::PathBuf {
-        let p = std::env::temp_dir().join(format!("dsh-rec-{}-{}.txt", tag, std::process::id()));
-        let _ = std::fs::remove_file(&p);
-        p
-    }
-
+        /// 服务管理器的产物**不得**引用任何 OS 服务机制（唯一权威：STANDARDS.md）。
+        /// 本文件历史上是 schtasks 的集中地，故在此钉死：登记表与启动命令里
+        /// 不许再出现 schtasks / HKCU Run / 计划任务的痕迹。
     #[test]
-    fn channel_record_roundtrips_and_defaults_to_task_for_legacy() {
-        let p = tmp_record("chan");
-        assert_eq!(read_action_record(&p).0, None, "文件不存在时必须报「无通道」而非猜一个");
-        write_action_record(&p, Channel::RunKey, r#""C:\a b\dsh.exe" --run-guard"#).unwrap();
-        let (c, a) = read_action_record(&p);
-        assert_eq!(c, Some(Channel::RunKey), "通道写进记录却没读回来 -> 下次比对会走错通道");
-        assert_eq!(a, r#""C:\a b\dsh.exe" --run-guard"#, "动作串被通道前缀污染");
-        std::fs::write(&p, r#""C:\x\dsh.exe" --run-guard"#).unwrap();
-        assert_eq!(read_action_record(&p).0, Some(Channel::Task), "旧记录未按计划任务解读");
-        std::fs::write(&p, "task\t\"C:\\x\\dsh.exe\"\r\n").unwrap();
-        let (c, a) = read_action_record(&p);
-        assert_eq!((c, a.as_str()), (Some(Channel::Task), "\"C:\\x\\dsh.exe\""));
-        let _ = std::fs::remove_file(&p);
-    }
-
-    #[test]
-    fn only_permission_shaped_failures_change_channel() {
-        for denied in ["错误: 拒绝访问。\r\n", "ERROR: Access is denied.\n", "Access denied"] {
-            assert!(is_access_denied(denied), "权限类失败被漏判: {}", denied);
-        }
-        for other in [
-            "ERROR: The system cannot find the file specified.",
-            "错误: 无效的参数。",
-            "schtasks /Create 失败（超时被 kill）",
-        ] {
-            assert!(!is_access_denied(other), "非权限类失败被判成权限类 -> 白白换一次通道: {}", other);
+    fn windows_monitor_outputs_never_reference_os_service_mechanisms() {
+        let shell = std::path::Path::new(r"C:\Program Files\lobox\lobox-shell.exe");
+        let json = crate::platform::monitor_record_json(
+            37360,
+            shell,
+            &["--run-guard"],
+            std::path::Path::new(r"C:\state"),
+        );
+        let mut all = json.clone();
+        all.push_str(&crate::platform::service_exec_line(shell, &["--run-guard"]));
+        for banned in ["schtasks", "CurrentVersion\\Run", "/TN", "/SC", "/TR", "LaunchAgents", "systemctl"] {
+            assert!(
+                !all.to_lowercase().contains(&banned.to_lowercase()),
+                "服务管理器产物不得出现 OS 服务机制（{}）：{}",
+                banned,
+                all
+            );
         }
     }
 }

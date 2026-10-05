@@ -1,4 +1,8 @@
-//! 守卫的启停与就绪判定（生命周期所有权的调用方）。铁律：壳不是守卫的所有者 —— 只向所有者（systemd / launchd / schtasks）提出请求，服务管理器不可用时走 spawn 兜底（可用性优先）。阶段序列 P0 契约 -> P1 对齐 -> P3 定位 -> P4 定义 -> P5 启动 -> P6 就绪；P1 是 P5 的前置（磁盘内核必须等于线上最新，否则拒绝启动）。所有等待都有上限，退出也要能在服务管理器无响应时走完。
+//! 守卫的启停与就绪判定（生命周期所有权的调用方）。铁律：壳**自己**是守卫生命周期的所有者 ——
+//! 服务管理器是产品自身的监控器（见 `platform::service`），进程由本产品持有，**不向**
+//! systemd / launchd / 任务计划程序投递任何东西，也不存在「用系统通道投递」的选项。
+//! 监控（`--watchdog` / `panel_watch_tick`）则相反：只观测，不拉起、不强杀、不改生命周期。
+//! 阶段序列 P0 契约 -> P1 对齐 -> P3 定位 -> P4 登记 -> P5 启动 -> P6 就绪；P1 是 P5 的前置（磁盘内核必须等于线上最新，否则拒绝启动）。所有等待都有上限，退出也要能在受管对象无响应时走完。
 
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -94,7 +98,7 @@ pub(crate) fn shutdown_all(port: u16) {
     match crate::platform::service().stop() {
         Ok(()) => crate::update::log("[shell] 退出握手完成：守卫已停止，本次登录内不会自动拉起；重新打开程序即恢复"),
         Err(e) => {
-            eprintln!("[shell] 停止守卫失败: {}（可手动 systemctl --user stop lobox）", e);
+            eprintln!("[shell] 停止守卫失败: {}", e);
             crate::update::log(&format!("[shell] 停止守卫失败: {}", e));
         }
     }

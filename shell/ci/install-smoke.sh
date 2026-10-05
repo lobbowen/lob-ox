@@ -9,8 +9,7 @@ A=$1 AVER=$2 B=$3 BVER=$4 WORK=$5
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # 服务/名字一律取自跨语言单源（core/src/shared/brand.js），本脚本不再手写服务名与二进制名。
 BRAND_JS="$SCRIPT_DIR/../../core/src/shared/brand.js"
-UNIT_FILE=$(node -e 'process.stdout.write(require(process.argv[1]).SYSTEMD_UNIT_FILE)' "$BRAND_JS")
-[ -n "$UNIT_FILE" ] || { echo "读不到 systemd unit 名（单源 $BRAND_JS）"; exit 1; }
+# systemd unit 名已随「服务管理器去系统化」一并移除：安装冒烟不再与任何 OS 服务机制打交道。
 # 装后二进制名（= Tauri 打出来的 Cargo 目标名）与 productName（= .app 目录/安装包名）：期望名一律从单源派生。
 GUI_BIN=$(node -e 'process.stdout.write(require(process.argv[1]).GUI_BIN_NAME)' "$BRAND_JS")
 PRODUCT=$(node -e 'process.stdout.write(require(process.argv[1]).TAURI_PRODUCT_NAME)' "$BRAND_JS")
@@ -125,16 +124,35 @@ chain_linux() {
   printf '{"schema":1,"bin":"%s","version":"9.9.9","source":"ci-fake"}\n' "$FK/bin/lobox" \
     > "$STATE/supervisor/core.json"
   export DSH_SUPERVISOR_HOME="$STATE"
-  # 守卫由 unit 的 Restart=always 反复拉起，只杀进程不删定义会一直复活；runner 上的残留会污染下一步对拉起次数的计数，所以服务定义与进程都要收口。
-  trap 'pkill -f "$FK/bin/lobox" 2>/dev/null || true
-        systemctl --user disable --now "$UNIT_FILE" 2>/dev/null || true
-        rm -f "$HOME/.config/systemd/user/$UNIT_FILE"' EXIT
-  "$BIN" --watchdog || fail chain "装好的壳未在预算内判为就绪，见 $STATE/shell/shell.log 与 $STATE/shell/guard.log"
+  # ★ 语义（唯一权威：STANDARDS.md）：--watchdog 是**监控**入口，只观测、不拉起。
+  #   故受管对象由本步自己起；对它的断言落在观测结论上。收口只需杀进程（不再有 OS 服务定义）。
+  trap 'pkill -f "$FK/bin/lobox" 2>/dev/null || true' EXIT
+
+  # ① 未起受管对象 ⇒ 判「不在服役」，且不得把它拉起来、不得产生 ports.json。
+  "$BIN" --watchdog || fail chain "--watchdog 退出非零（观测一拍本身失败）"
+  grep -q '在服役=false' "$STATE/shell/shell.log" \
+    || fail chain "未起受管对象却判为在服役（观测失真），见 $STATE/shell/shell.log"
+  pgrep -f "$FK/bin/lobox" >/dev/null \
+    && fail chain "监控把未起的受管对象拉起来了（违反只观测）"
+  [ ! -f "$STATE/supervisor/ports.json" ] \
+    || fail chain "监控在只观测的一拍里写下了 ports.json（有副作用）"
+
+  # ② 起受管对象 ⇒ 按它自报的真实端口判「在服役」。
+  node "$FK/bin/lobox" >"$STATE/fake-core.out" 2>&1 &
+  for _ in $(seq 1 40); do
+    [ -f "$STATE/supervisor/ports.json" ] && break
+    sleep 0.5
+  done
+  [ -f "$STATE/supervisor/ports.json" ] \
+    || fail chain "伪内核未就绪，ports.json 未落盘"
   grep -q '"supervisor-api"' "$STATE/supervisor/ports.json" \
     || fail chain "ports.json 缺 supervisor-api 记录（进程没真的绑定端口）"
-  "$BIN" --watchdog || fail chain "第二次 --watchdog 没有短路（已就绪应直接返回 0）"
-  [ "$(grep -c '\[fake-core\] healthz' "$STATE/shell/guard.log")" = 1 ] \
-    || fail chain "第二次 --watchdog 重复拉起了守卫（就绪判据未短路）"
+  "$BIN" --watchdog || fail chain "第二次 --watchdog 退出非零"
+  tail -n 5 "$STATE/shell/shell.log" | grep -q '在服役=true' \
+    || fail chain "已起受管对象却判为不在服役（端口未接管），见 $STATE/shell/shell.log"
+  # ③ 连续观测不得重复拉起（受管对象有且仅有一个实例）。
+  [ "$(pgrep -cf "$FK/bin/lobox")" = 1 ] \
+    || fail chain "观测把受管对象重复拉起了（应有且仅有 1 个实例）"
 }
 
 chain_plan() {
