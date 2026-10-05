@@ -137,8 +137,8 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     mgr.instances = [inst];
     mgr.supervise('b15');
     await new Promise((r) => setImmediate(r));
-    // 旧 BACKOFF 相位的「未守护 → STOPPED」断言已随相位删除；等价红线改为从 RUNNING 退出处覆盖。
-    check('RUNNING 退出 + 守护关 → STOPPED（停就停红线）且未触碰 service、失败链作废',
+    // 旧 BACKOFF 相位的「未监控 → STOPPED」断言已随相位删除；等价红线改为从 RUNNING 退出处覆盖。
+    check('RUNNING 退出 + 监控关 → STOPPED（停就停红线）且未触碰 service、失败链作废',
       inst.state.phase === 'STOPPED' && svcCalls.length === 0 && inst.state.startupFailCount === 0 && inst.state.restartAt === null,
       inst.state.phase + ' ' + svcCalls.join(','));
   }
@@ -147,7 +147,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     const inst = mk('FAILED', { installOk: true, lastError: '安装任务登记失败' });
     mgr.instances = [inst];
     mgr.supervise('b15');
-    check('FAILED+守护关 → 维持 FAILED 且零拉起', inst.state.phase === 'FAILED' && svcCalls.length === 0, inst.state.phase + ' ' + svcCalls.join(','));
+    check('FAILED+监控关 → 维持 FAILED 且零拉起', inst.state.phase === 'FAILED' && svcCalls.length === 0, inst.state.phase + ' ' + svcCalls.join(','));
   }
   {
     const mgr = mkMgr(fs.mkdtempSync(path.join(os.tmpdir(), 'b15-on-')));
@@ -171,9 +171,9 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     // 面板手动重试是 FAILED 的唯一出口：start{manual} 清计数并真正拉起。
     const rManual = await mgr2.startInstance('b15', { manual: true });
     await new Promise((r) => setTimeout(r, 20));
-    check('守护开 + STARTING 到期 ⇒ 立刻重新拉起（固定端口释放等待，非阶梯）',
+    check('监控开 + STARTING 到期 ⇒ 立刻重新拉起（固定端口释放等待，非阶梯）',
       respawned, inst.state.phase + ' restartAt=' + inst.state.restartAt + ' startAt=' + inst.state.startAt + ' ' + svcCalls.join(','));
-    check('守护开 + FAILED ⇒ 零自愈（停靠）；人工重试 start{manual} 是唯一出口 → STARTING 且计数清零',
+    check('监控开 + FAILED ⇒ 零自愈（停靠）；人工重试 start{manual} 是唯一出口 → STARTING 且计数清零',
       stayedHalted && rManual.ok === true && inst2.state.phase === 'STARTING' && inst2.state.startupFailCount === 0,
       'halted=' + stayedHalted + ' ok=' + rManual.ok + ' ' + inst2.state.phase + ' count=' + inst2.state.startupFailCount);
   }
@@ -229,7 +229,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     await new Promise((r) => setImmediate(r));
     // 理由：旧的「installOk 兜底自愈拉起」是第二套重启策略；统一后 FAILED 一律停靠，
     // 计数与原因原样保留，唯一出口是人工重试（面板 start → startInstance{manual}）。
-    check('D-3 停靠不再自愈：守护开 + FAILED + installOk=true 仍零拉起、计数原样保留',
+    check('D-3 停靠不再自愈：监控开 + FAILED + installOk=true 仍零拉起、计数原样保留',
       inst.state.phase === 'FAILED' && inst.state.restartCount === 21 && inst.state.startupFailCount === 5 && svcCalls.length === 0,
       'phase=' + inst.state.phase + ' count=' + inst.state.startupFailCount + ' calls=' + svcCalls.join(','));
     const r = await mgr.startInstance('b15', { manual: true });

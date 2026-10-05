@@ -131,7 +131,7 @@ module.exports = {
           d.beginRestart('exit:' + why, { startupFailure: inStartup });
         } else {
           d.writeCrashHalted(true);
-          d.events().append('guardian_off_exit', { reason: 'child_exit:' + why + ' 未守护，保持停止' });
+          d.events().append('guardian_off_exit', { reason: 'child_exit:' + why + ' 未监控，保持停止' });
           d.state().setPhase('STOPPED');
         }
       }

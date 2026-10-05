@@ -49,7 +49,7 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
   const r1 = await sup.shutdownAll();
   check('shutdownAll → 回执 ok/sessionState=stopped、会话态 stopped、_sessionHalting() 生效',
     r1 && r1.ok === true && r1.sessionState === 'stopped' && sup.sessionState() === 'stopped' && sup._sessionHalting() === true, JSON.stringify(r1));
-  check('退出后 shellHalted 跨守卫重启继承且 statusSummary 暴露（抑制看护）',
+  check('退出后 shellHalted 跨守卫重启继承且 statusSummary 暴露（抑制监控）',
     sup.statusSummary().shellHalted === true, JSON.stringify(sup.statusSummary().shellHalted));
   const r2 = await sup.shutdownAll();
   check('shutdownAll 幂等（already 回执）', r2 && r2.ok === true && r2.already === true && r2.sessionState === 'stopped', JSON.stringify(r2));
@@ -83,11 +83,11 @@ const check = (n, c, x) => { results.push(!!c); console.log((c ? 'PASS' : 'FAIL'
     spawned = 0;
     s2._mSetDesired('running');
     s2._setSessionState('running');
-    s2._crashHalted = true; // 模拟未守护崩溃停靠
+    s2._crashHalted = true; // 模拟未监控崩溃停靠
     s2._mSetPhase('STOPPED');
     s2.intents.clear();
     await s2.tick();
-    check('P2-C 未守护崩溃停靠后不自动拉起（guardian 语义保留）', spawned === 0, 'spawned=' + spawned);
+    check('P2-C 未监控崩溃停靠后不自动拉起（guardian 语义保留）', spawned === 0, 'spawned=' + spawned);
 
     spawned = 0;
     s2._mSetDesired('stopped');

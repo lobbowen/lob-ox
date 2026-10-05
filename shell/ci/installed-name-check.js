@@ -6,7 +6,7 @@
 //
 // 为什么要这条断言：安装冒烟此前用通配找装好的二进制（`dpkg -L | grep /usr/bin/*`、`find Contents/MacOS | head -1`、
 //   `-like 'lobox*'`），于是「Tauri 把主二进制改成了别的名字」这类不一致**永远查不出来**：通配总能挑到一个文件、
-//   探针照样跑得起来，而内核按名字找壳/看护壳的那一侧（brand.js#PROC_MATCH_GUI、PROC_MATCH_GUI_RE）已经失配。
+//   探针照样跑得起来，而内核按名字找壳/监控壳的那一侧（brand.js#PROC_MATCH_GUI、PROC_MATCH_GUI_RE）已经失配。
 //
 // 期望名一律从**单源**派生（不在这里写任何名字字面量）：
 //   core/src/shared/brand.js#GUI_BIN_NAME（与 shell/src-tauri/src/brand.rs#GUI_BIN_NAME 逐字对账）

@@ -56,7 +56,7 @@ export interface SupervisorStatus {
   restartCount?: number;
   lastFailure?: string | null;
   upgradeHold?: boolean;
-  /** 退出管家持久标记：退出后守卫重启不得凭看护把壳拉回。 */
+  /** 退出管家持久标记：退出后守卫重启不得凭监控把壳拉回。 */
   shellHalted?: boolean;
   commandMissing?: boolean;
   dshTokenCaptured?: boolean;

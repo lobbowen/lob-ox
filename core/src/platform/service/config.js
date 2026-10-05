@@ -23,7 +23,7 @@ function normalizeExtension(ext) {
 }
 
 const BASE_DEFAULTS = {
-  // 守卫看护节拍（进程存活只由 child 的 exit/close 事件与平台 pidlookup 判定，见 app/main/*）。
+  // 守卫监控节拍（进程存活只由 child 的 exit/close 事件与平台 pidlookup 判定，见 app/main/*）。
   tickIntervalMs: 5000,
   // 启动窗口（秒）：spawn 后 startsecs 内退出 ⇒ 记一次「启动失败」；活过 startsecs 后退出 ⇒ 正常重启，不计失败。
   startsecs: 10,

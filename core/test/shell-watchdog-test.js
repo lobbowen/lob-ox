@@ -4,7 +4,7 @@
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
-// 纯决策/谓词在 core.js，看护状态机在 watchdog.js；读取面必须随文件搬移同步更新，否则判据静默失去覆盖面。
+// 纯决策/谓词在 core.js，监控状态机在 watchdog.js；读取面必须随文件搬移同步更新，否则判据静默失去覆盖面。
 const { createShellWatchdog } = require(path.join(ROOT, 'src', 'domains', 'shell', 'watchdog'));
 const { decide, isShellProcess, HEADLESS_FLAGS, DEFAULTS } =
   require(path.join(ROOT, 'src', 'domains', 'shell', 'core'));

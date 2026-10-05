@@ -175,10 +175,10 @@ module.exports = {
             d.events().append(BRAND.EVENT_HARNESS_EXITED, { code: null, signal: null, phase: d.state().phase(), adopted: true });
             d.mSetAdoptPid(null);
             if (guarded) d.main().beginRestart('adopted_exit', { startupFailure: false });
-            else { d.writeCrashHalted(true); d.events().append('guardian_off_exit', { reason: 'adopted_exit 未守护，保持停止' }); d.state().setPhase('STOPPED'); }
+            else { d.writeCrashHalted(true); d.events().append('guardian_off_exit', { reason: 'adopted_exit 未监控，保持停止' }); d.state().setPhase('STOPPED'); }
           } else if (!childAlive && d.mChild()) {
             if (guarded) d.main().beginRestart('child_exit', { startupFailure: false });
-            else { d.writeCrashHalted(true); d.events().append('guardian_off_exit', { reason: 'child_exit 未守护，保持停止' }); d.state().setPhase('STOPPED'); }
+            else { d.writeCrashHalted(true); d.events().append('guardian_off_exit', { reason: 'child_exit 未监控，保持停止' }); d.state().setPhase('STOPPED'); }
           }
           // 除此之外 RUNNING 下没有任何判据会触发重启：不探测、不因“忙/慢”杀进程。
           break;

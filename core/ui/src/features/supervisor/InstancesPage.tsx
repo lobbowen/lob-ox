@@ -197,7 +197,7 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
             <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
             <Button disabled={busy} onClick={() => void act(it.id, () => supervisorApi.instanceUpdate(it.id, { guardian: !it.guardian }))} size="sm" variant="outline">
               <ShieldCheck className={cn("size-4", it.guardian ? "text-status-ok" : "text-muted-foreground")} />
-              {it.guardian ? "停止守护" : "启动守护"}
+              {it.guardian ? "停止监控" : "启动监控"}
             </Button>
             <Button className="hidden h-[30px] md:inline-flex" disabled={busy} onClick={() => void removeInstance(it)} size="sm" variant="destructive">
               <Trash2 className="size-4" />删除

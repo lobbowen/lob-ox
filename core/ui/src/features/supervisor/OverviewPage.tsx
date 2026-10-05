@@ -106,7 +106,7 @@ export function OverviewPage() {
       if (typeof g === "boolean") setMainGuardian(g);
       return r2;
     }), {
-      success: v ? "已开启 DSH 进程守护（崩溃自动拉起）" : "已关闭 DSH 进程守护（崩溃后不再自动拉起）",
+      success: v ? "已开启 DSH 进程监控（崩溃自动拉起）" : "已关闭 DSH 进程监控（崩溃后不再自动拉起）",
       refresh: false,
     });
   }
@@ -202,7 +202,7 @@ export function OverviewPage() {
                 <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
                 <Button className="h-[30px]" disabled={busy === "gu" || mainGuardian === null} onClick={() => void toggleMainGuardian()} size="sm" variant="outline">
                   <ShieldCheck className={cn("size-4", mainGuardian === true ? "text-status-ok" : "text-muted-foreground")} />
-                  {mainGuardian === true ? "停止守护" : "启动守护"}
+                  {mainGuardian === true ? "停止监控" : "启动监控"}
                 </Button>
               </>
             ) : null}
@@ -380,7 +380,7 @@ function eventDetail(e: SupervisorEvent): string {
   if (e.type === "proxy_instance_started") return "port=" + (d.port ?? "") + (d.pid ? " pid=" + d.pid : "");
   if (e.type === "harness_guardian_changed" || e.type === "inst_guardian_changed") {
     const who = d.name || (d.id === "main" ? "原生 DSH" : d.id || "实例");
-    return who + " · 进程守护" + (d.enabled === true ? " → 开启" : " → 关闭");
+    return who + " · 进程监控" + (d.enabled === true ? " → 开启" : " → 关闭");
   }
   if (e.type === "harness_remote_changed" || e.type === "inst_remote_changed") {
     const who = d.name || (d.id === "main" ? "原生 DSH" : d.id || "实例");

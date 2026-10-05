@@ -136,7 +136,7 @@ const ENV_VERSION_LIB = 'DSH_VERSION_LIB';
 // ── 服务 / 计划任务 / systemd unit / macOS label ─────────────────────────────
 // Windows 守卫计划任务名：schtasks /Create /Query /Run /End /Delete 全用这个名字。
 const WINDOWS_GUARD_TASK = 'Lobox';
-// Windows 看护计划任务名：每 5 分钟拉起守卫，漏改等于看护失效。
+// Windows 监控计划任务名：每 5 分钟拉起守卫，漏改等于监控失效。
 const WINDOWS_WATCHDOG_TASK = 'Lobox-Watchdog';
 // Windows 壳登录自启计划任务名：由内核自启层建立/删除，壳侧不碰。
 const WINDOWS_GUI_TASK = 'Lobox-Shell';

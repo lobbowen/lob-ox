@@ -864,6 +864,63 @@ function checkR21() {
   note('R21 全局落点一致性：常量 ' + need.length + ' 个 + 平台安装落点 + 迁移目标，问题 ' + flagged + ' 处');
 }
 
+// ── R22：术语门禁（唯一权威：仓库根 STANDARDS.md 的「术语表」）─────────────
+// 产品是**管理面板**，不是守护/看护/监护程序。禁用词一旦回到文案/注释/代码，
+// 定位就跟着漂回去 ⇒ 机器锁住：出现即红，并指出 文件:行号。
+// 豁免只给「术语表与定位声明本身」（它们必须写出禁用词才能禁用它），且每次运行都列出。
+const R22_BANNED = ['守护', '看护', '监护'];
+const R22_REPLACE = { 守护: '监控', 看护: '监控', 监护: '监控' };
+const R22_SKIP_DIRS = ['node_modules', '.git', 'dist', 'target', 'build'];
+const R22_EXEMPT_FILES = [
+  {
+    file: 'STANDARDS.md',
+    why: '术语表与定位声明本身必须写出禁用词才能禁用它（「不是守护程序，不是看护程序」）；'
+      + '这是全仓唯一允许出现禁用词的文件，故豁免在文件级，不静默通过。',
+  },
+  {
+    file: 'core/ci/standards-check.js',
+    why: 'R22 判据自身要写禁用词常量才能扫它们（自指），与 R3 豁免同规。',
+  },
+];
+
+function checkR22() {
+  const exempt = new Set(R22_EXEMPT_FILES.map((x) => x.file));
+  const files = [];
+  const walkAll = (d) => {
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (R22_SKIP_DIRS.indexOf(e.name) < 0) walkAll(p); continue; }
+      // 只扫文本类：二进制（图标/字体/icns）里没有术语，扫它是纯噪声。
+      if (/\.(rs|js|ts|tsx|jsx|json|md|yml|yaml|sh|ps1|toml|html|svg|txt)$/.test(e.name)) files.push(p);
+    }
+  };
+  walkAll(REPO);
+  let flagged = 0;
+  for (const p of files) {
+    const rp = rel(p);
+    if (exempt.has(rp)) continue;
+    let src;
+    try { src = read(p); } catch { continue; }
+    const lines = src.split('\n');
+    for (let i = 0; i < lines.length; i += 1) {
+      for (const w of R22_BANNED) {
+        let at = lines[i].indexOf(w);
+        while (at >= 0) {
+          fail('R22', p, i + 1, '禁用词「' + w + '」⇒ 应改为「' + R22_REPLACE[w] + '」'
+            + '（产品是管理面板，不是守护/看护/监护程序；见 STANDARDS.md 术语表）');
+          flagged += 1;
+          at = lines[i].indexOf(w, at + w.length);
+        }
+      }
+    }
+  }
+  note('R22 术语门禁：扫描 ' + files.length + ' 个文件，禁用词 ' + flagged + ' 处（禁：'
+    + R22_BANNED.join(' / ') + '）');
+  R22_EXEMPT_FILES.forEach((x) => exemptShown.push('R22 豁免 ' + x.file + ' —— ' + x.why));
+}
+
 function main() {
   console.log('== standards-check：R1..R10 中可机器判定的部分（只读）==');
   checkR2();
@@ -884,6 +941,7 @@ function main() {
   checkR19();
   checkR20();
   checkR21();
+  checkR22();
 
   console.log('');
   notes.forEach((n) => console.log('  OK   ' + n));

@@ -307,7 +307,7 @@ export function EnvironmentCard() {
               {sections?.dsh?.data ? (
                 <div className="grid gap-0.5 text-xs text-muted-foreground">
                   <span>{entryText(sections?.dsh?.data?.dsh)} · {entryText(sections?.dsh?.data?.selfUpdate)}</span>
-                  <span>看护：{sections?.dsh?.data?.managed ? "守卫托管" : "未托管"}{sections?.dsh?.data?.phase ? " · " + sections.dsh.data.phase : ""}</span>
+                  <span>监控：{sections?.dsh?.data?.managed ? "守卫托管" : "未托管"}{sections?.dsh?.data?.phase ? " · " + sections.dsh.data.phase : ""}</span>
                 </div>
               ) : null}
             </div>
@@ -329,7 +329,7 @@ export function EnvironmentCard() {
                       ? "开（首查排在启动后 " + (startup.updateCheck.initialDelayMs ?? "未读出") + " 毫秒，之后每 " + (startup.updateCheck.intervalMs ?? "未读出") + " 毫秒）"
                       : "关（配置里就禁掉了，这同样是一条既成事实）"}
                   </span>
-                  <span>壳看护：{triText(startup.shellWatchdog)}</span>
+                  <span>壳监控：{triText(startup.shellWatchdog)}</span>
                   <span>
                     {startup.lastRefresh
                       ? "最近一次表单刷新于 " + (typeof startup.lastRefresh.at === "number" ? new Date(startup.lastRefresh.at).toLocaleTimeString() : "未读出")

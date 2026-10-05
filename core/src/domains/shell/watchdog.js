@@ -138,7 +138,7 @@ function createShellWatchdog(deps) {
       }
       return { restarted: !!(r && r.ok), error: (r && r.error) || null };
     } catch (e) {
-      warn('看护异常：' + ((e && e.message) || e));
+      warn('监控异常：' + ((e && e.message) || e));
       return { error: (e && e.message) || String(e) };
     } finally { busy = false; }
   }

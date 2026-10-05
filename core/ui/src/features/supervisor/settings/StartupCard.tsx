@@ -75,7 +75,7 @@ export function StartupCard() {
           <div className="flex items-start justify-between gap-6">
             <div className="min-w-0">
               <strong className="block text-sm font-medium text-foreground">开机自动启动管家</strong>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">开机登录后自动启动 DeepSeek Harness 管家（本程序）。不会自动启动任何单个实例——实例是否被自动拉起，由各自「进程守护」开关决定。</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">开机登录后自动启动 DeepSeek Harness 管家（本程序）。不会自动启动任何单个实例——实例是否被自动拉起，由各自「进程监控」开关决定。</p>
             </div>
             {autoOn !== null ? <span title="开机自启"><Switch checked={autoOn} onCheckedChange={(v) => void toggleAuto(v)} /></span> : <span className="text-xs text-muted-foreground">…</span>}
           </div>

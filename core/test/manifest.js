@@ -25,7 +25,7 @@ const ENTRIES = [
   { file: "test/adopt-token-reclaim-test.js", tier: "L2", os: "all", why: "凭据否决接管 / cmdline 不误杀" },
   { file: "test/router-ctl-test.js", tier: "L2", os: "all", why: "真 listen" },
   { file: "test/daemon-lifecycle-test.js", tier: "L2", os: "all", why: "孤儿回收/换代/原子锁三条真进程回归" },
-  { file: "test/lan-daemon-test.js", tier: "L2", os: "all", why: "detached 真守护 + 退出码" },
+  { file: "test/lan-daemon-test.js", tier: "L2", os: "all", why: "detached 真监控 + 退出码" },
   { file: "test/token-boundary-test.js", tier: "L1", os: "all", why: "纯逻辑：令牌边界与落盘剔除" },
   { file: "test/loghub-test.js", tier: "L2", os: "all", why: "真 listen 事件流" },
   { file: "test/api-fuzz-test.js", tier: "L2", os: "all", why: "真 socket 安全回归" },

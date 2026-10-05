@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// expectedAbsence() 只要 identity.phase 是 restarting/shell-update-* 就恒真，宽限期永远走 updateGraceMs（5min）而非 graceMs（90s），而 phase 唯一复位点是壳成功启动 ⇒ 壳更新中途崩溃后自愈被拖慢数倍；看护须自己计时。
+// expectedAbsence() 只要 identity.phase 是 restarting/shell-update-* 就恒真，宽限期永远走 updateGraceMs（5min）而非 graceMs（90s），而 phase 唯一复位点是壳成功启动 ⇒ 壳更新中途崩溃后自愈被拖慢数倍；监控须自己计时。
 
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
