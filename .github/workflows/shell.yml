@@ -175,7 +175,16 @@ jobs:
           #   退出码 1 ⇒ -e 直接终止脚本（echo 与 cargo test 都不会执行）。
           TARGETS=$(ls tests/*.rs 2>/dev/null | sed 's#tests/##; s#\.rs$##' | grep -v '^updater_artifacts$' | sed 's/^/--test /' | tr '\n' ' ' || true)
           echo "CI 将执行的 test target: ${TARGETS}"
-          cargo test --bins --no-fail-fast ${TARGETS} 2>&1 | tail -400
+          # ⚠ 只 `tail -400` 会把真正的 error 挤出可视区（编译期错误在前，测试输出在后）⇒ 红灯无法归因。
+          #   故全量落盘，失败时**只打印 error / warning: unused / test result: FAILED / panicked 这几类行**。
+          LOG="${RUNNER_TEMP:-/tmp}/cargo-test.log"
+          cargo test --bins --no-fail-fast ${TARGETS} 2>&1 | tee "$LOG"
+          RC=${PIPESTATUS[0]}
+          if [ "$RC" -ne 0 ]; then
+            echo "---- 失败归因（error / unused / FAILED / panicked）----"
+            grep -nE '^error|^ *-->|warning: unused|test result: FAILED|panicked at' "$LOG" | head -60
+          fi
+          exit "$RC"
         working-directory: shell/src-tauri
 
       - name: Windows 工具链实测（官方归档 -> npm 真实可用）
