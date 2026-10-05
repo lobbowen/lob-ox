@@ -92,9 +92,9 @@ pub(crate) fn cli_plan() -> i32 {
 }
 
 pub(crate) fn cli_service_plan() -> i32 {
-    println!("== 守卫服务定义自检 ==");
+    println!("== 监控器登记自检 ==");
     println!("平台          = {}", std::env::consts::OS);
-    println!("服务定义路径  = {}", crate::platform::service().definition_path().display());
+    println!("登记表路径    = {}", crate::platform::service().definition_path().display());
     println!("现存          = {}", if crate::platform::service().is_defined() { "是" } else { "否" });
     println!(
         "HOME          = {}",

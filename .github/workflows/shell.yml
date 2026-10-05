@@ -173,9 +173,13 @@ jobs:
         run: |
           set -o pipefail
           TARGETS=$(ls tests/*.rs 2>/dev/null | sed 's#tests/##; s#\.rs$##' | grep -v '^updater_artifacts$' | sed 's/^/--test /' | tr '\n' ' ' || true)
-          cargo build --bins --tests ${TARGETS} 2>&1 | tail -80
+          echo "CI 将执行的 test target: ${TARGETS}"
+          # 编译错误必须**逐条 emit 成 ::error::**：日志下载需额外权限，
+          # 而注解在 Actions UI 上直接可见 ⇒ 红灯不用靠猜。
+          cargo build --bins --tests ${TARGETS} 2>&1 | grep -E '^error(\[|:)|^ *-->' \
+            | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+          cargo build --bins --tests ${TARGETS} 2>&1 | tail -60
         working-directory: shell/src-tauri
-
       - name: 测试（--bins 单元 + tests/*.rs 自动枚举）
         shell: bash
         run: |
