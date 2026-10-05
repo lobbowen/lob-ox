@@ -184,15 +184,18 @@ jobs:
           #   故全量落盘，失败时把 error / unused / FAILED / panicked 这几类行写进 **job summary**
           #   （日志下载需要额外权限，summary 在 Actions UI 与 API 上都可读）。
           if [ "$RC" -ne 0 ]; then
-            {
-              echo "### cargo test 失败归因"
-              echo '```'
-              grep -nE '^error(\[|:)|^ *-->|warning: unused|test result: FAILED|panicked at' "$LOG" | head -80
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
+            cp "$LOG" "${RUNNER_TEMP:-/tmp}/cargo-test-failure.log" 2>/dev/null || true
           fi
           exit "$RC"
         working-directory: shell/src-tauri
+
+      - name: 上传 cargo 失败归因（红灯取证）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-failure-${{ matrix.os }}
+          path: ${{ runner.temp }}/cargo-test-failure.log
+          if-no-files-found: ignore
 
       - name: Windows 工具链实测（官方归档 -> npm 真实可用）
         if: runner.os == 'Windows'
