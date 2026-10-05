@@ -193,7 +193,7 @@ jobs:
           exit "$RC"
         working-directory: shell/src-tauri
 
-       - name: Windows 工具链实测（官方归档 -> npm 真实可用）
+      - name: Windows 工具链实测（官方归档 -> npm 真实可用）
         if: runner.os == 'Windows'
         shell: bash
         run: |
