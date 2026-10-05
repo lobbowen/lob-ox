@@ -203,16 +203,6 @@ jobs:
           exit "$RC"
         working-directory: shell/src-tauri
 
-      # 红灯归因：日志下载需额外权限，故把编译/测试日志**上传为 artifact**（可经 API 取回）。
-      #   放在测试之后 ⇒ 编译失败与测试失败两种情况都能取回日志。
-      - name: 上传失败归因日志（红灯取证）
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fail-log-${{ matrix.os }}
-          path: ${{ runner.temp }}/cargo-*.log
-          if-no-files-found: ignore
-
       - name: Windows 工具链实测（官方归档 -> npm 真实可用）
         if: runner.os == 'Windows'
         shell: bash
@@ -319,9 +309,10 @@ jobs:
           # 登记表本身不引用 DSH_GUARD_BIN，给一个存在的占位文件即可。
           GUARD="$STATE/fake-guard.js"; : > "$GUARD"; export DSH_GUARD_BIN="$GUARD"
           if ! OUT=$("$BIN" --service-plan --service-apply 2>&1); then
-            printf '%s\n' "$OUT"; echo "建立监控登记失败（退出码非零）"; exit 1
+            printf '%s\n' "$OUT" | tee "${RUNNER_TEMP:-/tmp}/cargo-smoke.log"
+            echo "建立监控登记失败（退出码非零）"; exit 1
           fi
-          printf '%s\n' "$OUT"
+          printf '%s\n' "$OUT" | tee "${RUNNER_TEMP:-/tmp}/cargo-smoke.log" >/dev/null
           grep -q '^建立后现存    = 是' <<<"$OUT" || { echo "登记表写入后回读为「否」"; exit 1; }
           # 注册表必须落在**产品状态根**下，而不是任何 OS 服务目录。
           REG="$STATE/shell/monitor.json"
@@ -345,6 +336,16 @@ jobs:
           grep -q '未写盘' <<<"$OUT2" || { echo "只读自检走了写盘分支"; exit 1; }
           echo "Windows 监控登记冒烟通过：装配登记行 → 写入产品状态根 → 回读现存 → 无 OS 机制痕迹"
         working-directory: shell/src-tauri
+
+      # 红灯归因：日志下载需额外权限，故把编译/测试/冒烟日志**上传为 artifact**（可经 API 取回）。
+      #   放在所有验证步骤之后 ⇒ 编译失败、测试失败、冒烟失败三种情况都能取回日志。
+      - name: 上传失败归因日志（红灯取证）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fail-log-${{ matrix.os }}
+          path: ${{ runner.temp }}/cargo-*.log
+          if-no-files-found: ignore
 
       - name: Build + bundle (Tauri)
         shell: bash
