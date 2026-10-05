@@ -126,7 +126,7 @@ pub async fn node_latest() -> serde_json::Value {
 
 #[tauri::command]
 pub fn finish_boot(app: tauri::AppHandle) -> ShellResult<()> {
-        // 引导页走完 = 面板即将成为内容，此后守卫的任何失服都必须被看见（看护在此武装，回一次引导页后解除，避免与引导页的启动链互相甩）。
+        // 引导页走完 = 面板即将成为内容，此后守卫的任何失服都必须被看见（监控在此武装，回一次引导页后解除，避免与引导页的启动链互相甩）。
     crate::domain::guardctl::watch_panel(&app);
     crate::domain::windowing::go_panel(&app, false);
     Ok(())

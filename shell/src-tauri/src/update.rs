@@ -198,7 +198,7 @@ mod tests {
         let id = init_identity("1.2.3");
         assert_eq!(id["version"], serde_json::json!("1.2.3"));
         assert_eq!(id["phase"], serde_json::json!("boot"));
-        assert!(id.get("exe").is_some(), "exe 必须存在（内核看护依赖）");
+        assert!(id.get("exe").is_some(), "exe 必须存在（内核监控依赖）");
         assert!(id.get(concat!("at", "tempt")).is_none(), "不得存在尝试计数");
         assert!(id.get(concat!("pending", "Version")).is_none(), "不得存在待确认版本");
         assert!(env.dir.join("identity.json").exists());

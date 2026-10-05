@@ -140,7 +140,7 @@ fn main() {
     if std::env::args().any(|a| a == "--run-guard") {
         std::process::exit(domain::cli::cli_run_guard());
     }
-        // 无头看护入口：Windows 计划任务（Lobox-Watchdog）每 5 分钟调用。判据与启动/面板同一实现（`guardctl::ready`），故必须在 Tauri 初始化之前返回。
+        // 无头监控入口：Windows 计划任务（Lobox-Watchdog）每 5 分钟调用。判据与启动/面板同一实现（`guardctl::ready`），故必须在 Tauri 初始化之前返回。
     if std::env::args().any(|a| a == "--watchdog") {
         std::process::exit(domain::cli::cli_watchdog());
     }

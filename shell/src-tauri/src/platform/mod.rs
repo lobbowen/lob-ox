@@ -351,7 +351,7 @@ fn regex_meta() -> [char; 14] {
     ['.', '\\', '+', '?', '[', ']', '^', '$', '(', ')', '{', '}', '|', '/']
 }
 
-/// 以守卫身份运行：`--run-guard` 解析出 node/guard 后调用。Unix 用 `execvp` 替换当前进程（systemd/launchd 直接追踪真实 node）；Windows 分离启动不等待（计划任务实例即结束，保活由看护任务按端口负责）。平台分支只允许在本层。
+/// 以守卫身份运行：`--run-guard` 解析出 node/guard 后调用。Unix 用 `execvp` 替换当前进程（systemd/launchd 直接追踪真实 node）；Windows 分离启动不等待（计划任务实例即结束，保活由监控任务按端口负责）。平台分支只允许在本层。
 #[cfg(unix)]
 pub fn exec_guard(spec: &LaunchSpec) -> Result<(), String> {
     use std::os::unix::process::CommandExt;

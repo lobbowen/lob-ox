@@ -131,7 +131,7 @@ pub const ENV_VERSION_LIB: &str = "DSH_VERSION_LIB";
 // ── 服务 / 计划任务 / systemd unit / macOS label ─────────────────────────────
 /// Windows 守卫计划任务名：schtasks /Create /Query /Run /End /Delete 全用这个名字。
 pub const WINDOWS_GUARD_TASK: &str = "Lobox";
-/// Windows 看护计划任务名：每 5 分钟拉起守卫，漏改等于看护失效。
+/// Windows 监控计划任务名：每 5 分钟拉起守卫，漏改等于监控失效。
 pub const WINDOWS_WATCHDOG_TASK: &str = "Lobox-Watchdog";
 /// Windows 壳登录自启计划任务名：由内核自启层建立/删除，壳侧不碰。
 pub const WINDOWS_GUI_TASK: &str = "Lobox-Shell";
@@ -217,7 +217,7 @@ pub const EVENT_HARNESS_COMMAND_MISSING: &str = "harness_command_missing";
 pub const EVENT_HARNESS_NOT_INSTALLED: &str = "harness_not_installed";
 /// 见 [`EVENT_HARNESS_EXITED`]：裸命令名已绑定到真实入口。
 pub const EVENT_HARNESS_COMMAND_BOUND: &str = "harness_command_bound";
-/// 见 [`EVENT_HARNESS_EXITED`]：主实例守护开关变更。
+/// 见 [`EVENT_HARNESS_EXITED`]：主实例监控开关变更。
 pub const EVENT_HARNESS_GUARDIAN_CHANGED: &str = "harness_guardian_changed";
 /// 见 [`EVENT_HARNESS_EXITED`]：主实例远程模式变更。
 pub const EVENT_HARNESS_REMOTE_CHANGED: &str = "harness_remote_changed";

@@ -85,7 +85,7 @@ pub fn resolve_local(resource_dir: Option<std::path::PathBuf>) -> Option<(crate:
 }
 
 pub(crate) fn shutdown_all(port: u16) {
-    // 退出握手：1) 带超时请求内核停全部被管对象并等回执（守卫挂起时壳不无限阻塞）；2) 轮询 sessionState 直到 stopped（守卫已不可达同样视为完成）；3) 由所有者停止守卫进程 —— 守卫自身从不停止自己（所有权归一）。握手最长约 70s，其间「不在服役」是预期结果，看护必须闭嘴。
+    // 退出握手：1) 带超时请求内核停全部被管对象并等回执（守卫挂起时壳不无限阻塞）；2) 轮询 sessionState 直到 stopped（守卫已不可达同样视为完成）；3) 由所有者停止守卫进程 —— 守卫自身从不停止自己（所有权归一）。握手最长约 70s，其间「不在服役」是预期结果，监控必须闭嘴。
     EXITING.store(true, Ordering::SeqCst);
     let _ = crate::domain::localhttp::post_local_timeout(port, "/session/stop", std::time::Duration::from_secs(60));
     for _ in 0..40 {
@@ -162,7 +162,7 @@ pub(crate) fn ensure_guard(app: &tauri::AppHandle) -> Result<(), LaunchError> {
         let verdict = serving_state(port);
         step(&verdict.note());
         if matches!(verdict, Serving::Alive | Serving::Sick) {
-                        // 守卫已在服役（或只是还没应答）时也确保一次服务定义：退出时 Windows stop() 会 /Delete 看护任务，而登录任务可能已先拉起守卫使本函数提前返回，那样看护任务永不重建、崩溃自愈在本会话内失效。ensure_defined 三平台幂等且自愈，也不得引入平台分支。
+                        // 守卫已在服役（或只是还没应答）时也确保一次服务定义：退出时 Windows stop() 会 /Delete 监控任务，而登录任务可能已先拉起守卫使本函数提前返回，那样监控任务永不重建、崩溃自愈在本会话内失效。ensure_defined 三平台幂等且自愈，也不得引入平台分支。
             if let Some((rt_wd, guard_wd)) = resolve_local(None) {
                 match crate::platform::LaunchSpec::from_runtime(&rt_wd, guard_wd) {
                     Ok(spec_wd) => {
@@ -175,7 +175,7 @@ pub(crate) fn ensure_guard(app: &tauri::AppHandle) -> Result<(), LaunchError> {
             }
             return Ok(());
         }
-                // 唯一的例外：进程活着但服务链已拆（走过 /session/stop）。由所有者先把它停干净，再落回下面的正常启动序列 —— 看护通道刚被 stop() 摘掉，没有第二条恢复路径。
+                // 唯一的例外：进程活着但服务链已拆（走过 /session/stop）。由所有者先把它停干净，再落回下面的正常启动序列 —— 监控通道刚被 stop() 摘掉，没有第二条恢复路径。
         if !stop_and_await_release(port) {
             return Err(LaunchError::new(
                 "GUARD_STOP_FAILED",
@@ -390,7 +390,7 @@ pub(crate) fn panel_view() -> (String, bool) {
     (crate::env::api_base_url(), serving)
 }
 
-/// 看护一拍的纯决策：返回（新的连续失服役拍数，是否回引导页）。解除观察态是「回一次引导页」的伴随动作，不靠第二次调用去补 —— 引导页会重跑 guard_start，那是全仓唯一的恢复链；重复弹跳只会把用户在两页之间来回甩。
+/// 监控一拍的纯决策：返回（新的连续失服役拍数，是否回引导页）。解除观察态是「回一次引导页」的伴随动作，不靠第二次调用去补 —— 引导页会重跑 guard_start，那是全仓唯一的恢复链；重复弹跳只会把用户在两页之间来回甩。
 pub(crate) fn panel_watch_tick(down: u32, serving: bool, armed: bool, exiting: bool, needed: u32) -> (u32, bool) {
     if exiting || !armed { return (0, false); }
     if serving { return (0, false); }
@@ -399,7 +399,7 @@ pub(crate) fn panel_watch_tick(down: u32, serving: bool, armed: bool, exiting: b
     (n, false)
 }
 
-/// 面板显示期的服役看护。壳此前只在「进入面板」那一刻判一次服役，之后守卫无论因何消失（被所有者停掉、崩溃、更新后重启失败），界面都停在引擎自己的「127.0.0.1 拒绝连接」页上：WebKit 对被拒的 iframe 导航不触发 error 事件，前端的失败重试形同不存在。
+/// 面板显示期的服役监控。壳此前只在「进入面板」那一刻判一次服役，之后守卫无论因何消失（被所有者停掉、崩溃、更新后重启失败），界面都停在引擎自己的「127.0.0.1 拒绝连接」页上：WebKit 对被拒的 iframe 导航不触发 error 事件，前端的失败重试形同不存在。
 pub(crate) fn watch_panel(app: &tauri::AppHandle) {
     PANEL_WATCH_ARMED.store(true, Ordering::SeqCst);
     if PANEL_WATCH_RUNNING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
@@ -434,7 +434,7 @@ pub(crate) fn watch_panel(app: &tauri::AppHandle) {
     });
 }
 
-/// 看护节拍与失服役门槛：单次 `serving_state` 最长约 1.2s（`SERVING_PROBE_TIMEOUT`），3 拍约 15s —— 短于用户对「页面死了」的判断，长到能骑过守卫正常重启的间隙。
+/// 监控节拍与失服役门槛：单次 `serving_state` 最长约 1.2s（`SERVING_PROBE_TIMEOUT`），3 拍约 15s —— 短于用户对「页面死了」的判断，长到能骑过守卫正常重启的间隙。
 const PANEL_WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 const PANEL_WATCH_DOWN_TICKS: u32 = 3;
 
