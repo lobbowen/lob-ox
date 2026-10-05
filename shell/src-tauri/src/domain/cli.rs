@@ -203,25 +203,33 @@ pub(crate) fn cli_run_guard() -> i32 {
 
   /// 无头看护入口（`--watchdog`，Windows 计划任务每 5 分钟调用一次）。判据只有 `guardctl::ready()`（TCP + `/healthz` 2xx），与 GUI 启动、面板轮询同一实现；此处不得内嵌 PowerShell 用 `Test-NetConnection` 只看 TCP 端口（端口被占但服务没起 = 判为活）。
 /// 只拉守卫不拉 GUI；不走 ensure_guard（那条链含线上对齐，看护无权改变安装态），复用 `ensure_started`。
+/// 无头看护入口（`--watchdog`，Windows 计划任务每 5 分钟调用一次）。
+///
+/// ★ 产品定位修正：本产品是**监管/管理系统**，不是守护程序。
+///   原实现在「端口不就绪」时调用 ensure_started **强拉守卫** —— 那是早期把"监管"误写成"守护"的产物，
+///   会带来两类真实伤害：
+///     1) 端口死锁：为把守卫拉起而占用/等待固定端口，受管对象的真实端口因此被锁死；
+///     2) 生命周期越权：监管程序去决定被监管对象"该不该活着"，与「只观测」的边界冲突。
+///   现改为**只观测**：记录此刻是否在服役（在不在 / 端口 / 就绪否），不做任何拉起、杀进程、改状态。
+///   失联由监管层如实呈现（面板/事件），交由人或显式操作处置。
+/// 无头看护入口（`--watchdog`，Windows 计划任务每 5 分钟调用一次）。
+///
+/// ★ 产品定位修正：本产品是**监管/管理系统**，不是守护程序。
+///   原实现在「守卫未就绪」时**强拉起守卫**（ensure_started） ⇒ 会去绑固定端口、把受管对象锁死。
+///   现改为**只观测**：记录此刻是否在服役（判据与 GUI 启动/面板轮询同一实现 `guardctl::ready`），
+///   不做任何拉起、不杀进程、不改状态。失联如实呈现，交由人或显式操作处置。
 pub(crate) fn cli_watchdog() -> i32 {
     let port = crate::env::current_api_port();
-    if crate::domain::guardctl::ready(port, WATCHDOG_PROBE_TIMEOUT) == crate::domain::guardctl::Readiness::Ready {
-        return 0;
-    }
-    let say = |s: &str| crate::update::log(&format!("[watchdog] {}", s));
-    say(&format!("守卫未就绪（端口 {}）· 请求拉起", port));
-    let Some((rt, guard)) = crate::domain::guardctl::resolve_local(None) else {
-        say("本地检测失败：未找到可用的 node 或内核守卫");
-        return 1;
-    };
-    let spec = match crate::platform::LaunchSpec::from_runtime(&rt, guard) {
-        Ok(s) => s,
-        Err(e) => { say(&format!("启动规格组装失败：{}", e)); return 1; }
-    };
-    match crate::domain::guardctl::ensure_started(&spec, &say) {
-        Ok(()) => 0,
-        Err(e) => { say(&format!("{}：{}", e.code, e.message)); 1 }
-    }
+    let verdict = crate::domain::guardctl::ready(port, WATCHDOG_PROBE_TIMEOUT);
+    let serving = matches!(verdict, crate::domain::guardctl::Readiness::Ready);
+    crate::update::log(&format!(
+        "[watchdog] 观测: 端口={} 在服役={} 判据={}（只观测，不拉起）",
+        port,
+        serving,
+        verdict.describe()
+    ));
+    // 退出码 0 仅表示"本拍观测完成"，**不表示守卫存活**。
+    0
 }
 
 const WATCHDOG_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
