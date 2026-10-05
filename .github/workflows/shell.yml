@@ -581,9 +581,21 @@ jobs:
             exit 1
           }
           Write-Host "B = $($B.FullName)（ver=${{ needs.version.outputs.ver }}）"
+          # 冒烟日志落盘：本 job 失败时无 artifact 可读 ⇒ 交给下面的上传步骤。
           & ./ci/install-smoke-win.ps1 -InstallerA $env:A_FILE -VerA $env:A_VER `
             -InstallerB $B.FullName -VerB '${{ needs.version.outputs.ver }}' `
-            -Work "$env:RUNNER_TEMP/install-smoke"
+            -Work "$env:RUNNER_TEMP/install-smoke" 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\install-smoke.log"
+          exit $LASTEXITCODE
+
+      # install-smoke job 自身没有可下载的日志（日志下载需额外权限），
+      #   故把上面落盘的冒烟输出上传为 artifact ⇒ 红灯能精确定位到哪条断言。
+      - name: 上传安装冒烟日志（红灯取证）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-log-${{ matrix.os }}
+          path: ${{ runner.temp }}/install-smoke.log
+          if-no-files-found: ignore
 
   publish:
     # 装不上的安装包发出去 = 用户升级到坏版本的唯一来源 ⇒ 发布前必须先过安装冒烟。
