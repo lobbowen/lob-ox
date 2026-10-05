@@ -186,15 +186,6 @@ jobs:
           exit "$RC"
         working-directory: shell/src-tauri
 
-      # 红灯归因：日志下载需额外权限，故把编译/测试日志**上传为 artifact**（可经 API 取回）。
-      - name: 上传失败归因日志（红灯取证）
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fail-log-${{ matrix.os }}
-          path: ${{ runner.temp }}/cargo-build.log
-          if-no-files-found: ignore
-
       - name: 测试（--bins 单元 + tests/*.rs 自动枚举）
         shell: bash
         run: |
@@ -211,6 +202,16 @@ jobs:
           RC=${PIPESTATUS[0]}
           exit "$RC"
         working-directory: shell/src-tauri
+
+      # 红灯归因：日志下载需额外权限，故把编译/测试日志**上传为 artifact**（可经 API 取回）。
+      #   放在测试之后 ⇒ 编译失败与测试失败两种情况都能取回日志。
+      - name: 上传失败归因日志（红灯取证）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fail-log-${{ matrix.os }}
+          path: ${{ runner.temp }}/cargo-*.log
+          if-no-files-found: ignore
 
       - name: Windows 工具链实测（官方归档 -> npm 真实可用）
         if: runner.os == 'Windows'
