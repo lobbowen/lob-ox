@@ -180,9 +180,16 @@ jobs:
           LOG="${RUNNER_TEMP:-/tmp}/cargo-test.log"
           cargo test --bins --no-fail-fast ${TARGETS} 2>&1 | tee "$LOG"
           RC=${PIPESTATUS[0]}
+          # ⚠ 只 `tail -400` 会把真正的 error 挤出可视区（编译期错误在前，测试输出在后）⇒ 红灯无法归因。
+          #   故全量落盘，失败时把 error / unused / FAILED / panicked 这几类行写进 **job summary**
+          #   （日志下载需要额外权限，summary 在 Actions UI 与 API 上都可读）。
           if [ "$RC" -ne 0 ]; then
-            echo "---- 失败归因（error / unused / FAILED / panicked）----"
-            grep -nE '^error|^ *-->|warning: unused|test result: FAILED|panicked at' "$LOG" | head -60
+            {
+              echo "### cargo test 失败归因"
+              echo '```'
+              grep -nE '^error(\[|:)|^ *-->|warning: unused|test result: FAILED|panicked at' "$LOG" | head -80
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
           exit "$RC"
         working-directory: shell/src-tauri
