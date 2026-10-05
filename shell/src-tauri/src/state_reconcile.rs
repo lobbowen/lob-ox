@@ -166,9 +166,19 @@ pub fn reconcile_once(shell_version: &str) -> Vec<(&'static str, Outcome)> {
 mod tests {
     use super::*;
 
+        /// s1/s2 都写**真实状态根**下的版本戳（`stamp_file()` 无注入点），而 cargo test 默认并行
+        /// ⇒ 两个用例互相删对方的文件 = 竞态（实测：新增用例改变调度后 s2 在 darwin-x64 上偶发红）。
+        /// 这里用一把静态锁把它们串行化：**测试之间**互斥，不改产品行为。
+    static STAMP_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn lock_stamp() -> std::sync::MutexGuard<'static, ()> {
+        STAMP_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// 核心性质：版本戳相同 ⇒ 整轮跳过（热路径不做事）；版本变化 ⇒ 触发对账。
     #[test]
     fn s1_stamp_gates_reconciliation() {
+        let _g = lock_stamp();
         // 无版本戳 ⇒ 需要对账
         let _ = std::fs::remove_file(stamp_file());
         assert!(needs_reconcile("1.0.3"), "S1 FAIL 无版本戳时应触发对账");
@@ -183,6 +193,7 @@ mod tests {
     /// schema 不等即整份作废（与 shell_report 同纪律），不得靠猜沿用。
     #[test]
     fn s2_schema_mismatch_forces_reconcile() {
+        let _g = lock_stamp();
         let _ = std::fs::remove_file(stamp_file());
         write_stamp("1.0.3").expect("写版本戳");
         // 手工把 schema 改成未来值 ⇒ 读不到 ⇒ 需要对账
