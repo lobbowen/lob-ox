@@ -166,6 +166,16 @@ jobs:
             libglib2.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf-2.0-dev \
             libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config
 
+      # 与下面的测试步骤**分开**：这一步只编译（含测试目标），红灯即「编译不过」；
+      #   合在一步里时，编译错误会被后面的测试输出挤出可视区（tail -400）⇒ 无法归因。
+      - name: 编译（--bins + 测试目标）
+        shell: bash
+        run: |
+          set -o pipefail
+          TARGETS=$(ls tests/*.rs 2>/dev/null | sed 's#tests/##; s#\.rs$##' | grep -v '^updater_artifacts$' | sed 's/^/--test /' | tr '\n' ' ' || true)
+          cargo build --bins --tests ${TARGETS} 2>&1 | tail -80
+        working-directory: shell/src-tauri
+
       - name: 测试（--bins 单元 + tests/*.rs 自动枚举）
         shell: bash
         run: |
@@ -180,24 +190,10 @@ jobs:
           LOG="${RUNNER_TEMP:-/tmp}/cargo-test.log"
           cargo test --bins --no-fail-fast ${TARGETS} 2>&1 | tee "$LOG"
           RC=${PIPESTATUS[0]}
-          # ⚠ 只 `tail -400` 会把真正的 error 挤出可视区（编译期错误在前，测试输出在后）⇒ 红灯无法归因。
-          #   故全量落盘，失败时把 error / unused / FAILED / panicked 这几类行写进 **job summary**
-          #   （日志下载需要额外权限，summary 在 Actions UI 与 API 上都可读）。
-          if [ "$RC" -ne 0 ]; then
-            cp "$LOG" "${RUNNER_TEMP:-/tmp}/cargo-test-failure.log" 2>/dev/null || true
-          fi
           exit "$RC"
         working-directory: shell/src-tauri
 
-      - name: 上传 cargo 失败归因（红灯取证）
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cargo-failure-${{ matrix.os }}
-          path: ${{ runner.temp }}/cargo-test-failure.log
-          if-no-files-found: ignore
-
-      - name: Windows 工具链实测（官方归档 -> npm 真实可用）
+       - name: Windows 工具链实测（官方归档 -> npm 真实可用）
         if: runner.os == 'Windows'
         shell: bash
         run: |
