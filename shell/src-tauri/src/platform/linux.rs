@@ -143,7 +143,7 @@ impl ServiceControl for Impl {
 
     /// 监控器登记表落点（产品状态根下）。**不是**任何 OS 服务定义的位置。
     fn definition_path(&self) -> PathBuf {
-        crate::env::shell_dir().join("monitor.json")
+        crate::platform::monitor_registry_path()
     }
 
     /// 登记受管对象（幂等，且内容过时时自愈）：登记的是「产品自己在管谁」，

@@ -135,7 +135,8 @@ fn main() {
         println!("{}", shell_update_plan_text());
         std::process::exit(0);
     }
-        // 运行时守卫入口：服务定义（systemd/launchd/schtasks）只指向 `<壳> --run-guard`。必须在 Tauri 初始化**之前**返回 —— 每次启动重新检测 node/guard 后 exec。
+        // 运行时守卫入口：监控器登记表指向的稳定入口是 `<壳> --run-guard`（产品自身机制，
+        // 不经任何 OS 服务通道）。必须在 Tauri 初始化**之前**返回 —— 每次启动重新检测 node/guard 后 exec。
     if std::env::args().any(|a| a == "--run-guard") {
         std::process::exit(domain::cli::cli_run_guard());
     }

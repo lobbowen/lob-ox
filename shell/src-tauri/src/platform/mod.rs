@@ -245,6 +245,12 @@ pub fn service_exec_line(shell: &std::path::Path, args: &[&str]) -> String {
     s
 }
 
+/// 监控器登记表的落点（**全仓唯一实现**）：一律在产品状态根下的 `shell/monitor.json`，
+/// 三平台同值 —— 各平台各自拼一遍路径 = 改名漏一处 ⇒ 登记表分叉。
+pub fn monitor_registry_path() -> std::path::PathBuf {
+    crate::env::shell_dir().join("monitor.json")
+}
+
 /// 监控器登记表的内容（产品自身的事实，非 OS 定义）。
 ///
 /// 端口字段记录的是**接管时探测到的**当前端口（`env::current_api_port()`），不是预设值：
@@ -318,11 +324,11 @@ pub fn kill_managed_processes() -> Result<(), String> {
 /// 受管对象（node 跑的内核）的命令行里，按 `pkill -f lobox` 会把自己也杀掉。
 /// 故只杀镜像名为 `node` 且命令行含产品名的进程，并显式排除本进程与本次 pkill 自身。
 pub fn managed_stop_script() -> String {
+    let pat = unix_proc_match_pattern();
+    let me = std::process::id();
     format!(
-        "for p in $(ps -eo pid=,comm=,args= | awk '$2 ~ /(^|\\/)node$/ && $0 ~ /{pat}/ {{print $1}}'); do \
-         [ \"$p\" = \"{me}\" ] || kill \"$p\" 2>/dev/null || true; done; exit 0",
-        pat = unix_proc_match_pattern(),
-        me = std::process::id()
+        "for p in $(ps -eo pid=,comm=,args= | awk '$2 ~ /(^|\\/)node$/ && $0 ~ /{}/ {{print $1}}'); do [ \"$p\" = \"{}\" ] || kill \"$p\" 2>/dev/null || true; done; exit 0",
+        pat, me
     )
 }
 
@@ -343,11 +349,6 @@ pub fn unix_proc_match_pattern() -> String {
 
 fn regex_meta() -> [char; 14] {
     ['.', '\\', '+', '?', '[', ']', '^', '$', '(', ')', '{', '}', '|', '/']
-}
-
-/// 单引号包裹（POSIX shell）：内部单引号按 `'\''` 转义，闭合后再续。
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 /// 以守卫身份运行：`--run-guard` 解析出 node/guard 后调用。Unix 用 `execvp` 替换当前进程（systemd/launchd 直接追踪真实 node）；Windows 分离启动不等待（计划任务实例即结束，保活由看护任务按端口负责）。平台分支只允许在本层。

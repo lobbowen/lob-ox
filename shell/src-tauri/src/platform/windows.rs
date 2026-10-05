@@ -274,8 +274,6 @@ impl Platform for Impl {
 /// —— 操作系统服务机制与本产品无关，也不存在「用系统通道投递」的选项。
 /// 因此本层也不再保留「改换投递通道」一类的东西（原 Channel / 动作记录 / 权限类判定），
 /// 它们只服务于「向 OS 投递」这条已被删除的路径。
-impl Impl {
-}
 
 impl ServiceControl for Impl {
     fn kind(&self) -> &'static str {
@@ -284,7 +282,7 @@ impl ServiceControl for Impl {
 
     /// 监控器登记表落点（产品状态根下）。**不是**计划任务，也不是 HKCU Run 键。
     fn definition_path(&self) -> PathBuf {
-        crate::env::shell_dir().join("monitor.json")
+        crate::platform::monitor_registry_path()
     }
 
     fn is_defined(&self) -> bool {
