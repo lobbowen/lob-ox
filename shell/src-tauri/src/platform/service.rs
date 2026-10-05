@@ -1,46 +1,36 @@
-//! 服务控制契约：服务**定义**与启停是同一个对象，平台实现无法只改一半。不变量：不支持的能力显式返回 Err，绝不静默成功；所有外部命令经 [`crate::bounded`]（超时即 kill）；`ensure_defined` 幂等。
+//! 服务管理器（监控器）契约 —— 产品自身的服务汇总 / 监控 / 生命周期 / 进程管理机制。
+//!
+//! 定位（唯一权威：见仓库根 STANDARDS.md 的「产品定位与术语规范」）：
+//!   lob-ox 是一套 Agent 的跨平台管理面板。
+//!   本契约描述的「服务管理器」与操作系统提供的任何服务机制
+//!   （Windows 计划任务 / systemd / launchd）没有任何关系。
+//!   产品不借用系统能力作为服务管理器，也不存在「用系统通道投递」的选项。
+//!
+//! 不变量：
+//!   - 不支持的能力显式返回 Err，绝不静默成功；
+//!   - 所有外部命令经 crate::bounded（超时即 kill）；
+//!   - ensure_defined 幂等。
 
 use std::path::PathBuf;
 
-//! 产品自身的**服务管理器（监控器）**契约。
-//!
-//! ★ 产品定位：lob-ox 是 Agent 的跨平台管理面板。
-//!   本契约描述的"服务管理器"是**产品自己建立的**一套服务汇总 / 监控 / 生命周期 / 进程管理机制，
-//!   与操作系统提供的任何服务机制（Windows 计划任务、systemd、launchd）**没有任何关系**。
-//!   产品不从系统"借用"服务管理能力，也不存在"用系统通道投递"的选项。
-//!
-//! 不变量：
-//!   - 不支持的能力显式返回 Err，绝不静默成功；
-//!   - 所有外部命令经 [`crate::bounded`（超时即 kill）；
-//!   - `ensure_defined` 幂等。
-//! 服务管理器契约 —— **产品自身的**服务汇总 / 监控 / 生命周期 / 进程管理机制。
-//!
-//! ★ 定位（唯一权威）：lob-ox 是 Agent 的跨平台管理面板；本契约描述的"服务管理器"
-//!   与操作系统提供的任何服务机制（Windows 计划任务、systemd、launchd）**没有任何关系**。
-//!   产品**不借用**系统能力作为服务管理器，也不存在"用系统通道投递"的选项。
-//!
-//! 不变量：
-//!   - 不支持的能力显式返回 Err，绝不静默成功；
-//!   - 所有外部命令经 [`crate::bounded`]（超时即 kill）；
-//!   - `ensure_defined` 幂等。
 pub trait ServiceControl: Send + Sync {
     fn kind(&self) -> &'static str;
 
     fn definition_path(&self) -> PathBuf;
 
-        /// 服务定义当前是否已存在。不能一律用 `definition_path().is_file()`：Windows 的"路径"是标识串，恒 false；Linux/macOS 走默认的文件存在性。
+    /// 服务定义当前是否已存在。不能一律用 `definition_path().is_file()`：Windows 的"路径"是标识串，恒 false；Linux/macOS 走默认的文件存在性。
     fn is_defined(&self) -> bool {
         self.definition_path().is_file()
     }
 
-        /// 建立服务定义（幂等），返回人类可读的状态描述。enable 失败不应返回 Err：定义已写入时 start 阶段仍可拉起，误判为「彻底失败」会让用户卡在引导页。
+    /// 建立服务定义（幂等），返回人类可读的状态描述。enable 失败不应返回 Err：定义已写入时 start 阶段仍可拉起，误判为「彻底失败」会让用户卡在引导页。
     fn ensure_defined(&self, spec: &crate::platform::LaunchSpec) -> Result<String, String>;
 
     fn start(&self) -> Result<(), String>;
 
     fn stop(&self) -> Result<(), String>;
 
-        /// 服务管理器不可用（容器 / 无 user session / 策略拦截）时的直接 spawn 兜底：启动 `<壳> --run-guard`，标准流走 [`crate::platform::guard_stdio`]。第二实例风险由调用方规避：spawn 前已确认端口不存活，spawn 后仍以端口就绪为唯一成功判据。返回 [`std::process::Child`] 而非 pid（只留 pid 无法区分「拉起即退出」与「正在慢慢起来」）。
+    /// 服务管理器不可用（容器 / 无 user session / 策略拦截）时的直接 spawn 兜底。
     fn spawn_daemon(&self, spec: &crate::platform::LaunchSpec) -> Result<std::process::Child, String> {
         let mut cmd = std::process::Command::new(&spec.shell);
         cmd.arg("--run-guard")
