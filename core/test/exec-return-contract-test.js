@@ -75,12 +75,16 @@ if (process.platform === 'linux') {
     && svc.kind === 'portable',
     JSON.stringify({ sandboxLaunch: caps.sandboxLaunch, sandboxEnforcement: caps.sandboxEnforcement, kind: svc.kind, hasRun: hasRun }));
 
-  // A6 原判据（"确实 active 的 systemd 单元 isUnitActive === true"）依赖 systemd 语义；
-  //   服务管理器改为产品自身进程管理后该判据不再成立 ⇒ 换成 portable 下的等价性质：
-  //   **给不存在的身份上下文时必须显式判 false，绝不因「查不到」而谎报活**。
-  check('A6 反向：不存在的单元/无锚点上下文 isUnitActive === false（不谎报活）',
-    svc.isUnitActive('dsh-no-such-unit-xyz.service') === false, 'false');
-  check('A6b portable 档无身份锚点时不得冒充已知（unknown → null/false，非 true）',
+  // ★ portable 档（产品自身进程管理）下：`isUnitActive` 的"未知"是 **null**，"不在跑"是 false。
+  //   A6 原判据（"确实 active 的 systemd 单元 === true"）依赖 systemd 语义，已不再成立；
+  //   换成 portable 下的等价性质：**绝不谎报活**（任何"查无实据"的形态都不得是 true）。
+  check('A6 未知形态不谎报活：无身份上下文 isUnitActive !== true（null/false 皆可）',
+    svc.isUnitActive('dsh-no-such-unit-xyz.service') !== true, String(svc.isUnitActive('dsh-no-such-unit-xyz.service')));
+  // 给了 pidFile（不存在）+ 端口但锚点不命中 ⇒ 可判定，必须显式 false（不退回 null）
+  const deadCtx = { port: 1, pidFile: path.join(__dirname, 'no-such-run.pid'), anchors: ['nope-anchor'] };
+  check('A6b 有身份上下文但进程已死 ⇒ isUnitActive === false（可判定就判定）',
+    svc.isUnitActive('dsh-web@x', deadCtx) === false, String(svc.isUnitActive('dsh-web@x', deadCtx)));
+  check('A6c portable 档无锚点时不得冒充已知（unknown → null/false，非 true）',
     svc.isUnitActive('dsh-web@x', {}) !== true, 'no-ctx');
 }
 
