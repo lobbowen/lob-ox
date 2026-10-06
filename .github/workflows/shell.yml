@@ -338,16 +338,6 @@ jobs:
           echo "Windows 监控登记冒烟通过：装配登记行 → 写入产品状态根 → 回读现存 → 无 OS 机制痕迹"
         working-directory: shell/src-tauri
 
-      # 红灯归因：日志下载需额外权限，故把编译/测试/冒烟日志**上传为 artifact**（可经 API 取回）。
-      #   放在所有验证步骤之后 ⇒ 编译失败、测试失败、冒烟失败三种情况都能取回日志。
-      - name: 上传失败归因日志（红灯取证）
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fail-log-${{ matrix.os }}
-          path: ${{ runner.temp }}/cargo-*.log
-          if-no-files-found: ignore
-
       - name: Build + bundle (Tauri)
         shell: bash
         env:
@@ -586,16 +576,6 @@ jobs:
             -InstallerB $B.FullName -VerB '${{ needs.version.outputs.ver }}' `
             -Work "$env:RUNNER_TEMP/install-smoke" 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\install-smoke.log"
           exit $LASTEXITCODE
-
-      # install-smoke job 自身没有可下载的日志（日志下载需额外权限），
-      #   故把上面落盘的冒烟输出上传为 artifact ⇒ 红灯能精确定位到哪条断言。
-      - name: 上传安装冒烟日志（红灯取证）
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-log-${{ matrix.os }}
-          path: ${{ runner.temp }}/install-smoke*.log
-          if-no-files-found: ignore
 
   publish:
     # 装不上的安装包发出去 = 用户升级到坏版本的唯一来源 ⇒ 发布前必须先过安装冒烟。
