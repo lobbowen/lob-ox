@@ -309,10 +309,11 @@ impl ServiceControl for Impl {
             std::fs::create_dir_all(dir).map_err(|e| format!("创建监控登记目录失败: {}", e))?;
         }
         std::fs::write(&path, &body).map_err(|e| format!("写入监控登记失败: {}", e))?;
-        Ok(format!(
-            "{} {}",
-            if is_update { "已更新监控登记" } else { "已建立监控登记" },
-            path.display()
+        Ok(crate::platform::monitor_ensure_message(
+            is_update,
+            &path,
+            shell,
+            args,
         ))
     }
 

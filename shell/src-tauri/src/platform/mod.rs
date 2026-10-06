@@ -251,6 +251,25 @@ pub fn monitor_registry_path() -> std::path::PathBuf {
     crate::env::shell_dir().join("monitor.json")
 }
 
+/// 建立/更新登记表的**统一回报文案**（三平台同出一处，避免文案分叉）。
+///
+/// 必须带出稳定入口（`<壳> --run-guard`）：装机冒烟（install-smoke-win.ps1）与
+/// `--service-plan` 都靠这一行核对「登记进去的到底是什么」，
+/// 只回一个路径会让「登记内容对不对」这条判据凭空消失。
+pub fn monitor_ensure_message(
+    is_update: bool,
+    path: &std::path::Path,
+    shell: &std::path::Path,
+    args: &[&str],
+) -> String {
+    format!(
+        "{} {} -> {}",
+        if is_update { "已更新监控登记" } else { "已建立监控登记" },
+        path.display(),
+        service_exec_line(shell, args)
+    )
+}
+
 /// 监控器登记表的内容（产品自身的事实，非 OS 定义）。
 ///
 /// 端口字段记录的是**接管时探测到的**当前端口（`env::current_api_port()`），不是预设值：
@@ -594,6 +613,20 @@ mod tests {
         let p = super::unix_proc_match_pattern();
         assert!(!p.contains('*'), "不得残留 WMI 通配符: {}", p);
         assert!(p.contains("lobox"), "必须保留产品名字面量: {}", p);
+    }
+
+        /// 建立登记表的回报必须带出**稳定入口**（`<壳> --run-guard`）。
+        /// 实证：只回一个路径时，装机冒烟里「登记进去的到底是什么」这条判据凭空消失
+        ///   （install-smoke-win.ps1 的 `建立结果.*-> "...exe" --run-guard`）⇒ 红灯。
+    #[test]
+    fn monitor_ensure_message_carries_the_stable_entry() {
+        let shell = std::path::Path::new("/opt/My App/lobox-shell");
+        let m = super::monitor_ensure_message(false, std::path::Path::new("/state/monitor.json"), shell, &["--run-guard"]);
+        assert!(m.contains("lobox-shell"), "缺壳路径: {}", m);
+        assert!(m.contains("--run-guard"), "缺稳定入口参数: {}", m);
+        assert!(m.contains("已建立监控登记"), "缺动词: {}", m);
+        let u = super::monitor_ensure_message(true, std::path::Path::new("/state/monitor.json"), shell, &["--run-guard"]);
+        assert!(u.contains("已更新监控登记"), "更新态文案: {}", u);
     }
 }
 
