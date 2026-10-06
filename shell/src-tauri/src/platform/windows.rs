@@ -270,7 +270,7 @@ impl Platform for Impl {
     }
 }
 
-/// 服务管理由产品自身的监控器承担：本文件**不再**建立计划任务、登录自启项或看护任务
+/// 服务管理由产品自身的监控器承担：本文件**不再**建立计划任务、登录自启项或监控任务
 /// —— 操作系统服务机制与本产品无关，也不存在「用系统通道投递」的选项。
 /// 因此本层也不再保留「改换投递通道」一类的东西（原 Channel / 动作记录 / 权限类判定），
 /// 它们只服务于「向 OS 投递」这条已被删除的路径。
@@ -290,7 +290,7 @@ impl ServiceControl for Impl {
     }
 
     /// 登记受管对象（幂等，且内容过时时自愈）：登记的是「产品自己在管谁」，
-    /// 不含任何 OS 投递语义 —— 不建计划任务、不写 Run 键、不建看护任务。
+    /// 不含任何 OS 投递语义 —— 不建计划任务、不写 Run 键、不建监控任务。
     fn ensure_defined(&self, spec: &LaunchSpec) -> Result<String, String> {
         let path = self.definition_path();
         let (shell, args) = spec.service_command();
@@ -484,7 +484,7 @@ mod toolchain_tests {
             .unwrap_or_else(|| panic!("{} 解出来后 npm 不可用：node={}", choice.version, node.display()));
         let v = rt.npm_version.clone().expect("真实执行过 npm，必须回读到版本号");
         assert!(!v.is_empty());
-        // 位置受控（守护语义不变）：全局化后安装必须落在**全局安装根**；
+        // 位置受控（监控语义不变）：全局化后安装必须落在**全局安装根**；
         // 老布局（状态根下已装过）仍允许 —— node_install_target 会优先复用，不硬搬既有用户。
         let global_root = crate::env::global_install_root();
         assert!(

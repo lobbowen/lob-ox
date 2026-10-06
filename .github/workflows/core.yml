@@ -71,7 +71,7 @@ jobs:
 
       - name: 安装 Xvfb（图形会话前置条件）
         shell: bash
-        # 无头 runner 下看护判定「无图形会话」而拒绝拉起壳（linux 判据见
+        # 无头 runner 下监控判定「无图形会话」而拒绝拉起壳（linux 判据见
         #   src/platform/os/desktop.js::sessionAvailable）⇒ watchdog E2E 断言失败；故装 Xvfb 真拉起。
         run: |
           sudo apt-get update -qq

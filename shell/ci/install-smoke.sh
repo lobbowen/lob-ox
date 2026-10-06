@@ -32,7 +32,7 @@ hash_of() { (sha256sum "$1" 2>/dev/null || shasum -a 256 "$1") | awk '{print $1}
 # 装后名字断言（Linux/macOS）：**实际落盘**的二进制名/.app 名/CFBundleExecutable 必须逐字等于从单源派生的期望名。
 # 为什么必须显式断言：本脚本原先用通配定位装好的壳（`dpkg -L | grep /usr/bin/*`、`find Contents/MacOS | head -1`），
 #   Tauri 若把主二进制打成别的名字，通配照样挑得到一个文件、探针照样跑得起来 ⇒ 这一致性永远查不出来，
-#   而内核按名字找壳/看护壳的一侧（brand.js#PROC_MATCH_GUI）已经失配。判据实现见 ci/installed-name-check.js（四平台共用）。
+#   而内核按名字找壳/监控壳的一侧（brand.js#PROC_MATCH_GUI）已经失配。判据实现见 ci/installed-name-check.js（四平台共用）。
 # 用法：assert_installed_name <A|B> <实际二进制 basename> [--installer <名>] [--app-dir <名>] [--cf-bundle-executable <名>]
 assert_installed_name() {
   local tag="$1" actual="$2"
