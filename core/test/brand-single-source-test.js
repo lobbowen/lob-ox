@@ -589,13 +589,23 @@ const HOME = path.join('H', 'ome');
     'guard=' + JSON.stringify(guardFn.slice(0, 110)) + ' gui=' + JSON.stringify(guiFn.slice(0, 110)));
 
   // 结构证据③：消费点走派生入口，且自己不再写 label 字面量（含波 1 的 com.lobox.* 旧根）。
+  // ★ 服务管理器去系统化后（唯一权威：STANDARDS.md），壳侧 macos.rs **不再建立 LaunchAgent**，
+  //   故它不再是 macos_guard_label 的消费点；该 label 的消费者只剩内核侧 autostart/darwin.js。
+  //   断言因此翻面：壳侧必须**不**调它，且文件里不得残留任何 launchd/LaunchAgents 痕迹。
   const darwinSrc = fs.readFileSync(path.join(ROOT, 'src', 'platform', 'os', 'autostart', 'darwin.js'), 'utf8');
   const macosSrc = fs.readFileSync(path.join(ROOT, '..', 'shell', 'src-tauri', 'src', 'platform', 'macos.rs'), 'utf8');
-  check('I-5 消费点走派生入口：darwin.js 调 brand 的 label 函数、macos.rs 调 brand::macos_guard_label',
-    /BRAND\.macosGuardLabel\(\)/.test(darwinSrc) && /BRAND\.macosGuiLabel\(\)/.test(darwinSrc)
-    && /crate::brand::macos_guard_label\(\)/.test(macosSrc),
-    'darwin-call=' + /BRAND\.macos(Guard|Gui)Label\(\)/.test(darwinSrc)
-      + ' macos-rs-call=' + /crate::brand::macos_guard_label\(\)/.test(macosSrc));
+  check('I-5 内核侧消费点走派生入口（darwin.js 调 brand 的 label 函数）',
+    /BRAND\.macosGuardLabel\(\)/.test(darwinSrc) && /BRAND\.macosGuiLabel\(\)/.test(darwinSrc),
+    'darwin-call=' + /BRAND\.macos(Guard|Gui)Label\(\)/.test(darwinSrc));
+  check('I-5b 壳侧 macos.rs 已不再消费 LaunchAgent label（服务管理器不借 OS 通道）',
+    !/crate::brand::macos_guard_label\(\)/.test(macosSrc)
+    && !/Command::new\("launchctl"\)/.test(macosSrc)
+    && !/LaunchAgents"\)/.test(macosSrc),
+    'macos-rs-call=' + /crate::brand::macos_guard_label\(\)/.test(macosSrc)
+      + ' launchctl-spawn=' + /Command::new\("launchctl"\)/.test(macosSrc)
+      + ' LaunchAgents-path=' + /LaunchAgents"\)/.test(macosSrc)
+      + ' 注：只判**真实调用形态**（进程 spawn / 路径拼接）；'
+      + '说明性的「不调用 launchd」注释不算残留，扫全文会误伤。');
   const labelRoots = [];
   for (const [rel, src] of [['darwin.js', darwinSrc], ['macos.rs', macosSrc]]) {
     for (const m of src.matchAll(/(?:com|dev)\.bowen\.[A-Za-z.]*|com\.lobox\.[A-Za-z]*/g)) labelRoots.push(rel + ':' + m[0]);
