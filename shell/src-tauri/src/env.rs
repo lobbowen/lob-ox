@@ -374,11 +374,24 @@ mod tests {
         assert!(!is_deprecated_api_port(37361), "A-4 FAIL 正常端口被误判为弃用");
     }
 
+    /// 改全局 `HOME`/`USERPROFILE` 的用例**必须共用这一把模块级锁**。
+    ///
+    /// 实证：a3/a5 各自在函数内声明 static 锁 ⇒ 各锁各的，等于没锁；
+    ///   并行时「改 HOME 的用例」与「读真实状态根的用例」（含 state_reconcile 的 s1/s2）互相踩，
+    ///   CI 上表现为偶发红（darwin-x64 实测：a5 FAILED，122 passed / 1 failed）。
+    ///   与 state_reconcile::tests::STAMP_LOCK 是同一类问题：全局环境不是线程局部的。
+    static HOME_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn home_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        HOME_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     /// 弃用端口不得从 ports.json 被采信：那条记录可能是老产品写的（实证：36360 常驻）。
     /// 若照单全收 ⇒ 用旧端口判"在服役"、用新端口导航 ⇒ 面板拒绝连接。
     #[test]
     fn a5_discovered_port_ignores_deprecated() {
+        let _g = home_env_lock();
         let dir = std::env::temp_dir().join(format!("dsh-a5-home-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("supervisor")).unwrap();
@@ -416,8 +429,8 @@ mod tests {
         // 端口常量冻结：改端口须同步改此处，并同步 core/src/platform/service/config.js#apiPort（两处单源）。
         // 37360 而非 36360：老产品 dsh-supervisor 的守卫常驻 36360，新产品原会命中「守卫在服役·跳过启动」。
         assert_eq!(DEFAULT_API_PORT, 3736 * 10, "A-3 FAIL 默认端口常量值被改动");
-        static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        // 与 a5 共用模块级锁（各用各的锁等于没锁，见 HOME_ENV_LOCK 的说明）。
+        let _g = home_env_lock();
         let saved = std::env::var_os("HOME");
         let dir = std::env::temp_dir().join(format!("dsh-a3-home-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
