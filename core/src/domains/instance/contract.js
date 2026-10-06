@@ -39,7 +39,7 @@ module.exports = {
     events: '事件账本（可空）',
     dist: '统一分发（沙箱 npm 安装与 DSH 自升级共用镜像源）',
     dshBin: 'DSH 可执行名',
-    service: '平台服务控制器（平台抽象，禁直接 systemctl；provider 分档：systemd=内核强制 / portable=采样软档，动词三态契约同源）',
+    service: '平台服务控制器（产品自身的进程管理：detached spawn + pid 文件 + 锚点判活；不借 systemd/launchd/schtasks，全平台一律 portable）',
     tokenService: '令牌服务（只登记源，不持有/不转发令牌）',
     tasks: '统一安装/更新任务注册表',
     systemdDir: 'systemd user 单元目录',
