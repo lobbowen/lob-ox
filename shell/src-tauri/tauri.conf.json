@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "lobox",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "identifier": "dev.bowen.lobox",
   "build": {
     "frontendDist": "bootstrap"
