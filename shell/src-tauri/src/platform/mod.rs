@@ -346,7 +346,7 @@ pub fn managed_stop_script() -> String {
     let pat = unix_proc_match_pattern();
     let me = std::process::id();
     format!(
-        "pkill -f {} 2>/dev/null; exit 0",
+        "pkill -f {} 2>/dev/null; kill {} 2>/dev/null; exit 0",
         pat, me
     )
 }
