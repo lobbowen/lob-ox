@@ -67,27 +67,21 @@ if (process.platform === 'linux') {
   const svc = require(path.join(ROOT, 'src', 'platform', 'os', 'service.js')).current();
   const hasRun = ex.runOut('systemd-run', ['--version'], { timeoutMs: 3000 }) !== null;
   const caps = osIdx.capabilities();
-  check('A5 Linux：sandboxLaunch 恒 true，且 sandboxEnforcement / provider 分派与 systemd-run 实际存在一致（不写死平台）',
+  // ★ 服务管理器不借 OS 通道（唯一权威：STANDARDS.md）：即使本机有 systemd-run，
+  //   服务控制器也必须走产品自身的进程管理（portable），限额档位如实为 supervise（不再 cgroup）。
+  check('A5 Linux：sandboxLaunch 恒 true；provider 恒 portable、限额恒 supervise（不随 systemd-run 存在而分叉）',
     caps.sandboxLaunch === true
-    && caps.sandboxEnforcement === (hasRun ? 'cgroup' : 'supervise')
-    && svc.kind === (hasRun ? 'systemd' : 'portable'),
+    && caps.sandboxEnforcement === 'supervise'
+    && svc.kind === 'portable',
     JSON.stringify({ sandboxLaunch: caps.sandboxLaunch, sandboxEnforcement: caps.sandboxEnforcement, kind: svc.kind, hasRun: hasRun }));
 
-  // 单元名只接受 *.service / 裸名 ⇒ 枚举必须限定 --type=service，否则 .device/.mount 会被判 false 而误报。
-  let activeUnit = null;
-  try {
-    const out = ex.runOut('systemctl', ['--user', 'list-units', '--state=active', '--type=service', '--no-legend', '--plain'], { timeoutMs: 5000 });
-    if (out) activeUnit = ((out.trim().split('\n')[0] || '').trim().split(/\s+/)[0]) || null;
-    if (activeUnit && !/\.service$/.test(activeUnit)) activeUnit = null; // 与 A4b 白名单同判据，防非 service 混入
-  } catch { /* 无 user session */ }
-  if (activeUnit) {
-    check('A6 isUnitActive(确实 active 的单元) === true',
-      svc.isUnitActive(activeUnit) === true, activeUnit.slice(0, 50));
-  } else {
-    console.log('SKIP A6 本机无 active 的 --user service 单元（非 Linux user session）—— 非通过，仅跳过');
-  }
-  check('A6 反向：不存在的单元 isUnitActive === false',
+  // A6 原判据（"确实 active 的 systemd 单元 isUnitActive === true"）依赖 systemd 语义；
+  //   服务管理器改为产品自身进程管理后该判据不再成立 ⇒ 换成 portable 下的等价性质：
+  //   **给不存在的身份上下文时必须显式判 false，绝不因「查不到」而谎报活**。
+  check('A6 反向：不存在的单元/无锚点上下文 isUnitActive === false（不谎报活）',
     svc.isUnitActive('dsh-no-such-unit-xyz.service') === false, 'false');
+  check('A6b portable 档无身份锚点时不得冒充已知（unknown → null/false，非 true）',
+    svc.isUnitActive('dsh-web@x', {}) !== true, 'no-ctx');
 }
 
 // runAsync/runOutAsync 的「绝不 reject」必须覆盖 execFile 的同步抛（Windows 上 npm.cmd 触发 Node EINVAL）。

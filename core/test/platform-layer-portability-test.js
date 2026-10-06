@@ -88,8 +88,21 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   ].join(String.fromCharCode(10)), { realPath: true });
   let dj = null;
   try { dj = JSON.parse(dis); } catch { /* EXECFAIL */ }
-  check('X-3 linux 分派 = systemd-run 实测（有=systemd / 无=portable，不随宿主写死）',
-    !!dj && dj.kind === (dj.has ? 'systemd' : 'portable'), dis.slice(0, 60));
+  // ★ 服务管理器不借 OS 通道（唯一权威：STANDARDS.md）：即使宿主有 systemd-run，
+  //   Linux 上的服务控制器也必须恒为 portable（产品自身的进程管理）。
+  //   这条判据把「不存在用系统通道投递的选项」钉死 —— 分派随宿主工具存在而分叉即为违规。
+  check('X-3 linux 分派恒为 portable（有 systemd-run 也不借系统通道）',
+    !!dj && dj.kind === 'portable', JSON.stringify(dj));
+
+  // ⚠ 上面那条**依赖宿主有没有 systemd-run**：无 systemd-run 的机器上，即便实现偷偷分叉回
+  //   systemd，kind 也仍是 portable ⇒ 断言恒真、判据从未执行（违反 R16 假绿防线）。
+  //   故补一条**静态源码判据**：分派函数体里不得出现 systemd 分叉，与宿主环境无关。
+  const svcSrc = fs.readFileSync(path.join(ROOT, 'src', 'platform', 'os', 'service.js'), 'utf8');
+  const at = svcSrc.indexOf('function current()');
+  const body = at < 0 ? '' : svcSrc.slice(at, svcSrc.indexOf('\n}', at) + 2);
+  check('X-3s 分派实现不得按 systemd-run 存在与否分叉（静态判据，不依赖宿主）',
+    at >= 0 && !/systemd/.test(body) && /return portable/.test(body),
+    'body=' + JSON.stringify(body.slice(0, 160)));
 }
 
 {
