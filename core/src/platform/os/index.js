@@ -47,7 +47,7 @@ function capabilities() {
     p.sandboxLaunch = true;
     // ★ 服务管理器不借 OS 通道（唯一权威：STANDARDS.md）⇒ 不再有 cgroup 级强制，
     //   资源约束改由产品自身的监控与限流承担。如实声明为 supervise，不谎报 cgroup。
-    p.sandboxEnforcement = hasTool('systemd-run') ? 'cgroup' : 'supervise';
+    p.sandboxEnforcement = 'supervise';
     p.desktopNotify = hasTool('notify-send');
     p.autostart = hasTool('systemctl');
     p.openBrowser = desktop.sessionAvailable();

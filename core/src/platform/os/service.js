@@ -134,8 +134,7 @@ function hasSystemdRun() {
 /// 内存/CPU 上限强制。资源约束改由产品自身的监控与限流承担，
 /// 不以「借 OS 通道」换回这一能力。
 function current() {
-  if (PLATFORM === 'linux') return hasSystemdRun() ? systemd : portable;
-  if (PLATFORM === 'darwin' || PLATFORM === 'win32') return portable;
+  if (PLATFORM === 'linux' || PLATFORM === 'darwin' || PLATFORM === 'win32') return portable;
   return NONE;
 }
 

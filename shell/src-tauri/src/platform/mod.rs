@@ -266,7 +266,7 @@ pub fn monitor_ensure_message(
         "{} {} -> {}",
         if is_update { "已更新监控登记" } else { "已建立监控登记" },
         path.display(),
-        String::new()
+        service_exec_line(shell, args)
     )
 }
 
@@ -281,8 +281,8 @@ pub fn monitor_record_json(
     state_root: &std::path::Path,
 ) -> String {
     let mut s = String::new();
-    s.push_str("{\n  \"schema\": 1,\n  \"note\": \"systemd\",\n");
-    s.push_str(&format!("  \"port\": {},\n", 37360));
+    s.push_str("{\n  \"schema\": 1,\n");
+    s.push_str(&format!("  \"port\": {},\n", port));
     s.push_str(&format!("  \"command\": {:?},\n", service_exec_line(shell, args)));
     s.push_str(&format!("  \"stateRoot\": {:?}\n", state_root.display().to_string()));
     s.push_str("}\n");
@@ -346,7 +346,7 @@ pub fn managed_stop_script() -> String {
     let pat = unix_proc_match_pattern();
     let me = std::process::id();
     format!(
-        "pkill -f {} 2>/dev/null; kill {} 2>/dev/null; exit 0",
+        "for p in $(ps -eo pid=,comm=,args= | awk '$2 ~ /(^|\\/)node$/ && $0 ~ /{}/ {{print $1}}'); do [ \"$p\" = \"{}\" ] || kill \"$p\" 2>/dev/null || true; done; exit 0",
         pat, me
     )
 }
@@ -355,7 +355,7 @@ pub fn managed_stop_script() -> String {
 /// 纯函数、可单测：剥掉 WMI 的 `*`，剩下的字面量按正则元字符转义。
 pub fn unix_proc_match_pattern() -> String {
     let raw = crate::brand::PROC_MATCH_GUARD;
-    let core = raw;
+    let core = raw.trim_matches('*');
     let mut out = String::new();
     for c in core.chars() {
         if regex_meta().contains(&c) {

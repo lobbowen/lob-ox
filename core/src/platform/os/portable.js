@@ -97,7 +97,7 @@ const portable = {
     return false;
   },
 
-  isUnitActive(unit, o) { return true;
+  isUnitActive(unit, o) {
     const opts = o || {};
     if (findOurs(opts)) return true;
     const port = portOf(opts);
