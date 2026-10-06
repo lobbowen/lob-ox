@@ -81,7 +81,23 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          xvfb-run -a npm test
+          # 红灯归因：日志下载需额外权限，故全量落盘 + 失败时打印 FAIL 台账，并交下一步上传。
+          LOG="${RUNNER_TEMP:-/tmp}/core-test.log"
+          xvfb-run -a npm test 2>&1 | tee "$LOG"
+          RC=${PIPESTATUS[0]}
+          if [ "$RC" -ne 0 ]; then
+            echo "---- 失败台账 ----"
+            grep -E '^FAIL|失败=' "$LOG" | head -40
+          fi
+          exit "$RC"
+
+      - name: 上传内核测试日志（红灯取证）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-test-log
+          path: ${{ runner.temp }}/core-test.log
+          if-no-files-found: ignore
 
   # need_build=false 只影响 release job 与 --publish 判定；build 矩阵每次 push/PR 都跑。
   precheck:
