@@ -83,6 +83,10 @@ impl Platform for Impl {
         )
     }
 
+    fn is_local_fixed_dir(&self, _dir: &Path) -> bool {
+        true
+    }
+
     fn install_node(&self, _file: &Path) -> Result<PathBuf, String> {
         Err(format!(
             "当前平台（{}）不支持自动安装 Node —— 请手动安装后重启桌面壳",
