@@ -186,6 +186,24 @@ jobs:
           exit "$RC"
         working-directory: shell/src-tauri
 
+      # ⚠ `platform/unsupported.rs` 只在 `not(any(linux,macos,windows))` 下编译 ⇒
+      #   四平台 build **永不覆盖它**：那里的错误（如重复 impl ⇒ E0119）CI 永远发现不了。
+      #   故加一步交叉编译到 FreeBSD target，把这条盲区纳入验收（见 STANDARDS.md「R1 验收只在 CI 四平台」的例外说明）。
+      #   只需 `cargo check`（不链接、不打包），成本低。
+      - name: 交叉编译检查（覆盖未支持平台分支 · unsupported.rs）
+        shell: bash
+        run: |
+          set -o pipefail
+          rustup target add x86_64-unknown-freebsd
+          LOG="${RUNNER_TEMP:-/tmp}/cargo-check-freebsd.log"
+          cargo check --bins --target x86_64-unknown-freebsd 2>&1 | tee "$LOG"
+          RC=${PIPESTATUS[0]}
+          if [ "$RC" -ne 0 ]; then
+            grep -E '^error(\[|:)|^ *-->' "$LOG" | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+          fi
+          exit "$RC"
+        working-directory: shell/src-tauri
+
       - name: 测试（--bins 单元 + tests/*.rs 自动枚举）
         shell: bash
         run: |
