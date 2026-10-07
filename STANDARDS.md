@@ -62,11 +62,14 @@
 下面十六条靠人执行；违反任一条，本轮改动不算完成。
 
 - **R1 验收只在 CI 四平台**：不跑整套测试当验收；不以本机绿灯为放行依据；不以本机红灯为由改代码。
-  - **例外（必须覆盖的盲区）**：`shell/src-tauri/src/platform/unsupported.rs` 只在
-    `not(any(linux, macos, windows))` 下编译 ⇒ 四平台 build **永不覆盖它**
-    （如重复 `impl` ⇒ E0119 这类错误 CI 永远发现不了）。
-    故 CI 另加一步 `cargo check --target x86_64-unknown-freebsd`，把未支持平台分支纳入验收。
-    改动该文件后**必须**看这一步的结果，不能只凭四平台绿灯就认为没问题。
+  - **例外（曾长期存在的盲区，已修）**：`shell/src-tauri/src/platform/unsupported.rs`
+    只在 `not(any(linux, macos, windows))` 下被**选用**，若连模块声明也加 `cfg`，
+    四平台 CI 就**永不编译它** ⇒ 里面的编译错误（缺 trait 方法 E0046、重复 impl E0119）
+    永远发现不了（实证：`is_local_fixed_dir` 曾漏实现而无人察觉）。
+    现规则：**该模块 `mod` 声明不加 cfg（始终编译），只在 `use ... as imp` 上保留 cfg**，
+    于是四平台编译即覆盖它。改动该文件后必须确认四平台编译通过，不能假设"反正用不到"。
+    （注：曾尝试 `cargo check --target x86_64-unknown-freebsd` 交叉编译来覆盖，
+      但 tauri/webkit 依赖不支持该目标，四平台必然红 ⇒ 已弃用。）
 - **R2 CI 等价复现**：定位与突变验证只用 `node test/_runner.js --only=<file>`（该文件须已登记）；它不是验收。
 - **R4 测试突变验证**：新增或修改测试后，故意改坏被测点 ⇒ 必须红 ⇒ 还原；提交附「改前/改后 SHA256 相同」的证据。
 - **R7 跨语言单源一致性**：必须比边界输入（空串、纯空白、缺值、超长、大小写）的行为，不只比常量与名字集合。

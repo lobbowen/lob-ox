@@ -485,7 +485,11 @@ pub(crate) mod windows;
 #[cfg(target_os = "windows")]
 pub(crate) use windows as imp;
 
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+// ⚠ `unsupported` 模块**始终编译**（不随平台 cfg 开关）。
+//   原因：它只在非四平台下被 `use ... as imp` 选用，若连 `mod` 也加 cfg，
+//   四平台 CI 就**永不编译**它 ⇒ 里面的错误（缺 trait 方法 E0046、重复 impl E0119）
+//   永远发现不了（已实证过一次：`is_local_fixed_dir` 漏实现长期无人察觉）。
+//   代价：四平台会多编译一个不被使用的模块（可能有 dead_code 警告，不报错）。
 pub(crate) mod unsupported;
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub(crate) use unsupported as imp;
