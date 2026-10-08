@@ -2,6 +2,7 @@
 
 const stateRoot = require('../../platform/service/state-root');
 const { normalize } = require('../../platform/service/config');
+const SHARED = require('../../shared/shared-constants');
 const { LanManager } = require('./ops');
 const ports = require('../../platform/service/ports').shared;
 const { createCtlServer } = require('../../platform/ctl/server');
@@ -10,7 +11,7 @@ const logcore = require('../../platform/service/log/logcore');
 const path = require('node:path');
 const fs = require('node:fs');
 
-const DEFAULT_CTL_PORT = 43108;
+const DEFAULT_CTL_PORT = SHARED.net.lanCtlPort;
 const POLL_MS = 2000;
 
 const LAN_CTL_METHODS = Object.freeze([

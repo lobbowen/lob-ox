@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 'use strict';
 
-// 跨语言品牌单源对账：解析 `shell/src-tauri/src/brand.rs` 的 `pub const`，逐个断言与 `core/src/shared/brand.js`
-//   值相等，并断言两边的**常量名集合相同** —— 任何一边单独改动都会在这里判红。
-// 另有一份**冻结字面量** EXPECT/RULES：单源两侧被同时改错时它与单源比对仍会失败（不拿同一个源证明自己）。
+// 跨语言品牌单源对账（决策 D4 后语义已演进）：
+//   * **共享常量**（跨边界的）现由单一数据文件 `shared/shared-constants.json` 提供：
+//     Rust 侧 `shared_str("a.b")` 编译期嵌入、Node 侧 `shared-constants.js` 运行时读取。
+//     本测试改为**解析 shared_str 的键并从数据文件取值**，再与 brand.js 对账 —— 仍保证两边同源。
+//   * 非共享常量（仅 Rust 内部用）仍是字面量，照旧解析。
+//   保留一份**冻结字面量** EXPECT/RULES：数据文件被改错时它仍会判红（不拿同一个源证明自己）。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -13,6 +16,26 @@ const { execFileSync } = require('node:child_process');
 const ROOT = path.join(__dirname, '..');
 const JS_PATH = path.join(ROOT, 'src', 'shared', 'brand.js');
 const RS_PATH = path.join(ROOT, '..', 'shell', 'src-tauri', 'src', 'brand.rs');
+const SHARED_JSON_PATH = path.join(ROOT, '..', 'shared', 'shared-constants.json');
+
+// 共享常量的唯一来源（与本测试同仓，故另用下方冻结字面量兜底，避免自证）
+const SHARED = JSON.parse(fs.readFileSync(SHARED_JSON_PATH, 'utf8'));
+
+// `shared_str("product.name")` → 从数据文件取对应值
+function resolveSharedStr(e) {
+  const m = /^shared_str\(\s*"([^"]+)"\s*\)$/.exec(e);
+  if (!m) return null;
+  const parts = m[1].split('.');
+  let cur = SHARED;
+  for (const p of parts) {
+    if (cur === null || typeof cur !== 'object' || !(p in cur)) {
+      throw new Error('shared-constants 缺键: ' + m[1]);
+    }
+    cur = cur[p];
+  }
+  if (typeof cur !== 'string') throw new Error('shared-constants 键非字符串: ' + m[1]);
+  return cur;
+}
 
 const results = [];
 const check = (n, c, x) => {
@@ -45,6 +68,8 @@ function parseRustValue(expr) {
       return unescapeRust(m[1]);
     });
   }
+  const shared = resolveSharedStr(e);
+  if (shared !== null) return shared;                 // 共享常量：从数据文件解出
   const m = /^"(.*)"$/.exec(e);
   if (!m) throw new Error('无法解析的常量表达式: ' + e);
   return unescapeRust(m[1]);
@@ -64,12 +89,18 @@ function parseRust() {
   return { out, dup, src };
 }
 
+// 内部读取器：不是品牌常量，不参与两侧对账（决策 D4 后共享值由 shared-constants.json 提供）。
+const JS_INTERNAL_READERS = ['SHARED'];
+
 function parseJsConstNames() {
   const src = fs.readFileSync(JS_PATH, 'utf8');
   const names = [];
   const re = /^const ([A-Z][A-Z0-9_]*) = /gm;
   let m;
-  while ((m = re.exec(src)) !== null) names.push(m[1]);
+  while ((m = re.exec(src)) !== null) {
+    if (JS_INTERNAL_READERS.indexOf(m[1]) >= 0) continue;
+    names.push(m[1]);
+  }
   return names;
 }
 

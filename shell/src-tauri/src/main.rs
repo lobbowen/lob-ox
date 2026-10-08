@@ -144,6 +144,21 @@ fn main() {
     if std::env::args().any(|a| a == "--watchdog") {
         std::process::exit(domain::cli::cli_watchdog());
     }
+    // 状态根对账：在线更新只换二进制、状态根不自己跟上，
+    // 陈旧 apiPort（如 36360）会让守卫永远起不来 —— 必须在**GUI 启动路径**也执行。
+    // 此前只挂在 `--shell-update-plan`（CLI）里 ⇒ GUI 启动永不调用，该模块等于死代码（S7 修的 P0）。
+    // 不阻断启动（既有约定），但必须留痕：不留痕的对账等于没做。
+    {
+        let v = env!("CARGO_PKG_VERSION").to_string();
+        for (name, outcome) in crate::state_reconcile::reconcile_once(&v) {
+            match outcome {
+                crate::state_reconcile::Outcome::Unchanged => {}
+                crate::state_reconcile::Outcome::Skipped(why) => {
+                    eprintln!("[state-reconcile] {} 需关注: {}", name, why);
+                }
+            }
+        }
+    }
     bt!("building app");
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {

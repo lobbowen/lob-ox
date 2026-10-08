@@ -36,14 +36,23 @@ function writeAtomic(file, data, opts) {
   try {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(tmp, data, { mode });
-    try { fs.chmodSync(tmp, mode); } catch {  }
+    // chmod 失败不构成写入失败（Windows 忽略 POSIX mode），但必须留痕——静默会让权限问题无法诊断。
+    try { fs.chmodSync(tmp, mode); } catch (e) { chmodWarn(file, e); }
     fs.renameSync(tmp, fp);
-    try { fs.chmodSync(fp, mode); } catch {  }
+    try { fs.chmodSync(fp, mode); } catch (e) { chmodWarn(file, e); }
     return fp;
   } catch (e) {
-    try { if (fs.existsSync(tmp)) fs.truncateSync(tmp, 0); } catch {  }
+    // 失败清理：必须 **unlink** 而非 truncate —— 后者会永久留下 0 字节 tmp 文件（P0 清理项）。
+    try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch {  }
     throw e;
   }
+}
+
+// 权限收口失败的统一记录口（不抛出：chmod 失败不影响数据已落盘这一事实）。
+function chmodWarn(file, e) {
+  try {
+    console.warn('[fs] chmod 收口失败（数据已落盘，权限可能不符预期）: ' + file + ' — ' + ((e && e.message) || e));
+  } catch { /* 记录失败也不得影响主流程 */ }
 }
 
 function removeTreeDeferred(dir, ms) {

@@ -1,11 +1,12 @@
 'use strict';
 
 const { normalize } = require('../../platform/service/config');
+const SHARED = require('../../shared/shared-constants');
 
 const path = require('node:path');
 const fs = require('node:fs');
 
-const DEFAULT_CTL_PORT = 43107;
+const DEFAULT_CTL_PORT = SHARED.net.routerCtlPort;
 const ROUTER_CTL_METHODS = Object.freeze([
   'status', 'domainSummary', 'portsView', 'listProviders', 'proxyApps', 'proxyUpdateStatus',
   'addDirectProvider', 'addProxyProvider', 'removeProvider',

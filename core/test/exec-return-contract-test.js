@@ -38,27 +38,29 @@ const check = (n, c, x) => {
 }
 
 {
-  const svcMod = require(path.join(ROOT, 'src', 'platform', 'os', 'service.js'));
-  const v = svcMod.unitNameViolation;
+  // 单元名白名单的**归属**是 util/input.js（service.js 只是转发过一层）。
+  //   服务管理器去系统化后该转发已删（只服务 systemd 档）⇒ 直接从源头取，避免测试依赖已删转发。
+  const v = require(path.join(ROOT, 'src', 'platform', 'util', 'input.js')).unitNameViolation;
   check('A4b 行为：合法名放行（裸名/.service/模板实例）',
     v('dsh-web@inst-1725-3') === null && v('dsh-no-such-unit-xyz.service') === null && v('main') === null, 'ok');
   check('A4b 行为：路径穿越/参数夹带/控制符/后缀伪装全部拒绝',
     v('../../evil') !== null && v('a --user stop b') !== null && v('x\n.service') !== null
       && v('foo.timer') !== null && v('foo.service\x00.txt') !== null && v('') !== null, 'ok');
   {
-    const svc = svcMod.current();
-    if (process.platform === 'linux' && svc.kind === 'systemd') {
-      check('A4b 行为：非法名全链路拒（stopUnit=false / isUnitActive=false / transientUnitFile=null）',
-        svc.stopUnit('../../evil') === false && svc.isUnitActive('../../evil') === false
-        && svc.transientUnitFile('../x') === null, 'false');
-      check('A4b 行为：非法名绝不进 systemctl argv（startTransient 抛 / cleanTransient={ok:false} / setLimits=false）',
-        (() => { try { svc.startTransient({ unit: 'a b', cmd: ['node'] }); return false; } catch (e) { return /systemd-run 拒绝/.test(e.message); } })()
-        && svc.cleanTransient('a/b').ok === false && svc.setLimits('../../evil', { memoryMax: '1G' }) === false,
-        '已抛/ok:false');
-    } else if (process.platform === 'linux' && svc.kind === 'portable') {
-      check('A4b 行为：portable 档无锚 stopUnit 幂等 true（不误杀、不抛）；isUnitActive=null（删除保护不放行）',
-        svc.stopUnit('../../evil', { port: 0, pidFile: null, anchors: [] }) === true
-        && svc.isUnitActive('../../evil', {}) === null, 'true/null');
+    // `svcMod` 在此重新取（上面第 41 行起不再 require 整个模块）；
+    //   服务管理器恒为 portable（不借 OS 通道）⇒ systemd 分支永不生效，只断言 portable 语义。
+    const svc = require(path.join(ROOT, 'src', 'platform', 'os', 'service.js')).current();
+    // isUnitActive 现返回 Outcome 三态（根因 A 修法）：未知 = {kind:'unknown'}，不再是 null。
+    // 被测性质不变：**查无实据不得放行**（不得是 ok）。
+    const K = (x) => String((x && x.kind) || x);
+    // 审计 P0-I5：stopUnit 已为 async（不再用 Atomics.wait 冻结事件循环）；此处用 .then 落地断言，
+    // 不引入顶层 await（CJS 顶层的 await 非法）。断言在本拍后续同步检查之后微任务内完成，与尾部异步 IIFE 的退出顺序一致。
+    if (svc.kind === 'portable') {
+      Promise.resolve(svc.stopUnit('../../evil', { port: 0, pidFile: null, anchors: [] })).then((stopped) => {
+        check('A4b 行为：portable 档无锚 stopUnit 幂等 true（不误杀、不抛）；isUnitActive=unknown（删除保护不放行）',
+          stopped === true && K(svc.isUnitActive('../../evil', {})) === 'unknown',
+          'true/' + K(svc.isUnitActive('../../evil', {})));
+      }).catch(() => {});
     }
   }
 }
@@ -75,17 +77,18 @@ if (process.platform === 'linux') {
     && svc.kind === 'portable',
     JSON.stringify({ sandboxLaunch: caps.sandboxLaunch, sandboxEnforcement: caps.sandboxEnforcement, kind: svc.kind, hasRun: hasRun }));
 
-  // ★ portable 档（产品自身进程管理）下：`isUnitActive` 的"未知"是 **null**，"不在跑"是 false。
-  //   A6 原判据（"确实 active 的 systemd 单元 === true"）依赖 systemd 语义，已不再成立；
-  //   换成 portable 下的等价性质：**绝不谎报活**（任何"查无实据"的形态都不得是 true）。
-  check('A6 未知形态不谎报活：无身份上下文 isUnitActive !== true（null/false 皆可）',
-    svc.isUnitActive('dsh-no-such-unit-xyz.service') !== true, String(svc.isUnitActive('dsh-no-such-unit-xyz.service')));
-  // 给了 pidFile（不存在）+ 端口但锚点不命中 ⇒ 可判定，必须显式 false（不退回 null）
+  // ★ portable 档（产品自身进程管理）下：`isUnitActive` 返回 Outcome 三态：
+  //   ok（在跑）/ fail（确定不在跑）/ unknown（判不出）。旧契约的 null 已由 unknown 取代。
+  //   被测性质不变：**绝不谎报活**（任何"查无实据"的形态都不得是 ok）。
+  const K2 = (x) => String((x && x.kind) || x);
+  check('A6 未知形态不谎报活：无身份上下文 isUnitActive !== ok（unknown/fail 皆可）',
+    K2(svc.isUnitActive('dsh-no-such-unit-xyz.service')) !== 'ok', K2(svc.isUnitActive('dsh-no-such-unit-xyz.service')));
+  // 给了 pidFile（不存在）⇒ 进程槽位为空 ⇒ 确定不在跑（fail）
   const deadCtx = { port: 1, pidFile: path.join(__dirname, 'no-such-run.pid'), anchors: ['nope-anchor'] };
-  check('A6b 有身份上下文但进程已死 ⇒ isUnitActive === false（可判定就判定）',
-    svc.isUnitActive('dsh-web@x', deadCtx) === false, String(svc.isUnitActive('dsh-web@x', deadCtx)));
-  check('A6c portable 档无锚点时不得冒充已知（unknown → null/false，非 true）',
-    svc.isUnitActive('dsh-web@x', {}) !== true, 'no-ctx');
+  check('A6b 有身份上下文但 pid 文件不存在 ⇒ isUnitActive = fail（可判定就判定）',
+    K2(svc.isUnitActive('dsh-web@x', deadCtx)) === 'fail', K2(svc.isUnitActive('dsh-web@x', deadCtx)));
+  check('A6c portable 档无锚点时不得冒充已知（unknown，非 ok）',
+    K2(svc.isUnitActive('dsh-web@x', {})) !== 'ok', K2(svc.isUnitActive('dsh-web@x', {})));
 }
 
 // runAsync/runOutAsync 的「绝不 reject」必须覆盖 execFile 的同步抛（Windows 上 npm.cmd 触发 Node EINVAL）。

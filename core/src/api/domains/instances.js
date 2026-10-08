@@ -8,7 +8,18 @@ const { bootstrapDshCookie } = require('../../platform/service/token/exchange');
 const OPEN_WEB_CODES = new Map();
 const OPEN_WEB_CODE_TTL_MS = 30000;
 
+// 审计 P0-6：OPEN_WEB_CODES 是模块级单例，原实现只在 consume 时判 exp、无任何定时清理。
+// 若浏览器取到码但从不回调（或守卫重启），条目永久驻留内存直到进程退出 ⇒ 每次 open-web 泄漏一条。
+// 故加一个惰性清理：每次 issue/consume 顺手扫一遍过期条目（O(n) 但 n 极小，且只在有操作时发生，无独立定时器开销）。
+function _sweepExpiredOpenWebCodes() {
+  const now = Date.now();
+  for (const [code, rec] of OPEN_WEB_CODES) {
+    if (!(rec && rec.exp > now)) OPEN_WEB_CODES.delete(code);
+  }
+}
+
 function issueOpenWebCode(id) {
+  _sweepExpiredOpenWebCodes();
   const code = crypto.randomUUID();
   OPEN_WEB_CODES.set(code, { id, exp: Date.now() + OPEN_WEB_CODE_TTL_MS });
   return code;
@@ -158,12 +169,12 @@ function handle(ctx) {
               return send(400, { ok: false, error: hint });
             }
           }
-          if (act === 'remove' && j.id) { const r = sup.instances.removeInstance(j.id); return send(r && r.ok ? 200 : 400, r); }
+          if (act === 'remove' && j.id) { return Promise.resolve(sup.instances.removeInstance(j.id)).then((r) => send(r && r.ok ? 200 : 400, r)).catch((e) => send(500, { ok: false, error: (e && e.message) || String(e) })); }
           if (act === 'update' && j.id) { const r = sup.instances.updateInstance(j.id, j); return send(r && r.ok ? 200 : 400, r); }
           if (act === 'start' && j.id) return Promise.resolve(sup.instances.startInstance(j.id, { manual: true }))
             .then((r) => send(r && r.ok ? 200 : 400, r))
             .catch((e) => send(500, { ok: false, error: e.message }));
-          if (act === 'stop' && j.id) { const r = sup.instances.stopInstance(j.id); return send(r && r.ok ? 200 : 400, r); }
+          if (act === 'stop' && j.id) { return Promise.resolve(sup.instances.stopInstance(j.id)).then((r) => send(r && r.ok ? 200 : 400, r)).catch((e) => send(500, { ok: false, error: (e && e.message) || String(e) })); }
           if (act === 'open-web' && j.id) {
             try {
               const it = findInstanceOrMain(sup, j.id);

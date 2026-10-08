@@ -49,17 +49,24 @@ async function main() {
   await listen(upstream);
   const targetPort = upstream.address().port;
 
-  const relay = createRelay('127.0.0.1', targetPort, { dshToken: LAUNCH });
+  // 审计 RL-2：relay 现强制 LAN 令牌（空令牌不再开放转发）。场景1/2 改为先以 ?token=lan-secret 换派生 cookie，
+  // 再凭该 cookie 访问——DSH（管家）cookie 仍由上游/桥在通过 LAN 闸后注入。
+  const relay = createRelay('127.0.0.1', targetPort, { token: 'lan-secret', dshToken: LAUNCH });
   await listen(relay);
   const relayPort = relay.address().port;
 
-  const r1 = await req(relayPort, 'GET', '/');
-  check('场景1: 根 URL 经 relay 返回 200（DSH cookie 已注入）', r1.code === 200, r1.code + ' ' + r1.body);
-  const r2 = await req(relayPort, 'GET', '/api/session/list');
+  const handShake = await req(relayPort, 'GET', '/?token=lan-secret');
+  const sc = String((handShake.headers['set-cookie'] || []).join(';'));
+  check('场景1: 无 LAN 令牌 → 先被闸重定向换 cookie（非直接 200）', handShake.code === 302 && /^lobox_lan_token=[0-9a-f]{64}(;|$)/.test(sc) && !sc.includes('lan-secret'), handShake.code + ' ' + sc);
+  const lanCk1 = 'lobox_lan_token=' + ((/lobox_lan_token=([^;]+)/.exec(sc) || [])[1] || '');
+
+  const r1 = await req(relayPort, 'GET', '/', { Cookie: lanCk1 });
+  check('场景1: 凭 LAN 派生 cookie 经 relay 返回 200（DSH cookie 已注入）', r1.code === 200, r1.code + ' ' + r1.body);
+  const r2 = await req(relayPort, 'GET', '/api/session/list', { Cookie: lanCk1 });
   check('场景1: /api 路径同样放行（非 401）', r2.code === 200, String(r2.code));
 
-  const r3 = await req(relayPort, 'GET', '/', { Cookie: 'dsh-auth-mock=abcdef123' });
-  check('场景2: 客户端自带 DSH cookie 仍 200', r3.code === 200, String(r3.code));
+  const r3 = await req(relayPort, 'GET', '/', { Cookie: lanCk1 + '; dsh-auth-mock=abcdef123' });
+  check('场景2: 客户端自带 DSH cookie（叠加 LAN cookie）仍 200', r3.code === 200, String(r3.code));
 
   const relay2 = createRelay('127.0.0.1', targetPort, { token: 'lan-secret', dshToken: LAUNCH });
   await listen(relay2);

@@ -3,7 +3,8 @@
 const spawn = require('../../platform/os/spawn');
 const procOS = require('../../platform/os/process');
 const registryRef = require('../../platform/distribution/registry-ref');
-const { assertSafeCliArgs, cliArgv } = require('./policies');
+const ProcessSpec = require('../../platform/os/process-spec');
+const { assertSafeCliArgs } = require('./policies');
 
 const CLI_TIMEOUT_MS = 180000;
 const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
@@ -24,18 +25,26 @@ function runCli({ target, args, opts, registryOrigin, logger }) {
     const settle = (v) => { if (!settled) { settled = true; if (timer) clearTimeout(timer); resolve(v); } };
     Promise.resolve().then(() => registryOrigin()).then((regRaw) => {
       const rp = registryRef.registryEnvPair(regRaw);
-      const envBase = Object.assign({}, process.env, target.env);
-      if (rp.ok) Object.assign(envBase, rp.env);
-      else if (logger && logger.warn) logger.warn('plugin CLI: 无可用的 registry 镜像（' + rp.violation + '），回退 pnpm 默认（npmjs.org）');
-      const env = envBase;
+      if (!rp.ok && logger && logger.warn) {
+        logger.warn('plugin CLI: 无可用的 registry 镜像（' + rp.violation + '），回退 pnpm 默认（npmjs.org）');
+      }
+      // 环境：白名单透传（不再整体继承 process.env，防 NPM_TOKEN 等凭据泄漏给生命周期脚本）。
+      const env = ProcessSpec.childEnv(target.env, rp.ok ? rp.env : null);
       let child;
       try {
-        // 沙箱 target 固定 pnpm store（--store-dir），防 HOME 变化导致 ERR_PNPM_UNEXPECTED_STORE。
-        const cliArgs = cliArgv(target);
-        // detached:true 让子进程自成进程组，超时才能整树终止（否则 pnpm 孙进程成孤儿仍占 profile 与 store 锁）。
-        const argv0 = target.runtime || target.bin;
-        const argvPrefix = target.runtime ? [target.bin] : [];
-        child = spawn.piped(argv0, [...argvPrefix, ...cliArgs, ...args], { env, detached: true });
+        // 进程构造走 ProcessSpec：安全不变量（--ignore-scripts、白名单校验）内置于构造器，
+        // 不再依赖本调用方记忆——此前正是此处漏了 --ignore-scripts（全仓唯一）。
+        const built = ProcessSpec.build({
+          runtime: target.runtime,
+          bin: target.bin,
+          subcommand: 'plugin',
+          extraFlags: ['--profile', String(target.profileName || 'web')],
+          storeDir: target.storeDir,
+          install: true,
+          args,
+        });
+        if (!built.ok) return settle({ ok: false, error: built.error });
+        child = spawn.piped(built.argv[0], built.argv.slice(1), { env, detached: true });
       } catch (e) { return settle({ ok: false, error: e.message }); }
       const killTree = (sig) => {
         if (!child || !child.pid) return;

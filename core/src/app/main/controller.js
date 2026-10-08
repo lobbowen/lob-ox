@@ -157,7 +157,9 @@ module.exports = {
           // STARTING = 仍在 startsecs 窗口内（或刚判定重启、等端口释放落点）。
           // 窗口到点且进程还活着 ⇒ RUNNING；进程退出由 child 的 exit 事件记账（启动失败）。
           if (!targetAlive) {
-            if (d.mStartDeadline() === null && Date.now() >= d.mRestartAt()) {
+            // 审计 P0-3：mRestartAt 初始为 null 时 Date.now() >= null 恒 true（null 被转 0）。
+            // 无重启计划 ⇒ 不应立即再次 startProcess。显式补 null 判据。
+            if (d.mStartDeadline() === null && (d.mRestartAt() === null || Date.now() >= d.mRestartAt())) {
               if (await monitor.isPortListening(host, port, 1000)) {
                 d.daemons().warnOccupied();
               } else {

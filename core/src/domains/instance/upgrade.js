@@ -7,8 +7,20 @@ function taskLogger(task, tasks) {
   return (l) => { if (task) tasks.log(task.id, l); };
 }
 
-function portHealthOpts(inst) {
-  return { host: '127.0.0.1', port: inst.port, unit: 'dsh-web@' + inst.id, timeoutMs: 120000 };
+/**
+ * 升级后健康校验参数。
+ *
+ * 修前只传 {host,port,unit,timeoutMs} ⇒ isUnitActive 走"无锚点"分支，
+ * 把"端口上有人监听"当成"我们的实例在跑"（外来进程占端口即假成功、不回滚，P0）。
+ * 故补传 pidFile + anchors，使判据落到**身份匹配**上（与 monitor.js#matchesAnchors 同源）。
+ */
+function portHealthOpts(inst, ctx) {
+  const o = { host: '127.0.0.1', port: inst.port, unit: 'dsh-web@' + inst.id, timeoutMs: 120000 };
+  if (ctx) {
+    if (ctx.pidFile !== undefined) o.pidFile = ctx.pidFile;
+    if (Array.isArray(ctx.anchors)) o.anchors = ctx.anchors;
+  }
+  return o;
 }
 
 function createUpgrade(deps) {
@@ -150,7 +162,7 @@ function createUpgrade(deps) {
         else {
           let up = false;
           if (dist) {
-            const vh = await dist.waitPortHealthy(portHealthOpts(inst));
+            const vh = await dist.waitPortHealthy(portHealthOpts(inst, sandbox.launchCtx(instancesRoot, deps.dshBin, inst)));
             up = vh.ok;
           }
           if (!up) {

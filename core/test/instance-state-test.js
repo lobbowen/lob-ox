@@ -185,7 +185,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     seedEntry(mgr, inst);
     const r0 = await mgr.startInstance('b15', { fromUpgrade: true });
     const phaseAfterStart = inst.state.phase;
-    const r1 = mgr.stopInstance('b15');
+    const r1 = await mgr.stopInstance('b15');
     check('IN-1/2 start 走到拉起 → STARTING；stop → STOPPED（用户启停就是动作本身）',
       r0.ok === true && phaseAfterStart === 'STARTING' && r1.ok === true && inst.state.phase === 'STOPPED',
       'ok=' + r0.ok + '/' + r1.ok + ' ' + phaseAfterStart + '->' + inst.state.phase);
@@ -194,7 +194,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
     const mgr = mkMgr(fs.mkdtempSync(path.join(os.tmpdir(), 'b15-intent-unconfirmed-')), { stopUnit() { return false; } });
     const inst = mk('RUNNING');
     mgr.instances = [inst];
-    const r = mgr.stopInstance('b15');
+    const r = await mgr.stopInstance('b15');
     check('IN-5 反向：停止未确认 → ok:false 且相位不动（不谎报已停）',
       r.ok === false && inst.state.phase === 'RUNNING', 'ok=' + r.ok + ' phase=' + inst.state.phase);
   }
@@ -305,10 +305,10 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       const inst = govInst('g1', port);
       mgr.instances = [inst];
       const srv = await listenLike(mgr, inst);
-      for (let k = 0; k < 3; k++) { mgr.supervise('g1'); mgr.governSweep(); await sleep(10); }
+      for (let k = 0; k < 3; k++) { mgr.supervise('g1'); await mgr.governSweep(); await sleep(10); }
       check('7A 迟滞爬升中不处置（内存计数未触顶即不停单元）',
         inst.state.phase === 'RUNNING' && !journal.some((j) => j.kind === 'stopUnit'), inst.state.phase);
-      mgr.supervise('g1'); mgr.governSweep(); await sleep(10);
+      mgr.supervise('g1'); await mgr.governSweep(); await sleep(10);
       const ev = journal.find((j) => j.kind === 'event' && j.name === 'inst_resource_violation');
       const stop = journal.findIndex((j) => j.kind === 'stopUnit');
       check('7A 连续第 3 个证据拍触发违规处置', !!ev && stop >= 0, JSON.stringify(ev && ev.data));
@@ -327,7 +327,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       check('7A 观测行回填（usage.memMb 与 allocation 均已写入，非陈旧空值）',
         !!(inst.state.usage && inst.state.usage.memMb > 0) && !!(inst.state.allocation && inst.state.allocation.memoryMax),
         JSON.stringify(inst.state.usage) + ' ' + JSON.stringify(inst.state.allocation));
-      mgr.stopInstance('g1');
+      await mgr.stopInstance('g1');
       check('7A 显式停止清观测（usage=null 不残留陈旧展示值）', inst.state.usage === null && inst.state.phase === 'STOPPED', String(inst.state.usage));
       srv.close();
     }
@@ -344,13 +344,13 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       mgr.instances = [a, b];
       const srvA = await listenLike(mgr, a);
       const srvB = await listenLike(mgr, b);
-      mgr.supervise('gb1'); mgr.supervise('gb2'); mgr.governSweep(); await sleep(30);
-      mgr.supervise('gb1'); mgr.supervise('gb2'); mgr.governSweep(); await sleep(30);
+      mgr.supervise('gb1'); mgr.supervise('gb2'); await mgr.governSweep(); await sleep(30);
+      mgr.supervise('gb1'); mgr.supervise('gb2'); await mgr.governSweep(); await sleep(30);
       check('7B 有需求实例补到真实用量（两实例同值、非占位空值）',
         !!a.state.allocation.memoryMax && a.state.allocation.memoryMax === b.state.allocation.memoryMax,
         a.state.allocation.memoryMax + ' / ' + b.state.allocation.memoryMax);
-      mgr.supervise('gb1'); mgr.supervise('gb2'); mgr.governSweep(); await sleep(30);
-      mgr.supervise('gb1'); mgr.supervise('gb2'); mgr.governSweep(); await sleep(30);
+      mgr.supervise('gb1'); mgr.supervise('gb2'); await mgr.governSweep(); await sleep(30);
+      mgr.supervise('gb1'); mgr.supervise('gb2'); await mgr.governSweep(); await sleep(30);
       check('7B 观测行 usage 回填（rss 即时 + cpu delta 终有值）',
         !!a.state.usage && a.state.usage.memMb > 0 && Number.isFinite(a.state.usage.cpuPct),
         JSON.stringify(a.state.usage));
@@ -383,7 +383,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       const inst = govInst('gd1', port);
       mgr.instances = [inst];
       const srv = await listenLike(mgr, inst);
-      for (let k = 0; k < 6; k++) { mgr.supervise('gd1'); mgr.governSweep(); await sleep(5); }
+      for (let k = 0; k < 6; k++) { mgr.supervise('gd1'); await mgr.governSweep(); await sleep(5); }
       check('7D 采样恒失败 -> 无证据不处置（六拍仍 RUNNING、零违规事件）',
         inst.state.phase === 'RUNNING' && !journal.some((j) => j.name === 'inst_resource_violation'), inst.state.phase);
       srv.close();
@@ -403,7 +403,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
         !!t0 && t0.port === port
         && t0.anchors.includes('--port ' + port) && t0.anchors.includes(bin),
         t0 && JSON.stringify(t0.anchors));
-      mgr.stopInstance('ge1');
+      await mgr.stopInstance('ge1');
       const su = journal.filter((j) => j.kind === 'stopUnit').pop();
       check('7E stopUnit 带**同一**身份锚与有界超时（启停同值防归属漂移）',
         !!su && su.ctx && su.ctx.port === port && su.ctx.pidFile === t0.pidFile
@@ -419,13 +419,13 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       const inst2 = govInst('ge2', port2);
       g2.mgr.instances = [inst2];
       const srv2 = await listenLike(g2.mgr, inst2);
-      g2.mgr.supervise('ge2'); g2.mgr.governSweep(); await sleep(10);
+      g2.mgr.supervise('ge2'); await g2.mgr.governSweep(); await sleep(10);
       const sl = g2.journal.find((j) => j.kind === 'setLimits');
       check('7E RUNNING 拍 alloc 变化即下发 setLimits（运行期动态化，不等重启）',
         !!sl && sl.unit === 'dsh-web@ge2' && !!sl.alloc && sl.alloc.memoryMax === inst2.state.allocation.memoryMax,
         sl && JSON.stringify(sl.alloc));
       const n1 = g2.journal.filter((j) => j.kind === 'setLimits').length;
-      g2.mgr.supervise('ge2'); g2.mgr.governSweep(); await sleep(10);
+      g2.mgr.supervise('ge2'); await g2.mgr.governSweep(); await sleep(10);
       check('7E 未变化拍不重发 setLimits（迟滞收敛防写放大）',
         g2.journal.filter((j) => j.kind === 'setLimits').length === n1, 'n=' + n1);
       srv2.close();
@@ -443,11 +443,11 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
       mgr.instances = [x, y];
       const srv1 = await listenLike(mgr, x);
       const srv2b = await listenLike(mgr, y);
-      for (let k = 0; k < 3; k++) { mgr.supervise('gf1'); mgr.supervise('gf2'); mgr.governSweep(); await sleep(10); }
+      for (let k = 0; k < 3; k++) { mgr.supervise('gf1'); mgr.supervise('gf2'); await mgr.governSweep(); await sleep(10); }
       check('7F 双实例三拍仍不处置（每拍一次 decide）',
         x.state.phase === 'RUNNING' && y.state.phase === 'RUNNING' && !journal.some((j) => j.kind === 'stopUnit'),
         x.state.phase + '/' + y.state.phase);
-      mgr.supervise('gf1'); mgr.supervise('gf2'); mgr.governSweep(); await sleep(10);
+      mgr.supervise('gf1'); mgr.supervise('gf2'); await mgr.governSweep(); await sleep(10);
       const evs = journal.filter((j) => j.kind === 'event' && j.name === 'inst_resource_violation');
       const stops = journal.filter((j) => j.kind === 'stopUnit');
       check('7F 第 4 拍单扫描同时处置两违规（事件+停单元各 2、双 STARTING 正常重启、均不计启动失败）',

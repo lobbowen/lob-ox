@@ -38,18 +38,28 @@ function ensureDir(dir) {
 
 function writeAtomic(file, data) {
   const fp = path.resolve(file);
-  const tmp = fp + '.tmp' + process.pid;
+  // tmp 名补时间戳：修前是 `fp + '.tmp' + pid`（无时间戳），
+  // 同进程并发写者会撞名互相截断，一次写入静默丢失。
+  const tmp = fp + '.tmp.' + process.pid + '.' + Date.now();
   try {
     ensureDir(path.dirname(fp));
     fs.writeFileSync(tmp, data, { mode: 0o600 });
-    try { fs.chmodSync(tmp, 0o600); } catch {  }
+    try { fs.chmodSync(tmp, 0o600); } catch (e) { chmodWarn(file, e); }
     fs.renameSync(tmp, fp);
-    try { fs.chmodSync(fp, 0o600); } catch {  }
+    try { fs.chmodSync(fp, 0o600); } catch (e) { chmodWarn(file, e); }
     return { ok: true, path: fp };
   } catch (e) {
-    try { if (fs.existsSync(tmp)) fs.truncateSync(tmp, 0); } catch {  }
+    // unlink 而非 truncate：修前留下 0 字节 tmp 文件且永不清理。
+    try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch {  }
     return { ok: false, path: fp, reason: (e && e.message) || String(e) };
   }
+}
+
+// 权限收口失败的统一记录口（不抛出：chmod 失败不影响数据已落盘这一事实）。
+function chmodWarn(file, e) {
+  try {
+    console.warn('[token] chmod 收口失败（数据已落盘，权限可能不符预期）: ' + file + ' — ' + ((e && e.message) || e));
+  } catch { /* 记录失败也不得影响主流程 */ }
 }
 
 function rotateByBackup(file, opts) {

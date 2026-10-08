@@ -93,10 +93,19 @@ export function OverviewPage() {
   // 读 instances.native.guardian（即时准确）；/lifecycle/dsh 由心跳约 5s 同步，立即刷新会读到旧值使开关弹回。
   useEffect(() => {
     if (!installed) return;
+    // alive 守卫：卸载/切页后不再 setState（防竞态覆盖）。
+    let alive = true;
     supervisorApi.instances().then((r2) => {
+      if (!alive) return;
       const g = r2?.native?.guardian;
       if (typeof g === "boolean") setMainGuardian(g);
-    }).catch(() => {});
+    }).catch(() => {
+      // 拉取失败不得把 mainGuardian 停在 null —— 那会让开关被永久禁用（S7 修的 P0）。
+      // 保留上一次已知值；确无已知值时回退 false，使按钮仍可操作并由用户重试。
+      if (!alive) return;
+      setMainGuardian((prev) => (typeof prev === "boolean" ? prev : false));
+    });
+    return () => { alive = false; };
   }, [installed, s?.dshPid]);
 
   async function toggleMainGuardian() {
@@ -315,7 +324,10 @@ function EventLogPanel({ events }: { events: SupervisorEvent[] }) {
   const PAGE = 12;
   const [visible, setVisible] = useState(PAGE);
   const total = events.length;
-  useEffect(() => { setVisible(PAGE); }, [events]);
+  // 依赖改为**稳定量**（首条事件 seq + 总数）：心跳每 2s 产生新数组引用，
+  // 若依赖 events 本身 ⇒ 每次心跳都重置分页，用户下滑加载的进度被强制复位（S7 修的 P0）。
+  const firstSeq = events.length ? events[0]?.seq : undefined;
+  useEffect(() => { setVisible(PAGE); }, [firstSeq, total]);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadingRef = useRef(false);
   useEffect(() => {

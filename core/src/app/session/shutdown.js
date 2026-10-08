@@ -110,8 +110,8 @@ async function _stopAllSandboxes(host) {
     for (const inst of sandboxes) {
       let stopped = false;
       try {
-        stopped = platform.service.current().stopUnit('dsh-web@' + inst.id,
-          Object.assign({ timeoutMs: 20000 }, host.instances.launchCtx(inst))) === true;
+        stopped = (await platform.service.current().stopUnit('dsh-web@' + inst.id,
+          Object.assign({ timeoutMs: 20000 }, host.instances.launchCtx(inst)))) === true;
       } catch (e) { host.logger.warn && host.logger.warn('shutdownAll stop sandbox ' + inst.id + ': ' + (e && e.message)); }
       if (!stopped) {
         host.logger.warn && host.logger.warn('shutdownAll stop sandbox ' + inst.id + ' 未确认停止，保留原 phase');

@@ -7,6 +7,7 @@ const execPath = require('../os/exec-path');
 const runtimeContract = require('../contract/runtime');
 const service = require('../os/service').current();
 const { VERSION_RE } = require('../../shared/version');
+const OUTCOME = require('../../shared/outcome');
 const ref = require('./registry-ref');
 const policies = require('./policies');
 const input = require('../util/input');
@@ -158,7 +159,15 @@ async function waitPortHealthy(opts) {
   if (!Number.isInteger(port) || port <= 0) return { ok: false, reason: 'waitPortHealthy: 非法端口 ' + o.port };
   const unit = o.unit || null;
   const stabilityMs = o.stabilityMs !== undefined ? o.stabilityMs : 15000;
-  const unitActive = () => service.isUnitActive(unit, { port });
+  // isUnitActive 现返回 Outcome 三态。此处**只接受 ok**：
+  // 此前 null（未知）是真值 ⇒ "端口有人监听"被当成"我们的实例在跑" ⇒ 升级校验假成功、不回滚（P0）。
+  const ctx = { port, unit };
+  if (o.pidFile !== undefined) ctx.pidFile = o.pidFile;
+  if (Array.isArray(o.anchors)) ctx.anchors = o.anchors;
+  const unitActive = () => {
+    const r = service.isUnitActive(unit, ctx);
+    return OUTCOME.isOk(r);
+  };
   const deadline = Date.now() + (o.timeoutMs || 60000);
   while (Date.now() < deadline) {
     if ((await portListening(host, port)) && unitActive()) {

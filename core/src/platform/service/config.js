@@ -1,7 +1,9 @@
-'use strict';
+﻿'use strict';
 
 const os = require('node:os');
 const path = require('node:path');
+const SHARED = require('../../shared/shared-constants');
+
 
 function expandHome(p) {
   if (typeof p !== 'string') return p;
@@ -34,7 +36,7 @@ const BASE_DEFAULTS = {
   stopGraceMs: 10000,
   portReleaseWaitMs: 10000,
   apiHost: '127.0.0.1',
-  apiPort: 37360,
+  apiPort: SHARED.net.apiPort,
   portPools: null,
   stateFile: path.join(SUP, 'state.json'),
   logFile: path.join(SUP, 'events', 'guard.events.log'),
@@ -88,8 +90,8 @@ const DEFAULTS = buildDefaults(null);
 // 已弃用的**落盘值**：在线更新只换二进制，状态根不动 ⇒ 旧版写入的值会一直生效。
 // 实证：apiPort=36360 跨三个版本从未更新（老产品守卫常驻该端口 ⇒ 新产品守卫永不起来）。
 // 故 normalize 必须**用默认值覆盖弃用值**，而不是无脑信任落盘值 —— 否则默认值改了也对存量用户无效。
-// 与壳侧 shell/src-tauri/src/env.rs#DEPRECATED_API_PORTS 同源（跨语言口径，R7 门禁锁）。
-const DEPRECATED_API_PORTS = [36360];
+// 与壳侧同源：现在两侧都从 shared-constants.json 取（不再是"两份常量 + 门禁对账"，而是单一来源）。
+const DEPRECATED_API_PORTS = SHARED.net.deprecatedApiPorts.slice();
 
 function isDeprecatedApiPort(v) {
   const n = Number(v);
@@ -105,7 +107,7 @@ function normalize(raw, ext) {
   // 再拿 cfg 判"默认值是否弃用"恒为假（这正是本条修掉的自反写法）。
   if (isDeprecatedApiPort(provided.apiPort)) {
     cfg.apiPort = BASE_DEFAULTS.apiPort;
-    cfg.__deprecatedOverridden = ['apiPort'];
+    // 审计 P3-1：删除 __deprecatedOverridden —— 无任何读取方（纯诊断残留），写它只会在配置里留一颗无人消费的键。
   }
   cfg.stateFile = expandHome(cfg.stateFile);
   cfg.logFile = expandHome(cfg.logFile);

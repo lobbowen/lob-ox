@@ -20,7 +20,7 @@ module.exports = { methods: {
         const out = {
           id: it.id, name: it.name, dshPort: it.dshPort, wanPort: it.wanPort,
           running: !!it.running,
-          tokenSet: !!String(it.token || '').trim(),
+          tokenSet: !!it.tokenSet,
           remote: it.remote || null,
         };
         if (it.inject) {

@@ -7,6 +7,7 @@ const {
   parseProcNetTcpInodes, parseLsofPid, parseNetstatPid, parseSsPid,
   parseWmicCommandLine, parsePowerShellCommandLine,
 } = require('./norm');
+const OUTCOME = require('../../../shared/outcome');
 
 const isLinux = process.platform === 'linux';
 const isMac = process.platform === 'darwin';
@@ -71,6 +72,12 @@ function linuxFindSs(port) {
   return null;
 }
 
+/**
+ * 进程存活三态（Outcome 的规范生产者之一）。
+ * 保留字符串返回以兼容既有 33 处调用；新增 outcomeAlive() 供需要区分 unknown 的调用点。
+ *
+ * 语义：alive / dead / unknown —— unknown 既不判活也不判死（例：非 EPERM/ESRCH 的错误码）。
+ */
 function probeAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return 'dead';
   try { process.kill(pid, 0); return 'alive'; }
@@ -82,6 +89,18 @@ function probeAlive(pid) {
   }
 }
 
+/** Outcome 形态：unknown 显式化，不再塌成布尔 */
+function outcomeAlive(pid) {
+  const st = probeAlive(pid);
+  if (st === 'alive') return OUTCOME.OK;
+  if (st === 'dead') return OUTCOME.fail('pid ' + pid + ' 已退出');
+  return OUTCOME.UNKNOWN;
+}
+
+/**
+ * 布尔门面：**unknown 视为不存活**——这是显式策略选择，不是隐式塌缩。
+ * 需要区分 unknown 的调用点请改用 probeAlive() / outcomeAlive()。
+ */
 function isAlive(pid) {
   return probeAlive(pid) === 'alive';
 }
@@ -170,5 +189,5 @@ function pgrepList(pattern) {
 
 module.exports = {
   linuxListeningInodes, linuxFind, macFind, winFind, linuxFindSs,
-  readCmdline, pgrepList, isAlive, probeAlive, isZombie,
+  readCmdline, pgrepList, isAlive, probeAlive, outcomeAlive, isZombie,
 };

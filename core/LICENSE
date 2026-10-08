@@ -1,16 +1,7 @@
 # License
 
-## 内核（本仓库默认条款）
+本仓库统一采用 **MIT** 许可证，全文见仓库根 [`LICENSE`](../LICENSE)。
 
-UNLICENSED — 保留所有权利。
-
-本仓库主体（`bin/` `src/` `test/` `release/` `ui/` `systemd/` `desktop/` `config.json` 等）为**闭源内核**：
-未经书面许可，不得复制、修改、分发、再许可或用于商业目的。
-
-内核以构建物形态对外分发（Node launcher，经 npm 平台子包安装，见 `release/scripts/publish-core.sh`），
-构建物授权范围同样以本许可为准（UNLICENSED，全部权利保留）。
-
-## 壳（shell/）
-
-MIT —— 完整文本见 `shell/LICENSE`。本仓 `shell/` 下的壳源码以 MIT 开源发布，
-用于引流与贡献。
+历史说明：此前本文件声明内核为 UNLICENSED 闭源，而 `shell/LICENSE` 为 MIT —— 两处条款**冲突**。
+同一发行物含互相矛盾的授权是合规风险，现**全仓统一为 MIT**，以仓库根 `LICENSE` 为唯一依据。
+内核（core/）与壳（shell/）均以 MIT 发布。

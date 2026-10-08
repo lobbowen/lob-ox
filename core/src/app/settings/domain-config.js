@@ -1,11 +1,15 @@
-'use strict';
+﻿'use strict';
+
+
+
+const SHARED = require('../../shared/shared-constants');
 
 const defaults = [
   {
     at: 'portPools',
     values: {
-      routerCtlPort: 43107,
-      lanCtlPort: 43108,
+      routerCtlPort: SHARED.net.routerCtlPort,
+      lanCtlPort: SHARED.net.lanCtlPort,
     },
   },
   {

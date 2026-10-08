@@ -2,7 +2,7 @@
 
 const http = require('node:http');
 const crypto = require('node:crypto');
-const { isTrustedSource, tokenGateDecision, backoffGate, upstreamPath, POLYFILL_SCRIPT } = require('./core');
+const { isTrustedSource, tokenGateDecision, backoffGate, upstreamPath, redactLogPath, POLYFILL_SCRIPT } = require('./core');
 const { createSession } = require('./session');
 const { createTunnelHandler } = require('./tunnel');
 
@@ -38,7 +38,7 @@ function pipeWithHold(ur, res, clientReqPath, logger) {
   });
   res.on('drain', () => ur.resume());
   ur.on('end', () => {
-    if (clientGone) log('info', 'relay: 上游响应自然结束（agent 完成，消息已落 DSH 会话）' + (clientReqPath ? ' ' + clientReqPath : ''));
+    if (clientGone) log('info', 'relay: 上游响应自然结束（agent 完成，消息已落 DSH 会话）' + (clientReqLog ? ' ' + clientReqLog : ''));
     try { if (!clientGone) res.end(); } catch {}
   });
   ur.on('error', () => {
@@ -48,7 +48,7 @@ function pipeWithHold(ur, res, clientReqPath, logger) {
   res.on('close', () => {
     if (ur.readableEnded || ur.destroyed) return;
     clientGone = true;
-    log('warn', 'relay: 客户端连接断开，保持上游连接直到响应结束（agent 不受影响）' + (clientReqPath ? ' ' + clientReqPath : ''));
+    log('warn', 'relay: 客户端连接断开，保持上游连接直到响应结束（agent 不受影响）' + (clientReqLog ? ' ' + clientReqLog : ''));
   });
 }
 
@@ -64,6 +64,8 @@ function buildForwardHeaders(req, authority, cookie) {
 }
 
 function handleUpstream(ur, res, clientReqPath, onStatus, logger) {
+  // RL-1：日志只用脱敏后的路径（剥离 ?token=），绝不把远程访问令牌写进日志。
+  const clientReqLog = redactLogPath(clientReqPath);
   if (onStatus) onStatus(ur.statusCode);
   const h = { ...ur.headers };
   const isHtml = String(h['content-type'] || '').includes('text/html');
@@ -91,7 +93,7 @@ function handleUpstream(ur, res, clientReqPath, onStatus, logger) {
     if (passed) return;
     total += c.length;
     if (total <= HTML_INJECT_MAX_BYTES) { chunks.push(c); return; }
-    log('HTML 超上限 ' + HTML_INJECT_MAX_BYTES + 'B（已收 ' + total + 'B），放弃 polyfill 注入按流透传 ' + (clientReqPath || ''));
+    log('HTML 超上限 ' + HTML_INJECT_MAX_BYTES + 'B（已收 ' + total + 'B），放弃 polyfill 注入按流透传 ' + (clientReqLog || ''));
     const selfForward = !ur.readableEnded;
     switchToPassThrough();
     if (selfForward) res.write(c);

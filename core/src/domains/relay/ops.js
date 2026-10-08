@@ -34,6 +34,9 @@ class LanManager {
     this._reconcileInFlight = null;
     this._lanServers = {};
     this.tokenOf = opts.tokenOf || (() => '');
+    // 审计 RL-5：按实例串行的 syncProxy 链（key=inst.id）。所有 syncProxy 调用都经此入口，
+    // 同一实例的并发/重复调用被串到同一条链，后者在前一次完成后重读状态并提前返回，防止重复记录 + 孤儿监听器。
+    this._syncChains = new Map();
     this._proxyChain = Promise.resolve();
   }
 
@@ -46,11 +49,9 @@ class LanManager {
     const addresses = this.localAddresses();
     const insts = this._allManaged();
     const remoteInsts = insts.filter((x) => normalizeRemoteMode(x.remoteMode) !== 'off');
-    for (const inst of remoteInsts) {
-      if (!this.lanInstances.some((p) => p.dshPort === inst.port)) {
-        this._syncProxyQueued(inst).catch((e) => this.logger.warn && this.logger.warn('syncProxy failed: ' + e.message));
-      }
-    }
+    // RL-10：审计指出 list() 在 reconcile() 已登记未登记实例之后，又对同批实例 _syncProxyQueued 一次，
+    // 导致每个 HTTP 请求把每个未登记实例重复放入 _proxyChain（串行 await 600ms TCP 探测 × 2）。
+    // 故此处不再二次入队——reconcile() 的 ensureRegistrations 已覆盖「登记缺失」的入队，list() 只取快照返回。
     const frpSt = this.frp ? this.frp.status() : { running: false, settings: {} };
     const items = remoteInsts.map((inst) => {
       const proxy = this.lanInstances.find((p) => p.dshPort === inst.port);
@@ -73,8 +74,9 @@ class LanManager {
       return {
         id: inst.id, name: inst.name, dshPort: inst.port,
         wanPort: proxy ? proxy.wanPort : null,
-        token: inst.remoteToken || '',
-        dshToken: this.tokenOf(inst.id) || '',
+        // 安全（P1）：ctl 是回环明文 RPC，list 为白名单方法——绝不外传原始令牌；只暴露布尔 tokenSet。
+        tokenSet: !!String(inst.remoteToken || '').trim(),
+        dshTokenSet: !!String(this.tokenOf(inst.id) || '').trim(),
         running: !!this._lanServers && !!this._lanServers[inst.id],
         inject, remote,
       };
@@ -114,7 +116,19 @@ class LanManager {
     return this._allManaged().some((x) => normalizeRemoteMode(x.remoteMode) === 'wan');
   }
   syncFrpc() {
-    // 返回同步结果：此前结果被整体丢弃 ⇒ 上层无从知道隧道是否建成（frpAction 对同类失败早已是 ok:false+error）。
+    // 审计 RL-9：合并同一 tick 内的多次 syncFrpc 调用（去重）。多个 syncProxy 串行/并行完成后
+    // 都会触发 syncFrpc，结合 RL-8（TOML 无变化时重启为 no-op）仍应去重，避免对 frpc 配置反复重建/探测。
+    // 同一同步突发窗口内只跑一次真实同步，其余调用复用结果。
+    if (this._syncFrpcCoalescing) return this._lastSyncFrpcResult || { ok: true, coalesced: true };
+    this._syncFrpcCoalescing = true;
+    const result = this._syncFrpcNow();
+    this._lastSyncFrpcResult = result;
+    const reset = () => { this._syncFrpcCoalescing = false; };
+    if (typeof setImmediate === 'function') setImmediate(reset); else setTimeout(reset, 0);
+    return result;
+  }
+
+  _syncFrpcNow() {// 返回同步结果：此前结果被整体丢弃 ⇒ 上层无从知道隧道是否建成（frpAction 对同类失败早已是 ok:false+error）。
     if (!this.frp) return { ok: false, error: 'frpmgr 不可用' };
     try {
       const all = this.lanInstances || [];
@@ -136,8 +150,8 @@ class LanManager {
       this.logger.warn && this.logger.warn('frpc sync failed: ' + e.message);
       return { ok: false, error: e.message };
     }
-  }
-  reconcile() {
+  
+  }  reconcile() {
     if (this._reconcileInFlight) return this._reconcileInFlight;
     this._reconcileInFlight = this._reconcileOnce()
       .catch((e) => { this.logger.warn && this.logger.warn('[reconcile] ' + ((e && e.message) || e)); return { ok: false, error: (e && e.message) || String(e) }; })
@@ -150,6 +164,19 @@ class LanManager {
   async removeProxyForInstance(instId) { return reconcile.removeProxyForInstance(this, instId); }
 
   async syncProxy(inst) {
+    // 审计 RL-5：按实例串行 + 去重。直接调用（bootstrap/observers/domain-actions）与经 reconcile 的调用
+    // 全部走此入口；同一实例的多次调用串到同一条链，后者等前者完成后重读 existing，命中已建记录即提前返回，
+    // 不再重复 claim/push，也从根上消除 purgeDuplicates 误释放仍监听账本记录（孤儿监听器）的竞态。
+    if (!inst) return;
+    const key = inst.id || String(inst.dshPort);
+    const prev = this._syncChains.get(key) || Promise.resolve();
+    const run = prev.then(() => this._syncProxyNow(inst)).catch(() => {});
+    this._syncChains.set(key, run);
+    run.finally(() => { if (this._syncChains.get(key) === run) this._syncChains.delete(key); });
+    return run;
+  }
+
+  async _syncProxyNow(inst) {
     if (!inst) return;
     const mode = normalizeRemoteMode(inst.remoteMode);
     if (mode !== 'off') {

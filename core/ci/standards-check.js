@@ -650,27 +650,64 @@ function checkR15() {
 function checkR16() {
   const files = walkJs(TEST_DIR, [], (p, n) => n === 'fixtures' || n === 'node_modules');
   let flagged = 0;
+  // 归一化行尾：仓库混用 CRLF/LF，直接按 \n 切会残留 \r（与其他门禁同一个坑）。
+  // ⚠️ 关键修复：此前**逐行**扫描，而 772/1339 处 `check(` 跨行书写 ⇒ 它们完全不可见，
+  //    实测命中 0 —— 这是一条**假门禁**（给人虚假安全感，比没有更危险）。
+  //    现在改为：以 `check(` 为起点，按括号配对取出**完整的第二实参**（可跨多行）再判。
   for (const f of files) {
-    const src = read(f);
-    const hasSkip = /\bskip\s*\(|\bskipped\b/.test(src);
-    src.split('\n').forEach((l, i) => {
-      if (!/\bcheck\s*\(/.test(l)) return;
-      const m = /\bcheck\s*\(\s*(['"\`])(?:[^\\]|\\.)*?\1\s*,\s*([\s\S]*)$/.exec(l);
-      if (!m) return;
-      const rest = m[2];
-      let depth = 0; let cut = -1;
-      for (let k = 0; k < rest.length; k += 1) {
-        const c = rest[k];
-        if (c === '(' || c === '[' || c === '{') depth += 1;
-        else if (c === ')' || c === ']' || c === '}') { depth -= 1; if (depth < 0) { cut = k; break; } }
-        else if (c === ',' && depth === 0) { cut = k; break; }
+    const src0 = read(f);
+    const hasSkip = /\bskip\s*\(|\bskipped\b/.test(src0);
+    const text = src0.replace(/\r\n?/g, '\n');
+    const lines = text.split('\n');
+    // 行号映射：用累积偏移把字符下标换算回行号
+    const lineStart = [0];
+    for (let k = 0; k < lines.length; k += 1) lineStart.push(lineStart[k] + lines[k].length + 1);
+    const lineOf = (idx) => {
+      let lo = 0; let hi = lineStart.length - 1;
+      while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (lineStart[mid] <= idx) lo = mid; else hi = mid - 1; }
+      return lo + 1;
+    };
+    for (let at = text.indexOf('check('); at >= 0; at = text.indexOf('check(', at + 1)) {
+    // 只认标识符边界（避免匹配 hasCheck( 之类）
+    const prev = at > 0 ? text[at - 1] : '';
+    if (/[\w$.]/.test(prev)) continue;
+    const nameEnd = text.indexOf('(', at);
+    if (nameEnd < 0) continue;
+    // 找本次调用的右括号（配对，跳过字符串/正则内的括号）
+    let depth = 0; let end = -1; let i = nameEnd;
+    let inStr = null;
+    for (; i < text.length; i += 1) {
+      const c = text[i];
+      if (inStr) {
+        if (c === '\\') { i += 1; continue; }
+        if (c === inStr) inStr = null;
+        continue;
       }
-      const cond = cut >= 0 ? rest.slice(0, cut) : rest;
-      if (/![A-Za-z_$][\w$.]*\s*\|\|/.test(cond)) {
-        fail('R16', f, i + 1, '断言判据含 `!X ||` ⇒ X 不成立时恒真（判据从未执行却计入 PASS）；改法：if (X) check(...) else skip(...)' + (hasSkip ? '' : '（本文件尚无 skip，需先加 SKIP 语义与统计）'));
-        flagged += 1;
-      }
-    });
+      if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
+      if (c === '(') depth += 1;
+      else if (c === ')') { depth -= 1; if (depth === 0) { end = i; break; } }
+    }
+    if (end < 0) continue;
+    const callText = text.slice(nameEnd + 1, end);
+    // 取第二实参：跳过第一个实参（字符串名），之后到首个顶层逗号
+    const qm = /^\s*(['"`])(?:[^\\]|\\.)*?\1\s*,\s*/.exec(callText);
+    if (!qm) continue;                                     // 首参不是字面量名 ⇒ 不判（防误报）
+    let rest = callText.slice(qm[0].length);
+    let d2 = 0; let cut = -1; let ins = null;
+    for (let k = 0; k < rest.length; k += 1) {
+      const c = rest[k];
+      if (ins) { if (c === '\\') { k += 1; continue; } if (c === ins) ins = null; continue; }
+      if (c === '"' || c === "'" || c === '`') { ins = c; continue; }
+      if (c === '(' || c === '[' || c === '{') d2 += 1;
+      else if (c === ')' || c === ']' || c === '}') { d2 -= 1; if (d2 < 0) { cut = k; break; } }
+      else if (c === ',' && d2 === 0) { cut = k; break; }
+    }
+    const cond = cut >= 0 ? rest.slice(0, cut) : rest;
+    if (/![A-Za-z_$][\w$.]*\s*\|\|/.test(cond)) {
+      fail('R16', f, lineOf(nameEnd), '断言判据含 `!X ||` ⇒ X 不成立时恒真（判据从未执行却计入 PASS）；改法：if (X) check(...) else skip(...)' + (hasSkip ? '' : '（本文件尚无 skip，需先加 SKIP 语义与统计）'));
+      flagged += 1;
+    }
+    }
   }
   note('R16 假绿防线：扫描 ' + files.length + ' 个测试文件，`!X ||` 恒真断言 ' + flagged + ' 处');
 }
@@ -921,6 +958,270 @@ function checkR22() {
   R22_EXEMPT_FILES.forEach((x) => exemptShown.push('R22 豁免 ' + x.file + ' —— ' + x.why));
 }
 
+// ── R23：未声明标识符（重构删定义后漏删引用的唯一防线）────────────────────
+//
+// 动机（实证）：两个加载期崩溃同源——重构删除了 provider / 变量的定义，却漏删引用，
+// 且引用落在**惰性求值路径**（模块导出对象字面量 / 延迟回调），编译器与运行时都抓不到：
+//   * os/service.js  `_testProviders: { portable, NONE }` —— 导出期即求值 ⇒ 任何平台 require 都抛
+//   * app/daemons/runtime.js  `exitIntended: () => host._exitIntended()` —— host 不在闭包链
+//
+// 判据（刻意收窄，避免误报淹没信号）：
+//   1. 只监视**大写常量**（如 NONE）——大写名几乎不会是局部变量，命中即可疑；
+//   2. 只扫**没被声明过**的名字：声明 = const/let/var/function/class 声明、解构、形参、对象键、属性访问。
+//   3. 剥离注释与字符串字面量后再判，避免注释里的历史说明触发误报。
+//
+// ⚠️ 不做全量作用域分析：本仓 `host` 是**合法的惯用形参名**（200+ 处 function f(host)），
+//    全量监视会产生 200+ 误报（这正是假门禁的成因，见 R16 教训）。故只保留大写常量这一高信噪比通道。
+const R23_SKIP_DIRS = ['node_modules', '.git', 'target', 'dist', 'out', '.vite'];
+const R23_MIN_LEN = 3;
+
+// 文本 → 去注释、去字符串/正则字面量后的"代码骨架"
+// 必须清掉正则字面量：pnpm 错误码（CANNOT_REMOVE_MISSING 等）常写在正则里，
+// 不清会当成"被引用的大写标识符"⇒ 成片误报（R16 假门禁的同型教训）。
+function codeSkeleton(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')                    // 块注释
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1')                 // 行注释（避开 http://）
+    .replace(/'(?:\\.|[^'\\])*'/g, "''")                  // 单引号串
+    .replace(/"(?:\\.|[^"\\])*"/g, '""')                  // 双引号串
+    .replace(/`(?:\\.|[^`\\])*`/g, '``')                 // 模板串
+    // 正则字面量：/.../ 后跟 flags。以"前面不是标识符字符且不是除号"近似起点，避开除号。
+    .replace(/(^|[^\w$)\]])\/(?:\\.|\[(?:\\.|[^\]])*\]|[^/\\\n])+\/[gimsuy]*/g, '$1∅');
+}
+
+// 该名字在文件内是否有**真正的绑定**（区别于"仅仅出现在某处"）
+// 绑定判定用**原始源码**（require 路径是字符串，会被 skeleton 清空），引用判定用 skeleton。
+//
+// ⚠️ 刻意**没有** "出现在 module.exports 里就算绑定" 这条：历史 bug 正是
+//    `module.exports = { _testProviders: { portable, NONE } }` —— NONE 只出现在导出列表、
+//    没有声明，恰恰是最需要被抓到的形态。加了这条就会把它判成合法（自证其罪）。
+function r23Bound(srcRaw, code, name) {
+  const n = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pats = [
+    '(?:const|let|var)\\s+(?:\\{[^}]*\\b' + n + '\\b[^}]*\\}|' + n + ')(?![\\w$])', // 声明（含解构导入）
+    '(?:function\\s+)?\\w+\\s*\\([^)]*\\b' + n + '\\b[^)]*\\)\\s*\\{',        // 形参且为函数体
+    '\\b' + n + '\\s*=\\s*[^=>]',                                             // 直接赋值（非比较）
+    '\\b' + n + '\\s*:',                                                      // 对象成员键（定义侧）
+    '\\.' + n + '\\b',                                                        // 属性访问（BRAND.X / obj.X）
+  ];
+  const re = pats.map((p) => new RegExp(p, 'm'));
+  return re.some((r) => r.test(srcRaw)) || re.some((r) => r.test(code));
+}
+
+function checkR23() {
+  const files = [];
+  const walk = (d) => {
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (R23_SKIP_DIRS.indexOf(e.name) < 0) walk(p); continue; }
+      if (/\.js$/.test(e.name)) files.push(p);
+    }
+  };
+  walk(path.join(REPO, 'core', 'src'));
+
+  let flagged = 0;
+  let scanned = 0;
+  for (const p of files) {
+    let src;
+    try { src = read(p); } catch { continue; }
+    scanned += 1;
+    const code = codeSkeleton(src);
+    // 收集被引用的大写标识符。排除集（否则每类都产生成片误报，正是 R16 假门禁的成因）：
+    //   常见全局/构造器、HTTP 方法、以及**错误码 / 注册表键 / 字面量枚举**——
+    //   后者在本仓以字符串或常量表成员形式出现，不是"被引用却未声明的标识符"。
+    const GLOBALS = new Set([
+      'OK', 'NAN', 'JSON', 'URL', 'HTTP', 'HTTPS', 'PATH', 'FS', 'MAX', 'MIN',
+      'GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS', 'PATCH', 'TRACE', 'CONNECT',
+      'GUI', 'CLI', 'BETA', 'ALPR', 'CERT', 'UNEXPECTED', 'SHELL', 'NATIVE', 'SANDBOX',
+    ]);
+    // 错误码 / errno / 注册表 hive / 平台字面量 / 全大写短语缩写：
+    // 这些在本仓以字符串或常量表成员出现，不是"被引用却未声明的标识符"。
+    const LITERAL_SHAPES = new RegExp('^(?:'
+      + 'E[A-Z0-9]+'                    // ETIMEDOUT / EAI_AGAIN / ECONNREFUSED
+      + '|HKEY_[A-Z_]*'                 // HKEY_LOCAL_MACHINE / HKEY_（前缀残留）
+      + '|REG_[A-Z_]*'                  // REG_EXPAND_SZ / REG_（前缀残留）
+      + '|SIG[A-Z]+'
+      + '|[_A-Z0-9]*_(?:SZ|AGAIN|DWORD|ROOT)' // EXPAND_SZ / EAI_AGAIN 等后缀形态
+      + ')$');
+    const names = new Set();
+    for (const m of code.matchAll(/\b([A-Z][A-Z0-9_]{2,})\b/g)) {
+      const nm = m[1];
+      if (GLOBALS.has(nm)) continue;
+      if (LITERAL_SHAPES.test(nm)) continue;
+      names.add(nm);
+    }
+    for (const name of names) {
+      if (r23Bound(src, code, name)) continue;
+      const lines = code.split('\n');
+      for (let i = 0; i < lines.length; i += 1) {
+        if (!new RegExp('\\b' + name + '\\b').test(lines[i])) continue;
+        fail('R23', p, i + 1, '未声明的大写标识符「' + name + '」⇒ 疑似重构删定义后漏删引用'
+          + '（惰性求值路径不报错，加载/回调时才崩；补声明、删除该引用，或改为形参注入）');
+        flagged += 1;
+      }
+    }
+  }
+  note('R23 未声明标识符：扫描 ' + scanned + ' 个 src 文件，命中 ' + flagged + ' 处');
+}
+
+// ── R25：禁止把 Outcome 三态塌成布尔/null 判据（根因 A 的防复发门禁）──────
+//
+// 动机：三条 P0 同源——isUnitActive 用 null 表未知，调用方写 `active !== false`，
+// 于是 null（未知）被当成"仍活跃" ⇒ removeInstance 报删除成功、升级校验假成功不回滚。
+//
+// 判据：对**已知返回 Outcome 的函数**，禁止用塌缩比较判定其成败。
+// 只查当前已收敛的入口（isUnitActive / outcomeAlive / probeAlive），
+// 随收敛推进逐步扩表——刻意不做全量类型推导（免误报，同 R23 的取舍）。
+const R25_PRODUCERS = ['isUnitActive', 'outcomeAlive', 'probeAlive'];
+// 塌缩判据：`!== false`、`=== true`、`!= null`、`!x` 直接作为条件/赋值
+const R25_COLLAPSE = [
+  /!==\s*false/, /===\s*true/, /!=\s*null/, /==\s*null/, /!==\s*null/,
+];
+
+function checkR25() {
+  const files = [];
+  const walk = (d) => {
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (R23_SKIP_DIRS.indexOf(e.name) < 0) walk(p); continue; }
+      if (/\.js$/.test(e.name)) files.push(p);
+    }
+  };
+  walk(path.join(REPO, 'core', 'src'));
+
+  let flagged = 0;
+  let scanned = 0;
+  for (const p of files) {
+    let src;
+    try { src = read(p); } catch { continue; }
+    scanned += 1;
+    const lines = src.split('\n');
+    for (let i = 0; i < lines.length; i += 1) {
+      const raw = lines[i];
+      const t = raw.trim();
+      if (t.indexOf('//') === 0) continue;
+      // 只查"调用了生产者"的行
+      const calls = R25_PRODUCERS.some((fn) => new RegExp('\\b' + fn + '\\s*\\(').test(raw));
+      if (!calls) continue;
+      // 该行若直接对调用结果做塌缩比较 ⇒ 违规
+      // 例：`if (service.isUnitActive(u, c) !== false)` / `const a = svc.isUnitActive(); x = a !== false`
+      const collapsed = R25_COLLAPSE.some((re) => re.test(raw));
+      if (!collapsed) continue;
+      fail('R25', p, i + 1, 'Outcome 三态被塌成布尔/null 判据 ⇒ 未知会被当成成功或失败'
+        + '（改用 shared/outcome 的 isOk / isFail / isUnknown 显式处置）');
+      flagged += 1;
+    }
+  }
+  note('R25 Outcome 判据：扫描 ' + scanned + ' 个 src 文件，塌缩判据 ' + flagged
+    + ' 处（生产者：' + R25_PRODUCERS.join(', ') + '）');
+}
+
+// ── R24：禁止「判据类」空 catch（根因 C1 的防复发门禁）──────────────────
+//
+// 动机（实证）：全仓 384 处 bare `catch {}`，其中 49 处落在**流程判据**上：
+// 吞掉的错误会让"失败"被当成"成功"——
+//   * instance/ops.js  stopUnit/isUnitActive 异常 ⇒ 报"删除成功"（P0，已在 S1 修）
+//   * relay/frp.js     syncFrpc 失败 ⇒ 静默
+//   * router 域        探测失败 ⇒ 配额永久陈旧
+//
+// 判据（刻意收窄）：
+//   catch 块为空 **且** 其 try 块内含有"流程性调用" ⇒ 判红。
+//   清理类（rmSync/unlink/close 等）不判——一刀切会让 384 处全红、信号淹没（R16 假门禁教训）。
+//
+// 已知豁免（带 why，可审计；每轮整改应缩减本表）：
+//   * chmod 收口：数据已落盘，权限不符需留痕但不改流程成败（已在下面代码豁免）
+//   * 见 R24_EXEMPT 中的遗留项
+const R24_EXEMPT = [
+  // 这些是**本轮已识别、待下一批整改**的遗留项。登记而非删除：门禁保持可见，
+  // 每整改一处即从本表移除一处 ⇒ 表长度即剩余债务。
+  { file: 'core/src/domains/router/ops/oauth.js', why: 'OAuth 临时资源清理/服务关闭失败：不影响主流程，待补日志' },
+  { file: 'core/src/domains/router/store/usage.js', why: '用量落盘失败：已有节流与脏标记，待改返回 Outcome.fail' },
+  { file: 'core/src/domains/instance/store.js', why: 'syncPorts 的孤儿端口回收：失败不影响实例列表，待补日志' },
+  { file: 'core/src/domains/instance/upgrade.js', why: '升级回滚的清理步骤：待逐处补日志' },
+  { file: 'core/src/domains/instance/ops/dsh-install.js', why: '安装期清理与探测：待补日志' },
+  { file: 'core/src/domains/instance/lifecycle.js', why: '违规处置的 stopUnit 清理：待补日志' },
+  { file: 'core/src/domains/relay/ops.js', why: 'syncFrpc/代理清理：待补日志' },
+  { file: 'core/src/domains/relay/ports.js', why: '端口回收：待补日志' },
+  { file: 'core/src/domains/relay/frp-install.js', why: 'frpc 安装清理：待补日志' },
+  { file: 'core/src/domains/plugin/layers.js', why: '补丁层写失败：已有 enqueue 终端 catch，待补日志' },
+  { file: 'core/src/domains/plugin/restart.js', why: '目标存活探测：待补日志' },
+  { file: 'core/src/domains/router/ops.js', why: '供应商摘除清理：待补日志' },
+  { file: 'core/src/domains/router/ops/admin.js', why: '账号拆除清理：待补日志' },
+  { file: 'core/src/domains/router/providers/process-pool.js', why: '实例停止探测：待补日志' },
+  { file: 'core/src/domains/router/providers/restart.js', why: '重启探测：待补日志' },
+  { file: 'core/src/domains/router/scheduler.js', why: '周期探测：待补日志' },
+  { file: 'core/src/app/assembly/compose/observers.js', why: '观察器挂载：失败不应阻断装配，待补日志' },
+  { file: 'core/src/app/daemons/process.js', why: 'daemon 身份/清理：待补日志' },
+  { file: 'core/src/app/main/controller.js', why: '收敛拍的清理：待补日志' },
+  { file: 'core/src/app/session/shutdown.js', why: '停机清理：待补日志' },
+  { file: 'core/src/app/state/desired.js', why: '意图登记清理：待补日志' },
+  { file: 'core/src/app/state/store.js', why: '状态落盘清理：待补日志' },
+  { file: 'core/src/platform/os/autostart/darwin.js', why: '自启项清理：待补日志' },
+  { file: 'core/src/platform/os/autostart/linux.js', why: '自启项清理：待补日志' },
+  { file: 'core/src/platform/os/file-protect.js', why: '权限加固失败：已返回 ok:false，属清理类' },
+  { file: 'core/src/platform/os/portable.js', why: 'pid 文件读取清理：待补日志' },
+  { file: 'core/src/platform/service/ports/migrate.js', why: '迁移回滚清理：待补日志' },
+  { file: 'core/src/platform/service/ports/store.js', why: '账本读取清理：待补日志' },
+];
+const R24_FLOW_CALLS = [
+  'stopUnit', 'startUnit', 'startTransient', 'stopTransient', 'restart', 'setLimits',
+  'isUnitActive', 'removeInstance', 'removeProxyForInstance', 'unregister', 'unregisterPort',
+  'save', 'writeAtomic', 'appendFileSync', 'writeFileSync', 'persistConfigPatch', 'writeDshMain',
+  'syncFrpc', 'applyToken', 'startInstance', 'startProcess', 'probeInstance',
+];
+
+function checkR24() {
+  const files = [];
+  const walk = (d) => {
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (R23_SKIP_DIRS.indexOf(e.name) < 0) walk(p); continue; }
+      if (/\.js$/.test(e.name)) files.push(p);
+    }
+  };
+  walk(path.join(REPO, 'core', 'src'));
+
+  const exempt = new Set(R24_EXEMPT.map((x) => x.file));
+  let flagged = 0;
+  let scanned = 0;
+  for (const p of files) {
+    if (exempt.has(rel(p))) continue;      // 已登记、待下一批整改
+    let src;
+    try { src = read(p); } catch { continue; }
+    scanned += 1;
+    const linesRaw = src.replace(/\r\n?/g, '\n').split('\n');
+    for (let i = 0; i < linesRaw.length; i += 1) {
+      const line = linesRaw[i];
+      if (!/catch\s*(\([^)]*\))?\s*\{\s*\}/.test(line)) continue;
+      // 豁免：chmod 收口失败是**清理类**（数据已落盘，权限不符需留痕但不改流程成败）。
+      // 一刀切会把这类也判红 ⇒ 信号淹没（R16 假门禁同型教训）。
+      // 必须在 block 声明**之后**判（否则 TDZ）。
+      let block = '';
+      for (let j = Math.max(0, i - 10); j < i; j += 1) block += linesRaw[j] + '\n';
+      if (/chmodSync/.test(block + line)) continue;   // 含 catch 所在行：兼容单行 try/catch 形式
+      // 向上回溯最近的 try 块（最多 10 行），判断其中是否有流程性调用。
+      // ⚠️ 用 \r?\n 归一化后再切行：仓库混用 CRLF/LF，直接按 \n 切会残留 \r，
+      //    导致 `catch {}` 正则失配（实测会漏报——假门禁的另一种成因）。（block 已在上面构建）
+      // ⚠️ 单语句形式 `try { chmodSync(x) } catch {}` —— try 体与 catch **同行**，
+      //    纯回溯会漏掉它 ⇒ 误判为流程类。故判定 flow 时要**连同 catch 所在行**一起看。
+      const flow = R24_FLOW_CALLS.some((fn) => new RegExp('\\b' + fn + '\\s*\\(').test(block));
+      if (!flow) continue;
+      fail('R24', p, i + 1, '判据类空 catch ⇒ 失败被吞会当成成功'
+        + '（须记录日志、或返回 Outcome.fail / ok:false；清理类 catch 请改用非流程调用或补注释豁免）');
+      flagged += 1;
+    }
+  }
+  note('R24 判据类空 catch：扫描 ' + scanned + ' 个 src 文件，命中 ' + flagged + ' 处（已登记豁免 '
+    + R24_EXEMPT.length + ' 个文件 —— 表长度即剩余债务）');
+  R24_EXEMPT.forEach((x) => exemptShown.push('R24 豁免 ' + x.file + ' —— ' + x.why));
+}
+
 function main() {
   console.log('== standards-check：R1..R10 中可机器判定的部分（只读）==');
   checkR2();
@@ -942,6 +1243,9 @@ function main() {
   checkR20();
   checkR21();
   checkR22();
+  checkR23();
+  checkR25();
+  checkR24();
 
   console.log('');
   notes.forEach((n) => console.log('  OK   ' + n));

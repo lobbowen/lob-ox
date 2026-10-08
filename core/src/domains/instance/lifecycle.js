@@ -142,13 +142,15 @@ function createLifecycle(deps) {
     }
     return _systemdStart(inst, opts);
   }
-  function stop(id) {
+  // 审计 P0-I5：service.stopUnit 现已为 async（不再用 Atomics.wait 冻结事件循环、并真实 await taskkill），
+  // 故 stop() 改为 async 并 await 其返回，使"停止是否确认"如实到达相位迁移（不再假成功/假失败）。
+  async function stop(id) {
     const inst = store.instances.find((i) => i.id === id);
     if (!inst) return { ok: false, error: '实例不存在' };
     if (!isSandboxSupported()) return { ok: false, error: '当前平台不支持沙箱实例（能力矩阵见 GET /env/status 的 capabilities.sandboxLaunch；限额执行档位见 capabilities.sandboxEnforcement）' };
     const unit = 'dsh-web@' + inst.id;
     let stopped;
-    try { stopped = service.stopUnit(unit, Object.assign({ timeoutMs: 20000 }, sandbox.launchCtx(instancesRoot, deps.dshBin, inst))); }
+    try { stopped = await service.stopUnit(unit, Object.assign({ timeoutMs: 20000 }, sandbox.launchCtx(instancesRoot, deps.dshBin, inst))); }
     catch (e) { stopped = false; logger.warn && logger.warn('[' + inst.id + '] 停止单元 ' + unit + ' 异常: ' + (e && e.message)); }
     if (stopped === false) {
       const msg = '停止实例失败（单元 ' + unit + ' 未确认停止）';
@@ -220,6 +222,9 @@ function createLifecycle(deps) {
     }
   }
 
+  // 审计 P0-I5：本函数仍保持同步（与上报/登记同拍、可被 setInterval 同步调用）。
+  // 违规处置分支调用的 service.stopUnit 现已为 async，但其返回值此处本就忽略（停后即 restart，结果不判），
+  // 故以 fire-and-forget 调用（内部已 try/catch，不会 reject），不阻塞本拍、也不改既有同步语义。
   function governSweep() {
     const roster = _sandboxRoster();
     if (!roster.length) return { ok: true, entries: 0 };
@@ -257,8 +262,26 @@ function createLifecycle(deps) {
       const reason = '资源违规:' + kindLabel + '持续超限(实际 ' + v.actual + '/限额 ' + v.target + ')';
       if (events) events.append('inst_resource_violation', { id: target.id, name: target.name, kind: v.kind, actual: v.actual, target: v.target });
       logger.warn && logger.warn('[' + target.id + '] ' + reason);
+
+      // 能力协商（根因 B）：限额能否真正下发由平台能力决定，不由调用方假定。
+      // portable 的 setLimits 恒 false（无 cgroup 强制）⇒ 若在限制从未生效的前提下重启实例，
+      // 重启后仍是同样未生效的限制 ⇒ 必然再次超限 ⇒ **无限重启循环**（P0）。
+      // 故不支持限额时只观测、只告警，绝不 stop / restart。
+      const canLimit = typeof service.supports === 'function' ? service.supports('limits') === true : false;
+      if (!canLimit) {
+        if (events) events.append('inst_resource_violation_observed', {
+          id: target.id, name: target.name, kind: v.kind, actual: v.actual, target: v.target,
+          note: '平台无 OS 级限额能力，仅观测不重启（防无限重启循环）',
+        });
+        logger.warn && logger.warn('[' + target.id + '] 平台不支持限额强制，仅观测不重启（' + reason + '）');
+        continue;
+      }
+
       try {
-        service.stopUnit('dsh-web@' + target.id, Object.assign({ timeoutMs: 20000 }, sandbox.launchCtx(instancesRoot, deps.dshBin, target)));
+        // P0-I5：stopUnit 现为 async，此处返回忽略（fire-and-forget），不停本拍节奏；其内部已 try/catch 不 reject。
+        // 用 Promise.resolve 包裹以兼容同步桩（返回非 Promise 时仍安全链式），绝不对返回值判成功失败。
+        const p = service.stopUnit('dsh-web@' + target.id, Object.assign({ timeoutMs: 20000 }, sandbox.launchCtx(instancesRoot, deps.dshBin, target)));
+        if (p && typeof p.catch === 'function') p.catch(() => {});
       } catch (e) {
         logger.warn && logger.warn('[' + target.id + '] 违规停单元异常: ' + (e && e.message));
       }

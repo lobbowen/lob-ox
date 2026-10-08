@@ -1,14 +1,16 @@
-'use strict';
+﻿'use strict';
 
 const hub = require('../../platform/service/log/hub');
+const SHARED = require('../../shared/shared-constants');
+
 
 function ctlCall(port, method, args, timeoutMs) {
   return hub.ctlCall(port, method, args, timeoutMs || 120000, { withErrorFields: true });
 }
 
-function routerCtlPort(config) { return Number(config && config.routerCtlPort) || 43107; }
+function routerCtlPort(config) { return Number(config && config.routerCtlPort) || SHARED.net.routerCtlPort; }
 
-function lanCtlPort(config) { return Number(config && config.lanCtlPort) || 43108; }
+function lanCtlPort(config) { return Number(config && config.lanCtlPort) || SHARED.net.lanCtlPort; }
 
 function createCtlClient(deps) {
   const g = deps || {};

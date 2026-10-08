@@ -1,6 +1,7 @@
 'use strict';
 
 const runtime = require('../contract/runtime');
+const SHARED = require('../../shared/shared-constants');
 
 const ex = require('../util/exec');
 const BRAND = require('../../shared/brand');
@@ -44,7 +45,8 @@ function cachedWhichVersionAsync(bin, args) {
   return whichVersionAsync(bin, args).then((v) => cacheSet(key, v));
 }
 
-const MIN_NODE_DEFAULT = 'v22.12.0';
+// 与壳侧同源（决策 D4）：两侧都从 shared-constants.json 取，不再各存一份。
+const MIN_NODE_DEFAULT = SHARED.runtime.minNode;
 
 let _runtimeMetaCache = null;
 let _runtimeMetaAt = 0;

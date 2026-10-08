@@ -87,7 +87,10 @@ class PluginMarket {
       () => { this._lastError = null; },
       (e) => {
         this._lastError = (e && e.message) || String(e);
-        if (!this._cache) this._nextAllowAt = Date.now() + this.retryBackoffMs;
+        // 根因 E：**退避**是与"是否有缓存"正交的维度。
+        // 修前 `if (!this._cache)` ⇒ 有陈旧缓存且构建持续失败时退避永不生效，
+        // getIndex 会在**每个请求**都触发一次 240s 重建 ⇒ UI 轮询下形成永久构建循环。
+        this._nextAllowAt = Date.now() + this.retryBackoffMs;
         this.logger.warn && this.logger.warn('market: 索引构建失败（沿用旧缓存）: ' + this._lastError);
       }
     ).then(() => { if (this._inFlight === raw) this._inFlight = null; });

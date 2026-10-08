@@ -10,11 +10,20 @@ const ROOT = path.join(__dirname, '..');
 const CRED_SH = path.join(ROOT, 'release', 'scripts', 'cred.sh');
 
 const results = [];
+let skipped = 0;
 // Windows 无 POSIX 权限位（chmod 只切换只读位，mode 常为 666）：权限语义断言必须平台自感知。
 const IS_POSIX = process.platform !== 'win32';
 const check = (n, c, x) => {
   results.push(!!c);
   console.log((c ? 'PASS' : 'FAIL') + ' ' + n + (x !== undefined && x !== '' ? '  <- ' + x : ''));
+};
+/**
+ * 环境不具备条件时**显式跳过**，不得写成 `!X || ...` 的恒真断言
+ * （R16：判据从未执行却计入 PASS，即假绿）。
+ */
+const skip = (n, why) => {
+  skipped += 1;
+  console.log('SKIP ' + n + '  <- ' + why);
 };
 const TOKEN_RE = /github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}/;
 const modeOf = (p) => { try { return (fs.statSync(p).mode & 0o777).toString(8).padStart(3, '0'); } catch { return null; } };
@@ -129,8 +138,13 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
     r9ok.code === 0 && fs.readFileSync(f9.kf, 'utf8') === 'NEW-VALUE' && !!bak9p
     && /^kernel-test[.]pat[.]bak-\d{14}$/.test(baks9[0])
     && fs.readFileSync(bak9p, 'utf8') === 'OLD-VALUE', baks9.join(',') || '(无备份)');
-  check('D-9 备份权限 0600（POSIX）/ Windows 跳过',
-    !IS_POSIX || (!!bak9p && modeOf(bak9p) === '600'), bak9p ? String(modeOf(bak9p)) : '(无备份)');
+  // 权限语义只在 POSIX 成立；Windows 必须 skip，不得写成 `!IS_POSIX || ...`（恒真假绿，R16）。
+  if (IS_POSIX) {
+    check('D-9 备份权限 0600（POSIX）',
+      !!bak9p && modeOf(bak9p) === '600', bak9p ? String(modeOf(bak9p)) : '(无备份)');
+  } else {
+    skip('D-9 备份权限 0600', 'Windows 无 POSIX 权限位');
+  }
 
   const r10a = runCredIn(d1, ['backup'], '');
   check('D-10 不给目标目录 -> 拒绝且不用默认值', r10a.code !== 0, 'exit=' + r10a.code);
@@ -154,10 +168,15 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
     && fs.readFileSync(path.join(sub, 'git-credentials'), 'utf8') === 'https://x-access-token:dummy-not-a-real-token@github.com'
     && !/dummy-not-a-real-token/.test(r10c.out),
     sub ? fs.readdirSync(sub).join(',') : '无产出');
-  check('D-10 副本目录 0700、副本文件 0600（POSIX）/ Windows 跳过',
-    !IS_POSIX || (sub && modeOf(sub) === '700' && modeOf(path.join(sub, 'kernel-test.pat')) === '600'
-      && modeOf(path.join(sub, 'git-credentials')) === '600'),
-    IS_POSIX && sub ? modeOf(sub) + '/' + modeOf(path.join(sub, 'kernel-test.pat')) : 'Windows 无 POSIX 权限位');
+  // 同上：Windows 必须 skip，不得恒真（R16）。
+  if (IS_POSIX) {
+    check('D-10 副本目录 0700、副本文件 0600（POSIX）',
+      !!sub && modeOf(sub) === '700' && modeOf(path.join(sub, 'kernel-test.pat')) === '600'
+        && modeOf(path.join(sub, 'git-credentials')) === '600',
+      sub ? modeOf(sub) + '/' + modeOf(path.join(sub, 'kernel-test.pat')) : '(无产出)');
+  } else {
+    skip('D-10 副本目录/文件权限', 'Windows 无 POSIX 权限位');
+  }
 
   const r11 = runCredIn(d1, ['frobnicate'], '');
   const r12 = runCredIn(d1, ['put', 'nope'], 'x');
@@ -241,5 +260,6 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'credgate-'));
 
 fs.rmSync(TMP, { recursive: true, force: true });
 const failed = results.filter((r) => !r);
-console.log(String.fromCharCode(10) + '结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');
+console.log(String.fromCharCode(10) + '结果: ' + (results.length - failed.length) + ' passed, '
+  + failed.length + ' failed, ' + skipped + ' skipped');
 process.exit(failed.length ? 1 : 0);

@@ -1,24 +1,68 @@
-#![allow(dead_code)]
-// 品牌与命名的跨语言单源：与 `core/src/shared/brand.js` 声明**同一组常量名**与逐字相同的值。
-//   `core/test/brand-single-source-test.js` 解析本文件并逐项对账 brand.js —— 只改一边必判红。
-// 只放名字与规则，不放行为：每条都是一个对外可见的字面量（产品名/包名/状态根/服务名/环境变量/产物名/进程模式）。
-// 本模块整体豁免 dead_code：其中一部分常量只由内核侧消费（并行的 JS 单源），Rust 侧在此仅声明。
-// 波 1（核心标识改名）已改：产品名/CLI/壳 crate+bin/npm 子包前缀/状态根目录名/服务与 unit 与 label/产物名。
-// 波 3（契约字段改名）已改：面板↔壳消息桥名 / 内核事件类型名 / localStorage 键 / LAN cookie 名 / systemd
-//   模板让位后缀 —— 见文末「跨侧契约字段」一节；这几类名字**两侧各自独立发布**，必须同波改。
-//   ⚠ `LEGACY_PRODUCT_NAME` 是**唯一**保留旧名的常量：只用于「检测旧状态根 + 认旧守卫」，不参与任何新命名。
+﻿#![allow(dead_code)]
+// 品牌与命名的跨语言单源：与 `core/src/shared/brand.js` 声明同一组常量名。
+//
+// 决策 D4（X1）：跨边界常量改为**单一数据文件** `shared/shared-constants.json`，
+// 本模块通过 `include_str!` 在**编译期**嵌入并解析，Node 侧运行时读取同一文件。
+// 第二份副本不存在 ⇒ 不可能漂移（结构性消除，而非靠 brand-single-source-test 事后对账）。
+// 范式取自 core.rs 已用的 version-vectors.json（本仓已验证的跨语言单源先例）。
+//
+// 仅**跨边界**的常量（Rust 侧实际引用的 11 项 + 网络/运行时共享项）从数据文件取；
+// 其余只在 Rust 内部使用的名字仍以 const 声明（它们没有第二份副本，不存在漂移问题）。
 
 use std::path::{Path, PathBuf};
 
+// ── 跨语言共享常量（编译期从数据文件嵌入）─────────────────────────────────────
+const SHARED_JSON: &str = include_str!("../../../shared/shared-constants.json");
+
+/// 极简 JSON 取值：只取本模块需要的扁平键（形如 "product.name"）。
+/// 刻意不引入 serde 依赖：这个文件结构稳定、键少，手写查找足够且零成本。
+fn shared_str(path: &str) -> &'static str {
+    let mut cur = SHARED_JSON;
+    for part in path.split('.') {
+        let key = format!("\"{}\"", part);
+        let Some(at) = cur.find(&key) else { panic!("brand: 共享常量缺键 {}", path) };
+        let rest = &cur[at + key.len()..];
+        let Some(colon) = rest.find(':') else { panic!("brand: 共享常量格式错误 {}", path) };
+        let val = rest[colon + 1..].trim_start();
+        if val.starts_with('{') {
+            cur = val;
+            continue;
+        }
+        let Some(a) = val.find('"') else { panic!("brand: 共享常量非字符串 {}", path) };
+        let rest2 = &val[a + 1..];
+        let Some(b) = rest2.find('"') else { panic!("brand: 共享常量字符串未闭合 {}", path) };
+        return &rest2[..b];
+    }
+    panic!("brand: 共享常量路径指向对象 {}", path)
+}
+
+fn shared_num(path: &str) -> u16 {
+    let mut cur = SHARED_JSON;
+    for (i, part) in path.split('.').enumerate() {
+        let key = format!("\"{}\"", part);
+        let Some(at) = cur.find(&key) else { panic!("brand: 共享常量缺键 {}", path) };
+        let rest = &cur[at + key.len()..];
+        let Some(colon) = rest.find(':') else { panic!("brand: 共享常量格式错误 {}", path) };
+        let val = rest[colon + 1..].trim_start();
+        if val.starts_with('{') { cur = val; continue; }
+        let end = val.find(|c: char| c == ',' || c == '}' || c == ']').unwrap_or(val.len());
+        let raw = val[..end].trim();
+        let n: u16 = raw.parse().unwrap_or_else(|_| panic!("brand: 共享常量非数字 {} = {}", path, raw));
+        if i == path.split('.').count() - 1 { return n; }
+        return n;
+    }
+    panic!("brand: 共享常量路径无效 {}", path)
+}
+
 // ── 产品与组件名 ─────────────────────────────────────────────────────────────
 /// 产品名：状态根/落点路径/安装目录/通知与 UA 等处的产品标识。
-pub const PRODUCT_NAME: &str = "lobox";
+pub const PRODUCT_NAME: &str = shared_str("product.name");
 /// 内核 CLI 可执行名：core/package.json#bin 的键与值、core/bin/lobox 安装期建立的入口名、壳定位内核的候选名。
-pub const CLI_NAME: &str = "lobox";
+pub const CLI_NAME: &str = shared_str("product.cliName");
 /// 桌面壳可执行名（= Cargo 产物名）：壳自定位、内核识别壳进程、CI 冒烟三处共用的入口名。
-pub const GUI_BIN_NAME: &str = "lobox-shell";
+pub const GUI_BIN_NAME: &str = shared_str("product.guiBinName");
 /// 桌面壳 crate 名：shell/src-tauri/Cargo.toml#package.name，同时是 shell/scripts/bump-shell.sh 的 sed 锚点。
-pub const GUI_CRATE_NAME: &str = "lobox-shell";
+pub const GUI_CRATE_NAME: &str = shared_str("product.guiCrateName");
 
 // ── npm 包 ──────────────────────────────────────────────────────────────────
 /// npm scope：已发布包名的前缀（core/package.json#npmPublish.scope，已发布包不可改）。
@@ -38,31 +82,31 @@ pub const TAURI_PRODUCT_NAME: &str = "lobox";
 
 // ── 状态根（内核 state-root.js 与壳 env.rs 必须推出同一个根）──────────────────
 /// 状态根目录名：三平台状态根的**最后一段**，Windows/macOS/Linux 共用。
-pub const STATE_DIR_NAME: &str = "lobox";
+pub const STATE_DIR_NAME: &str = shared_str("state.dirName");
 /// 状态根下内核侧子目录名：config.json / ports.json / state.json / 日志的落点。
-pub const STATE_SUPERVISOR_SUBDIR: &str = "supervisor";
+pub const STATE_SUPERVISOR_SUBDIR: &str = shared_str("state.supervisorSubdir");
 /// 状态根下壳侧子目录名：identity.json / shell.log / guard 日志的落点。
-pub const STATE_SHELL_SUBDIR: &str = "shell";
+pub const STATE_SHELL_SUBDIR: &str = shared_str("state.shellSubdir");
 /// **旧产品名**（改名前的状态根末段）：Rust 侧只作为单源对偶声明（检测与告警在内核侧实现，见 state-root.js）。
 pub const LEGACY_PRODUCT_NAME: &str = "dsh-supervisor";
 /// Windows 状态根基座的环境变量名。
-pub const STATE_ROOT_WIN_BASE_ENV: &str = "LOCALAPPDATA";
+pub const STATE_ROOT_WIN_BASE_ENV: &str = shared_str("state.winBaseEnv");
 /// 基座环境变量缺失时，Windows 状态根在家目录下的相对段（拼出 <家>/AppData/Local）。
 pub const STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS: &[&str] = &["AppData", "Local"];
 /// macOS 状态根在家目录下的相对段（拼出 <家>/Library/Application Support）。
 pub const STATE_ROOT_MACOS_SEGMENTS: &[&str] = &["Library", "Application Support"];
 /// Linux 状态根基座的环境变量名（XDG 规范）。
-pub const STATE_ROOT_LINUX_XDG_ENV: &str = "XDG_STATE_HOME";
+pub const STATE_ROOT_LINUX_XDG_ENV: &str = shared_str("state.linuxXdgEnv");
 /// XDG 基座缺失时，Linux 状态根在家目录下的相对段（拼出 <家>/.local/state）。
 pub const STATE_ROOT_LINUX_FALLBACK_SEGMENTS: &[&str] = &[".local", "state"];
 /// 旧位置（harness 数据目录）的第一段：迁移来源，绝不能被 harness 的卸载/清理一并带走。
-pub const LEGACY_HARNESS_DIR: &str = ".dsh";
+pub const LEGACY_HARNESS_DIR: &str = shared_str("state.legacyHarnessDir");
 
 // ── 环境变量（本产品自己的；名字与值都是现状）────────────────────────────────
 /// 状态根覆盖位：三平台最先命中并绝对化；壳注入服务定义、内核据此定位，两侧必须同名。
-pub const ENV_STATE_ROOT: &str = "DSH_SUPERVISOR_HOME";
+pub const ENV_STATE_ROOT: &str = shared_str("env.stateRoot");
 /// 配置文件路径覆盖位：CLI 与内核配置装载共用。
-pub const ENV_CONFIG: &str = "DSH_SUPERVISOR_CONFIG";
+pub const ENV_CONFIG: &str = shared_str("env.config");
 /// 单实例锁文件路径覆盖位：守卫与 CLI 共用。
 pub const ENV_LOCK_FILE: &str = "DSH_SUPERVISOR_LOCK_FILE";
 /// 内核可执行覆盖位：自启层解析可执行文件时的第一候选。
@@ -181,7 +225,7 @@ pub const GUI_BIN_NAMES: &[&str] = &["lobox-shell", "lobox-shell.exe"];
 
 // ── 进程匹配模式 ────────────────────────────────────────────────────────────
 /// 守卫进程的命令行匹配模式：Windows 按命令行含此串精确杀守卫（镜像名是 node.exe，按镜像名杀不到）。
-pub const PROC_MATCH_GUARD: &str = "*lobox*";
+pub const PROC_MATCH_GUARD: &str = shared_str("proc.matchGuard");
 /// 壳进程名匹配串：内核用 pgrep 找壳进程。
 pub const PROC_MATCH_GUI: &str = "lobox-shell";
 /// 壳进程正则源：内核 isShellProcess 判命令行是否属于壳（.exe 可选）。
@@ -195,11 +239,11 @@ pub const PROC_MATCH_GUI_RE: &str = "lobox-shell(\\.exe)?";
 //   使「去 dsh 前缀」不变成说谎（`lobox_exited` 会谎称是我们自己退出）。
 
 /// 面板 → 壳 的内核更新请求消息类型名（引导页 `shell.html` 经 `shell_bridge_contract` 取得本值）。
-pub const BRIDGE_MSG_KERNEL_UPDATE_REQUEST: &str = "lobox:kernel-update-request";
+pub const BRIDGE_MSG_KERNEL_UPDATE_REQUEST: &str = shared_str("bridge.msgKernelUpdateRequest");
 /// 壳 → 面板 的终结结果消息类型名。
-pub const BRIDGE_MSG_KERNEL_UPDATE_RESULT: &str = "lobox:kernel-update-result";
+pub const BRIDGE_MSG_KERNEL_UPDATE_RESULT: &str = shared_str("bridge.msgKernelUpdateResult");
 /// 壳 → 面板 的非终结进度消息类型名。
-pub const BRIDGE_MSG_KERNEL_UPDATE_PROGRESS: &str = "lobox:kernel-update-progress";
+pub const BRIDGE_MSG_KERNEL_UPDATE_PROGRESS: &str = shared_str("bridge.msgKernelUpdateProgress");
 /// 浏览器 localStorage 键：出回环访问密钥（面板 `services/supervisor/client.ts` 消费，我方签发/校验）。
 pub const STORE_KEY_API_ACCESS: &str = "lobox.apiAccessKey";
 /// LAN 门卫 cookie 名：**我方**签发并校验（与 harness 签发的 `dsh-auth-*` 无关）。

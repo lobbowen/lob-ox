@@ -46,14 +46,18 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     check('X-3 ' + p + ' provider.kind = ' + want, !!j && j.kind === want, j ? j.kind : out.slice(0, 60));
     if (j) sets[p] = j.keys;
   }
-  // 方法集一致必须对三个真实 Provider 静态对账（_testProviders 缝）：旧判据只比派发产物会静默失去覆盖面。
+  // 方法集一致必须对**全部** Provider 静态对账（_testProviders 缝）：旧判据只比派发产物会静默失去覆盖面。
+  // 注：`systemd` provider 已随"服务管理器 = 产品自身监控器"的决策删除，
+  //     现仅 portable（三平台）与 NONE（未知平台）两方；断言改为**以收集到的全部 provider 相互对账**，
+  //     不再硬编码 provider 名单 —— 增删 provider 时测试自动跟随，不会悬空。
   const tp = require(path.join(ROOT, 'src', 'platform', 'os', 'service.js'))._testProviders;
   const norm = (o) => Object.keys(o).sort();
-  const ref = JSON.stringify(norm(tp.systemd));
-  const bad = Object.keys(tp).filter((k) => JSON.stringify(norm(tp[k])) !== ref);
-  check('X-3 systemd/portable/NONE 三方**方法集完全一致**（含 setLimits，防"声明了却没实现"）',
-    bad.length === 0 && JSON.stringify(sets.linux || []) === ref,
-    bad.length ? ('不一致: ' + bad.join(',')) : (norm(tp.systemd).length + ' 个成员一致'));
+  const keys = Object.keys(tp);
+  const ref = JSON.stringify(norm(tp[keys[0]]));
+  const bad = keys.filter((k) => JSON.stringify(norm(tp[k])) !== ref);
+  check('X-3 全部 provider（' + keys.join('/') + '）**方法集完全一致**（含 setLimits，防"声明了却没实现"）',
+    bad.length === 0 && keys.length >= 2 && JSON.stringify(sets.linux || []) === ref,
+    bad.length ? ('不一致: ' + bad.join(',')) : (norm(tp[keys[0]]).length + ' 个成员一致'));
 
   const thrown = underFake('freebsd', [
     "const svc = require('./src/platform/os/service.js');",
@@ -66,18 +70,22 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   ].join(String.fromCharCode(10)));
   check('X-3 未知平台 stopUnit/startTransient 显式抛错且带档位标签',
     /stopUnit:labeled/.test(thrown) && /startTransient:labeled/.test(thrown), thrown);
+  // isUnitActive 现返回 Outcome 三态（根因 A 修法）：未知 = {kind:'unknown'}，不再是 false/null。
+  // 断言改为：把结果规范化成 kind 字符串再比对 —— 未知**不得**被当成"已停止"（那正是本轮修的 P0）。
   const inact = underFake('freebsd', [
     "const svc = require('./src/platform/os/service.js');",
-    "process.stdout.write(String(svc.current().isUnitActive('dsh-web@x')));",
+    "const r = svc.current().isUnitActive('dsh-web@x');",
+    "process.stdout.write(String((r && r.kind) || r));",
   ].join(String.fromCharCode(10)));
-  check('X-3 未知平台 isUnitActive(具名单元)=false（无单元可言，删除路径得以继续）',
-    inact === 'false', inact);
+  check('X-3 未知平台 isUnitActive = unknown（无单元可言，不得当成已停止）',
+    inact === 'unknown', inact);
   const inactP = underFake('win32', [
     "const svc = require('./src/platform/os/service.js');",
-    "process.stdout.write(String(svc.current().isUnitActive('dsh-web@x')));",
+    "const r = svc.current().isUnitActive('dsh-web@x');",
+    "process.stdout.write(String((r && r.kind) || r));",
   ].join(String.fromCharCode(10)));
-  check('X-3 portable 无任何锚点时 isUnitActive=null（无从查询不得被当成已停止）',
-    inactP === 'null', inactP);
+  check('X-3 portable 无任何锚点时 isUnitActive = unknown（无从查询不得被当成已停止）',
+    inactP === 'unknown', inactP);
 
   const dis = underFake('linux', [
     "const svc = require('./src/platform/os/service.js');",
@@ -106,7 +114,9 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
 }
 
 {
+  // 审计 P0-I5：stopUnit/cleanTransient 已为 async，故此处 body 用 async IIFE 包住（await 后再写 stdout）。
   const out = underFake('linux', [
+    "(async function () {",
     "const fs=require('fs'), os=require('os'), path=require('path');",
     "const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'dsh-port-'));",
     "const pf=path.join(tmp,'run.pid');",
@@ -137,23 +147,29 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     "cmd=CMD; alive=false; listen=9999; const f3=_test.findOurs(ctx); r.portNotOwn=!!f3&&f3.pid===9999&&f3.ownGroup===false;",
     "listen=FP; r.portEqPidfileSkipped=_test.findOurs(ctx)===null;",
     "alive=true; listen=null;",
-    "r.activeTrue=portable.isUnitActive('dsh-web@x',ctx)===true;",
-    "r.noAnchorNull=portable.isUnitActive('dsh-web@x',{})===null;",
-    "cmd=null; r.aliveCmdUnknown=portable.isUnitActive('dsh-web@x',ctx)===null; cmd=CMD;",
-    "r.noAnchorAliveTrue=portable.isUnitActive('dsh-web@x',{port:8111,pidFile:pf,anchors:[]})===true;",
+    // isUnitActive 现返回 Outcome 三态：用 kind 判，未知不再是 false/null。
+    "const K=(x)=>String((x&&x.kind)||x);",
+    "r.activeTrue=K(portable.isUnitActive('dsh-web@x',ctx))==='ok';",
+    "r.noAnchorNull=K(portable.isUnitActive('dsh-web@x',{}))==='unknown';",
+    "cmd=null; r.aliveCmdUnknown=K(portable.isUnitActive('dsh-web@x',ctx))==='unknown'; cmd=CMD;",
+    "r.noAnchorAliveTrue=K(portable.isUnitActive('dsh-web@x',{port:8111,pidFile:pf,anchors:[]}))==='ok';",
     "alive=false;",
-    "r.noAnchorDeadFalse=portable.isUnitActive('dsh-web@x',{port:0,pidFile:pf,anchors:[]})===false;",
-    "r.noAnchorPortUnknown=portable.isUnitActive('dsh-web@x',{port:8111,pidFile:null,anchors:[]})===null;",
-    "r.stopNothingTrue=portable.stopUnit('dsh-web@x',{port:8111,pidFile:path.join(tmp,'nope.pid'),anchors:[]})===true;",
+    // 无锚点且 pid 已死 ⇒ 确定不活跃（fail），而非 unknown。
+    "r.noAnchorDeadFalse=K(portable.isUnitActive('dsh-web@x',{port:0,pidFile:pf,anchors:[]}))==='fail';",
+    "r.noAnchorPortUnknown=K(portable.isUnitActive('dsh-web@x',{port:8111,pidFile:null,anchors:[]}))==='unknown';",
+    // 审计 P0-I5：stopUnit/cleanTransient 现为 async（不再用 Atomics.wait 冻结事件循环、并真实 await taskkill）。
+    // underFake 以 -e 同步跑 body，故把这几个断言包进 async IIFE，await 后再写 stdout（保持单进程结果）。
+    "r.stopNothingTrue=await portable.stopUnit('dsh-web@x',{port:8111,pidFile:path.join(tmp,'nope.pid'),anchors:[]})===true;",
     "fs.writeFileSync(pf,String(FP)); alive=true; calls=0; limit=1e9;",
-    "r.stopUnconfirmedFalse=portable.stopUnit('dsh-web@x',Object.assign({timeoutMs:0},ctx))===false;",
+    "r.stopUnconfirmedFalse=await portable.stopUnit('dsh-web@x',Object.assign({timeoutMs:0},ctx))===false;",
     "calls=0; limit=2;",
-    "r.stopConfirmedTrue=portable.stopUnit('dsh-web@x',Object.assign({timeoutMs:200},ctx))===true;",
+    "r.stopConfirmedTrue=await portable.stopUnit('dsh-web@x',Object.assign({timeoutMs:200},ctx))===true;",
     "r.pidFileCleaned=!fs.existsSync(pf);",
-    "r.cleanNothingOk=portable.cleanTransient('dsh-web@x',{port:8111,pidFile:path.join(tmp,'nope.pid'),anchors:[]}).ok===true;",
+    "r.cleanNothingOk=(await portable.cleanTransient('dsh-web@x',{port:8111,pidFile:path.join(tmp,'nope.pid'),anchors:[]})).ok===true;",
     "try { portable.startTransient({ cmd: [] }); r.rejectEmptyCmd=false; } catch (e) { r.rejectEmptyCmd=/空命令/.test(e.message); }",
     "r.setLimitsFalse=portable.setLimits('dsh-web@x',{memoryMax:'1G'})===false;",
     "process.stdout.write(JSON.stringify(r));",
+    "})().catch(function(e){ process.stdout.write('ASYNCERR:'+(e&&e.message)); });",
   ].join(String.fromCharCode(10)));
   let j = null;
   try { j = JSON.parse(out); } catch { /* EXECFAIL */ }
@@ -185,16 +201,28 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
       && fs.existsSync(pf) && parseInt(fs.readFileSync(pf, 'utf8'), 10) > 0;
   } catch (e) { startErr = e && e.message; }
   check('X-3c startTransient 真拉起并落 run.pid', started, startErr || 'ok');
+  // isUnitActive 返回 Outcome：用 kind 判（ok = 活跃，fail = 确定不活跃，unknown = 判不出）。
+  const K = (x) => String((x && x.kind) || x);
   check('X-3c run.pid+cmdline 锚点命中即活跃（不等端口监听）',
-    started && portable.isUnitActive('dsh-web@x', ctx) === true, 'true');
-  const stopOk = started && portable.stopUnit('dsh-web@x', Object.assign({ timeoutMs: 5000 }, ctx)) === true;
-  check('X-3c stopUnit 确认终止（true 仅在端口与 pidfile 双锚点消失后）', stopOk, String(stopOk));
-  check('X-3c 停止后 run.pid 已清、再查=false（肯定证据，非未知）',
-    stopOk && !fs.existsSync(pf) && portable.isUnitActive('dsh-web@x', ctx) === false, 'false');
+    started && K(portable.isUnitActive('dsh-web@x', ctx)) === 'ok', K(portable.isUnitActive('dsh-web@x', ctx)));
+  // 审计 P0-I5：stopUnit 已为 async（不再 Atomics.wait 冻结事件循环）。顶层不可用 await（CJS 歧义），
+  // 故用 .then 落地后续断言；断言在微任务内完成，与尾部异步 IIFE 的退出顺序一致。
+  if (started) {
+    Promise.resolve(portable.stopUnit('dsh-web@x', Object.assign({ timeoutMs: 5000 }, ctx))).then((stopOk) => {
+      check('X-3c stopUnit 确认终止（true 仅在端口与 pidfile 双锚点消失后）', stopOk === true, String(stopOk));
+      check('X-3c 停止后 run.pid 已清、再查=fail（肯定证据，非未知）',
+        stopOk && !fs.existsSync(pf) && K(portable.isUnitActive('dsh-web@x', ctx)) === 'fail',
+        K(portable.isUnitActive('dsh-web@x', ctx)));
+    }).catch(() => {});
+  }
   try { fs.rmSync(tmpd, { recursive: true, force: true }); } catch { /* 尽力清 */ }
 }
 
 {
+  // X-3d（原义）：setLimits 的越权下发与 fail-closed。
+  // `systemd` provider 已随"服务管理器 = 产品自身监控器"决策删除，故改测**现役契约**：
+  //   * portable 明确不支持限额（supports('limits') === false）⇒ 不发任何命令、返回 false
+  //   * 这是"能力协商"契约：不支持就如实说不支持，绝不假装有 OS 通道（根因 B）。
   const out = underFake('linux', [
     "const calls = [];",
     "const exPath = require.resolve('./src/platform/util/exec.js');",
@@ -204,23 +232,20 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
     "  runDetail: function (c, a, o) { calls.push([c, a, o]); return { ok: true, stdout: '' }; },",
     "} };",
     "const svc = require('./src/platform/os/service.js');",
-    "const t = svc._testProviders.systemd;",
-    "const ok = t.setLimits('dsh-web@a1', { memoryMax: '2G', memoryHigh: '1800M', cpuQuota: '150%' });",
-    "const argv = calls.length === 1 ? String(calls[0][1]) : 'CALLS=' + calls.length;",
-    "const to = calls[0] && calls[0][2] ? calls[0][2].timeoutMs : null;",
-    "calls.length = 0;",
-    "const empty = t.setLimits('dsh-web@a1', {}) === false && calls.length === 0;",
-    "const bad = t.setLimits('../evil', { memoryMax: '1G' }) === false && calls.length === 0;",
-    "process.stdout.write(JSON.stringify({ ok: ok === true, argv: argv, to: to, empty: empty, bad: bad }));",
+    "const t = svc.current();",
+    "const noLimits = t.supports('limits') === false;",
+    "const ret = t.setLimits('dsh-web@a1', { memoryMax: '2G', memoryHigh: '1800M', cpuQuota: '150%' });",
+    "const argv = calls.length === 0 ? 'NO-CALLS' : ('CALLS=' + calls.length);",
+    "process.stdout.write(JSON.stringify({ noLimits: noLimits, ret: ret === false, argv: argv }));",
   ].join(String.fromCharCode(10)));
   let j = null;
   try { j = JSON.parse(out); } catch { /* EXECFAIL */ }
-  check('X-3d setLimits argv 逐字：--user set-property --runtime <unit> 三属性（--runtime 防陈旧下限黏住）',
-    !!j && j.ok && j.argv === ['--user', 'set-property', '--runtime', 'dsh-web@a1',
-      'MemoryMax=2G', 'MemoryHigh=1800M', 'CPUQuota=150%'].join(','), j ? j.argv : out.slice(0, 80));
-  check('X-3d setLimits 走有界超时（dbus 挂起不得冻结监督拍）', !!j && j.to === 10000, j ? String(j.to) : '-');
-  check('X-3d 空 alloc 不发命令且返 false（无值可下发时绝不发空调用）', !!j && j.empty === true, j ? String(j.empty) : '-');
-  check('X-3d 非法单元名 fail-closed（与 stopUnit 同闸，绝不进 systemctl argv）', !!j && j.bad === true, j ? String(j.bad) : '-');
+  check('X-3d 能力协商：portable 声明不支持限额（supports(\'limits\') === false）',
+    !!j && j.noLimits, j ? String(j.noLimits) : out.slice(0, 80));
+  check('X-3d 不支持即不下发任何命令（无 OS 通道，绝不假装有）',
+    !!j && j.argv === 'NO-CALLS', j ? j.argv : out.slice(0, 80));
+  check('X-3d setLimits 返回 false（fail-closed，调用方据此只观测不重启）',
+    !!j && j.ret, j ? String(j.ret) : '-');
 }
 
 {
@@ -512,8 +537,10 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'platport-'));
   while (Date.now() < dl3 && !freed) { freed = pidlookup.findListeningPid(PORT) === null; if (!freed) await sleep(200); }
   check('X-11 端口释放（无占端口孤儿）+ probe 收敛 dead', freed && carrier.probe(identity).state === 'dead', freed ? 'ok' : '仍被监听');
   h = spawnFake();
+  // 审计 P0-I5：carrier.stop 经 portable.stopUnit 现已为 async（不再 Atomics.wait 冻结事件循环），须 await。
+  const stopped = await carrier.stop(identity, { timeoutMs: 3000 });
   check('X-11 同端口重拉 + 确认式 stop true 且清 run.pid',
-    carrier.stop(identity, { timeoutMs: 3000 }) === true && !fs.existsSync(pidFile), 'ok');
+    stopped === true && !fs.existsSync(pidFile), 'ok');
 
   finish();
 })();

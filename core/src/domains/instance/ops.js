@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const ports = require('../../platform/service/ports').shared;
 const { remoteTokenStrength } = require('../../shared/credential');
+const OUTCOME = require('../../shared/outcome');
 const model = require('./model');
 const sandbox = require('./sandbox');
 
@@ -44,7 +45,9 @@ function createOps(deps) {
     return { ok: true, instance: inst };
   }
 
-  function removeInstance(id) {
+  // 审计 P0-I5：service.stopUnit 现已为 async，删除实例时必须 await 停止确认后再判 isUnitActive，
+  // 否则会带着"仍在运行"的陈旧判据删数据或报错（与 stop() 同源修正）。
+  async function removeInstance(id) {
     const inst = store.instances.find((i) => i.id === id);
     if (tasks && tasks.isBusy('instance', id)) {
       return { ok: false, error: '该实例有进行中的安装/升级作业，请等待其完成后再删除' };
@@ -55,24 +58,46 @@ function createOps(deps) {
     store.replace(kept);
     store.save();
     if (tokens) tokens.detach(inst.id);
-    if (inst) { try { ports.unregister('inst:' + id); } catch {} }
+    // 端口回收失败要留痕：静默会让账本残留 inst:<id> 记录，之后该端口被判定为"已占用"。
+    if (inst) {
+      try { ports.unregister('inst:' + id); }
+      catch (e) { logger.warn && logger.warn('[' + id + '] 端口回收失败（账本可能残留）: ' + (e && e.message)); }
+    }
     const unit = 'dsh-web@' + id;
     const ctx = sandbox.launchCtx(instancesRoot, dshBin, inst);
     let stopOk;
-    try { stopOk = service.stopUnit(unit, ctx) !== false; } catch { stopOk = true; }
-    let stillActive = !stopOk;
-    if (stopOk) {
-      try {
-        const active = service.isUnitActive(unit, ctx);
-        stillActive = active !== false;
-      } catch { stillActive = true; }
+    try { stopOk = (await service.stopUnit(unit, ctx)) !== false; }
+    catch (e) {
+      // 抛出"不支持/无服务管理器"（CapabilityError）＝ 该平台根本没有单元概念 ⇒ 无进程在跑，
+      //     不是"判不出"，删除应继续。其它异常才是真正的停止失败 ⇒ 保守保留数据。
+      const unsupported = !!(e && (e.name === 'CapabilityError' || e.code === 'CAPABILITY_UNSUPPORTED'));
+      stopOk = unsupported;
+      logger.warn && logger.warn('[' + id + '] stopUnit '
+        + (unsupported ? '能力不支持（无单元可停，按未运行继续）' : '异常（不得视为已停止）') + ': ' + (e && e.message));
     }
-    if (inst && inst.domain === 'sandbox' && inst.id !== 'main' && !stillActive) {
+    // isUnitActive 返回 Outcome 三态：unknown 必须显式处置，不得再当"活跃"（此前的 P0）。
+    let active = OUTCOME.UNKNOWN;
+    if (stopOk) {
+      try { active = service.isUnitActive(unit, ctx); }
+      catch (e) { active = OUTCOME.UNKNOWN; logger.warn && logger.warn('[' + id + '] isUnitActive 异常: ' + (e && e.message)); }
+      // 兼容旧桩：返回布尔（false/true）时按 fail/ok 归一，避免被当成 unknown 而卡住删除。
+      if (typeof active === 'boolean') active = active ? OUTCOME.OK : OUTCOME.fail('stub: 未在跑');
+    } else {
+      // 停止确实失败且平台支持 ⇒ 保守：按"仍在运行"处理，保留数据目录。
+      active = OUTCOME.OK;
+    }
+    const stillActive = OUTCOME.isOk(active);
+    const activeUnknown = OUTCOME.isUnknown(active);
+    if (inst && inst.domain === 'sandbox' && inst.id !== 'main' && !stillActive && !activeUnknown) {
       const root = sandbox.root(instancesRoot, inst);
       setImmediate(() => {
         try { fs.rmSync(root, { recursive: true, force: true }); }
         catch (e) { logger.warn && logger.warn('清理沙箱目录失败 ' + root + ': ' + e.message); }
       });
+    } else if (activeUnknown) {
+      // 状态未知：保留数据目录并如实告警，不得报"删除成功"（数据保留优先于流程完成）。
+      logger.warn && logger.warn('[' + id + '] 单元 ' + unit + ' 状态未知，已保留实例数据目录（防不可逆丢失）');
+      if (events) events.append('inst_remove_data_preserved', { id, reason: 'unit-state-unknown' });
     } else if (stillActive) {
       logger.warn && logger.warn('[' + id + '] 单元 ' + unit + ' 仍在运行，已保留实例数据目录（防不可逆丢失）');
       if (events) events.append('inst_remove_data_preserved', { id, reason: 'unit-still-active' });
@@ -80,6 +105,8 @@ function createOps(deps) {
     if (hooks.onRemove) hooks.onRemove(id, store.instances);
     if (hooks.onDestroy) { try { hooks.onDestroy(id); } catch (e) { logger.warn && logger.warn('onDestroy(' + id + '): ' + (e && e.message)); } }
     if (events) events.append('inst_removed', { id });
+    // 未知 ⇒ 不得报 ok:true（此前正是把 unknown 当成功，导致"以为删了、数据还在"）。
+    if (activeUnknown) return { ok: false, error: '单元状态未知，未确认停止；已保留实例数据目录', dataPreserved: true, preserveReason: 'unit-state-unknown' };
     return stillActive ? { ok: true, dataPreserved: true, preserveReason: 'unit-still-active' } : { ok: true };
   }
 
@@ -121,7 +148,9 @@ function createOps(deps) {
     timer = setInterval(() => {
       for (const inst of store.instances) {
         if (inst.domain === 'native') continue;
-        try { lifecycle.supervise(inst.id); } catch {}
+        // 单实例 supervise 失败不得静默：否则该实例会长期停在陈旧相位而无人察觉。
+        try { lifecycle.supervise(inst.id); }
+        catch (e) { logger.warn && logger.warn('[' + inst.id + '] supervise 失败: ' + (e && e.message)); }
       }
       try { lifecycle.governSweep(); } catch (e) { logger.warn && logger.warn('governSweep: ' + (e && e.message)); }
     }, intervalMs || 5000);

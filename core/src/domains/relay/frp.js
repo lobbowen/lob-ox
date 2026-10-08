@@ -77,16 +77,29 @@ class FrpManager {
     const settings = this.loadSettings();
     const { text, count } = this.buildConfig(settings, instances);
     fs.mkdirSync(this.dir, { recursive: true });
-    // frpc.toml / frp.json 含 auth.token 明文：新写入 0600，启动时补加固旧文件。
-    writeAtomic(this.configFile, text, { mode: 0o600 });
+    // RL-8：审计指出本函数每次调用都无条件重写并重启 frpc，导致「改动一个 lan 实例 ⇒ 所有 WAN 隧道全断」。
+    // 修法：先比对现有 frpc.toml 字节；字节相同则**只更新 _lastCount、不重写不重启**（无 diff 不动进程）。
+    // 仅在首次生成、或字节确实不同（真有 wan 实例/令牌/服务器变更）时才重写 + 重启。
+    let unchanged = false;
+    try {
+      if (fs.existsSync(this.configFile)) {
+        const prev = fs.readFileSync(this.configFile, 'utf8');
+        unchanged = prev === text;
+      }
+    } catch {}
+    if (!unchanged) {
+      // frpc.toml / frp.json 含 auth.token 明文：新写入 0600，启动时补加固旧文件。
+      writeAtomic(this.configFile, text, { mode: 0o600 });
+    }
     this._lastCount = count;
     if (count === 0) {
-      this.stop();
+      if (!unchanged) this.stop();
       return { ok: true, proxies: count, running: false };
     }
     if (!fs.existsSync(this.binPath)) {
       return { ok: false, error: 'frpc not installed', needInstall: true, proxies: count };
     }
+    if (unchanged) return { ok: true, proxies: count, running: !!this.child, unchanged: true };
     return this.restart();
   }
 

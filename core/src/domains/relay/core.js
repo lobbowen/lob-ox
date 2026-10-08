@@ -52,7 +52,8 @@ function lanGateCookieValue(token, salt) {
 }
 
 function hasValidToken(req, token, salt) {
-  if (!token) return true;
+  // fail-closed（D1）：空令牌即无令牌，绝不当"已授权"。
+  if (!token) return false;
   const url = new URL(req.url, 'http://localhost');
   const queryToken = url.searchParams.get('token');
   if (queryToken && safeEqual(queryToken, token)) return true;
@@ -70,7 +71,8 @@ function hasValidToken(req, token, salt) {
 }
 
 function tokenGateDecision(req, token, salt) {
-  if (!token) return { ok: true };
+  // fail-closed（D1）：空令牌（含被显式清除）一律拒，杜绝"无令牌即开放中继"。
+  if (!token) return { ok: false, unauthorized: true };
   const url = new URL(req.url, 'http://localhost');
   const cookies = req.headers.cookie || '';
   const m = LAN_COOKIE_RE.exec(cookies);
@@ -104,6 +106,18 @@ if (typeof crypto.randomUUID !== 'function') {
 }
 </script>`;
 
+
+// 日志脱敏：请求路径里可能带 ?token=<secret>（relay 把令牌放在 query）。落日志前剥离 token 参数，
+// 避免把用户远程访问令牌写进 lan-daemon.log / guard.log（RL-1）。
+function redactLogPath(rawUrl) {
+  if (!rawUrl) return '';
+  try {
+    const u = new URL(rawUrl, 'http://127.0.0.1');
+    if (u.searchParams.has('token')) u.searchParams.delete('token');
+    return u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : '');
+  } catch { return String(rawUrl || '').replace(/[?&]token=[^&]*/, ''); }
+}
+
 function buildFrpcToml(settings, instances) {
   const s = settings || {};
   const lines = [];
@@ -134,7 +148,9 @@ function normalizeFrpSettings(patch, current) {
   return {
     serverAddr: String(j.serverAddr !== undefined ? j.serverAddr : cur.serverAddr).trim(),
     serverPort: Number(j.serverPort) || cur.serverPort,
-    authToken: String(j.authToken !== undefined ? j.authToken : cur.authToken),
+    // authToken：null/undefined 归一为空串（frpc 遇空串不写 auth.token，避免 String(null)==="null" 被当成共享密钥）；
+    //   非空串统一 trim，与 serverAddr 同口径。
+    authToken: (j.authToken === undefined ? cur.authToken : (j.authToken == null ? '' : String(j.authToken).trim())),
     user: String(j.user || cur.user || 'dsh'),
   };
 }
@@ -206,6 +222,7 @@ module.exports = {
   upstreamPath,
   hasValidToken,
   lanGateCookieValue,
+  redactLogPath,
   tokenGateDecision,
   backoffGate,
   POLYFILL_SCRIPT,

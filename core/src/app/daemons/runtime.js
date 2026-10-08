@@ -62,7 +62,9 @@ module.exports = {
         spawnEnv: () => ({ DSH_SUPERVISOR_CONFIG: cfgPath }),
         logger: d.logger(),
         events: d.events(),
-        exitIntended: () => host._exitIntended(),
+        // `this` 是宿主（本方法经 host._daemonLifecycle(kind) 调用）；箭头函数捕获它。
+        // 此前写作 host._exitIntended()，而 host 只存在于 depsOf(host) 形参作用域 ⇒ 延迟回调求值时 ReferenceError。
+        exitIntended: () => this._exitIntended(),
       });
       return lc[kind];
     },
