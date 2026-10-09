@@ -83,6 +83,7 @@ const ENTRIES = [
 
   { file: "test/config-reconcile-test.js", tier: "L1", os: "all", why: "在线更新不迁状态根：已落盘的弃用配置值必须由默认值覆盖（实证：apiPort=36360 跨三版未更新）" },
 
+  { file: "test/exec-path-dsh-detection-test.js", tier: "L1", os: "all", why: "DSH 复杂环境检测兜底：shim 真身 / harness-home / 活进程" },
 ];
 
 const ALL_OS = ['linux', 'darwin', 'win32'];
