@@ -46,7 +46,7 @@ function handle(ctx) {
     }
     if (req.method === 'POST' && pathname === '/guard/version/check') {
       req.resume();
-      if (!originAllowed(req)) return send(403, { ok: false, error: 'cross-origin request rejected' });
+      if (!originAllowed(req, sup.config.apiPort)) return send(403, { ok: false, error: 'cross-origin request rejected' });
       return sup.guardVersionCheck().then((r) => send(200, r)).catch((e) => send(500, { ok: false, error: e.message }));
     }
 
@@ -54,7 +54,7 @@ function handle(ctx) {
       return send(200, sup.autostartStatus());
     }
     if (req.method === 'POST' && pathname === '/autostart') {
-      if (!originAllowed(req)) {
+      if (!originAllowed(req, sup.config.apiPort)) {
         req.resume();
         return send(403, { ok: false, error: 'cross-origin request rejected' });
       }
@@ -75,7 +75,7 @@ function handle(ctx) {
       return send(200, sup.lanPanelStatus());
     }
     if (req.method === 'POST' && pathname === '/settings/lan') {
-      if (!originAllowed(req)) {
+      if (!originAllowed(req, sup.config.apiPort)) {
         req.resume();
         return send(403, { ok: false, error: 'cross-origin request rejected' });
       }
@@ -92,7 +92,7 @@ function handle(ctx) {
       return send(200, sup.accessKeyStatus());
     }
     if (req.method === 'POST' && pathname === '/settings/access-key') {
-      if (!originAllowed(req)) {
+      if (!originAllowed(req, sup.config.apiPort)) {
         req.resume();
         return send(403, { ok: false, error: 'cross-origin request rejected' });
       }
@@ -110,7 +110,7 @@ function handle(ctx) {
       return send(200, sup.closeActionStatus());
     }
     if (req.method === 'POST' && pathname === '/settings/close-action') {
-      if (!originAllowed(req)) { req.resume(); return send(403, {}); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
       collectBody(req, res, 1024, (body) => {
         let v = null;
         try { const j = body ? JSON.parse(body) : {}; if (typeof j.closeAction === 'string') v = j.closeAction; } catch {}
@@ -124,7 +124,7 @@ function handle(ctx) {
       return send(200, sup.externalBrowserStatus());
     }
     if (req.method === 'POST' && pathname === '/settings/external-browser') {
-      if (!originAllowed(req)) { req.resume(); return send(403, {}); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
       collectBody(req, res, 2048, (body) => {
         let id = null; let given = false;
         try { const j = body ? JSON.parse(body) : {}; if (typeof j.id === 'string') { id = j.id; given = true; } } catch {}
@@ -135,14 +135,14 @@ function handle(ctx) {
       return;
     }
     if (req.method === 'POST' && pathname === '/shutdown') {
-      if (!originAllowed(req)) { req.resume(); return send(403, {}); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
       req.resume();
       Promise.resolve(sup.shutdownAll()).then((r) => { try { send(r.ok === false ? 400 : 200, r || { ok: true }); } catch {} }).catch(() => {});
       return;
     }
 
     if (req.method === 'GET' && pathname === '/self-update/status') {
-      if (!originAllowed(req)) { req.resume(); return send(403, {}); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
       Promise.resolve(sup.guardSelfUpdateStatus()).then((r) => send(r.ok ? 200 : 400, r));
       return;
     }
@@ -166,30 +166,30 @@ function handle(ctx) {
     }
 
     if (req.method === 'GET' && pathname === '/env/dsh') {
-      if (!originAllowed(req)) { req.resume(); return send(403, {}); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
       return send(200, sup.dshenvStatus());
     }
     if (req.method === 'GET' && pathname === '/env/status') {
-      if (!originAllowed(req)) { req.resume(); return send(403, {}); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
       return Promise.resolve(sup.envStatus()).then((r) => send(200, r)).catch((e) => send(500, { ok: false, error: e.message }));
     }
     if (req.method === 'GET' && pathname === '/env/node-lts') {
       return sup.nodeLtsStatus().then((r) => send(200, r)).catch((e) => send(500, { ok: false, error: e.message }));
     }
     if (req.method === 'GET' && pathname === '/env/environment') {
-      if (!originAllowed(req)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       const force = /[?&]force=1/.test(String(req.url || ''));
       return Promise.resolve(force ? environment.refresh({ persist: true, force: true }) : environment.form())
         .then((r) => send(200, r))
         .catch((e) => send(500, { ok: false, error: '环境表单装配失败：' + ((e && e.message) || e) }));
     }
     if (req.method === 'GET' && pathname === '/env/environment/last') {
-      if (!originAllowed(req)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       return send(200, environment.lastSnapshot());
     }
     if (req.method === 'POST' && pathname === '/env/open-url') {
       if (!identity.loopback) { req.resume(); return send(403, { ok: false, error: '仅内核所在机器可请内核调起浏览器，请复制或自行打开该地址' }); }
-      if (!originAllowed(req)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       collectBody(req, res, 4096, (body) => {
         let url = null;
         try { const j = body ? JSON.parse(body) : {}; if (typeof j.url === 'string') url = j.url; } catch {}

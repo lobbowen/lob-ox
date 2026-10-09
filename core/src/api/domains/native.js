@@ -15,12 +15,12 @@ function handle(ctx) {
       });
     }
     if (req.method === 'POST' && pathname === '/native/check-update') {
-      if (!originAllowed(req)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       sup.nativeManager.checkUpdate().then((r) => send(200, { ok: true, ...r })).catch((e) => send(500, { ok: false, error: e.message }));
       return;
     }
     if (req.method === 'POST' && pathname === '/native/install') {
-      if (!originAllowed(req)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       collectBody(req, res, 1024, (body) => {
         let version = null;
         try { const j = body ? JSON.parse(body) : {}; if (typeof j.version === 'string' && j.version) version = j.version; } catch {}
@@ -31,7 +31,7 @@ function handle(ctx) {
       return;
     }
     if (req.method === 'POST' && pathname === '/native/upgrade') {
-      if (!originAllowed(req)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       collectBody(req, res, 4096, (body) => {
         let requested = null;
         try { const j = body ? JSON.parse(body) : {}; if (j && typeof j.version === 'string' && j.version) requested = j.version; } catch {}
@@ -44,13 +44,13 @@ function handle(ctx) {
       return;
     }
     if (req.method === 'POST' && pathname === '/native/uninstall') {
-      if (!originAllowed(req)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       const r = sup.nativeManager.startUninstall();
       if (r && r.ok === false) return send(400, r);
       return send(202, { ok: true, accepted: true, state: 'uninstalling' });
     }
     if (req.method === 'POST' && pathname === '/native/settings') {
-      if (!originAllowed(req)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       collectBody(req, res, 4096, (body) => {
         try {
           const j = body ? JSON.parse(body) : {};

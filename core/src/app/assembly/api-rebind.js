@@ -43,15 +43,10 @@ function _rebindApiHost(host, createServer) {
       });
       server.listen(host.config.apiPort, host.config.apiHost, () => {
         bind._tries = 0;
-        // 真实绑定端口（EADDRINUSE 顺延时 listen 回调的 port 即实际端口）= ports.json 与 CORS 的唯一真相。
-        // 以实际端口登记 sole，杜绝「冻结 config.apiPort ≠ 真实端口」写入 ports.json 的双源发散。
-        const bound = server.address();
-        const realPort = (bound && Number.isInteger(bound.port)) ? bound.port : host.config.apiPort;
         host.api = server;
-        if (realPort !== host.config.apiPort) host.config.apiPort = realPort;
-        try { portsShared.registerSole('supervisor-api', realPort); } catch (e) { host.logger.warn('ports.registerSole(supervisor-api) 失败: ' + ((e && e.message) || e)); }
-        host.events.append('api_listening', { host: host.config.apiHost, port: realPort });
-        host.logger.info('api listening on ' + host.config.apiHost + ':' + realPort);
+        try { portsShared.registerSole('supervisor-api', host.config.apiPort); } catch (e) { host.logger.warn('ports.registerSole(supervisor-api) 失败: ' + ((e && e.message) || e)); }
+        host.events.append('api_listening', { host: host.config.apiHost, port: host.config.apiPort });
+        host.logger.info('api listening on ' + host.config.apiHost + ':' + host.config.apiPort);
       });
     };
     bind._tries = 0;
@@ -74,18 +69,15 @@ function startApi(host, createServer) {
       host.logger.error('api error: ' + (err ? err.message : String(err)));
     });
     server.listen(port, host.config.apiHost, () => {
-      // 真实绑定端口（顺延时 listen 回调的 port 已为实际端口）= ports.json 与 CORS 的唯一真相。
-      const bound = server.address();
-      const realPort = (bound && Number.isInteger(bound.port)) ? bound.port : port;
       host.api = server;
       const prev = host.config.apiPort;
-      if (realPort !== prev) {
-        host.config.apiPort = realPort;
-        if (host.configPath) host.persistConfigPatch({ apiPort: realPort });
+      if (port !== prev) {
+        host.config.apiPort = port;
+        if (host.configPath) host.persistConfigPatch({ apiPort: port });
       }
-      try { portsShared.registerSole('supervisor-api', realPort); } catch (e) { host.logger.warn('ports.registerSole(supervisor-api) 失败: ' + e.message); }
-      host.events.append('api_listening', { host: host.config.apiHost, port: realPort });
-      host.logger.info('api listening on ' + host.config.apiHost + ':' + realPort);
+      try { portsShared.registerSole('supervisor-api', port); } catch (e) { host.logger.warn('ports.registerSole(supervisor-api) 失败: ' + e.message); }
+      host.events.append('api_listening', { host: host.config.apiHost, port });
+      host.logger.info('api listening on ' + host.config.apiHost + ':' + port);
     });
     return server;
   };

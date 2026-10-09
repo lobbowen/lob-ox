@@ -26,7 +26,7 @@ function handle(ctx) {
       return send(200, sup.pluginManager.installStatus(u.searchParams.get('job')));
     }
     if (req.method === 'POST' && pathname.startsWith('/plugins/')) {
-      if (!originAllowed(req)) {
+      if (!originAllowed(req, sup.config.apiPort)) {
         req.resume();
         return send(403, { ok: false, error: 'cross-origin request rejected' });
       }

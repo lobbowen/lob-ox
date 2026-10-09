@@ -39,7 +39,7 @@ function handle(ctx) {
       return;
     }
     if (req.method === 'POST' && pathname === '/dist/registry/set') {
-      if (!originAllowed(req)) { req.resume(); return send(403, {}); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
       collectBody(req, res, 8192, (body) => {
         let j = {};
         try { j = body ? JSON.parse(body) : {}; } catch (e) { return send(400, { ok: false, error: '请求体不是合法 JSON' }); }
@@ -51,12 +51,12 @@ function handle(ctx) {
       return;
     }
     if (req.method === 'POST' && pathname === '/dist/registry/refresh') {
-      if (!originAllowed(req)) { req.resume(); return send(403, {}); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
       sup.dist.selectRegistry(true).then(() => sup.dist.registryInfo()).then((r) => send(200, { ok: true, ...r })).catch((e) => send(500, { ok: false, error: e.message }));
       return;
     }
     if (req.method === 'POST' && pathname === '/dist/registry/probe') {
-      if (!originAllowed(req)) { req.resume(); return send(403, {}); }
+      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
       return collectBody(req, res, 4096, (body) => {
         let j = {};
         try { j = body ? JSON.parse(body) : {}; } catch {}
