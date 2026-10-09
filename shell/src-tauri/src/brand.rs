@@ -54,15 +54,19 @@ fn shared_num(path: &str) -> u16 {
     panic!("brand: 共享常量路径无效 {}", path)
 }
 
+
+// ⚠ 编译修正：原 `pub const X: &str = shared_str("...")` 在 const 上下文调用了非 const fn（含 format! 分配），
+//   任何 rustc 都无法编译；且 bridge.rs 将其中 3 项再导出为 `pub const`，更不能改成函数。
+//   故此处按 shared/shared-constants.json（跨语言单一事实来源）的字面量内联——值与该 JSON 逐字一致。
 // ── 产品与组件名 ─────────────────────────────────────────────────────────────
 /// 产品名：状态根/落点路径/安装目录/通知与 UA 等处的产品标识。
-pub const PRODUCT_NAME: &str = shared_str("product.name");
+pub const PRODUCT_NAME: &str = "lobox";
 /// 内核 CLI 可执行名：core/package.json#bin 的键与值、core/bin/lobox 安装期建立的入口名、壳定位内核的候选名。
-pub const CLI_NAME: &str = shared_str("product.cliName");
+pub const CLI_NAME: &str = "lobox";
 /// 桌面壳可执行名（= Cargo 产物名）：壳自定位、内核识别壳进程、CI 冒烟三处共用的入口名。
-pub const GUI_BIN_NAME: &str = shared_str("product.guiBinName");
+pub const GUI_BIN_NAME: &str = "lobox-shell";
 /// 桌面壳 crate 名：shell/src-tauri/Cargo.toml#package.name，同时是 shell/scripts/bump-shell.sh 的 sed 锚点。
-pub const GUI_CRATE_NAME: &str = shared_str("product.guiCrateName");
+pub const GUI_CRATE_NAME: &str = "lobox-shell";
 
 // ── npm 包 ──────────────────────────────────────────────────────────────────
 /// npm scope：已发布包名的前缀（core/package.json#npmPublish.scope，已发布包不可改）。
@@ -82,31 +86,31 @@ pub const TAURI_PRODUCT_NAME: &str = "lobox";
 
 // ── 状态根（内核 state-root.js 与壳 env.rs 必须推出同一个根）──────────────────
 /// 状态根目录名：三平台状态根的**最后一段**，Windows/macOS/Linux 共用。
-pub const STATE_DIR_NAME: &str = shared_str("state.dirName");
+pub const STATE_DIR_NAME: &str = "lobox";
 /// 状态根下内核侧子目录名：config.json / ports.json / state.json / 日志的落点。
-pub const STATE_SUPERVISOR_SUBDIR: &str = shared_str("state.supervisorSubdir");
+pub const STATE_SUPERVISOR_SUBDIR: &str = "supervisor";
 /// 状态根下壳侧子目录名：identity.json / shell.log / guard 日志的落点。
-pub const STATE_SHELL_SUBDIR: &str = shared_str("state.shellSubdir");
+pub const STATE_SHELL_SUBDIR: &str = "shell";
 /// **旧产品名**（改名前的状态根末段）：Rust 侧只作为单源对偶声明（检测与告警在内核侧实现，见 state-root.js）。
 pub const LEGACY_PRODUCT_NAME: &str = "dsh-supervisor";
 /// Windows 状态根基座的环境变量名。
-pub const STATE_ROOT_WIN_BASE_ENV: &str = shared_str("state.winBaseEnv");
+pub const STATE_ROOT_WIN_BASE_ENV: &str = "LOCALAPPDATA";
 /// 基座环境变量缺失时，Windows 状态根在家目录下的相对段（拼出 <家>/AppData/Local）。
 pub const STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS: &[&str] = &["AppData", "Local"];
 /// macOS 状态根在家目录下的相对段（拼出 <家>/Library/Application Support）。
 pub const STATE_ROOT_MACOS_SEGMENTS: &[&str] = &["Library", "Application Support"];
 /// Linux 状态根基座的环境变量名（XDG 规范）。
-pub const STATE_ROOT_LINUX_XDG_ENV: &str = shared_str("state.linuxXdgEnv");
+pub const STATE_ROOT_LINUX_XDG_ENV: &str = "XDG_STATE_HOME";
 /// XDG 基座缺失时，Linux 状态根在家目录下的相对段（拼出 <家>/.local/state）。
 pub const STATE_ROOT_LINUX_FALLBACK_SEGMENTS: &[&str] = &[".local", "state"];
 /// 旧位置（harness 数据目录）的第一段：迁移来源，绝不能被 harness 的卸载/清理一并带走。
-pub const LEGACY_HARNESS_DIR: &str = shared_str("state.legacyHarnessDir");
+pub const LEGACY_HARNESS_DIR: &str = ".dsh";
 
 // ── 环境变量（本产品自己的；名字与值都是现状）────────────────────────────────
 /// 状态根覆盖位：三平台最先命中并绝对化；壳注入服务定义、内核据此定位，两侧必须同名。
-pub const ENV_STATE_ROOT: &str = shared_str("env.stateRoot");
+pub const ENV_STATE_ROOT: &str = "DSH_SUPERVISOR_HOME";
 /// 配置文件路径覆盖位：CLI 与内核配置装载共用。
-pub const ENV_CONFIG: &str = shared_str("env.config");
+pub const ENV_CONFIG: &str = "DSH_SUPERVISOR_CONFIG";
 /// 单实例锁文件路径覆盖位：守卫与 CLI 共用。
 pub const ENV_LOCK_FILE: &str = "DSH_SUPERVISOR_LOCK_FILE";
 /// 内核可执行覆盖位：自启层解析可执行文件时的第一候选。
@@ -225,7 +229,7 @@ pub const GUI_BIN_NAMES: &[&str] = &["lobox-shell", "lobox-shell.exe"];
 
 // ── 进程匹配模式 ────────────────────────────────────────────────────────────
 /// 守卫进程的命令行匹配模式：Windows 按命令行含此串精确杀守卫（镜像名是 node.exe，按镜像名杀不到）。
-pub const PROC_MATCH_GUARD: &str = shared_str("proc.matchGuard");
+pub const PROC_MATCH_GUARD: &str = "*lobox*";
 /// 壳进程名匹配串：内核用 pgrep 找壳进程。
 pub const PROC_MATCH_GUI: &str = "lobox-shell";
 /// 壳进程正则源：内核 isShellProcess 判命令行是否属于壳（.exe 可选）。
@@ -239,11 +243,11 @@ pub const PROC_MATCH_GUI_RE: &str = "lobox-shell(\\.exe)?";
 //   使「去 dsh 前缀」不变成说谎（`lobox_exited` 会谎称是我们自己退出）。
 
 /// 面板 → 壳 的内核更新请求消息类型名（引导页 `shell.html` 经 `shell_bridge_contract` 取得本值）。
-pub const BRIDGE_MSG_KERNEL_UPDATE_REQUEST: &str = shared_str("bridge.msgKernelUpdateRequest");
+pub const BRIDGE_MSG_KERNEL_UPDATE_REQUEST: &str = "lobox:kernel-update-request";
 /// 壳 → 面板 的终结结果消息类型名。
-pub const BRIDGE_MSG_KERNEL_UPDATE_RESULT: &str = shared_str("bridge.msgKernelUpdateResult");
+pub const BRIDGE_MSG_KERNEL_UPDATE_RESULT: &str = "lobox:kernel-update-result";
 /// 壳 → 面板 的非终结进度消息类型名。
-pub const BRIDGE_MSG_KERNEL_UPDATE_PROGRESS: &str = shared_str("bridge.msgKernelUpdateProgress");
+pub const BRIDGE_MSG_KERNEL_UPDATE_PROGRESS: &str = "lobox:kernel-update-progress";
 /// 浏览器 localStorage 键：出回环访问密钥（面板 `services/supervisor/client.ts` 消费，我方签发/校验）。
 pub const STORE_KEY_API_ACCESS: &str = "lobox.apiAccessKey";
 /// LAN 门卫 cookie 名：**我方**签发并校验（与 harness 签发的 `dsh-auth-*` 无关）。
