@@ -93,41 +93,44 @@ pub fn needs_reconcile(shell_version: &str) -> bool {
 /// 对账条目①：API 端口。
 ///
 /// 实证故障：config.json 的 apiPort 由内核在首次启动时落盘，此后**跨版本不再更新**；
-/// 而 api_base_url 的优先级是 config.json > 常量 ⇒ 仅改常量对存量用户无效。
-/// 故对账必须**改写已落盘的弃用端口**为内核自报的真实端口（ports.json 里 supervisor-api 的最新登记），
-/// 而不是只在读取时兜一次（那只会让壳用 36360 判"在服役"、用 37360 导航 ⇒ 面板拒绝连接），
-/// 也绝不是把判据写成 Skipped 就当改完了（那是本文件早期版本的真实缺陷：判到了却不落盘，接管永远"差一步"）。
-/// 落盘必须在现有 config.json 上**原地改写** apiPort 字段（保留其余全部键），避免覆盖内核写入的其它配置。
+/// 而 api_base_url 的优先级是 config.json > 常量 ⇒ 仅改常量对存量用户无效。更关键的是：api_base_url 在**读取时**
+/// 已优先用 ports.json 的真实端口（discovered_api_port）兜掉弃用端口，所以"读"一侧早已迁好；但 config.json 里
+/// 落盘的 36360 仍是真实事实——内核自检、面板断言都拿它当"应然端口"。旧实现对弃用端口只返回 Skipped：判到了却不落盘，
+/// 接管永远"差一步"。故对账必须**就地改写** config.json 的 apiPort 为内核自报的真实端口（ports.json supervisor-api 最新登记）。
+/// ⚠ 不能读 api_port() 来判弃用：它会经 api_base_url 的读时迁移把 36360 先变成 37360，于是永远判不到弃用值。
+/// 必须直接读 config.json 的字面 apiPort，再与弃用名单比对。
 pub fn reconcile_api_port() -> Outcome {
-    let port = crate::env::api_port();
-    if !crate::env::is_deprecated_api_port(port) {
+    let cfg = crate::env::supervisor_dir().join("config.json");
+    let Ok(text) = std::fs::read_to_string(&cfg) else {
+        return Outcome::Unchanged;
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Outcome::Skipped("config.json 非法 JSON，无法对账弃用端口".to_string());
+    };
+    let Some(raw) = v.get("apiPort").and_then(|x| x.as_u64()) else {
+        return Outcome::Unchanged;
+    };
+    if !crate::env::is_deprecated_api_port(raw as u16) {
         return Outcome::Unchanged;
     }
     // 接管后守卫的真实端口以 ports.json 的 supervisor-api 最新登记为准（priority 高于 config.json 常量）。
     let Some(live) = crate::env::discovered_api_port() else {
         return Outcome::Skipped(format!(
-            "检测到弃用端口 {}：但 ports.json 未登记 supervisor-api 真实端口，暂不改写（守卫重启后会重新登记）",
-            port
+            "config.json 弃用端口 {}：但 ports.json 未登记 supervisor-api 真实端口，暂不改写（守卫重启后会重新登记）",
+            raw
         ));
     };
-    let cfg = crate::env::supervisor_dir().join("config.json");
-    let Ok(text) = std::fs::read_to_string(&cfg) else {
-        return Outcome::Skipped(format!("检测到弃用端口 {}：config.json 不可读，暂不改写", port));
-    };
-    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return Outcome::Skipped(format!("检测到弃用端口 {}：config.json 非法 JSON，暂不改写", port));
-    };
-    let prev = v.get("apiPort").and_then(|x| x.as_u64());
-    if prev == Some(live as u64) {
+    if (raw as u16) == live {
         return Outcome::Unchanged;
     }
+    let mut v = v;
     v["apiPort"] = serde_json::json!(live);
     match crate::env::write_json_atomic(&cfg, &v) {
         Ok(()) => Outcome::Rewritten(format!(
             "弃用端口 {} 已改写为接管后的真实端口 {}（config.json 原地改写）",
-            port, live
+            raw, live
         )),
-        Err(e) => Outcome::Skipped(format!("弃用端口 {} 改写失败：{}", port, e)),
+        Err(e) => Outcome::Skipped(format!("弃用端口 {} 改写失败：{}", raw, e)),
     }
 }
 
