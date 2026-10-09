@@ -65,7 +65,7 @@ export function SupervisorApp() {
         onCloseSidebar={closeSidebar}
         sidebar={
           <AppSidebar
-            brand={{ logo: skiffLogo, title: "lobox 管家", slogan: "本地 DSH 实例守护" }}
+            brand={{ logo: skiffLogo, title: "lobox 管家", slogan: "本地 DSH 实例监控" }}
             items={items}
           />
         }
