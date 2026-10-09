@@ -83,6 +83,7 @@ const ENTRIES = [
 
   { file: "test/config-reconcile-test.js", tier: "L1", os: "all", why: "在线更新不迁状态根：已落盘的弃用配置值必须由默认值覆盖（实证：apiPort=36360 跨三版未更新）" },
 
+  { file: "test/single-port-truth-test.js", tier: "L2", os: "all", why: "真 http 守卫：config.apiPort 与真实监听端口发散时 CORS 闸门必须以 ports.json#supervisor-api 为唯一真相（双源真相缺陷回归，同源 DSH native-manifest）" },
   { file: "test/exec-path-dsh-detection-test.js", tier: "L2", os: "all", why: "DSH 复杂环境检测兜底（含 win32 shim 真身 / harness-home / 活进程）；跨平台夹具自包含，须在 win32/darwin 一并执行（R17）" },
 ];
 

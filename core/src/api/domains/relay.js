@@ -14,7 +14,7 @@ function handle(ctx) {
       return Promise.resolve(sup.listLan()).then((r) => send(200, r)).catch((e) => send(500, { ok: false, error: e.message }));
     }
     if (req.method === 'POST' && pathname.startsWith('/remote/')) {
-      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
+      if (!originAllowed(req)) { req.resume(); return send(403, {}); }
       const act = pathname.slice('/remote/'.length);
       collectBody(req, res, 65536, (body) => {
         let j = {};
