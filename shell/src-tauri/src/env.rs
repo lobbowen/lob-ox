@@ -167,6 +167,51 @@ pub fn shell_dir() -> PathBuf {
     state_root().join(crate::brand::STATE_SHELL_SUBDIR)
 }
 
+/// 原子改写一份 JSON 文档（先写 .tmp 再 rename），保留其它全部字段。
+/// 接管对账（弃用端口改写等）必须在现有 config.json 上原地改一个字段，绝不可整体覆盖，
+/// 否则内核写入的其它配置（tickIntervalMs / 端口池 / 日志路径…）会丢。
+pub fn write_json_atomic(path: &std::path::Path, v: &serde_json::Value) -> Result<(), String> {
+    let body = serde_json::to_string_pretty(v).map_err(|e| format!("序列化失败: {}", e))?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, body + "\n").map_err(|e| format!("写临时文件失败: {}", e))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("改名落盘失败: {}", e))
+}
+
+/// 接管（adopt）单一事实源：读取 <状态根>/supervisor/native-manifest.json（壳在安装/接管时写入，
+/// 含 dshHome / binPath / npmRoot / version），不重复推导。未接管或文件缺失一律返回 None。
+/// 设计：原生桌面壳有**自己独立的状态根**（AppData/Local/lobox 等），只把既有 DSH 的
+/// 数据目录（~/.dsh）经 native-manifest 登记为「被接管的数据源」—— 不把自身状态根重定向进 ~/.dsh
+/// （那会随 DSH 的卸载/清理一并被带走，见 state_root 注释）。这就是本机已验证的接管模型：
+/// state.json 的 "adopted":true 与 native-manifest.json 的 dshHome 共同确认。
+pub struct AdoptedDsh {
+    pub dsh_home: std::path::PathBuf,
+    pub bin_path: Option<std::path::PathBuf>,
+    pub npm_root: Option<std::path::PathBuf>,
+    pub version: Option<String>,
+}
+
+pub fn read_adopted_dsh() -> Option<AdoptedDsh> {
+    let p = supervisor_dir().join("native-manifest.json");
+    let Ok(s) = std::fs::read_to_string(&p) else { return None; };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) else { return None; };
+    let dsh_home = match v.get("dshHome").and_then(|x| x.as_str()) {
+        Some(h) if !h.trim().is_empty() => std::path::PathBuf::from(h.trim()),
+        _ => return None,
+    };
+    let bin_path = v.get("binPath").and_then(|x| x.as_str()).filter(|s| !s.is_empty()).map(std::path::PathBuf::from);
+    let npm_root = v.get("npmRoot").and_then(|x| x.as_str()).filter(|s| !s.is_empty()).map(std::path::PathBuf::from);
+    let version = v.get("version").and_then(|x| x.as_str()).map(|s| s.to_string());
+    Some(AdoptedDsh { dsh_home, bin_path, npm_root, version })
+}
+
+/// 接管内核是否仍可解析：native-manifest 记录的 binPath/npmRoot 仍在盘上即视为有效；
+/// 否则视为「陈旧接管」—— 不得据此把引导页翻成"需安装"，而应让 core_plan 走正常 resolve
+/// （本机实测：binPath 指向的 @deepseek-ai/dsh 已被移除，但数据仍被 dsh-main 使用，
+/// 若直接判"未安装"会反复弹出安装页）。
+pub fn adopted_kernel_resolvable(a: &AdoptedDsh) -> bool {
+    a.bin_path.as_ref().map(|b| b.is_file()).unwrap_or(false)
+}
+
 /// 前向自愈迁移：把旧位置（DSH 数据目录下）的条目并入产品状态根，不覆盖已存在文件；壳启动早期调用一次，失败不阻断，迁移完成后为 no-op。
 pub fn migrate_legacy() {
     let home = home();
