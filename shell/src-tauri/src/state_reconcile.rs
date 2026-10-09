@@ -252,10 +252,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dsh-s4-home-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("supervisor")).unwrap();
+        // state_root() 优先读 ENV_STATE_ROOT（DSH_SUPERVISOR_HOME），故把它指到临时目录，
+        // 让 supervisor_dir()/ports.json/config.json 都落在 dir 下（与 env::tests::a5 同手法）。
         let saved_home = std::env::var_os("HOME");
         let saved_ur = std::env::var_os("USERPROFILE");
+        let saved_dsh = std::env::var_os(crate::brand::ENV_STATE_ROOT);
         std::env::set_var("HOME", &dir);
         std::env::set_var("USERPROFILE", &dir);
+        std::env::set_var(crate::brand::ENV_STATE_ROOT, &dir);
 
         // config.json 写着弃用端口 36360（其余键须保留）；ports.json 登记 supervisor-api 真实端口 37360。
         std::fs::write(
@@ -281,6 +285,7 @@ mod tests {
         // 还原环境后再清理
         match &saved_home { Some(v)=>std::env::set_var("HOME",v), None=>std::env::remove_var("HOME") }
         match &saved_ur { Some(v)=>std::env::set_var("USERPROFILE",v), None=>std::env::remove_var("USERPROFILE") }
+        match &saved_dsh { Some(v)=>std::env::set_var(crate::brand::ENV_STATE_ROOT,v), None=>std::env::remove_var(crate::brand::ENV_STATE_ROOT) }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
