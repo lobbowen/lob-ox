@@ -8,6 +8,7 @@ const MANAGED_KINDS = {
   'router-daemon':  { label: '智能路由 daemon', startable: true, guardable: true },
   'lan-daemon':     { label: '远程控制 daemon', startable: true, guardable: true },
   plugin:           { label: '插件（聚合）',    startable: false, guardable: false },
+  shell:            { label: '桌面壳',          startable: false, guardable: false },
 };
 
 // 自定义 kind 扩展点（W5 裁定：**保留，不删**）。

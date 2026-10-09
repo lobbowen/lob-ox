@@ -25,6 +25,10 @@ function hasOverdueReset(providers, now) {
 function createScheduler(deps) {
   const d = deps || {};
   const state = d.state;
+  // 统一节拍调度器（S6/T7）：若宿主传入 host._beatScheduler，则把路由的维护循环登记为 beat，
+  // 与主链/壳/实例/升级巡检共用同一个 setInterval，消除路由域独立的 3 个 setInterval（maint/lifecycle/pricing）。
+  // 未传入时（独立 router-daemon 进程）保留 setInterval，因为那是进程分离部署，不是调度分歧。
+  const beat = d.beatScheduler || null;
   const logger = d.logger || null;
   const refreshProxyUpdateInfo = d.refreshProxyUpdateInfo || (() => Promise.resolve());
   const refreshOfficialUsageAll = d.refreshOfficialUsageAll || (() => Promise.resolve());
@@ -37,6 +41,14 @@ function createScheduler(deps) {
     refreshOfficialUsageAll().catch(() => {});
     refreshOfficialPricingAll().catch(() => {});
     ensureProxyInstances().catch(() => {});
+    if (beat) {
+      // 并入统一节拍：维护循环成为 beat（cadence 以 tick 数度量，1 tick = tickIntervalMs）。
+      beat.unregister('router-maint'); beat.unregister('router-lifecycle'); beat.unregister('router-pricing');
+      beat.register('router-maint', () => { refreshProxyUpdateInfo().catch(() => {}); probeIfDue(); ensureProxyInstances().catch(() => {}); }, { every: Math.max(1, Math.round(300000 / (d.tickMs || 5000))) });
+      beat.register('router-lifecycle', () => { monitorInstanceHealth().catch(() => {}); }, { every: Math.max(1, Math.round(30000 / (d.tickMs || 5000))) });
+      beat.register('router-pricing', () => { refreshOfficialPricingAll().catch(() => {}); }, { every: Math.max(1, Math.round(21600000 / (d.tickMs || 5000))) });
+      return;
+    }
     if (state.maintTimer) clearInterval(state.maintTimer);
     state.maintTimer = setInterval(() => {
       refreshProxyUpdateInfo().catch(() => {});
@@ -51,6 +63,7 @@ function createScheduler(deps) {
   }
 
   function stop() {
+    if (beat) { beat.unregister('router-maint'); beat.unregister('router-lifecycle'); beat.unregister('router-pricing'); return; }
     if (state.maintTimer) { clearInterval(state.maintTimer); state.maintTimer = null; }
     if (state.pricingTimer) { clearInterval(state.pricingTimer); state.pricingTimer = null; }
     if (state.lifecycleTimer) { clearInterval(state.lifecycleTimer); state.lifecycleTimer = null; }

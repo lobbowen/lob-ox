@@ -143,20 +143,8 @@ function createOps(deps) {
     return { ok: true, instance: inst };
   }
 
-  function startTimer(intervalMs) {
-    if (timer) clearInterval(timer);
-    timer = setInterval(() => {
-      for (const inst of store.instances) {
-        if (inst.domain === 'native') continue;
-        // 单实例 supervise 失败不得静默：否则该实例会长期停在陈旧相位而无人察觉。
-        try { lifecycle.supervise(inst.id); }
-        catch (e) { logger.warn && logger.warn('[' + inst.id + '] supervise 失败: ' + (e && e.message)); }
-      }
-      try { lifecycle.governSweep(); } catch (e) { logger.warn && logger.warn('governSweep: ' + (e && e.message)); }
-    }, intervalMs || 5000);
-  }
 
-  return { list, addInstance, removeInstance, updateInstance, startTimer };
+  return { list, addInstance, removeInstance, updateInstance };
 }
 
 module.exports = { createOps };

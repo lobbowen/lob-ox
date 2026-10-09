@@ -204,6 +204,18 @@ class ManagedRegistry {
     return e;
   }
 
+  setRestartCount(id, n) {
+    const e = this.get(id);
+    if (!e) return null;
+    const v = (typeof n === 'number' && n >= 0) ? Math.floor(n) : 0;
+    if (e.restartCount !== v) {
+      e.restartCount = v;
+      this._event('managed_object_restart_count', { kind: e.kind, id: e.id, count: v });
+      this._save();
+    }
+    return e;
+  }
+
   setPhase(id, p) {
     const e = this.get(id);
     if (!e) return null;

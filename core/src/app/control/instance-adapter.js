@@ -67,6 +67,11 @@ module.exports = {
       try {
         if (entry.phase !== ph) d.managedObjects().setPhase(entry.id, ph);
       } catch (e) { d.logger() && d.logger().warn && d.logger().warn('sandbox setPhase: ' + ((e && e.message) || e)); }
+      // 计数真相统一（S7/T6）：实例域 restartCount 写入受管对象（单一计数源），不再让 ManagedRegistry 上的值永远为 0。
+      try {
+        const rc = Number(inst.state && inst.state.restartCount) || 0;
+        if (entry.restartCount !== rc) d.managedObjects().setRestartCount(entry.id, rc);
+      } catch (e) { d.logger() && d.logger().warn && d.logger().warn('sandbox setRestartCount: ' + ((e && e.message) || e)); }
     },
   },
 };

@@ -20,6 +20,9 @@ const ops = require('./ops');
 class RouterService {
   constructor(opts) {
     this.config = opts.config;
+    // 统一节拍调度器（S6/T7）：宿主守卫传入 host._beatScheduler 时，路由维护循环并入同一时钟。
+    this._beatScheduler = opts.beatScheduler || null;
+    this._beatTickMs = opts.tickMs || (opts.config && opts.config.tickIntervalMs) || 5000;
     this.dist = opts.dist || null;
     this.logger = opts.logger || console;
     this.events = opts.events || null;
@@ -58,6 +61,7 @@ class RouterService {
     });
     this._scheduler = createScheduler({
       state, store: this.store, logger: this.logger,
+      beatScheduler: this._beatScheduler, tickMs: this._beatTickMs,
       refreshProxyUpdateInfo: () => this.refreshProxyUpdateInfo(),
       refreshOfficialUsageAll: () => this.refreshOfficialUsageAll(),
       refreshOfficialPricingAll: () => this.refreshOfficialPricingAll(),

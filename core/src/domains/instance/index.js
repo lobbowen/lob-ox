@@ -86,7 +86,6 @@ class InstanceManager {
   checkUpdate(id) { return this._upgrade.checkUpdate(id); }
   upgradeInstance(id) { return this._upgrade.upgradeInstance(id); }
   upgradeStatus(id) { return this._upgrade.upgradeStatus(id); }
-  startTimer(ms) { return this._ops.startTimer(ms); }
   sandboxRoot(inst) { return sandbox.root(this.instancesRoot, inst); }
   sandboxDataDir(inst) { return sandbox.dataDir(this.instancesRoot, inst); }
   sandboxInstallDir(inst) { return sandbox.installDir(this.instancesRoot, inst); }

@@ -22,6 +22,7 @@ function composeDomains(host) {
     try { ports.configureFile(path.join(path.dirname(host.config.stateFile), 'ports.json')); } catch (e) { host.logger.warn && host.logger.warn('ports configure: ' + e.message); }
     host.router = new RouterService({
       config: host.config,
+      beatScheduler: host._beatScheduler, tickMs: host.config.tickIntervalMs || 5000,
       providerFile: path.join(swDir, 'providers.json'),
       usageTotalsFile: path.join(swDir, 'router-usage-totals.json'),
       logger: host.logger,

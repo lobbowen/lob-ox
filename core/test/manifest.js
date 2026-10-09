@@ -75,6 +75,7 @@ const ENTRIES = [
   { file: "test/instance-start-port-precheck-test.js", tier: "L2", os: "all", why: "启动前端口预检（PORT_TAKEN）" },
   { file: "test/remote-mode-wan-gate-test.js", tier: "L2", os: "all", why: "远程模式 WAN 闸" },
   { file: "test/relay-token-hotswap-test.js", tier: "L2", os: "all", why: "relay 令牌热换" },
+  { file: "test/relay-upstream-path-fidelity-test.js", tier: "L2", os: "all", why: "relay 透传上游 path 逐字节保真：combo 路由 '/' 不编码成 %2F，否则 DSH client-modules 引导 404（差一步/未预载根因回归）" },
   { file: "test/relay-html-inject-budget-test.js", tier: "L2", os: "all", why: "HTML 注入预算" },
   { file: "test/router-oauth-callback-rounds-test.js", tier: "L2", os: "all", why: "OAuth 回调轮次" },
   { file: "test/external-open-test.js", tier: "L2", os: "all", why: "平台层外部打开（探测/分发依据/计划/执行/证据；四条真机事故回归）" },
@@ -83,7 +84,10 @@ const ENTRIES = [
 
   { file: "test/config-reconcile-test.js", tier: "L1", os: "all", why: "在线更新不迁状态根：已落盘的弃用配置值必须由默认值覆盖（实证：apiPort=36360 跨三版未更新）" },
 
+  { file: "test/single-port-truth-test.js", tier: "L2", os: "all", why: "真 http 守卫：config.apiPort 与真实监听端口发散时 CORS 闸门必须以 ports.json#supervisor-api 为唯一真相（双源真相缺陷回归，同源 DSH native-manifest）" },
   { file: "test/exec-path-dsh-detection-test.js", tier: "L2", os: "all", why: "DSH 复杂环境检测兜底（含 win32 shim 真身 / harness-home / 活进程）；跨平台夹具自包含，须在 win32/darwin 一并执行（R17）" },
+  { file: "test/unify-substrate-test.js", tier: "L1", os: "all", why: "纯逻辑：单一节拍调度器 + 全局互斥 + 统一节流预算（T0/S6/S5 基底层契约）" },
+  { file: "test/router-reconcile-throttle-test.js", tier: "L1", os: "all", why: "纯逻辑：智能路由代理实例 reconcile 受统一重启节流门控，达上限停止无限重生（T4/S5）" },
 ];
 
 const ALL_OS = ['linux', 'darwin', 'win32'];
