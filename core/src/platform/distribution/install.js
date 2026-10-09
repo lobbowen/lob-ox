@@ -164,7 +164,14 @@ async function waitPortHealthy(opts) {
   const ctx = { port, unit };
   if (o.pidFile !== undefined) ctx.pidFile = o.pidFile;
   if (Array.isArray(o.anchors)) ctx.anchors = o.anchors;
+  // 单元活跃判据：端口 + 单元 active 双查（只探端口会把「先监听后崩溃」误判成功，P0）。
+  // 但 portable 档下，调用方若只给端口（unit/pidFile/锚点都缺失），isUnitActive 只能给 UNKNOWN——
+  // 那是「判不出身份」，不是「确定不活跃」；此时应以端口监听为准（孤端口进程也视为健康）。
+  // 只有显式带了单元身份（unit 或 pidFile/anchors）时，才要求 isUnitActive 为 OK（真值失败 ⇒ 明确不活跃）。
   const unitActive = () => {
+    if (!unit && !ctx.pidFile && (!Array.isArray(ctx.anchors) || !ctx.anchors.length)) {
+      return true; // 无单元身份可查：端口监听即健康
+    }
     const r = service.isUnitActive(unit, ctx);
     return OUTCOME.isOk(r);
   };

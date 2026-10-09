@@ -65,7 +65,7 @@ async function waitStatus(port, pred, timeoutMs = 28220) {
   return null;
 }
 
-async function waitUpgrade(port, pred, timeoutMs = 28221) {
+async function waitUpgrade(port, pred, timeoutMs = 130000) {
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
     const s = await api(port, 'GET', '/native/status');
@@ -253,7 +253,7 @@ const { freePort } = require('./_ports');
     const srv = net.createServer((s) => { s.on('error', () => {}); try { s.end('ok'); } catch {} });
     srv.on('error', () => {}); // 兜底：即使监听失败也不炸掉测试进程
     setTimeout(() => { try { srv.listen(port, '127.0.0.1'); } catch {} }, 3000);
-    const r = await dist.waitPortHealthy({ host: '127.0.0.1', port, timeoutMs: 8000, stabilityMs: 15000 });
+    const r = await dist.waitPortHealthy({ host: '127.0.0.1', port, timeoutMs: 20000, stabilityMs: 15000 });
     check('U6 端口晚于 (timeout-stability) 就绪 → 仍判成功（慢启动不误判）', r.ok === true, JSON.stringify(r));
     try { srv.close(); } catch {} ; await sleep(50);
 

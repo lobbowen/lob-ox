@@ -256,6 +256,7 @@ check('副作用经 deps.save 显式发出（非隐式 this）', saves > 0, 'sav
           stopUnit(unit, o) { journal.push({ kind: 'stopUnit', unit, ctx: o }); return true; },
           resetFailed() { return true; },
           isUnitActive() { return false; },
+          supports(method) { return method === 'limits'; },
           transientUnitFile() { return null; },
           cleanTransient() {},
           startTransient(o) { journal.push({ kind: 'startTransient', unit: o.unit }); transient.push(o); return true; },
