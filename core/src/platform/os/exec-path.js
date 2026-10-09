@@ -130,6 +130,68 @@ function dshJsIn(prefix) {
   return path.join(prefix, 'node_modules', ...DSH_PKG, 'lib', 'bin.js');
 }
 
+
+
+
+
+// 复杂环境兜底：DSH 入口判定单一事实源（R8）仍是本函数。本机实测暴露三类真实"已装且能跑"形态，
+// 既有探测（DSH_BIN / PATH 裸名 / npmRoot / 全局 prefix）全部漏掉就会把正确安装判成"未安装"而弹安装页：
+//   (1) 一层 shim（如 Roaming\\lobox\\bin\\dsh.cmd）不是真 JS 包——它指向某 .dsh-app/lib/bin.js；必须解析 shim 真身，
+//       否则 binPath 落到 shim、installedVersion 沿 shim 向上找不到 package.json（本机正是此情形）。
+//   (2) harness-home：被监管 DSH 以"产品化安装"落点于 ~/.dsh-app（package.json 即 @deepseek-ai/dsh），既非 npm 全局也非 PATH 裸名。
+//   (3) 真机正在运行的 dsh-main 进程：其 cmdline 指向的 .js 入口即"正在服役的 DSH"，不读活进程会漏掉已跑着的安装。
+// 三者只在既有探测落空时兜底，对已被识别的安装零回归。
+function shimJsTarget(hit) {
+  if (!/\.(cmd|bat)$/i.test(hit)) return null;
+  let txt = null;
+  try { txt = fs.readFileSync(hit, 'utf8'); } catch { return null; }
+  const re = /"([^"]+\.(?:js|cjs|mjs))"|(\S+\.(?:js|cjs|mjs))(?=\s|$)/gi;
+  let m;
+  while ((m = re.exec(txt))) {
+    const cand = m[1] || m[2];
+    try { const rp = fs.realpathSync(cand); if (fs.statSync(rp).isFile()) return rp; } catch {}
+  }
+  return null;
+}
+
+function harnessHome(env) {
+  const e = env || process.env;
+  const h = e.HOME || e.USERPROFILE || os.homedir();
+  return path.join(h, '.dsh-app');
+}
+
+function dshJsFromLive(pl, env) {
+  // 懒加载：pidlookup 又反向 require 本模块（取 isExecutableFile），若在此处顶层 require 会形成加载期循环依赖，
+  // 导致本模块 exports 未就绪时 pidlookup 绑定到 undefined 的 isExecutableFile（CI 上表现为 isExecutableFile is not a function）。
+  // 本函数在运行期才被调用 ⇒ 此时本模块已完整加载，懒 require 既破环又零回归。
+  const pidlookup = require('./pidlookup');
+  const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
+  let port = null;
+  try {
+    const cfg = (env && env.DSH_CONFIG && typeof env.DSH_CONFIG === 'object') ? env.DSH_CONFIG : null;
+    if (cfg && Number.isInteger(cfg.targetPort) && cfg.targetPort > 0) port = cfg.targetPort;
+    else if (cfg && cfg.healthUrl) { const u = new URL(cfg.healthUrl); if (u.port) port = Number(u.port); }
+  } catch {}
+  if (!port) return null;
+  let pid = null;
+  try { pid = pidlookup.findListeningPid(port); } catch { return null; }
+  if (!pid) return null;
+  let cmd = null;
+  try { cmd = pidlookup.readCmdline(pid); } catch { return null; }
+  if (!cmd) return null;
+  for (const part of cmd.split(/\s+/).filter(Boolean)) {
+    try {
+      const rp = fs.realpathSync(part);
+      if (isFile(rp) && /\.(js|cjs|mjs)$/i.test(rp)) {
+        const js = dshJsIn(path.dirname(rp));
+        if (isFile(js)) return asJs(js, rp);
+        if (isFile(rp)) return asJs(rp, rp);
+      }
+    } catch {}
+  }
+  return null;
+}
+
 function resolveDsh(opts) {
   const o = opts || {};
   const pl = o.platform || process.platform;
@@ -139,6 +201,8 @@ function resolveDsh(opts) {
   if (env.DSH_BIN) { try { const r = fs.realpathSync(env.DSH_BIN); if (isFile(r)) return asJs(r, env.DSH_BIN); } catch {} }
   const hit = resolveExecutable('dsh', { platform: pl, env });
   if (hit) {
+    const shim = shimJsTarget(hit);
+    if (shim) return asJs(shim, hit);
     try { const real = fs.realpathSync(hit); if (isFile(real) && /\.(js|cjs|mjs)$/i.test(real)) return asJs(real, hit); } catch {}
     const js = dshJsIn(path.dirname(hit));
     if (isFile(js)) return asJs(js, hit);
@@ -146,13 +210,13 @@ function resolveDsh(opts) {
     return { runtime: null, bin: hit, isJs: false, launcher: hit };
   }
   if (o.npmRoot) { const js = dshJsIn(o.npmRoot); if (isFile(js)) return asJs(js, null); }
-  // 全局落点必须也查：工具链改为全局安装后，DSH 装在全局 prefix，
-  // 只看 npmRoot（私有 prefix）会永远判「未安装」—— 这正是此前 DSH 检测不到的根因。
   const gRoot = globalInstallRoot(pl, undefined, env);
   { const js = dshJsIn(gRoot); if (isFile(js)) return asJs(js, null); }
+  { const js = dshJsIn(harnessHome(env)); if (isFile(js)) return asJs(js, null); }
+  const live = dshJsFromLive(pl, env);
+  if (live) return live;
   return null;
 }
-
 function knownDshEntries(opts) {
   const o = opts || {};
   const out = [];
