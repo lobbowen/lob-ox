@@ -134,68 +134,7 @@ function dshJsIn(prefix) {
 
 
 
-function knownDshEntries(opts) {
-  const o = opts || {};
-  const out = [];
-  try {
-    const r = resolveDsh(o);
-    if (r) {
-      if (typeof r.bin === 'string' && r.bin) out.push(r.bin);
-      if (typeof r.launcher === 'string' && r.launcher) out.push(r.launcher);
-    }
-  } catch {  }
-  if (o.npmRoot) { try { out.push(dshJsIn(o.npmRoot)); } catch {  } }
-  if (typeof o.dshBin === 'string' && /^(?:[A-Za-z]:[\\/]|[\\/])/.test(o.dshBin)) out.push(o.dshBin);
-  return [...new Set(out.filter((x) => typeof x === 'string' && x))];
-}
 
-function commandEntryViolation(cmdArr, opts) {
-  const o = opts || {};
-  const rp = o.realpath || ((p) => fs.realpathSync(p));
-  if (!Array.isArray(cmdArr) || !cmdArr.length) return null;
-  const head = String(cmdArr[0] || '');
-  const NODE_HEAD = new Set(['node', 'node.exe']);
-  const baseOf = (p) => String(p).split(/[\\/]/).pop().toLowerCase();
-  let entry = head;
-  const nodeHead = NODE_HEAD.has(baseOf(head));
-  if (nodeHead) {
-    if (cmdArr.length < 2) return '启动命令以 node 打头但缺少 DSH 入口参数';
-    entry = String(cmdArr[1] || '');
-  }
-  if (!entry) return '启动命令缺少 DSH 入口';
-  const isAbsolute = (p) => /^(?:[A-Za-z]:[\\/]|[\\/])/.test(String(p));
-  const hasSep = (p) => /[\\/]/.test(String(p));
-  if (!hasSep(entry)) {
-    if (nodeHead && o.requireAbsoluteEntry) {
-      return 'command[0] 为 node 时 command[1] 必须是绝对路径的 DSH 入口（相对/裸名会按工作目录或 PATH 解析）';
-    }
-    return null;
-  }
-  if (!isAbsolute(entry)) {
-    return 'DSH 入口不接受相对路径（会按调用方工作目录解析；沙箱实例的该目录沙箱内可写）';
-  }
-  let real = null;
-  try { real = rp(entry); } catch {  }
-  if (typeof o.allowEntry === 'function') {
-    try { if (o.allowEntry(entry, real)) return null; } catch {  }
-  }
-  if (real === null) return 'DSH 入口不存在或不可解析（fail-closed）：' + entry;
-  for (const f of (Array.isArray(o.files) ? o.files : [])) {
-    try { if (rp(f) === real) return null; } catch {  }
-  }
-  for (const r of (Array.isArray(o.roots) ? o.roots : [])) {
-    let rr; try { rr = rp(r); } catch { continue; }
-    const base = String(rr).replace(/[\\/]+$/, '');
-    if (real === base || real.indexOf(base + path.sep) === 0) return null;
-  }
-  return 'DSH 入口不在允许位置（须为该实例安装根之下的入口，或内核解析出的已知 DSH 入口）：' + entry;
-}
-
-module.exports = {
-  resolveExecutable, candidateNames, standardDirs, npmBin, npxBin,
-  resolveDsh, dshJsIn, knownDshEntries, commandEntryViolation, isExecutableFile,
-  globalInstallRoot, GLOBAL_APP_DIRNAME, GLOBAL_BIN_DIRNAME,
-};
 // 复杂环境兜底：DSH 入口判定单一事实源（R8）仍是本函数。本机实测暴露三类真实"已装且能跑"形态，
 // 既有探测（DSH_BIN / PATH 裸名 / npmRoot / 全局 prefix）全部漏掉就会把正确安装判成"未安装"而弹安装页：
 //   (1) 一层 shim（如 Roaming\\lobox\\bin\\dsh.cmd）不是真 JS 包——它指向某 .dsh-app/lib/bin.js；必须解析 shim 真身，
