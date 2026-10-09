@@ -50,17 +50,6 @@ pub(crate) fn locate_core_candidates(resource_dir: Option<PathBuf>) -> Vec<PathB
     if let Some(c) = crate::core_contract::read() {
         add(c.bin.clone(), &mut out);
     }
-    // 接管（adopt）单一事实源：native-manifest 记录的既有 DSH 内核 binPath 若在盘上，作为候选纳入。
-    // 这是「已安装 DSH 则直接接管、不弹安装页」的关键：本机实测 binPath 指向的 @deepseek-ai/dsh
-    // 被移除后数据仍由 dsh-main 使用，但若 binPath 仍在（最常见情形），必须能被定位为已安装，
-    // 否则引导页只会看到"需安装内核"。只信任 single-source 的 native-manifest，不在此另猜路径。
-    if let Some(a) = crate::env::read_adopted_dsh() {
-        if let Some(bin) = a.bin_path {
-            if bin.is_file() {
-                add(bin, &mut out);
-            }
-        }
-    }
     if let Some(rt) = crate::runtime_contract::read_node() {
         for name in &names_owned {
             add(rt.node_bin_dir.join(name), &mut out);

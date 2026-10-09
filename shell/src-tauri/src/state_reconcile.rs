@@ -93,45 +93,19 @@ pub fn needs_reconcile(shell_version: &str) -> bool {
 /// 对账条目①：API 端口。
 ///
 /// 实证故障：config.json 的 apiPort 由内核在首次启动时落盘，此后**跨版本不再更新**；
-/// 而 api_base_url 的优先级是 config.json > 常量 ⇒ 仅改常量对存量用户无效。更关键的是：api_base_url 在**读取时**
-/// 已优先用 ports.json 的真实端口（discovered_api_port）兜掉弃用端口，所以"读"一侧早已迁好；但 config.json 里
-/// 落盘的 36360 仍是真实事实——内核自检、面板断言都拿它当"应然端口"。旧实现对弃用端口只返回 Skipped：判到了却不落盘，
-/// 接管永远"差一步"。故对账必须**就地改写** config.json 的 apiPort 为内核自报的真实端口（ports.json supervisor-api 最新登记）。
-/// ⚠ 不能读 api_port() 来判弃用：它会经 api_base_url 的读时迁移把 36360 先变成 37360，于是永远判不到弃用值。
-/// 必须直接读 config.json 的字面 apiPort，再与弃用名单比对。
+/// 而 api_base_url 的优先级是 config.json > 常量 ⇒ 仅改常量对存量用户无效。
+/// 故对账必须**改写已落盘的弃用端口**，而不是只在读取时兜一次（那是补丁）。
+/// 壳只读 config.json，改由内核执行；此处负责判定并回报"需要改"。
 pub fn reconcile_api_port() -> Outcome {
-    let cfg = crate::env::supervisor_dir().join("config.json");
-    let Ok(text) = std::fs::read_to_string(&cfg) else {
-        return Outcome::Unchanged;
-    };
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return Outcome::Skipped("config.json 非法 JSON，无法对账弃用端口".to_string());
-    };
-    let Some(raw) = v.get("apiPort").and_then(|x| x.as_u64()) else {
-        return Outcome::Unchanged;
-    };
-    if !crate::env::is_deprecated_api_port(raw as u16) {
+    let cur = crate::env::api_base_url();
+    let port = crate::env::api_port();
+    if !crate::env::is_deprecated_api_port(port) {
         return Outcome::Unchanged;
     }
-    // 接管后守卫的真实端口以 ports.json 的 supervisor-api 最新登记为准（priority 高于 config.json 常量）。
-    let Some(live) = crate::env::discovered_api_port() else {
-        return Outcome::Skipped(format!(
-            "config.json 弃用端口 {}：但 ports.json 未登记 supervisor-api 真实端口，暂不改写（守卫重启后会重新登记）",
-            raw
-        ));
-    };
-    if (raw as u16) == live {
-        return Outcome::Unchanged;
-    }
-    let mut v = v;
-    v["apiPort"] = serde_json::json!(live);
-    match crate::env::write_json_atomic(&cfg, &v) {
-        Ok(()) => Outcome::Rewritten(format!(
-            "弃用端口 {} 已改写为接管后的真实端口 {}（config.json 原地改写）",
-            raw, live
-        )),
-        Err(e) => Outcome::Skipped(format!("弃用端口 {} 改写失败：{}", raw, e)),
-    }
+    Outcome::Skipped(format!(
+        "检测到弃用端口 {}（面板地址 {}）：config.json 由内核重写，壳侧读取时已迁移；若需落盘修正请重启守卫",
+        port, cur
+    ))
 }
 
 /// 对账条目②：runtime 绑定的 Node 落点（私有 -> 全局）。
@@ -243,53 +217,6 @@ mod tests {
         // 不预设状态根内容：任一形态都必须有结论
         let _ = reconcile_runtime_node();
         let _ = reconcile_api_port();
-    }
-
-    /// 接管补全回归：弃用端口必须被**实际改写**进 config.json（不再是 Skipped 占位）。
-    /// 早期版本只判到弃用端口却返回 Skipped，导致接管"差一步"——config 仍是 36360、
-    /// 而 ports.json 登记的是 37360 ⇒ 壳用旧端口判服役、新端口导航，面板拒绝连接。
-    /// 本测试在临时 HOME 下构造该局面，跑对账后**从磁盘回读 config.json** 断言 apiPort 已变为 37360。
-    #[test]
-    fn s4_deprecated_api_port_is_rewritten_not_skipped() {
-        let _g = lock_stamp();
-        let dir = std::env::temp_dir().join(format!("dsh-s4-home-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("supervisor")).unwrap();
-        // state_root() 优先读 ENV_STATE_ROOT（DSH_SUPERVISOR_HOME），故把它指到临时目录，
-        // 让 supervisor_dir()/ports.json/config.json 都落在 dir 下（与 env::tests::a5 同手法）。
-        let saved_home = std::env::var_os("HOME");
-        let saved_ur = std::env::var_os("USERPROFILE");
-        let saved_dsh = std::env::var_os(crate::brand::ENV_STATE_ROOT);
-        std::env::set_var("HOME", &dir);
-        std::env::set_var("USERPROFILE", &dir);
-        std::env::set_var(crate::brand::ENV_STATE_ROOT, &dir);
-
-        // config.json 写着弃用端口 36360（其余键须保留）；ports.json 登记 supervisor-api 真实端口 37360。
-        std::fs::write(
-            dir.join("supervisor").join("config.json"),
-            serde_json::json!({ "apiPort": 36360u16, "tickIntervalMs": 5000 }).to_string(),
-        ).unwrap();
-        std::fs::write(
-            dir.join("supervisor").join("ports.json"),
-            serde_json::json!({ "records": [{ "port": 37360u16, "role": "supervisor-api", "createdAt": 1u64 }] }).to_string(),
-        ).unwrap();
-
-        let o = reconcile_api_port();
-
-        // 断言①：结果必须是"已改写"而非 Skipped/Unchanged。
-        assert!(matches!(o, Outcome::Rewritten(_)), "S4 FAIL 弃用端口未被改写，仅 {:?}", o.note());
-        // 断言②（关键）：从磁盘回读，确认 apiPort 真的变成了 37360，且 tickIntervalMs 等其它键被保留。
-        let cfg: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(dir.join("supervisor").join("config.json")).unwrap(),
-        ).unwrap();
-        assert_eq!(cfg.get("apiPort").and_then(|x| x.as_u64()), Some(37360), "S4 FAIL config.json 的 apiPort 未改写为 37360");
-        assert_eq!(cfg.get("tickIntervalMs").and_then(|x| x.as_u64()), Some(5000), "S4 FAIL 其它键被覆盖：tickIntervalMs 丢失");
-
-        // 还原环境后再清理
-        match &saved_home { Some(v)=>std::env::set_var("HOME",v), None=>std::env::remove_var("HOME") }
-        match &saved_ur { Some(v)=>std::env::set_var("USERPROFILE",v), None=>std::env::remove_var("USERPROFILE") }
-        match &saved_dsh { Some(v)=>std::env::set_var(crate::brand::ENV_STATE_ROOT,v), None=>std::env::remove_var(crate::brand::ENV_STATE_ROOT) }
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

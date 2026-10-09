@@ -1,7 +1,6 @@
 'use strict';
 
 const fs = require('node:fs');
-const pidlookup = require('./pidlookup');
 const path = require('node:path');
 const os = require('node:os');
 
@@ -162,6 +161,10 @@ function harnessHome(env) {
 }
 
 function dshJsFromLive(pl, env) {
+  // 懒加载：pidlookup 又反向 require 本模块（取 isExecutableFile），若在此处顶层 require 会形成加载期循环依赖，
+  // 导致本模块 exports 未就绪时 pidlookup 绑定到 undefined 的 isExecutableFile（CI 上表现为 isExecutableFile is not a function）。
+  // 本函数在运行期才被调用 ⇒ 此时本模块已完整加载，懒 require 既破环又零回归。
+  const pidlookup = require('./pidlookup');
   const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
   let port = null;
   try {
