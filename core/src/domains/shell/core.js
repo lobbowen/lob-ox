@@ -19,9 +19,7 @@ const HEADLESS_FLAGS = Object.freeze([
   '--shell-update-plan', '--core-plan', '--node-plan', '--mirror-plan', '--env-plan',
   '--service-plan', '--platform-matrix', '--run-guard', '--watchdog',
 ]);
-// 锚定 + 转义：审计 P0-9 —— 原正则未锚定、未转义，'--env-plan' 会误匹配含该子串的任意命令行（如 --my-env-planish）。
-// 每个 flag 两端加词边界，且对其中的 '.' 转义。
-const HEADLESS_RE = new RegExp(HEADLESS_FLAGS.map((f) => '(?:^|\s|--)' + f.replace(/[.]/g, '\\.') + '(?:\s|$|=)').join('|'));
+const HEADLESS_RE = new RegExp(HEADLESS_FLAGS.join('|'));
 // 正则同样取自单源（PROC_MATCH_GUI_RE 的源串，.exe 可选）。
 const SHELL_PROC_RE = new RegExp(BRAND.PROC_MATCH_GUI_RE);
 

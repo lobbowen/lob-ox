@@ -19,6 +19,7 @@ function startLanServer(host, inst) {
   const server = createRelay('127.0.0.1', inst.dshPort, {
     id: inst.id,
     token: inst.token || '',
+    remoteMode: inst.remoteMode,
     dshTokenOf: () => host.tokenOf(inst.id) || '',
     logger: host.logger,
     events: host.events,

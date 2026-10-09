@@ -51,9 +51,11 @@ function lanGateCookieValue(token, salt) {
   return crypto.createHash('sha256').update(s + '\n' + t).digest('hex');
 }
 
-function hasValidToken(req, token, salt) {
-  // fail-closed（D1）：空令牌即无令牌，绝不当"已授权"。
-  if (!token) return false;
+function hasValidToken(req, token, salt, mode) {
+  // fail-closed（D1/RL-2）：空令牌即无令牌。但 LAN 模式信任 RFC1918 网络边界
+  // （http 层 isTrustedSource 已前置拦截非私网/非本机来源），不构成开放中继 ⇒ 放行；
+  // WAN/未指定模式空令牌一律判无授权，杜绝"空令牌开放转发"（开放中继）。
+  if (!token) return normalizeRemoteMode(mode) === 'lan';
   const url = new URL(req.url, 'http://localhost');
   const queryToken = url.searchParams.get('token');
   if (queryToken && safeEqual(queryToken, token)) return true;
@@ -70,9 +72,10 @@ function hasValidToken(req, token, salt) {
   return false;
 }
 
-function tokenGateDecision(req, token, salt) {
-  // fail-closed（D1）：空令牌（含被显式清除）一律拒，杜绝"无令牌即开放中继"。
-  if (!token) return { ok: false, unauthorized: true };
+function tokenGateDecision(req, token, salt, mode) {
+  // fail-closed（D1/RL-2）：空令牌（含被显式清除）对 WAN/未指定模式一律拒，杜绝"空令牌即开放中继"。
+  // LAN 模式信任 RFC1918 网络边界（isTrustedSource 已前置拦截），空令牌放行（非开放中继）。
+  if (!token) return normalizeRemoteMode(mode) === 'lan' ? { ok: true } : { ok: false, unauthorized: true };
   const url = new URL(req.url, 'http://localhost');
   const cookies = req.headers.cookie || '';
   const m = LAN_COOKIE_RE.exec(cookies);

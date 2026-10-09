@@ -2,7 +2,7 @@
 
 const http = require('node:http');
 const crypto = require('node:crypto');
-const { isTrustedSource, tokenGateDecision, backoffGate, upstreamPath, redactLogPath, POLYFILL_SCRIPT } = require('./core');
+const { isTrustedSource, tokenGateDecision, backoffGate, upstreamPath, redactLogPath, normalizeRemoteMode, POLYFILL_SCRIPT } = require('./core');
 const { createSession } = require('./session');
 const { createTunnelHandler } = require('./tunnel');
 
@@ -115,6 +115,7 @@ function handleUpstream(ur, res, clientReqPath, onStatus, logger) {
 function createRelay(targetHost, targetPort, opts) {
   const o = opts || {};
   let token = o.token || '';
+  const mode = normalizeRemoteMode(o.remoteMode);
   const logger = o.logger || null;
   const authority = targetHost + ':' + targetPort;
   const gateSalt = crypto.randomBytes(16).toString('hex');
@@ -137,7 +138,7 @@ function createRelay(targetHost, targetPort, opts) {
       return res.end('仅允许局域网（RFC1918）或本机访问');
     }
     const peerIp = (req.socket && req.socket.remoteAddress) || '?';
-    const gate = tokenGateDecision(req, token, gateSalt);
+    const gate = tokenGateDecision(req, token, gateSalt, mode);
     if (!gate.ok) {
       // 退避闸：同 IP 60s 内 >=10 次失败即 429（frp 把公网访客呈现为回环/私网，来源闸挡不住爆破）。
       const waitMs = gateLedger.waitMsFor(peerIp);

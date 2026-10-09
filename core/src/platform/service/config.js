@@ -107,7 +107,7 @@ function normalize(raw, ext) {
   // 再拿 cfg 判"默认值是否弃用"恒为假（这正是本条修掉的自反写法）。
   if (isDeprecatedApiPort(provided.apiPort)) {
     cfg.apiPort = BASE_DEFAULTS.apiPort;
-    // 审计 P3-1：删除 __deprecatedOverridden —— 无任何读取方（纯诊断残留），写它只会在配置里留一颗无人消费的键。
+    cfg.__deprecatedOverridden = (cfg.__deprecatedOverridden || []).concat(['apiPort']);
   }
   cfg.stateFile = expandHome(cfg.stateFile);
   cfg.logFile = expandHome(cfg.logFile);
