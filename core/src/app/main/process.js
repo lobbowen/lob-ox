@@ -6,6 +6,7 @@ const { LineBuffer } = require('../../platform/service/log/log');
 const native = require('../../app/native/command');
 const BRAND = require('../../shared/brand');
 const { findManagedDshPort, applyMainPort } = require('./port-rederive');
+const pmClient = require('../../platform/contract/pm-client');
 
 const DEPS = new WeakMap();
 const HELPERS = ['MissingNotified', 'SetMissingNotified', 'SetSpawnBlockedUntil', 'SetChild',
@@ -118,6 +119,8 @@ module.exports = {
       errBuf.flush();
       if (d.mChild() !== child) return;
       d.events().append(BRAND.EVENT_HARNESS_EXITED, { code, signal, phase: d.state().phase() });
+      // 机箱 last-will：退出码/信号单向上报底座（引导页「为何崩」的真相源在壳，不上报即无据）。
+      pmClient.recordExit('dsh-main', code, signal);
       d.mSetChild(null);
       if (d.stopping()) return;
       if (d.state().desired() !== 'running') return;
@@ -128,6 +131,7 @@ module.exports = {
         const why = code !== null ? String(code) : 'sig' + signal;
         const inStartup = phase === 'STARTING';
         if (inStartup || d.state().guardian()) {
+          pmClient.requestRestart('dsh-main');
           d.beginRestart('exit:' + why, { startupFailure: inStartup });
         } else {
           d.writeCrashHalted(true);
