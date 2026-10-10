@@ -8,7 +8,6 @@ function isOurReleasePackage(pkg) {
   return typeof pkg === 'string' && pkg.startsWith(OUR_RELEASE_SCOPE);
 }
 
-// 版本线重置（0.1.6-BETA.23 → 0.0.1）时同步下调：下限高于在发版本时，rollbackAllowed 会把 rollback tag 一律判为「低于下限」，回退通道对新版本线静默失效（回落 latest）。
 const ROLLBACK_FLOOR_VERSION = '0.0.0';
 
 const ROLLBACK_MAX_AGE_DAYS = 30;
