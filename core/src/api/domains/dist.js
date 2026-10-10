@@ -61,7 +61,7 @@ function handle(ctx) {
         let j = {};
         try { j = body ? JSON.parse(body) : {}; } catch {}
         const origin = String(j.origin || '').trim();
-        if (!/^https?:\/\
+        if (!/^https?:\/\//.test(origin)) return send(400, { ok: false, error: 'origin 必须以 http(s):// 开头' });
         const targetErr = probeTargetError(origin, sup);
         if (targetErr) return send(400, { ok: false, error: targetErr });
         Promise.resolve(sup.dist.probeOrigin(origin))
