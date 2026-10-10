@@ -1,5 +1,5 @@
 //! IPC 命令边界层（**只做校验与委托**）。分层（硬约束）：commands 调 domain/platform 再组装返回值；命令体**禁止**平台分支 #[cfg(target_os)
-        commands::pm_status]（那属于 platform 层）；main.rs 只注册这些命令。
+//!         pm_status（那属于 platform 层）；main.rs 只注册这些命令。
 
 use std::sync::Mutex;
 
