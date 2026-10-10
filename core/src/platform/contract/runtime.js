@@ -2,8 +2,6 @@
 
 const stateRoot = require('../service/state-root');
 
-// 启动契约（壳写内核读）：<状态根>/supervisor/runtime.json，schema 2；不可用时返回 null，绝不因此启动失败。
-
 const fs = require('node:fs');
 const path = require('node:path');
 const execPath = require('../os/exec-path');
