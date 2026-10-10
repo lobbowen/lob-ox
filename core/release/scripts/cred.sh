@@ -155,11 +155,7 @@ case "${1:-list}" in
     echo '== 2) 条目可寻址 + 清单内的文件是否都在库内 =='
     node -e "
       const j=require(process.env.INDEX);
-      // 条目靠 name 寻址，缺 name / name 重复时 get/path/put/verify 对该条目失效，必须判红。
       const fs=require('fs');
-      //  必须用 ${STORE}（DSH_CRED_DIR 可覆盖），不可硬编码库根 —— 否则换库根就误报
-      // 两侧都归一为 / 再比：Windows 的 e.file 可能是反斜杠形式，
-      // 而 STORE 已被启动时归一为 /（否则恒不匹配 -> doctor 误报缺项，exit 1）。
       const norm = (x) => String(x).split(String.fromCharCode(92)).join('/');
       const seen = new Set();
       let bad = 0;
