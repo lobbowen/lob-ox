@@ -17,8 +17,8 @@ function main() {
 
   const config = loadConfig();
   const swDir = config.stateFile ? path.dirname(path.resolve(config.stateFile)) : stateRoot.supervisorDir();
-  // W5：此处的 hub.registerSource 是空调用 —— 两个 daemon 进程都不构造 EventHub
-  // （logcore.init 未传 enableHub/stateDir）⇒ 注册进 sources 的源永无人读取。
+  
+  
   const core = logcore.init({
     process: 'router-daemon',
     logFile: config.routerLogFile || path.join(swDir, 'log', 'router-daemon.log'),
