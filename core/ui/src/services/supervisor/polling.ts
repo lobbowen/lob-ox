@@ -112,7 +112,7 @@ async function refreshEvents() {
         eventsSeq: Math.max(snap.eventsSeq, safeSeq(r.seq, snap.eventsSeq)),
       });
     }
-  } catch {  }
+  } catch { void 0; }
   finally { eventsBusy = false; }
 }
 
