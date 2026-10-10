@@ -1,5 +1,3 @@
-//! 有界 Node 探测：探测内含无界阻塞系统调用，故分离线程执行 + 边枚举边上报 stage + 硬上限。规则一：任何可能阻塞的调用之前都必须先 stage()（候选枚举、盘符判定、目录读取都算）。规则二：超过硬上限（HARD_DEADLINE）即判明确失败并返回原因，即使某系统调用永久挂起，命令也一定给出结论。本文件刻意不用反引号/单引号字面量（用数值 92/58），以免跨格式传递被转义破坏。
-
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Mutex, OnceLock};
@@ -7,7 +5,6 @@ use std::time::{Duration, Instant};
 
 use crate::domain::probes::{Probe, Record};
 
-/// 一次探测的结论。`records` 只有 `Probe::Node` 一个维度：npm / registry / prefix 是它的**下游**，由 `domain::probes::dependents` 在同一份命令输出里补齐（那里按 TTL 复用缓存）。
 #[derive(Clone)]
 pub struct Outcome {
     pub path: Option<PathBuf>,
@@ -29,7 +26,6 @@ fn live() -> &'static Mutex<Live> {
     L.get_or_init(|| Mutex::new(Live { current: None, done: Vec::new(), summary: String::new() }))
 }
 
-/// 取活进度锁。毒锁里的 `Live` 仍是完好结构体：读者本就容毒读，写方若因毒丢写，UI 会永久停在最后一条 `current` 上再也得不到更新 —— 而那条恰恰是「卡住时唯一线索」。
 fn live_lock() -> std::sync::MutexGuard<'static, Live> {
     live().lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -38,7 +34,6 @@ thread_local! {
     static WORKER_GEN: std::cell::Cell<Option<u64>> = std::cell::Cell::new(None);
 }
 
-/// 已被作废的 worker 是否还在写共享进度。代际校验必须覆盖 `detect()` 里的 stage/finish，否则新一代面板会读到上一轮留下的「正在做什么」与记录。
 fn stale_writer() -> bool {
     WORKER_GEN.with(|g| {
         g.get().map_or(false, |gen| gen != GENERATION.load(std::sync::atomic::Ordering::SeqCst))
@@ -86,7 +81,6 @@ pub fn candidate_summary() -> String {
 
 const STALE_AFTER: Duration = Duration::from_secs(90);
 
-/// **硬上限**（规则二）：超过即判定本次探测明确失败并给出原因。若没有它，某系统调用永久挂起时前端只能等自己的预算耗尽，结论只剩一句无信息量的「超时」；取值毫秒；运行时可变仅为测试可注入，正式路径恒为 25000。
 static HARD_DEADLINE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(25_000);
 
 fn hard_deadline() -> Duration {
@@ -128,7 +122,7 @@ pub fn invalidate() {
 pub fn partial() -> Outcome {
     let mut records = snapshot();
     if let Some((desc, ms)) = current_stuck() {
-                // 在飞的步骤记 `ok = None`（未知），不是失败：把它算进失败候选数会让「还有一个候选没试完」看起来像「这个候选坏了」。
+                
         records.push(Record::pending(
             Probe::Node,
             "进行中",
@@ -175,7 +169,7 @@ pub fn status(budget: Duration) -> Outcome {
                 started_at = *started;
             }
             State::Idle => {
-                                // 若上一次的 worker 仍未退出（卡在无界系统调用），**不再新建** —— 否则用户每点一次「重试」就多一条永不退出的线程。此时给出明确结论，等旧 worker 退出（或 invalidate() 显式复位）后即可重新探测。
+                                
                 if ORPHANS.load(std::sync::atomic::Ordering::SeqCst) > 0 {
                     return failed(
                         "上一次环境探测仍未退出（线程卡在系统调用中，无法回收）；已跳过重复启动，避免线程堆积"
@@ -266,7 +260,6 @@ pub fn resolve(budget: Duration) -> Option<(PathBuf, String)> {
 
 static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// 已被作废但尚未退出的 worker 数量（不可回收的线程）。worker 卡在无界阻塞系统调用时，Rust 无法回收线程；若超限后直接重来，每次「重试」都会多堆一条永不退出的线程。故：代际作废防旧 worker 回写污染；计数孤儿并在其退出前不再新建；invalidate() 是显式复位口。
 static ORPHANS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn abandon_current_worker() {
@@ -285,9 +278,9 @@ fn spawn_worker(tx: Sender<Outcome>) {
         .spawn(move || {
             WORKER_GEN.with(|g| g.set(Some(gen)));
             let started = Instant::now();
-                        // 最后一道保险：worker 内 panic 也必须产出结论，否则线程静默死亡、命令只能一直报 probing。
+                        
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(detect));
-                        // 代际校验：若本轮已被作废（GENERATION 前进），则**不回写诊断**，仅统计孤儿退出，避免污染新一轮的记录与候选摘要。饱和减（invalidate() 可能已把计数清零；绝不能下溢成天文数字）。
+                        
             if GENERATION.load(std::sync::atomic::Ordering::SeqCst) != gen {
                 let _ = ORPHANS.fetch_update(
                     std::sync::atomic::Ordering::SeqCst,
@@ -318,7 +311,6 @@ fn spawn_worker(tx: Sender<Outcome>) {
         });
 }
 
-/// 返回 (路径, 版本, 明确失败原因)。边枚举边探测、最可能慢的 PATH 放最后：若先全部枚举再探测，枚举一慢/卡，已枚举好的廉价候选也永远试不到。于是 Node 装在标准位置的多数用户在 1) 或 2) 即命中，根本走不到 PATH 过滤。
 fn detect() -> (Option<PathBuf>, Option<String>, Option<String>) {
     #[cfg(test)]
     if HANG_IN_ENUMERATE.load(std::sync::atomic::Ordering::Relaxed) {
@@ -345,11 +337,11 @@ fn detect() -> (Option<PathBuf>, Option<String>, Option<String>) {
     }
     set_summary(format!("{}（进行中：① 已试）", summarize(&out)));
 
-        // ① 之后、② 之前先问系统 PATH：用户**显式装在系统里**的 Node 才是本意。
-        // 此前顺序是 ①记录 → ②已知落点（ProgramFiles/choco/nvm/scoop 等固定猜测）→ ③PATH，
-        // 而装在自定义目录（如 <root>\node，只在 PATH 上、不在任何"已知落点"）的 Node 只能靠③命中；
-        // 一旦①②耗时把预算吃掉，③跑不到 ⇒ 判"未安装" ⇒ 明明系统有达标 Node 却重装一遍。
-        // 故把 PATH 提问提前：先认用户装的，再退回收录的猜测落点。
+        
+        
+        
+        
+        
     stage("①b 询问系统 PATH 上的 Node");
     if let Some(p) = crate::env::find_in_path(crate::env::node_exe()) {
         if add("PATH", p.clone(), &mut out) {
@@ -433,9 +425,8 @@ fn summarize(c: &[(String, PathBuf)]) -> String {
     format!("候选 {} 个（记录 {} / 已知 {} / PATH {}）", c.len(), recorded, known, path)
 }
 
-
 fn path_dirs_staged() -> Vec<PathBuf> {
-        /// PATH 目录，逐条 stage 并做本地盘过滤（过滤本身也可能阻塞 —— 见 env.rs 的盘符缓存）。PATH 条目上限：极端长的 PATH 不应把探测拖成分钟级。
+        
     const MAX_PATH_ENTRIES: usize = 64;
     stage("③ 过滤 PATH（跳过网络盘/UNC）");
     let mut v = crate::env::path_dirs_local_only();
@@ -457,10 +448,10 @@ fn known_locations() -> Vec<(String, PathBuf)> {
 mod tests {
     use super::*;
 
-        /// 这两个用例共享全局注入（挂起标志 + 硬上限），必须串行执行，否则并行时一个用例的注入会污染另一个。
+        
     static SERIAL: Mutex<()> = Mutex::new(());
 
-        /// 核心性质：枚举阶段永久阻塞时，必须给出带阶段信息的明确结论。对应故障形态：卡在枚举（GetDriveTypeW / read_dir），而候选摘要 / 卡住阶段 / 探测记录全空。
+        
     #[test]
     fn hard_deadline_yields_actionable_failure_when_enumeration_hangs() {
         let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
