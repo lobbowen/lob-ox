@@ -1,7 +1,3 @@
-//! Linux 平台实现。本文件是 Linux 的**全部**平台知识 —— 其它任何文件都不应出现 `target_os = "linux"`。
-//! 服务管理由产品自身的监控器承担（见 `super::service`）：本文件**不调用** systemd / systemctl
-//! —— 操作系统服务机制与本产品无关，也不存在「用系统通道投递」的选项。
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -12,7 +8,6 @@ pub const NAME: &str = "linux";
 
 const INSTALL_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
-/// Linux 可用提权通道（按优先级）。单一事实源，只由 `has_privilege_channel()` 使用：提权唯一消费者是壳自更新（deb 落系统目录），探测与实际执行必须同源；Node 安装刻意不经过这里（解到用户级状态目录，零权限）。
 pub const PRIVILEGE_COMMANDS: [&str; 2] = ["pkexec", "sudo"];
 
 pub fn find_privilege_command() -> Option<&'static str> {
@@ -68,7 +63,7 @@ impl Platform for Impl {
         let tag = if arch == "arm64" { "linux-arm64" } else { "linux-x64" };
         Some(super::NodeArtifact {
             tag,
-                        // 用 .tar.gz：gzip 普遍可用；.tar.xz 在无 xz 的机器上必失败。
+                        
             file: format!("node-v{}-linux-{}.tar.gz", version, arch),
         })
     }
@@ -100,7 +95,7 @@ impl Platform for Impl {
     }
 
     fn install_node(&self, file: &Path) -> Result<PathBuf, String> {
-                // 用户级解包（tar.gz 解到 <状态根>/node），零权限，不需要 pkexec/sudo；容器/WSL/SSH 上常无可用 polkit agent 或 sudo，提权路径在那类环境必然装不上。
+                
         let root = crate::env::node_install_target();
         let staging = root.with_file_name("node.extract");
         let _ = std::fs::remove_dir_all(&staging);
@@ -143,13 +138,13 @@ impl ServiceControl for Impl {
         "process"
     }
 
-    /// 监控器登记表落点（产品状态根下）。**不是**任何 OS 服务定义的位置。
+    
     fn definition_path(&self) -> PathBuf {
         crate::platform::monitor_registry_path()
     }
 
-    /// 登记受管对象（幂等，且内容过时时自愈）：登记的是「产品自己在管谁」，
-    /// 不含任何 OS 投递语义 —— 没有 enable、没有 daemon-reload、没有 linger。
+    
+    
     fn ensure_defined(&self, spec: &LaunchSpec) -> Result<String, String> {
         let path = self.definition_path();
         let (shell, args) = spec.service_command();
@@ -176,7 +171,7 @@ impl ServiceControl for Impl {
         ))
     }
 
-    /// 启动受管对象：产品自己拉起进程（`--run-guard` 稳定入口），不向 OS 投递。
+    
     fn start(&self) -> Result<(), String> {
         let mut cmd = Command::new(crate::platform::self_exe()?);
         cmd.arg("--run-guard");
@@ -187,8 +182,8 @@ impl ServiceControl for Impl {
             .map(|_| ())
     }
 
-    /// 停止受管对象：按产品自己的进程匹配终止，绝不调用 systemctl。
-    /// 匹配串取自跨语言单源（brand.rs::PROC_MATCH_GUARD），避免改名漏一处 ⇒ 停止变空操作。
+    
+    
     fn stop(&self) -> Result<(), String> {
         crate::platform::kill_managed_processes()
     }
