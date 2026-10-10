@@ -14,9 +14,9 @@ pub mod state_machine;
 pub mod supervisor;
 pub mod mgmt;
 
-use std::sync::{Mutex, Arc};
+use std::sync::Mutex;
 use std::collections::HashMap;
-use std::time::{Instant, Duration};
+use std::time::Instant;
 
 /// 单一进程管理器实例（全局单例，由 main 在启动时持有）。
 pub struct ProcessManager {
