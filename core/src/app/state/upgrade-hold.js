@@ -19,7 +19,7 @@ function createUpgradeHold(deps) {
     setSince(Date.now());
     const child = fields.child();
     const adoptPid = fields.adoptPid();
-    // 同上：存活判据取 app/main/decide 的单源（W1），不再在本文件第三遍手写。
+    
     const targetAlive = childAliveOf(child) || adoptedAliveOf(adoptPid);
     if (targetAlive) {
       stopProcess('upgrade');
