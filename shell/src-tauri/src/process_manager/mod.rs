@@ -59,7 +59,18 @@ impl ProcessManager {
     /// 机箱 → 内核回灌：相位变更事件。
     pub fn on_phase(&self, id: &str, phase: state_machine::Phase) {
         let mut s = self.states.lock().unwrap();
-        if let Some(st) = s.get_mut(id) { st.phase = phase; st.last_transition = Instant::now(); }
+        if let Some(st) = s.get_mut(id) {
+            st.phase = phase;
+            st.last_transition = Instant::now();
+            // 自愈：真的跑起来（Running）就清空退避记账。
+            //   否则一次误计（正常重启/手动重启被计入）会永久累积，5 次即跳闸且无人复位 ⇒ 产品永久停摆。
+            //   「恢复正常则清零」是退避策略必需的一半，与「失败则计数」成对。
+            if matches!(phase, state_machine::Phase::Running) {
+                st.fail_count = 0;
+                st.window_start = None;
+                st.restart_backoff = state_machine::RestartBackoff::None;
+            }
+        }
     }
 
     /// 崩溃 last-will：子进程退出时记录退出码 / 信号，供引导页「为何崩」展示。
