@@ -10,7 +10,8 @@ MAIN_LICENSE="$(node -p "require('./package.json').license")"
 MAIN_REPO="$(node -p "try{const p=require('./package.json');(p.repository&&p.repository.url)||''}catch(e){''}")"
 [ -n "$SCOPE" ] || SCOPE="${DSH_CORE_SCOPE:-}"
 [ -n "$SCOPE" ] || SCOPE="@lob-ox"
-while [ $
+while [ $# -gt 0 ]; do
+  case "$1" in
   --publish) PUBLISH=1 ;;
   --all-platforms)
     echo '拒绝：--all-platforms 不再接受：本产线一律四平台构建。' >&2
