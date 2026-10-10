@@ -144,18 +144,6 @@ export function AboutCard() {
     }, { refresh: true, onDone: () => setCoreProg(null) });
   };
 
-  const applyShellUpdate = async () => {
-    if (!(await askConfirm({
-      title: "将重启桌面壳以应用更新 " + fmt(shell?.latest) + "，是否继续？",
-      description: "桌面壳窗口会关闭并重新打开；内核与被管实例不受影响。",
-      confirmText: "重启桌面壳",
-    }))) return;
-    await run("shupd", async () => {
-      const r = await supervisorApi.shellRestart();
-      if (r?.ok === false) { toast.error(r.error || "重启桌面壳失败"); return; }
-      toast.success("桌面壳正在重启，将在启动时自动更新至 " + fmt(shell?.latest));
-    }, { refresh: false });
-  };
 
   const coreUpdate = Boolean(ver?.updateAvailable && ver?.latest && ver.latest !== ver?.installed);
   const shellUpdate = Boolean(shell?.updateAvailable && shell?.latest && shell.latest !== shell?.version);
@@ -182,9 +170,7 @@ export function AboutCard() {
             {shellUpdate ? (
               <>
                 <Pill tone="warn">可更新 {fmt(shell?.latest)}</Pill>
-                <Button size="chip" disabled={busy === "shupd"} onClick={() => void applyShellUpdate()} variant="outline">
-                  <RefreshCw className={cn("size-3", busy === "shupd" && "animate-spin")} />重启并更新
-                </Button>
+                <Pill tone="off">请重启桌面壳应用更新</Pill>
               </>
             ) : null}
             {shellUncapable ? <Pill tone="off">当前形态不支持自更新</Pill> : null}
