@@ -5,6 +5,7 @@
 //! 登记为 guard-mgmt），内核经 HTTP POST 上报 register / set-desired / on-phase /
 //! record-exit / request-restart。浏览器策略天然封死跨源；底座持有唯一真相。
 
+use std::convert::Infallible;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -17,8 +18,6 @@ use hyper_util::rt::TokioIo;
 
 use crate::process_manager::state_machine;
 use crate::process_manager::ProcessManager;
-
-type MgmtErr = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 pub async fn run(state: Arc<ProcessManager>) {
     let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
@@ -53,13 +52,19 @@ pub async fn run(state: Arc<ProcessManager>) {
     }
 }
 
+// 错误类型用 Infallible：内核上报表单是「尽力而为」的控制面，任一环节失败都就地转成 4xx/5xx 响应，
+// 不应让整条连接 panic 或被 serve_connection 要求 Into<Box<dyn Error+'static>>（那会逼出 From 生命周期错误）。
 async fn handle(
     state: Arc<ProcessManager>,
     req: Request<Incoming>,
-) -> Result<Response<Full<Bytes>>, MgmtErr> {
+) -> Result<Response<Full<Bytes>>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
-    let body = req.into_body().collect().await?.to_bytes();
+    // body 收集失败（连接异常）兜底为空字节，交由后续解析分支返回 400。
+    let body = match req.into_body().collect().await {
+        Ok(c) => c.to_bytes(),
+        Err(_) => Bytes::new(),
+    };
     let json: serde_json::Value = if body.is_empty() {
         serde_json::Value::Null
     } else {
