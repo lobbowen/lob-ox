@@ -34,7 +34,7 @@ function download(url, report) {
         if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
           res.resume();
           const next = String(res.headers.location);
-          if (!/^https?:\/\
+          if (!/^https?:\/\//i.test(next)) return reject(new Error('重定向到不支持的协议: ' + next.slice(0, 64)));
           return get(next, redirectsLeft - 1);
         }
         if (res.statusCode !== 200) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
