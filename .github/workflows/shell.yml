@@ -131,6 +131,37 @@ jobs:
             glibc_max: ""
     runs-on: ${{ matrix.os }}
     steps:
+      # 禁令执行器（见 NO-TESTS.md）：本仓禁止新增测试/门禁/冒烟，唯一判据是构建。
+      #   这不是产品测试，是「禁止再加测试」这条约定的强制检查；命中即红，不得降级为 warning。
+      - name: 禁令执行器 · 不得新增测试/门禁/冒烟
+        shell: bash
+        run: |
+          set -u
+          VIOLATIONS=""
+          hit() { VIOLATIONS="$VIOLATIONS\n  - $1"; }
+
+          # ① 测试文件 / 测试目录
+          if [ -d core/test ]; then hit "core/test/ 目录存在（测试资产已全量拆除）"; fi
+          if [ -d shell/src-tauri/tests ]; then hit "shell/src-tauri/tests/ 目录存在"; fi
+          while IFS= read -r f; do hit "测试文件: $f"; done < <(find . -name '*-test.js' -not -path './node_modules/*' 2>/dev/null)
+
+          # ② 门禁脚本
+          while IFS= read -r f; do hit "门禁脚本: $f"; done < <(find . -name 'standards-check*' -not -path './node_modules/*' 2>/dev/null)
+
+          # ③ 冒烟脚本
+          while IFS= read -r f; do hit "冒烟脚本: $f"; done < <(find . -iname '*smoke*' -type f -not -path './node_modules/*' -not -name 'cargo-smoke.log' 2>/dev/null)
+
+          # ④ CI 里的测试步骤
+          while IFS= read -r f; do
+            if grep -qE 'cargo test|npm (run )?test' "$f" 2>/dev/null; then hit "workflow 含测试步骤: $f"; fi
+          done < <(find .github/workflows -type f 2>/dev/null)
+
+          if [ -n "$VIOLATIONS" ]; then
+            echo "::error::违反 NO-TESTS.md —— 本仓禁止测试/门禁/冒烟，唯一判据是构建：$VIOLATIONS"
+            exit 1
+          fi
+          echo "禁令执行器：未发现测试/门禁/冒烟资产 ✓"
+
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
