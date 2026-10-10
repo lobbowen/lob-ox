@@ -1,4 +1,3 @@
-// vitest 跑 node 环境，无 DOM 测试设施。
 import { describe, expect, it, vi } from "vitest";
 import { createConfirmQueue } from "./confirm-queue";
 
@@ -43,7 +42,7 @@ describe("关闭事件晚到不得误决议下一条", () => {
     q.settle(aId, true);
     const second = q.open(askB());
     const bId = q.peek()!.id;
-    // Radix 的 onOpenChange(false) 在关闭动画后到达，携带上一条的 id。
+    
     q.settle(aId, false);
     expect(q.peek()?.id).toBe(bId);
     expect(q.pending()).toBe(1);
