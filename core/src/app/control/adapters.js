@@ -38,7 +38,7 @@ function registerAll(mgr, deps) {
       kind: 'lan',
       name: '远程控制',
       logger,
-      // start 的结果必须来自真实执行：reconcile/syncFrpc 各自如实返回 ok，任一失败即 ok:false（此前恒 true）。
+      
       start: async () => {
         try {
           const rec = await lan.reconcile();
@@ -103,9 +103,9 @@ function registerAll(mgr, deps) {
     dsh._monitoring = true;
   }
 
-  // 壳（shell）由 Rust 底座单方面拥有生命周期：底座监督并上报，内核只作只读聚合。
-  // 内核绝不反向监督或以任何方式拉起其父进程（壳）——倒挂修复。故此处不登记
-  // shellWatchdog 节拍、不做 tick monkey-patch 写回相位/重启计数。
+  
+  
+  
   if (pluginManager) {
     const plc = new ManagedLifecycle({
       id: 'plugins',
