@@ -1,4 +1,3 @@
-// 硬规则：检测到桌面壳有更新就必须更新，不得绕开。允许失败停住并重试；不允许跳过 / 暂停 / 冷却 / 继续使用当前版本。
 (function (NS) {
   function hideUpdChoice() { NS.$('updChoice').style.display = 'none'; }
   function showUpdRetry(reason) {
@@ -22,7 +21,7 @@
       if (r.__error) return showUpdRetry('桌面版本检查异常：' + r.__error);
       if (r.ok === false) return showUpdRetry('桌面版本检查失败：' + (r.error || '未知'));
       NS.updPlan = r;
-            // 「不支持自更新」的唯一真值是 shell_identity 的 selfUpdateCapable（1.1.8 把 cannotSelfUpdate 并了进来，但 Rust 侧从不下发那个键 —— 留着只会让人以为有两条来源）。不判这一条，deb 无提权通道时仍会走强更 -> 必失败。
+            
       if (NS.shellId && NS.shellId.selfUpdateCapable === false) {
         NS.status('当前安装形态不支持自更新，继续');
         return NS.wait(400).then(NS.stepCorePlan);
