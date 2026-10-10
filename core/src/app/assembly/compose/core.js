@@ -71,7 +71,7 @@ function composeCore(host, rawConfig, configPath) {
         };
       },
     });
-        // 数据目录保护用目录级 ACL（NTFS 继承 ACE 覆盖子项；逐个文件 icacls 会写放大）：Unix chmod 0700 / Windows icacls 去继承，目录含 apiAccessKey 等凭据。
+        
     host._fileProtectStatus = null;
     try {
       const fp = platform.fileProtect;
