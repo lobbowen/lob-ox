@@ -7,13 +7,6 @@ function taskLogger(task, tasks) {
   return (l) => { if (task) tasks.log(task.id, l); };
 }
 
-/**
- * 升级后健康校验参数。
- *
- * 修前只传 {host,port,unit,timeoutMs} ⇒ isUnitActive 走"无锚点"分支，
- * 把"端口上有人监听"当成"我们的实例在跑"（外来进程占端口即假成功、不回滚，P0）。
- * 故补传 pidFile + anchors，使判据落到**身份匹配**上（与 monitor.js#matchesAnchors 同源）。
- */
 function portHealthOpts(inst, ctx) {
   const o = { host: '127.0.0.1', port: inst.port, unit: 'dsh-web@' + inst.id, timeoutMs: 120000 };
   if (ctx) {
@@ -129,7 +122,7 @@ function createUpgrade(deps) {
       const rollback = async (why) => {
         if (!oldVersion) { if (task) tasks.log(task.id, '无旧版本可回滚，保持失败态'); return false; }
         if (task) { tasks.log(task.id, '自动回滚到 ' + oldVersion + '…'); }
-        // 回滚前必须先停新版本单元：否则旧版重启被「端口已被占用」拒绝，磁盘回旧而内存仍跑新版。
+        
         try {
           const rs = await lifecycle.stop(id);
           if (rs && rs.ok === false && task) tasks.log(task.id, '回滚前停止失败（继续回装旧版）：' + (rs.error || ''));
