@@ -33,6 +33,9 @@ pub async fn run(state: Arc<ProcessManager>) {
         let _ = guard.register_sole("guard-mgmt", port);
     }
     eprintln!("[mgmt] guard-mgmt 监听 127.0.0.1:{port}");
+    // 端口回灌内核（壳写内核读，单向）：内核 daemon 与 GUI 壳是两个独立进程
+    //   （--run-guard 走 exec 替换，壳进程不再存在），故不能用父传子 env，改走落盘契约。
+    export_port(port);
     loop {
         let (stream, _addr) = match listener.accept().await {
             Ok(x) => x,
@@ -49,6 +52,40 @@ pub async fn run(state: Arc<ProcessManager>) {
                 eprintln!("[mgmt] 连接错误: {e}");
             }
         });
+    }
+}
+
+/// 把 guard-mgmt 端口回灌给内核（所有权在壳、方向单向：壳写内核读）。
+/// 范式同 `mirror::export_to_kernel`：tmp → rename 原子提交，内核侧读不到就当端点不存在（客户端静默降级）。
+fn export_port(port: u16) {
+    let path = crate::env::supervisor_dir().join("guard-mgmt.json");
+    let body = match serde_json::to_string_pretty(&serde_json::json!({
+        "schema": 1,
+        "role": "guard-mgmt",
+        "host": "127.0.0.1",
+        "port": port,
+        "pid": std::process::id(),
+        "at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    })) {
+        Ok(b) => b,
+        Err(e) => { eprintln!("[mgmt] 端口契约序列化失败: {e}"); return; }
+    };
+    if let Some(dir) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            eprintln!("[mgmt] 端口契约目录创建失败: {e}");
+            return;
+        }
+    }
+    let tmp = path.with_extension("json.tmp");
+    if let Err(e) = std::fs::write(&tmp, body + "\n") {
+        eprintln!("[mgmt] 端口契约写入失败: {e}");
+        return;
+    }
+    if let Err(e) = std::fs::rename(&tmp, &path) {
+        eprintln!("[mgmt] 端口契约提交失败: {e}");
     }
 }
 
