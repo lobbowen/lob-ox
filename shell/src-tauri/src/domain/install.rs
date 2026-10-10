@@ -1,8 +1,5 @@
-//! 安装与下载进度的唯一语义层（事件形态见 ENV-TOOLCHAIN-INSTALL-STANDARD）。本模块只承认两种进度：可测分母（下载字节比）与如实的阶段/心跳文字。无分母时 `progress` 发 `null`，不猜。
-
 use tauri::{Emitter, Manager};
 
-/// 可被安装/下载的东西 —— 统一事件 `kind` 字面量的唯一来源（四类，冻结）。用枚举而非裸字符串：失败必须如实归给出问题的步骤（node 装不上 / npm 补不上），否则前端拿错文案前缀，把「缺 npm」显示成「装 Node 失败」。内核与桌面壳也不再各写一份字面量。
 #[derive(Clone, Copy)]
 pub(crate) enum InstallKind {
     Node,
@@ -12,7 +9,7 @@ pub(crate) enum InstallKind {
 }
 
 impl InstallKind {
-    /// 事件 payload 里的 kind 字面量（与前端 `10-ui.js` 的 `INSTALL_TARGET` 键一一对应）。
+    
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             InstallKind::Node => "node",
@@ -32,7 +29,6 @@ impl InstallKind {
     }
 }
 
-/// 安装失败：携带**归属步骤**，供 IPC 边界发 `install_error { kind, error }`。只用裸 String 会让调用方丢失「失败在 node 还是 npm」这一事实。
 pub(crate) struct InstallFailure {
     pub(crate) kind: InstallKind,
     pub(crate) message: String,
@@ -48,7 +44,6 @@ impl InstallFailure {
     }
 }
 
-/// **唯一**的事件出口：三条安装事件（progress / done / error）的 payload 形态只能在这里成形。
 fn emit_json(app: &tauri::AppHandle, event: &str, payload: serde_json::Value) {
     let _ = app.emit(event, payload);
 }
@@ -62,7 +57,6 @@ pub(crate) fn download(app: &tauri::AppHandle, kind: InstallKind, done: u64, tot
     push(app, kind, text, ratio);
 }
 
-/// 下载行的唯一渲染点（纯函数，可离线穷举）。`total` 为 None 或小于已取回量时只报已取回量、比值发 null：`into_reader()` 在 chunked 传输下会忽略 Content-Length 一路读到流结束，服务端声称的总量可能偏小。文案自相矛盾比少一根进度条糟糕得多。
 pub(crate) fn download_line(kind: InstallKind, done: u64, total: Option<u64>) -> (String, Option<f32>) {
     let mb = |b: u64| b as f64 / 1048576.0;
     match total.filter(|t| *t > 0 && done <= *t) {
@@ -100,13 +94,11 @@ pub(crate) fn fail(app: &tauri::AppHandle, kind: InstallKind, error: &str) {
     emit_json(app, "install_error", serde_json::json!({ "kind": kind.as_str(), "error": error }));
 }
 
-/// npm 安装期心跳文案的唯一渲染点。`npm install` 不吐百分比，输出又重定向到临时文件（不经管道，见 bounded::run），所以能如实说的只有「已等多久 + 它自己写了多少行」—— 真实现场，不是编的阶段分数。
 pub(crate) fn npm_heartbeat(elapsed: std::time::Duration, lines: usize, last_line: &str) -> String {
     let last = if last_line.is_empty() { String::new() } else { format!(" · 最后一行「{}」", last_line) };
     format!("npm 安装中 · 已用 {}s · 输出 {} 行{}", elapsed.as_secs(), lines, last)
 }
 
-/// 内核安装的开工行：把「在装什么、有几个源、上限多久」一次说清。耗时上界是已知的（单源 `core::NPM_INSTALL_TIMEOUT` 与 `bridge::KERNEL_UPDATE_BUDGET_MS`），写进文案用户才能判断该继续等还是换源。数字一律从常量算：手写就会出现「说的是 15 分钟、干的是 20 分钟」。
 pub(crate) fn kernel_begin(app: &tauri::AppHandle, version: &str, origins: usize) {
     let per_source_min = crate::core::NPM_INSTALL_TIMEOUT.as_secs() / 60;
     let total_min = crate::bridge::KERNEL_UPDATE_BUDGET_MS / 60_000;
@@ -128,7 +120,6 @@ pub(crate) fn kernel_source(app: &tauri::AppHandle, tried: usize, total: usize, 
     );
 }
 
-/// 内核包**取件前**的说明行：分母是该源自己声明的字节数，不是估的。「这个源没给校验值」也要上屏：只按字节数核对与按 SHA512 核对不是一回事，藏起来等于替源背书。
 pub(crate) fn kernel_fetch(app: &tauri::AppHandle, version: &str, origin: &str, size: Option<u64>, verified: bool) {
     let size_txt = match size {
         Some(t) => format!("{:.1} MB", t as f64 / 1048576.0),
@@ -167,7 +158,6 @@ pub(crate) fn kernel_direct(app: &tauri::AppHandle, origin: &str, why: &str) {
     );
 }
 
-/// 完整工具链安装管线（ENV-TOOLCHAIN-INSTALL-STANDARD）：node 与 npm 顺序执行，缺一不可。返回运行期契约本身（node 路径/版本 + npm 路径/参数/版本），外层每一条播报都从它取。npm 补不上时必须 Err：只校验 node 版本会把「node 在、npm 缺」判成成功，前端随后拿不存在的 npm 去装内核必然失败；失败经 `InstallFailure` 带上归属步骤。
 pub(crate) fn run_install(app: &tauri::AppHandle) -> Result<crate::runtime_contract::NodeRuntime, InstallFailure> {
     stage(app, InstallKind::Node, "获取官方最新 LTS 版本…");
     let choice = crate::node::latest_lts().map_err(InstallFailure::node)?;
@@ -204,7 +194,7 @@ mod tests {
         assert!(text.contains("Node 官方归档"), "{}", text);
         assert!(text.contains("5.0 / 20.0 MB"), "{}", text);
         assert_eq!(ratio, Some(0.25));
-    // 满额时比值必须恰好为 1（前端据此判断「取回完成」）。无分母 = **不发比值**（不得用 0.0 兼作「没有分母」，那会让进度条整段停在 0%）；声称的总量为 0 同样视为无分母（否则比值会算出 inf）。
+    
         assert_eq!(download_line(InstallKind::Node, 20 * 1024 * 1024, Some(20 * 1024 * 1024)).1, Some(1.0));
     }
 
