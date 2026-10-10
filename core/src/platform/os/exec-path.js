@@ -17,7 +17,6 @@ function candidateNames(base, platform) {
   return [...new Set(names)];
 }
 
-// POSIX 必须校验执行位（0644 不可作候选，否则 spawn EACCES 并污染「已安装」判定）；win32 无执行位语义。
 function isExecutableFile(p, platform) {
   try {
     if (!fs.statSync(p).isFile()) return false;
@@ -36,9 +35,6 @@ function firstExecutable(dir, base, platform) {
   return null;
 }
 
-// 全局工具链落点单源（与 shell/src-tauri/src/env.rs#global_install_root 逐字对应，R7 门禁锁一致性）。
-// 决策：产品不做私有化 —— 工具链装到用户级全局目录并登记进 PATH，使终端与其它产品都能看见。
-// 机器级目录（Program Files / /usr/local）无管理员时不可写，故只取用户级。
 const GLOBAL_APP_DIRNAME = 'lobox';
 const GLOBAL_BIN_DIRNAME = 'bin';
 
@@ -90,7 +86,7 @@ function resolveExecutable(base, opts) {
     const v = E[o.envVar];
     if (isExecutableFile(v, pl)) return v;
   }
-  // platform/env 必须向下传播，否则 npmBin({platform:win32}) 在 Linux 上按宿主规则解析出 POSIX 路径。
+  
   const inPathHit = inPath(base, pl, env);
   if (inPathHit) return inPathHit;
   for (const d of [...(o.extraDirs || []), ...standardDirs(pl, undefined, env)]) {
@@ -130,17 +126,6 @@ function dshJsIn(prefix) {
   return path.join(prefix, 'node_modules', ...DSH_PKG, 'lib', 'bin.js');
 }
 
-
-
-
-
-// 复杂环境兜底：DSH 入口判定单一事实源（R8）仍是本函数。本机实测暴露三类真实"已装且能跑"形态，
-// 既有探测（DSH_BIN / PATH 裸名 / npmRoot / 全局 prefix）全部漏掉就会把正确安装判成"未安装"而弹安装页：
-//   (1) 一层 shim（如 Roaming\\lobox\\bin\\dsh.cmd）不是真 JS 包——它指向某 .dsh-app/lib/bin.js；必须解析 shim 真身，
-//       否则 binPath 落到 shim、installedVersion 沿 shim 向上找不到 package.json（本机正是此情形）。
-//   (2) harness-home：被监管 DSH 以"产品化安装"落点于 ~/.dsh-app（package.json 即 @deepseek-ai/dsh），既非 npm 全局也非 PATH 裸名。
-//   (3) 真机正在运行的 dsh-main 进程：其 cmdline 指向的 .js 入口即"正在服役的 DSH"，不读活进程会漏掉已跑着的安装。
-// 三者只在既有探测落空时兜底，对已被识别的安装零回归。
 function shimJsTarget(hit) {
   if (!/\.(cmd|bat)$/i.test(hit)) return null;
   let txt = null;
@@ -161,9 +146,9 @@ function harnessHome(env) {
 }
 
 function dshJsFromLive(pl, env) {
-  // 懒加载：pidlookup 又反向 require 本模块（取 isExecutableFile），若在此处顶层 require 会形成加载期循环依赖，
-  // 导致本模块 exports 未就绪时 pidlookup 绑定到 undefined 的 isExecutableFile（CI 上表现为 isExecutableFile is not a function）。
-  // 本函数在运行期才被调用 ⇒ 此时本模块已完整加载，懒 require 既破环又零回归。
+  
+  
+  
   const pidlookup = require('./pidlookup');
   const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
   let port = null;
