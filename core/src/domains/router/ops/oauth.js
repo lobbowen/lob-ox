@@ -81,7 +81,7 @@ function createOAuthOps(deps) {
     const callbackUrl = 'http://localhost:' + port + '/callback';
     const authUrl = STUDIO_BASE + '/studio/auth/cli?callback=' + encodeURIComponent(callbackUrl) + '&state=' + encodeURIComponent(state);
     const promise = new Promise((resolve, reject) => { st._ccLoginResolve = resolve; st._ccLoginReject = reject; });
-    // UI 只 start 不 wait：无人 await 的 promise 会 unhandledRejection，空 catch 只标记「已处理」、不改 settle 值。
+    
     promise.catch(() => {});
     st._ccLoginPromise = promise;
     const opened = await openInBrowser(authUrl, () => {
