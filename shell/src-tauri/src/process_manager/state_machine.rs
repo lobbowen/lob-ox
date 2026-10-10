@@ -40,6 +40,12 @@ pub struct WorkloadState {
     pub pending_restart: bool,
     pub last_transition: Instant,
     pub last_will: Option<LastWill>,
+    // 重启退避记账（框架策略，不随内核变化）：窗口内失败次数与窗口起点。
+    // 真相在机箱：内核只上报「退出了」，是否该停手由机箱按窗口/次数判。
+    pub fail_count: u32,
+    pub window_start: Option<Instant>,
+    pub restart_window_ms: u64,
+    pub restart_burst: u32,
 }
 
 impl WorkloadState {
@@ -52,6 +58,10 @@ impl WorkloadState {
             pending_restart: false,
             last_transition: Instant::now(),
             last_will: None,
+            fail_count: 0,
+            window_start: None,
+            restart_window_ms: d.restart_window_ms,
+            restart_burst: d.restart_burst,
         }
     }
 }
