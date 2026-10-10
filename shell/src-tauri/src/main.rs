@@ -1,7 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-
-// 结构化错误模型：IPC 边界统一返回它（前端按 `kind` 分支、并显示后端给的 `hint`）。
 mod error;
 mod bounded;
 mod brand;
@@ -31,7 +29,7 @@ pub(crate) struct RunState {
     busy: bool,
     installed: Option<String>,
     latest: Option<String>,
-        /// 可测分母的进度比值（0.0~1.0）；`None` = 本步骤**没有**可测分母。只有真实可测的量（下载字节比）才允许写 `Some`：0.0 会同时被读成「没开始」「没有分母」「刚起步」三种含义。
+        
     progress: Option<f32>,
     status: String,
     logs: Vec<String>,
@@ -56,14 +54,10 @@ pub(crate) fn log(state: &RunState) -> serde_json::Value {
     })
 }
 
-
-
-
-
 fn shell_update_plan_text() -> String {
     let v = env!("CARGO_PKG_VERSION").to_string();
     let id = update::init_identity(&v);
-    // 状态根调和：版本戳变化即对账易变条目（在线更新只换二进制，状态根不会自己跟上）。
+    
     crate::state_reconcile::reconcile_once(&v);
     let mut out = String::new();
     out.push_str(&format!("shell_version={}", id.get("version").and_then(|x| x.as_str()).unwrap_or("?")));
@@ -74,9 +68,6 @@ fn shell_update_plan_text() -> String {
     out.push_str(&format!(" state_dir={}", update::state_dir().display()));
     out
 }
-
-
-
 
 fn shell_updater(
     app: &tauri::AppHandle,
@@ -136,19 +127,19 @@ fn main() {
         println!("{}", shell_update_plan_text());
         std::process::exit(0);
     }
-        // 运行时守卫入口：监控器登记表指向的稳定入口是 `<壳> --run-guard`（产品自身机制，
-        // 不经任何 OS 服务通道）。必须在 Tauri 初始化**之前**返回 —— 每次启动重新检测 node/guard 后 exec。
+        
+        
     if std::env::args().any(|a| a == "--run-guard") {
         std::process::exit(domain::cli::cli_run_guard());
     }
-        // 无头监控入口：Windows 计划任务（Lobox-Watchdog）每 5 分钟调用。判据与启动/面板同一实现（`guardctl::ready`），故必须在 Tauri 初始化之前返回。
+        
     if std::env::args().any(|a| a == "--watchdog") {
         std::process::exit(domain::cli::cli_watchdog());
     }
-    // 状态根对账：在线更新只换二进制、状态根不自己跟上，
-    // 陈旧 apiPort（如 36360）会让守卫永远起不来 —— 必须在**GUI 启动路径**也执行。
-    // 此前只挂在 `--shell-update-plan`（CLI）里 ⇒ GUI 启动永不调用，该模块等于死代码（S7 修的 P0）。
-    // 不阻断启动（既有约定），但必须留痕：不留痕的对账等于没做。
+    
+    
+    
+    
     {
         let v = env!("CARGO_PKG_VERSION").to_string();
         for (name, outcome) in crate::state_reconcile::reconcile_once(&v) {
@@ -168,9 +159,9 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             domain::windowing::show_main(app);
         }))
-                // 壳自更新插件：强制 minisign 验签；平台安装语义内部处理。未配置 pubkey 时插件仍可注册（check 会失败并返回错误，由引导页按「失败放行」处理）。
-                // 该公钥（tauri.conf.json 的 plugins.updater.pubkey）用于校验更新包签名，私钥只在发布方 CI secret、绝不入仓。
-                // 换钥后老客户端无法验证新更新：新更新由新私钥签名，老客户端手持的旧公钥验不过。
+                
+                
+                
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(Mutex::new(RunState::default()))
@@ -178,32 +169,32 @@ fn main() {
         .invoke_handler(tauri::generate_handler![commands::node_status, commands::system_node_ready, commands::boot_trace, commands::core_status, commands::core_plan, commands::core_apply, commands::kernel_update_apply, commands::shell_bridge_contract, commands::guard_start, commands::guard_ready, commands::start_node_install, commands::finish_boot, commands::win_ctl, commands::shell_identity, commands::shell_update_check, commands::shell_update_apply, commands::shell_restart, commands::shell_set_phase, commands::mirror_status, commands::mirror_set, commands::node_latest, commands::mirror_warmup, commands::mirror_cached, commands::shell_panel_url, commands::pm_status])
         .setup(|app| {
             bt!("setup enter");
-            // 机箱 loopback 管理端点（内核子进程单向上报进程管理真相，端口受 PortAuthority 分配）。
+            
             {
                 let pm = app.state::<std::sync::Arc<crate::process_manager::ProcessManager>>();
                 tauri::async_runtime::spawn(crate::process_manager::mgmt::run(pm.inner().clone()));
             }
             env::migrate_legacy();
-                        // 托盘直发本地 API 的端口：显式 DSH_SUPERVISOR_TRAY_PORT 优先，否则**每次点击现取**。不做 setup 期快照：守卫因端口占用顺延过时，快照会把启动/停止/退出全打在没人监听的端口上，而 guardctl 一侧读的是当前值 —— 同一事实两套答案，退出握手就打错了对象。
+                        
             let port = || std::env::var("DSH_SUPERVISOR_TRAY_PORT")
                 .ok().and_then(|p| p.parse().ok()).unwrap_or_else(env::current_api_port);
             let handle = app.handle().clone();
 
-                        // 壳身份初始化：写 <状态根>/shell/identity.json + shell.log（独立于 DSH）。必须尽量早执行：即使后续任一环节失败，也留下可诊断的落盘痕迹。
+                        
             bt!("init_identity...");
             let _ = update::init_identity(&app.package_info().version.to_string());
             bt!("init_identity done");
 
             crate::mirror::export_on_boot();
 
-                        // 环境判定：Node 缺失或低于最低标准（>=22.12）时由引导页安装；达标直接进面板。探测只触发（分离线程），不得阻塞 setup —— 窗口必须先出现。
+                        
             nodeprobe::start();
-                        // 镜像测速同样在引导即预热：registry 维度只读这份预热结果；若只由引导页 JS 触发，任何不走 70-boot 的入口（直进面板/脚本页加载失败）都会让那一格永久问号。WARMING 去重，前端若也触发也不会测两遍。
+                        
             crate::mirror::warmup_async();
             {
                 let h = handle.clone();
                 std::thread::spawn(move || {
-                                        // 在飞探测最多等 45 秒（与引导页预算一致）；未完成则放弃本次回填，下次 node_status 轮询仍会拿到结果。
+                                        
                     let out = nodeprobe::status(std::time::Duration::from_secs(45));
                     if let Some(v) = out.version {
                         let st = h.state::<Mutex<RunState>>();
@@ -211,7 +202,7 @@ fn main() {
                     }
                 });
             }
-                        // 单一引导流程：守卫的安装/升级/启动全部由引导页显式驱动（core_plan、core_apply、guard_start、guard_ready），壳启动不并行拉起。
+                        
             std::thread::spawn(move || {
                 if let Ok(c) = node::latest_lts() {
                     let v = c.version.clone();
@@ -238,11 +229,11 @@ fn main() {
                 .on_menu_event(move |app, event| {
                     match event.id.as_ref() {
                         "show" => domain::windowing::show_main(app),
-                                                // 网络 I/O **必须离开 UI 线程**：托盘菜单事件由 UI 线程派发，而 post_local 最多阻塞 60 秒（TCP 连接 + 读写超时）；守卫挂起时点击会把整个界面冻结。改为派发到独立线程：菜单立即响应，结果异步生效。
+                                                
                         "start" => domain::localhttp::spawn_local_post(port(), "/lifecycle/dsh/start"),
                         "stop" => domain::localhttp::spawn_local_post(port(), "/lifecycle/dsh/stop"),
                         "restart" => domain::localhttp::spawn_local_post(port(), "/lifecycle/dsh/restart"),
-                                                // 退出管家 = 完全退出：通知守卫停止全部服务链，随后壳退出。契约：请求内核停被管对象（等回执）-> 由所有者停止守卫 -> 壳退出。同样离开 UI 线程：退出握手最坏可耗时约 70 秒（/session/stop 60s + 轮询 10s）。若在 UI 线程做，窗口卡住会被误认为「程序关不掉」而遭强杀 —— 那会跳过退出握手，留下未停的 DSH。
+                                                
                         "quit" => {
                             let h = app.clone();
                             let p = port();
@@ -255,7 +246,7 @@ fn main() {
                     }
                 })
                 .on_tray_icon_event(|tray, event| {
-                                        // 必须区分按键与状态：匹配 `Click { .. }`（任意键）会让**右键**也 show_main，把右键菜单顶掉。只响应「左键 + 抬起」，右键交由系统弹出 .menu() 设置的菜单。
+                                        
                     if let tauri::tray::TrayIconEvent::Click {
                         button: tauri::tray::MouseButton::Left,
                         button_state: tauri::tray::MouseButtonState::Up,
@@ -271,7 +262,7 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                                // 关闭窗口行为（读守卫 config.closeAction，系统级开关）：'exit' = 退出管家（通知守卫停止全部服务链 + 壳退出）；默认 'hide' = 隐藏至托盘常驻。必须离开 UI 线程（与托盘 quit 同一纪律）。
+                                
                 if env::close_action() == "exit" {
                     let h = window.app_handle().clone();
                     let port = env::current_api_port();
