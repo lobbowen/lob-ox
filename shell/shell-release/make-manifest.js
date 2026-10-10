@@ -1,12 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// 用静态清单而非动态变量端点：Tauri 的 {{target}}/{{arch}} 与 npm 包命名不同，把变量直接拼进包名会得到不存在的包；静态清单让 URL 构造只发生在一处，且三平台行为一致。
-
 const fs = require('node:fs');
 const path = require('node:path');
 
-// 标志缺取值时不能静默收下 undefined：`--entries` 落在末尾会把它塞进 entries，一路传到 fs.existsSync 才抛 ERR_INVALID_ARG_TYPE，崩在离错误很远的地方、看不出是命令行写错。
 function flagValue(argv, i, name) {
   const v = argv[i + 1];
   if (v === undefined || v.startsWith('--')) {
