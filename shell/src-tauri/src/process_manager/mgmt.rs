@@ -158,6 +158,13 @@ async fn handle(
             }
             Ok(reply(StatusCode::OK, "ok"))
         }
+        // 人工重试：退避跳闸后唯一的复位入口（清空记账 + 重新期望运行）。
+        ("POST", "/pm/reset-backoff") => {
+            if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
+                state.reset_backoff(id);
+            }
+            Ok(reply(StatusCode::OK, "ok"))
+        }
         _ => Ok(reply(StatusCode::NOT_FOUND, "not found")),
     }
 }
