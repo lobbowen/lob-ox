@@ -1,11 +1,3 @@
-//! 未支持平台的显式实现：让「不支持」成为编译期存在、运行期可见的事实，绝不静默成功。
-//! 与内核 `platform/os/service.js` 的 `CapabilityError` 同规。
-//!
-//! ⚠ 只在 `not(any(linux, macos, windows))` 下编译 ⇒ 四平台 CI **永不覆盖本文件**。
-//!   故本文件的任何错误都不会在 CI 上暴露，改动后必须人工确认。
-//!
-//! 约束：`impl Platform for Impl` 在本文件内**只能有一段**（重复实现 ⇒ E0119）。
-
 use std::path::{Path, PathBuf};
 
 use super::service::ServiceControl;
@@ -47,7 +39,7 @@ impl Platform for Impl {
     }
 
     fn node_artifact(&self, _version: &str) -> Option<super::NodeArtifact> {
-        // 未知平台：显式返回 None（无可用制品）。探测失败由调用方如实报告，不猜一个。
+        
         None
     }
 
