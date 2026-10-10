@@ -11,8 +11,8 @@ const execPath = require('../../platform/os/exec-path');
 function createLifecycle(deps) {
   const { store, service, logger, events, tokens, tasks, systemdDir, systemdTemplatePath, hooks, instancesRoot, resstats, machineFacts } = deps;
   const isSandboxSupported = deps.isSandboxSupported;
-  // throttle：实例域的启动失败限流参数（按域参数化 { windowMs, burst }）；
-  // 记账原语与主链同为 shared/guardian.bumpStartupFailure，这里只传参数、不复制判定。
+  
+  
   const stateDeps = () => ({ events, logger, save: () => store.save(), tokens, throttle: deps.throttle });
   const runtime = new Map();
   const machineFactsNow = () => (typeof machineFacts === 'function' ? machineFacts() : governor.machineFacts());
@@ -22,7 +22,7 @@ function createLifecycle(deps) {
       fs.mkdirSync(systemdDir, { recursive: true });
       if (fs.existsSync(systemdTemplatePath)) {
         const stamp = Date.now();
-        // 后缀取自单源：模板名 `dsh-web@.service` 属被监管产品（不改），这个标记是**我方**加的。
+        
         let aside = systemdTemplatePath + BRAND.SYSTEMD_TEMPLATE_ASIDE_SUFFIX + stamp;
         let n = 1;
         while (fs.existsSync(aside)) { aside = systemdTemplatePath + BRAND.SYSTEMD_TEMPLATE_ASIDE_SUFFIX + stamp + '-' + (n++); }
@@ -65,7 +65,7 @@ function createLifecycle(deps) {
         logger.warn && logger.warn('[' + inst.id + '] ' + msg);
         return { ok: false, error: msg };
       }
-      // 端口预校验：注册表是跨进程共享事实，配置端口被他人登记即显式 PORT_TAKEN（TCP 探测看不见「已登记未监听」）。
+      
       const takenBy = ports.recordOf(inst.port);
       if (takenBy && takenBy.owner !== 'inst:' + inst.id) {
         const msg = 'PORT_TAKEN:' + (takenBy.owner || takenBy.role);
@@ -75,8 +75,8 @@ function createLifecycle(deps) {
         logger.warn && logger.warn('[' + inst.id + '] ' + msg);
         return { ok: false, error: msg };
       }
-      // 占用守卫只看「端口上有监听者」，不看身份：外来进程蹲着同样会让本实例 bind 失败（H-02）。
-      // 存活（身份匹配）是另一件事，喂相位迁移/资源采样，不喂这里。
+      
+      
       if (probe(inst).portTaken) return { ok: false, error: '端口 ' + inst.port + ' 已被占用' };
       const alloc = governor.currentAllocation(store.instances, inst.id, machineFactsNow());
       inst.state.allocation = alloc;
@@ -97,8 +97,8 @@ function createLifecycle(deps) {
       inst.state.startAt = Date.now();
       inst.state.restartAt = null;
       inst.state.lastError = null;
-      // 显式启动（面板 manual / 版本升级 fromUpgrade）= 新的一条失败链：旧计数作废（同主链 _retryStartupFailure）。
-      // 自动重试走不带 opts 的内部调用，绝不清零，否则限流永远到不了 N 次。
+      
+      
       if (opts && (opts.manual || opts.fromUpgrade)) {
         const hadOldChain = stateMachine.clearStartupFailures(inst);
         if (opts.manual) inst.state.restartCount = 0;
@@ -142,8 +142,8 @@ function createLifecycle(deps) {
     }
     return _systemdStart(inst, opts);
   }
-  // 审计 P0-I5：service.stopUnit 现已为 async（不再用 Atomics.wait 冻结事件循环、并真实 await taskkill），
-  // 故 stop() 改为 async 并 await 其返回，使"停止是否确认"如实到达相位迁移（不再假成功/假失败）。
+  
+  
   async function stop(id) {
     const inst = store.instances.find((i) => i.id === id);
     if (!inst) return { ok: false, error: '实例不存在' };
@@ -161,7 +161,7 @@ function createLifecycle(deps) {
       return { ok: false, error: msg };
     }
     inst.state.phase = 'STOPPED';
-    // 显式停止是人的意图：启动失败链作废，下次 start 是干净的一条链（同主链 stopProcess）。
+    
     stateMachine.clearStartupFailures(inst);
     inst.state.usage = null;
     runtime.delete(inst.id);
@@ -170,8 +170,8 @@ function createLifecycle(deps) {
     if (events) events.append('inst_stopped', { id: inst.id });
     return { ok: true };
   }
-  // 存活判据带实例自己的启动锚点（cmd 入口 + --port）：身份判定吃锚点，不猜产品名（见 monitor.probeInstance）。
-  // 锚点取自 sandbox.launchCtx（与 startTransient/stopUnit 下发的同一份 ⇒ 归属判据与动作同源，不会漂）。
+  
+  
   function probe(inst) {
     return monitor.probeInstance(inst, { anchors: sandbox.launchCtx(instancesRoot, deps.dshBin, inst).anchors });
   }
@@ -222,9 +222,9 @@ function createLifecycle(deps) {
     }
   }
 
-  // 审计 P0-I5：本函数仍保持同步（与上报/登记同拍、可被 setInterval 同步调用）。
-  // 违规处置分支调用的 service.stopUnit 现已为 async，但其返回值此处本就忽略（停后即 restart，结果不判），
-  // 故以 fire-and-forget 调用（内部已 try/catch，不会 reject），不阻塞本拍、也不改既有同步语义。
+  
+  
+  
   function governSweep() {
     const roster = _sandboxRoster();
     if (!roster.length) return { ok: true, entries: 0 };
@@ -263,10 +263,10 @@ function createLifecycle(deps) {
       if (events) events.append('inst_resource_violation', { id: target.id, name: target.name, kind: v.kind, actual: v.actual, target: v.target });
       logger.warn && logger.warn('[' + target.id + '] ' + reason);
 
-      // 能力协商（根因 B）：限额能否真正下发由平台能力决定，不由调用方假定。
-      // portable 的 setLimits 恒 false（无 cgroup 强制）⇒ 若在限制从未生效的前提下重启实例，
-      // 重启后仍是同样未生效的限制 ⇒ 必然再次超限 ⇒ **无限重启循环**（P0）。
-      // 故不支持限额时只观测、只告警，绝不 stop / restart。
+      
+      
+      
+      
       const canLimit = typeof service.supports === 'function' ? service.supports('limits') === true : false;
       if (!canLimit) {
         if (events) events.append('inst_resource_violation_observed', {
@@ -278,8 +278,8 @@ function createLifecycle(deps) {
       }
 
       try {
-        // P0-I5：stopUnit 现为 async，此处返回忽略（fire-and-forget），不停本拍节奏；其内部已 try/catch 不 reject。
-        // 用 Promise.resolve 包裹以兼容同步桩（返回非 Promise 时仍安全链式），绝不对返回值判成功失败。
+        
+        
         const p = service.stopUnit('dsh-web@' + target.id, Object.assign({ timeoutMs: 20000 }, sandbox.launchCtx(instancesRoot, deps.dshBin, target)));
         if (p && typeof p.catch === 'function') p.catch(() => {});
       } catch (e) {
@@ -324,12 +324,12 @@ function createLifecycle(deps) {
           break;
         }
         case 'STARTING': {
-          // STARTING = 启动窗口内（还没监听端口）。窗口内没起来 ⇒ 记一次启动失败；活过窗口 ⇒ RUNNING。
+          
           if (st.running) { stateMachine.setRunning(stateDeps(), inst, st, now); break; }
           if (typeof state.restartAt === 'number') {
             if (now >= state.restartAt) {
-              // 固定端口释放等待到期：立刻再拉起（无阶梯、无等级、无排队）。
-              // 仍走 start()：governor 准入与「缺 DSH 则安装」前置不因重试而旁路（被拒同样记一次启动失败）。
+              
+              
               state.restartAt = null;
               Promise.resolve(start(inst.id)).then((r) => {
                 if (!r || (!r.ok && !r.installing)) {
@@ -339,10 +339,10 @@ function createLifecycle(deps) {
                 stateMachine.restart(stateDeps(), inst, '重试异常:' + ((e && e.message) || ''), { startupFailure: true });
               });
             }
-            break; // 还在等端口释放落点
+            break; 
           }
           if (!state.startAt) {
-            // 老状态文件/异常路径缺起点（没有 restartAt 也没有 startAt）：不空转，下一拍重新拉起。
+            
             state.restartAt = now;
             break;
           }
@@ -355,7 +355,7 @@ function createLifecycle(deps) {
           if (!st.running) {
             runtime.delete(inst.id);
             state.usage = null;
-            // 活过启动窗口后退出 ⇒ 正常重启，不计启动失败、无上限（与主链 exit 记账同款）。
+            
             if (guarded) stateMachine.restart(stateDeps(), inst, '实例进程退出', { startupFailure: false });
             else stateMachine.setStopped(stateDeps(), inst);
           } else if (inst.domain === 'sandbox') {
@@ -365,8 +365,8 @@ function createLifecycle(deps) {
           break;
         }
         case 'FAILED': {
-          // 限流停靠（启动反复失败）或安装失败：停止自动重启，零自愈。
-          // 唯一出口是人工重试：面板 start → startInstance(id, { manual: true }) → _systemdStart 清计数回 STARTING。
+          
+          
           break;
         }
         default: break;
