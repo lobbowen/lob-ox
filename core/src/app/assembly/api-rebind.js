@@ -43,8 +43,8 @@ function _rebindApiHost(host, createServer) {
       });
       server.listen(host.config.apiPort, host.config.apiHost, () => {
         bind._tries = 0;
-        // 真实绑定端口（EADDRINUSE 顺延时 listen 回调的 port 即实际端口）= ports.json 与 CORS 的唯一真相。
-        // 以实际端口登记 sole，杜绝「冻结 config.apiPort ≠ 真实端口」写入 ports.json 的双源发散。
+        
+        
         const bound = server.address();
         const realPort = (bound && Number.isInteger(bound.port)) ? bound.port : host.config.apiPort;
         host.api = server;
@@ -74,7 +74,7 @@ function startApi(host, createServer) {
       host.logger.error('api error: ' + (err ? err.message : String(err)));
     });
     server.listen(port, host.config.apiHost, () => {
-      // 真实绑定端口（顺延时 listen 回调的 port 已为实际端口）= ports.json 与 CORS 的唯一真相。
+      
       const bound = server.address();
       const realPort = (bound && Number.isInteger(bound.port)) ? bound.port : port;
       host.api = server;
