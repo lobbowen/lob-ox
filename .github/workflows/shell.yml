@@ -1,25 +1,12 @@
 name: shell-build
 
-# 公开壳产线（monorepo 版）：本仓 lob-ox = core/（内核）+ shell/（桌面壳）。
-#
-# ── 路径基准三分类（改本文件前先读）──────────────────────────────────────────
-#   ① `run:` 里的相对路径 → 相对 `defaults.run.working-directory`（本文件 = shell），照原样写；
-#   ② action 的 `path:` / `files:`（checkout / upload-artifact / download-artifact / action-gh-release）
-#        → 相对 **workspace 根**，不受 defaults 影响 → 必须显式写 shell/ 前缀；
-#   ③ action 输入与表达式里的仓库路径（rust-cache 的 `workspaces`、`hashFiles()`）、
-#      以及 `$GITHUB_WORKSPACE/...` → 同 ②，必须显式写 shell/ 前缀。
-#   漏改 ② ③ 不会报错，而是**静默找错目录**：upload-artifact 只 warn 后上传 0 个文件、缓存键永远 miss、
-#   验收步骤报「找不到产物」。
 on:
   push:
-    # ⚠ path 过滤对 tag 推送不生效 ⇒ tag 命名空间必须按组件前缀分开（壳 shell-<壳版本> / 内核 core-*）。
-    # 命名空间不带 `v`：`shell-` 之后就是 tauri.conf.json#version 的字面值，可直接对账。
     tags: ['shell-*']
     branches: [main]
     paths:
       - 'shell/**'
       - '.github/workflows/shell.yml'
-  # PR 也必须跑 CI：否则无法把 build 设为 required status check。
   pull_request:
     branches: [main]
     paths:
@@ -32,22 +19,14 @@ on:
         required: false
         default: ''
 
-# 顶层最小权限：monorepo 下壳与内核同处一仓，不写 permissions 时 GITHUB_TOKEN 会拿到仓级默认（常含写权），
-#   壳 CI 的爆炸半径就被放大到 core/**；需要写权的 job 已各自显式声明。
 permissions:
   contents: read
 
-# 所有 run 步骤的基准整体下移一层到 shell/（命令字面量一概不动）。
-# ⚠️ 步骤级 `working-directory:` 是**覆盖值**（相对 workspace 根解析），**不与本默认值拼接**
-#    ⇒ 本文件 6 处 `working-directory:` 写为 `shell/src-tauri`。
 defaults:
   run:
     working-directory: shell
 
-# 平台矩阵：Linux 基座固定 ubuntu-22.04（glibc 2.35）且只出 deb（支持面 = Ubuntu）；
-#   macOS 双架构原生（macos-latest / macos-15-intel）；Windows 主推 NSIS per-user，MSI 备选。
 jobs:
-  # 版本单源 = shell/src-tauri/tauri.conf.json（下游组装/发布共用）。
   version:
     runs-on: ubuntu-latest
     outputs:
@@ -55,24 +34,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 本 job 有两处用 `node -p` 读 tauri.conf.json#version（版本单源，下游 build/install-smoke/publish 全靠它），
-      #   因此不能依赖 runner 镜像预装的 node（版本/存在性不受控）：下面三行与同文件 build job 的既有写法**逐字一致**
-      #   （不自行改版本号、不加 cache），步名亦随原文照抄 —— 本 job 的真实用途是读版本单源，不跑 --node-plan。
       - name: Install Node（--node-plan 冒烟用）
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      # 版本源 = shell/src-tauri/tauri.conf.json#version：本步 cwd=shell/（由 workflow 级 defaults 给定），
-      #   故下面 './src-tauri/tauri.conf.json' 一字不改即指向该文件 —— 它是本工作流发布流程实际消费的单源。
       - name: tag ↔ 组件版本对账（仅 tag；不一致即失败）
         if: github.ref_type == 'tag'
         shell: bash
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          # ⚠ 本步带 -e：`VAR=$(cmd)` 非零会直接终止脚本、::error:: 永不打印
-          #   ⇒ 取值类赋值一律带 `|| { ...exit 1; }` 兜底。
           set -euo pipefail
           TAG="${TAG_NAME:-}"
           [ -n "$TAG" ] || { echo "::error::tag 事件下 github.ref_name 为空，无法完成对账"; exit 1; }
@@ -80,7 +52,6 @@ jobs:
             shell-*) ;;
             *) echo "::error::tag 名 ${TAG} 不带 shell- 前缀（本工作流只认 shell-<壳版本>，见文件头 tags: 段）"; exit 1 ;;
           esac
-          # 刻意不做 `${...#v}` 历史兼容剥离：老形态 tag 应在这里如实判红，不得静默归一后放行。
           VER_TAG="${TAG#shell-}"
           VER_CONF="$(node -p "require('./src-tauri/tauri.conf.json').version")" || {
             echo "::error::读取 src-tauri/tauri.conf.json#version 失败（node -p 非零）；tag=${TAG}，对账无法完成"; exit 1; }
@@ -95,7 +66,6 @@ jobs:
 
       - id: v
         shell: bash
-        # 必须用块标量：行内写法中的 \" 会破坏 $( ) 的引号配对。
         run: |
           ver=$(node -p "require('./src-tauri/tauri.conf.json').version")
           echo "ver=$ver" >> "$GITHUB_OUTPUT"
@@ -112,11 +82,6 @@ jobs:
             artifact: linux-x64
             bundles: deb
             glibc_max: "2.35"
-          # Linux arm64（可选）：矩阵参数进 job 名，开启需同批改分支保护的 required context。
-          # - os: ubuntu-22.04-arm
-          #   artifact: linux-arm64
-          #   bundles: deb
-          #   glibc_max: "2.35"
           - os: windows-latest
             artifact: win-x64
             bundles: nsis,msi
@@ -131,11 +96,7 @@ jobs:
             glibc_max: ""
     runs-on: ${{ matrix.os }}
     steps:
-      # 禁令执行器（见 NO-TESTS.md）：本仓禁止新增测试/门禁/冒烟，唯一判据是构建。
-      #   这不是产品测试，是「禁止再加测试」这条约定的强制检查；命中即红，不得降级为 warning。
       - uses: actions/checkout@v4
-      # 禁令执行器（见 NO-TESTS.md）：本仓禁止新增测试/门禁/冒烟，唯一判据是构建。
-      #   这不是产品测试，是「禁止再加测试」这条约定的强制检查；命中即红，不得降级为 warning。
       - name: 禁令执行器 · 不得新增测试/门禁/冒烟
         shell: bash
         run: |
@@ -168,36 +129,24 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          # ② ③ 类路径：本 key 相对 workspace 根、不吃 defaults ⇒ 必须写 shell/src-tauri
-          #   （写 src-tauri 缓存静默失效，四平台每次都全量重编）。
           workspaces: shell/src-tauri
-          # 缓存键必须区分 runner 镜像：默认键只含 OS，ubuntu-latest(=24.04) 的 target/ 与 -sys 的
-          #   pkg-config 探测结果会被 ubuntu-22.04 复用，导致 gtk 这类 -sys 绑定大量不匹配。
-          # hashFiles() 同样相对 workspace 根 → 必须带 shell/ 前缀。
           key: ${{ matrix.os }}-${{ hashFiles('shell/src-tauri/Cargo.lock') }}
 
       - name: Install Linux system deps (Tauri v2)
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          # runner 自带第三方源（dl.google.com 等）常报 Hash Sum mismatch：删其源文件，只留 Ubuntu 官方源。
           sudo rm -f /etc/apt/sources.list.d/google*.list /etc/apt/sources.list.d/google*.sources 2>/dev/null || true
           sudo apt-get update -y
-          # webkit2gtk-4.1 = Tauri v2 的 Linux webview 依赖（Ubuntu 22.04 提供该 ABI）。
-          # 显式列 GUI 栈 -dev 包：gtk-rs 的 -sys crate 经 pkg-config 探测，缺任一个都会在编译期炸出大量错误。
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev \
             libglib2.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf-2.0-dev \
             libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config
 
-      # 只编译：红灯即「编译不过」。不再跑测试目标（测试已全量拆除，只认编译与产线结果）。
       - name: 编译（--bins）
         shell: bash
         run: |
           set -o pipefail
-          # 编译错误必须**逐条 emit 成 ::error::**：日志下载需额外权限，
-          #   而注解在 Actions UI 上直接可见 ⇒ 红灯不用靠猜。
-          #   ⚠ grep 无匹配返回 1，配合 pipefail 会把「没有错误」判成失败 ⇒ 必须 `|| true`。
           LOG="${RUNNER_TEMP:-/tmp}/cargo-build.log"
           cargo build --bins 2>&1 | tee "$LOG"
           RC=${PIPESTATUS[0]}
@@ -222,11 +171,6 @@ jobs:
           done
         working-directory: shell/src-tauri
 
-      # 用伪内核而非真内核：本步要验的是壳的判据链，只需一个「按实际端口绑定 + 持久化 ports.json +
-      #   回 /healthz 200」的最小 node 进程。状态根隔离到 RUNNER_TEMP。
-      # ★ 语义（唯一权威：仓库根 STANDARDS.md）：--watchdog 是**监控**入口，只观测、不拉起。
-      #   故被管对象由本步自己起（node 直接跑伪内核），--watchdog 只负责回答「此刻是否在服役」。
-      #   断言因此落在观测结论上：在服役时判「在服役」，不在服役时判「不在服役」且**没有**新进程被拉起。
       - name: Linux 监控观测真机冒烟（--watchdog 只观测，不拉起）
         if: runner.os == 'Linux'
         shell: bash
@@ -239,14 +183,11 @@ jobs:
           mkdir -p "$STATE/supervisor" "$PKG/bin"
           printf '{"apiPort":39111}\n' > "$STATE/supervisor/config.json"
           printf '{"name":"lobox-fake","version":"9.9.9"}\n' > "$PKG/package.json"
-          # 夹具随仓携带（ci/fake-core.js）：与本仓其它冒烟共用同一份伪内核。
           cp "$GITHUB_WORKSPACE/shell/ci/fake-core.js" "$PKG/bin/lobox"
           chmod +x "$PKG/bin/lobox"
           export DSH_SUPERVISOR_HOME="$STATE"
-          # 被管对象由本步显式拉起（监控器不代劳）；退出时清干净，避免残留进程干扰后续步骤。
           trap 'pkill -f "$PKG/bin/lobox" 2>/dev/null || true' EXIT
 
-          # ① 未起被管对象 ⇒ 监控必须判「不在服役」，且不得把它拉起来。
           "$BIN" --watchdog
           grep -q '在服役=false' "$STATE/shell/shell.log" \
             || { echo "① 未起被管对象却判为在服役（观测失真）"; cat "$STATE/shell/shell.log"; exit 1; }
@@ -255,7 +196,6 @@ jobs:
           [ ! -f "$STATE/supervisor/ports.json" ] \
             || { echo "① 监控在只观测的一拍里写下了 ports.json（有副作用）"; exit 1; }
 
-          # ② 起被管对象 ⇒ 它自己登记真实端口；监控在同一端口上判「在服役」。
           node "$PKG/bin/lobox" >"$STATE/fake-core.out" 2>&1 &
           FAKE_PID=$!
           for _ in $(seq 1 40); do
@@ -266,14 +206,12 @@ jobs:
             || { echo "② 伪内核未就绪，ports.json 未落盘"; cat "$STATE/fake-core.out"; exit 1; }
           grep -q '"supervisor-api"' "$STATE/supervisor/ports.json" \
             || { echo "② ports.json 缺 supervisor-api 记录"; cat "$STATE/supervisor/ports.json"; exit 1; }
-          # 端口是「接管时探测」来的，不预设：取内核自报的那条，而不是写死 39111。
           PORT="$(node -e 'const j=require(process.argv[1]);const r=(j.records||[]).filter(x=>x.role==="supervisor-api").pop();process.stdout.write(String(r.port))' "$STATE/supervisor/ports.json")"
           [ -n "$PORT" ] || { echo "② 读不到受管对象自报端口"; exit 1; }
           "$BIN" --watchdog
           tail -n 5 "$STATE/shell/shell.log" | grep -q "在服役=true" \
             || { echo "② 已起被管对象却判为不在服役（端口=$PORT）"; cat "$STATE/shell/shell.log"; exit 1; }
 
-          # ③ 幂等：连续两拍观测不得产生副作用（不重复拉起、不重复写日志判定行之外的东西）。
           BEFORE="$(wc -l < "$STATE/shell/shell.log")"
           "$BIN" --watchdog
           AFTER="$(wc -l < "$STATE/shell/shell.log")"
@@ -284,9 +222,6 @@ jobs:
           echo "Linux 监控冒烟通过：未起则判不在服役且不拉起 → 已起则按实际端口判在服役 → 连续观测无副作用"
         working-directory: shell/src-tauri
 
-      # ★ 语义（唯一权威：STANDARDS.md）：服务管理器是**产品自身的监控器**，与 OS 无关。
-      #   故本步验的是「登记表落在产品状态根下 + 内容是稳定入口 + 无 OS 机制痕迹」，
-      #   不再建立计划任务、不再有「用系统通道投递」这个选项。
       - name: Windows 监控登记真机冒烟（--service-plan --service-apply）
         if: runner.os == 'Windows'
         shell: bash
@@ -296,7 +231,6 @@ jobs:
           STATE="$RUNNER_TEMP/windows-monitor-state"
           rm -rf "$STATE"; mkdir -p "$STATE"
           export DSH_SUPERVISOR_HOME="$STATE"
-          # 登记表本身不引用 DSH_GUARD_BIN，给一个存在的占位文件即可。
           GUARD="$STATE/fake-guard.js"; : > "$GUARD"; export DSH_GUARD_BIN="$GUARD"
           if ! OUT=$("$BIN" --service-plan --service-apply 2>&1); then
             printf '%s\n' "$OUT" | tee "${RUNNER_TEMP:-/tmp}/cargo-smoke.log"
@@ -304,17 +238,13 @@ jobs:
           fi
           printf '%s\n' "$OUT" | tee "${RUNNER_TEMP:-/tmp}/cargo-smoke.log" >/dev/null
           grep -q '^建立后现存    = 是' <<<"$OUT" || { echo "登记表写入后回读为「否」"; exit 1; }
-          # 注册表必须落在**产品状态根**下，而不是任何 OS 服务目录。
           REG="$STATE/shell/monitor.json"
           [ -f "$REG" ] || { echo "登记表未落在产品状态根下: $REG"; exit 1; }
-          # 登记表是 JSON：命令里的引号被转义成 \" ⇒ 按 JSON 转义形态匹配（写裸引号必假红）。
           grep -q 'lobox-shell.exe\\" --run-guard' "$REG" \
             || { echo "登记表里没有稳定入口（壳 + --run-guard）"; cat "$REG"; exit 1; }
-          # 只观测那条「将写入的定义」行：verbatim 前缀只可能出现在这一行上，扫全文必假阳。
           if grep -E '^(建立结果|将写入的定义)' <<<"$OUT" | grep -q '\\\\?'; then
             echo "登记表含 verbatim 前缀（外部工具不接受）"; exit 1
           fi
-          # 服务管理器产物不得引用任何 OS 服务机制。
           for bad in schtasks 'CurrentVersion\\Run' systemctl launchctl LaunchAgents; do
             grep -qi "$bad" "$REG" && { echo "登记表出现 OS 服务机制（$bad）"; cat "$REG"; exit 1; }
           done
@@ -331,10 +261,8 @@ jobs:
       - name: Build + bundle (Tauri)
         shell: bash
         env:
-          # 签名密钥：tag 发布必须签名（Tauri updater 强制验签，不可关闭）；未配置时为空 ⇒ 仅构建不产 .sig。
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # CLI 版本钉死：不钉的话三条腿各取当天的最新 2.x，同一 commit 的三平台产物可能出自不同 CLI。
           TAURI_CLI_VERSION: 2.11.5
         run: |
           UPDATER_OFF=""
@@ -344,10 +272,7 @@ jobs:
               exit 1
             fi
             echo "::warning::TAURI_SIGNING_PRIVATE_KEY 未配置 —— 不生成 .sig，产物不可用于自动更新（非 tag 构建不阻断）"
-            # ⚠ 必须 unset：secret 未配置时这里展开成空字符串，而 Tauri v2 CLI 把「传了但为空」判为
-            #   一把非法私钥直接失败 —— 只在 echo 层面承诺「不阻断」并不成立。
             unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-            # 还必须关掉 updater 产物：配置里已内置 pubkey，Tauri 见「有公钥无私钥」即失败。
             printf '%s' '{"bundle":{"createUpdaterArtifacts":false}}' > "${RUNNER_TEMP}/updater-off.json"
             UPDATER_OFF="--config ${RUNNER_TEMP}/updater-off.json"
           fi
@@ -361,8 +286,6 @@ jobs:
           test -f "$BIN" || { echo "找不到产物 $BIN"; exit 1; }
           bash ci/check-glibc.sh "$BIN" "${{ matrix.glibc_max }}"
 
-      # 缺 .sig 的判罚按场景分：tag 发布必须成对（缺则早失败，绝不静默发布）；非 tag 构建只是验证产线。
-      # monorepo：本步 cwd = shell/ ⇒ 产物落在 shell/dist/npm-shell。
       - name: 组装 npm 包（更新产物 + 签名）
         shell: bash
         run: |
@@ -373,8 +296,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          # ⚠️ `path:` 相对 **workspace 根**，不吃 `defaults.run.working-directory` → 每条都要带 shell/ 前缀。
-          #   漏了不报错：if-no-files-found: warn 会静默上传 0 个文件，直到 install-smoke 才红。
           path: |
             shell/src-tauri/target/release/bundle/deb/*.deb
             shell/src-tauri/target/release/bundle/dmg/*.dmg
@@ -389,7 +310,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/shell-')
         with:
-          # ② 类路径：action 的文件匹配相对 workspace 根、不受 defaults 影响 → 必须逐条带 shell/ 前缀。
           files: |
             shell/src-tauri/target/release/bundle/deb/*.deb
             shell/src-tauri/target/release/bundle/dmg/*.dmg
@@ -399,10 +319,7 @@ jobs:
             shell/src-tauri/target/release/bundle/**/*.sig
           generate_release_notes: true
 
-  # 必须独立成 job：上面所有冒烟跑的都是 ./target/debug 产物，证明不了「用户装完之后能不能起来」。
-  # A = 上一个已发布版本（内容必须与本次 HEAD 不同），B = 本次构建产物；先装 A 再覆盖装 B 即升级路径。
   publish:
-    # 装不上的安装包发出去 = 用户升级到坏版本的唯一来源 ⇒ 发布前必须先过安装冒烟。
     needs: [version, build]
     if: startsWith(github.ref, 'refs/tags/shell-')
     runs-on: ubuntu-latest
@@ -420,15 +337,12 @@ jobs:
       - name: 下载全部平台产物
         uses: actions/download-artifact@v4
         with:
-          # ⚠️ ② 类路径，必改：action 相对 workspace 根，而下一步（cwd=shell）遍历 shell/dist/artifacts/*
-          #   —— 不带前缀会下载到 <根>/dist/artifacts 而遍历 <根>/shell/dist/artifacts，归拢结果静默为空。
           path: shell/dist/artifacts
 
       - name: 归拢 npm 包目录
         shell: bash
         run: |
           mkdir -p dist/npm-shell
-          # upload-artifact 保留上传时的相对路径：上传 dist/npm-shell/** 后落在 <artifact>/dist/npm-shell/**。
           for d in dist/artifacts/*/; do
             for cand in "$d/dist/npm-shell" "$d/npm-shell"; do
               [ -d "$cand" ] && cp -r "$cand/." dist/npm-shell/
@@ -471,8 +385,6 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -e
-          # dist-tag 选档是结构性判断（版本串含 `-` 即预发布 ⇒ 绝不挂 latest）：逐档枚举会在每个新后缀上
-          #   漏一次，后果是「测试版占据 latest」这一默认安装面的污染。npm publish 只接受一个 --tag。
           VER="${{ needs.version.outputs.ver }}"
           TAG=""
           RC_ALIAS=0
