@@ -1,7 +1,3 @@
-//! macOS 平台实现（平台知识集中于此）。
-//! 服务管理由产品自身的监控器承担（见 `super::service`）：本文件**不调用** launchd / launchctl
-//! —— 操作系统服务机制与本产品无关，也不存在「用系统通道投递」的选项。
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -48,7 +44,7 @@ impl Platform for Impl {
     }
 
     fn node_artifact(&self, version: &str) -> Option<super::NodeArtifact> {
-                // 用户级安装：官方 tarball 双架构齐全（osx-x64-tar / osx-arm64-tar），零权限。官方没有 osx-arm64-pkg 且 .pkg 需系统授权，故用 tar 归档而非 pkg。
+                
         let arch = match std::env::consts::ARCH {
             "x86_64" => "x64",
             "aarch64" => "arm64",
@@ -139,13 +135,13 @@ impl ServiceControl for Impl {
         "process"
     }
 
-    /// 监控器登记表落点（产品状态根下）。**不是** LaunchAgents 下的任何 plist。
+    
     fn definition_path(&self) -> PathBuf {
         crate::platform::monitor_registry_path()
     }
 
-    /// 登记受管对象（幂等，且内容过时时自愈）：登记的是「产品自己在管谁」，
-    /// 不含任何 OS 投递语义 —— 没有 bootstrap、没有 kickstart、没有 RunAtLoad/KeepAlive。
+    
+    
     fn ensure_defined(&self, spec: &LaunchSpec) -> Result<String, String> {
         let path = self.definition_path();
         let (shell, args) = spec.service_command();
@@ -172,7 +168,7 @@ impl ServiceControl for Impl {
         ))
     }
 
-    /// 启动受管对象：产品自己拉起进程（`--run-guard` 稳定入口），不向 launchd 投递。
+    
     fn start(&self) -> Result<(), String> {
         let mut cmd = Command::new(crate::platform::self_exe()?);
         cmd.arg("--run-guard");
@@ -183,7 +179,7 @@ impl ServiceControl for Impl {
             .map(|_| ())
     }
 
-    /// 停止受管对象：产品自己的进程管理，绝不调用 launchctl bootout。
+    
     fn stop(&self) -> Result<(), String> {
         crate::platform::kill_managed_processes()
     }
