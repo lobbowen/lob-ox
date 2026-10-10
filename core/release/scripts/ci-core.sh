@@ -5,7 +5,7 @@ cd "$ROOT"
 
 PUBLISH=0
 PUBLISH_ONLY=0
-while [ $
+while [ $# -gt 0 ]; do
   case "$1" in
     --publish) PUBLISH=1 ;;
     --publish-only) PUBLISH=1; PUBLISH_ONLY=1 ;;
