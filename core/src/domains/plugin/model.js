@@ -25,7 +25,6 @@ function planJobCleanup(ids, max = MAX_JOBS) {
   return ids.slice(0, ids.length - max);
 }
 
-// W3：转调 shared 单源（原名 taskStateToJobState 保留为别名，调用方 jobs.js 不变）。
 const { taskStateToView } = require('../../shared/task-state');
 const taskStateToJobState = taskStateToView;
 
