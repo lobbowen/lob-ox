@@ -1,7 +1,5 @@
 'use strict';
 
-// launchctl enable/disable 会持久化进 launchd 覆盖库（这才是关自启真正生效的机制；删 plist 会被壳重建）；守卫 plist 归属见 autostart/index.js。
-
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -10,7 +8,6 @@ const { writeAtomic } = require('../../util/fs');
 const { shellDir } = require('../../service/state-root');
 const BRAND = require('../../../shared/brand');
 
-// 两个 label 都从 identifier 派生（brand.js#macosGuardLabel/macosGuiLabel）：本文件不得再出现反向域名字面量。
 const GUARD_LABEL = BRAND.macosGuardLabel();
 const GUI_LABEL = BRAND.macosGuiLabel();
 const MAC_T = 8000;
