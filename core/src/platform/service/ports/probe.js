@@ -14,7 +14,6 @@ function loopbackListening(port) {
   ]).then(([v4, v6]) => v4 || v6);
 }
 
-// 除 127.0.0.1/::1 外必须再试 ::（Linux 非 V6ONLY 的 any 绑定会同时占住 v4），任何 bind 错误即不可分配；剩余 TOCTOU 由 alloc 复检层兜。
 function bindable(port) {
   const p = Number(port);
   const bindProbe = (host) => new Promise((resolve) => {
@@ -36,7 +35,6 @@ function listeningPid(port) {
   try { return pidlookup.findListeningPid(port); } catch { return null; }
 }
 
-// fail-closed：cmdMark 与 cfgStr 皆必填；cfgStr 缺省会让过滤整条失效 = 匹配全部同名脚本进程（会误杀他人 daemon）。
 function reclaimByCmdMark(cmdMark, cfgStr) {
   if (!cmdMark || !cfgStr) return 0;
   let killed = 0;
