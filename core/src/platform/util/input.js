@@ -2,12 +2,10 @@
 
 const PKG_NAME_RE = /^(@[a-zA-Z0-9._-]+\/)?[a-zA-Z0-9._-]+$/;
 
-// argv 禁用字符集 = 空白 + shell 元字符/引号/控制符，命中即拒；win32 盘符绝对路径是唯一例外。
 const ARGV_UNSAFE_RE = /[\s;|&<>`'"$(){}\\*?~#]/;
 
 const WIN_ABS_PATH_RE = /^[A-Za-z]:\\[^;|&<>`'"$*?~#\s]*$/;
 
-// systemd 单元名（含 `dsh-web@inst-1` 实例形）：字母数字 + `:` `-` `_` `.` `@`，1..128。
 const UNIT_NAME_RE = /^[A-Za-z0-9:@._-]{1,128}$/;
 
 const UNSAFE_LEDGER_KEYS = ['__proto__', 'prototype', 'constructor'];
