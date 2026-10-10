@@ -97,6 +97,4 @@ impl PortAuthority {
             eprintln!("[pm] 端口账本提交失败: {e}");
         }
     }
-        serde_json::json!({ "schema": "port-authority@1", "records": self.records.values().map(|r| serde_json::json!({"port": r.port, "role": r.role, "owner": r.owner})).collect::<Vec<_>>() })
-    }
 }
