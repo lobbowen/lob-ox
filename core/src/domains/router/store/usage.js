@@ -98,16 +98,7 @@ class UsageLedger {
     this._writeTotals();
   }
 
-  /**
-   * 根因 E：缓存**新鲜度**与**可写性**两维度正交，不得耦合。
-   *
-   * 修前：`if (this.totals && this._canPersist()) return this.totals;`
-   * —— 闸门关闭（daemon 模式下 setPersistEnabled(false)）时该条件恒假 ⇒ 每次 recordUsage
-   * 都重新读盘，而 _writeTotals 又因闸门关闭直接 return ⇒ 磁盘不变、内存增量被下次 load 覆盖
-   * ⇒ **用量计数被永久吞掉**。
-   *
-   * 现在：load 只看内存缓存是否存在（新鲜度）；是否落盘由 _writeTotals 单独决定（可写性）。
-   */
+  
   load() {
     if (this.totals) return this.totals;
     let t;
