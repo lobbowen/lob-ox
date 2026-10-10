@@ -40,7 +40,7 @@ module.exports = {
     return native.nativeCommand(d.config(), d.pluginManager());
   },
 
-  // 启动窗口（毫秒）：唯一的时间常量，spawn 时落成 startDeadline，窗口内退出即「启动失败」。
+  
   startWindowMs() {
     const d = depsOf(this);
     const secs = Number(d.config().startsecs);
@@ -77,7 +77,7 @@ module.exports = {
     d.mSetChild(child);
     d.mSetAdopted(false);
     d.mSetAdoptPid(null);
-    // 计数不在此清零：窗口内连续失败要靠它累计（清零点只有「进入 RUNNING / 接管 / 人工重试 / 显式停止」）。
+    
     d.state().setPhase('STARTING');
     d.mSetStartDeadline(Date.now() + d.main().startWindowMs());
     const sanitizeToken = (l) => String(l).replace(/([?&]token=)[A-Za-z0-9_-]+/g, '$1***');
@@ -119,13 +119,13 @@ module.exports = {
       errBuf.flush();
       if (d.mChild() !== child) return;
       d.events().append(BRAND.EVENT_HARNESS_EXITED, { code, signal, phase: d.state().phase() });
-      // 机箱 last-will：退出码/信号单向上报底座（引导页「为何崩」的真相源在壳，不上报即无据）。
+      
       pmClient.recordExit('main', code, signal, d.state().phase() === 'STARTING');
       d.mSetChild(null);
       if (d.stopping()) return;
       if (d.state().desired() !== 'running') return;
       const phase = d.state().phase();
-      // 已经判定重启（等端口释放落点），同一退出不重复记账；否则「杀一次记两次」。
+      
       if (phase === 'STARTING' && d.mStartDeadline() === null) return;
       if (phase === 'RUNNING' || phase === 'STARTING') {
         const why = code !== null ? String(code) : 'sig' + signal;
@@ -151,7 +151,7 @@ module.exports = {
     d.state().setPhase('RUNNING');
     d.mSetAdopted(false);
     if (!wasRunning) {
-      // 启动成功：本次限流窗口作废（启动成功即清零，失败链只统计「从未起来」的那串）。
+      
       d.mSetStartupFailWindowStart(null);
       d.mSetStartupFailCount(0);
       const pid = d.mChild() ? d.mChild().pid : null;
@@ -213,8 +213,8 @@ module.exports = {
     d.state().write();
   },
 
-  // 重启：活过 startsecs 后退出（或人工重启）⇒ 正常重启，不记启动失败；窗口内退出 ⇒ 记一次启动失败并由限流裁决。
-  // 相位只有 STARTING / RUNNING / FAILED：重启=回到 STARTING（下一次 spawn 会开新的 startsecs 窗口）。
+  
+  
   _beginRestart(reason, opts) {
     const d = depsOf(this);
     const manual = !!(opts && opts.manual);
@@ -230,7 +230,7 @@ module.exports = {
     if (!manual) d.mSetRestartCount(d.mRestartCount() + 1);
     const throttle = startupFailure ? d.main().noteStartupFailure() : null;
     if (throttle && throttle.failed) {
-      // 限流到点：不排下一轮，停在 FAILED 等人工重试。
+      
       d.mSetRestartAt(null);
     } else {
       d.state().setPhase('STARTING');
@@ -255,7 +255,7 @@ module.exports = {
     d.mSetChild(null);
     d.mSetAdopted(false);
     d.mSetAdoptPid(null);
-    // 显式停止是人的意图：计数作废，下次 start 是干净的一条链。
+    
     d.mSetStartupFailWindowStart(null);
     d.mSetStartupFailCount(0);
     try {
