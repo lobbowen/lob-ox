@@ -212,8 +212,7 @@ export const supervisorApi = {
   guardVersion: () => get<GuardVersion>("/guard/version"),
   guardVersionCheck: () => post<GuardVersion & { ok?: boolean }>("/guard/version/check"),
   shellStatus: () => get<ShellStatus>("/shell/status"),
-  shellCheckUpdate: () => post<ShellUpdateCheck>("/shell/check-update")
-  
+  shellCheckUpdate: () => post<ShellUpdateCheck>("/shell/check-update"),
   dshChangelog: () => getText("/changelog"),
   
   guardChangelog: () => getText("/guard/changelog"),
