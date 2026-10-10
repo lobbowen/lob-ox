@@ -1,4 +1,3 @@
-/** 后端时间形态：ISO 字符串 / 毫秒时间戳 / Date。 */
 const pad = (n: number) => String(n).padStart(2, "0");
 
 function toDate(v: string | number | Date | null | undefined): Date | null {
