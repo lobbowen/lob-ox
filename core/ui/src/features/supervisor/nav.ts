@@ -51,7 +51,6 @@ export const TASK_STATE_META: Record<string, { label: string; tone: Tone }> = {
   canceled: { label: "已取消", tone: "off" },
 };
 
-/** 绝不对外暴露内部码 */
 const FAILURE_META: Record<string, string> = {
   manual: "手动重启", start_timeout: "启动超时", child_exit: "进程退出", adopted_exit: "实例退出",
   main_down: "原生实例未运行", systemd_start_failed: "启动失败", spawn_error: "启动失败",
