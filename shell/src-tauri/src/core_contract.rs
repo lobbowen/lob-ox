@@ -1,5 +1,3 @@
-//! 内核位置契约（core.json，schema 1）：壳写、双方读，已装内核位置的单一事实源。locate_core 只能按 PATH + 少数固定目录猜（nvm/volta/fnm 或自定义 prefix 下会猜错），故壳安装/升级成功后写确切 bin/prefix/version/source，locate_core 先读契约、读不到才退回启发式。不变量：只有壳写（内核只读）；原子写；版本须与写入时线上最新一致。
-
 use std::path::PathBuf;
 
 pub const SCHEMA: u32 = 1;
@@ -21,7 +19,7 @@ pub fn write(c: &InstalledCore) {
     let _ = std::fs::create_dir_all(&dir);
     let meta = serde_json::json!({
         "schema": SCHEMA,
-        // 署名 = 单源 `GUI_BIN_NAME` + 壳版本；壳四处契约必须同形（J-10 对账）。
+        
         "writtenBy": format!("{}@{}", crate::brand::GUI_BIN_NAME, env!("CARGO_PKG_VERSION")),
         "bin": c.bin.display().to_string(),
         "prefix": c.prefix.as_ref().map(|p| p.display().to_string()),
@@ -39,8 +37,6 @@ pub fn write(c: &InstalledCore) {
     }
 }
 
-/// 私有 Node 迁到全局后，**位置契约必须跟着改**：core.json 若仍指向已搬走的私有路径，
-/// 守卫就找不到内核入口（这正是"迁移后起不来"的形态）。只重写落在旧前缀下的条目。
 pub fn retarget_prefix(from: &std::path::Path, to: &std::path::Path) -> bool {
     let Some(cur) = read() else { return false; };
     let cur_txt = cur.bin.to_string_lossy().to_string();
