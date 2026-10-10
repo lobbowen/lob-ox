@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Node（--node-plan 冒烟用）
+      - name: Install Node
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -136,7 +136,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Node（--node-plan 冒烟用）
+      - name: Install Node
         uses: actions/setup-node@v4
         with:
           node-version: '22'
