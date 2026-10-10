@@ -1,4 +1,3 @@
-//! 桌面壳环境观测报告的写入侧：壳写、内核读，落点 `<状态根>/supervisor/shell-report.json`；与 `runtime_contract.rs` 分权 —— 那一份是内核拿去 spawn 的**启动契约**，这一份只给人和判据读、永不参与 spawn。本文件只做投影与投放：一个探针都不新造，字段形态一律复用 `domain::probes` 的记录。
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -6,7 +5,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::domain::probes::{Probe, Record, Snapshot};
 use crate::nodeprobe::Outcome;
 
-/// 与内核 `src/platform/contract/shell-report.js` 的 `SUPPORTED_SCHEMA` 握手：不等即整份作废 —— 字段形状变了，内核不能靠猜。
 pub const SCHEMA: u32 = 1;
 
 pub const FILE_NAME: &str = "shell-report.json";
@@ -17,7 +15,6 @@ pub fn file() -> PathBuf {
     crate::env::supervisor_dir().join(FILE_NAME)
 }
 
-/// 投放时刻用**毫秒**：内核按 `Date.now() - at` 算年龄，写成秒会把它算成近乎为零的假新鲜。
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -25,7 +22,6 @@ fn now_millis() -> u64 {
         .unwrap_or(0)
 }
 
-/// Node 维：路径与版本来自 `nodeprobe` 的有界探测，达标判定复用 `node::meets_minimum`。本轮没探到版本即整个视图缺席 —— 「壳没看到」与「壳看到不达标」是两件事。
 fn node_view(out: &Outcome) -> Option<serde_json::Value> {
     let version = out.version.as_ref()?;
     Some(serde_json::json!({
@@ -80,7 +76,7 @@ fn records(out: &Outcome, deps: &Snapshot) -> Vec<serde_json::Value> {
 pub fn payload(out: &Outcome, deps: &Snapshot) -> serde_json::Value {
     serde_json::json!({
         "schema": SCHEMA,
-        // 署名 = 单源 `GUI_BIN_NAME` + 壳版本；壳四处契约必须同形（J-10 对账）。
+        
         "writtenBy": format!("{}@{}", crate::brand::GUI_BIN_NAME, env!("CARGO_PKG_VERSION")),
         "node": node_view(out),
         "npm": npm_view(deps),
@@ -163,7 +159,7 @@ mod tests {
         Snapshot { records: vec![prefix], npm: NpmFact { node_seen: usable.is_some(), usable, why } }
     }
 
-        /// 载荷字段名就是跨仓契约：改名等于让内核整份读不出（它只按这些键投影）。
+        
     #[test]
     fn payload_carries_the_contract_keys() {
         let u = NpmUsable { path: PathBuf::from("/opt/node/bin/npm"), args: vec![], version: "10.9.2".into() };
