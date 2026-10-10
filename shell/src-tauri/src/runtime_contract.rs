@@ -1,5 +1,3 @@
-//! 运行期启动契约（Runtime Launch Contract）- 壳写、内核读（schema 2）：「Node 在每个运行时用哪一个」的单一事实源。所有权在壳（装壳时机器上没有内核，壳必须先解析环境）；本文件是壳侧唯一读写入口，并保留内核 env-catalog 已读的旧键（nodePath/nodeVersion/minNode）。
-
 use std::path::{Path, PathBuf};
 
 pub const SCHEMA: u32 = 2;
@@ -9,10 +7,10 @@ pub struct NodeRuntime {
     pub node: PathBuf,
     pub node_bin_dir: PathBuf,
     pub npm: PathBuf,
-        /// npm 的前置参数：npm 仅有包内 JS（`node_modules/npm/bin/npm-cli.js`）时，`npm`=node、`npm_prefix`=[npm-cli.js]；常规 npm 垫片时为空。消费者必须带上 args。
+        
     pub npm_prefix: Vec<String>,
     pub version: String,
-        /// `None` = 本轮只解析了路径、没执行过 npm（见 `derive`）—— 不得用空串冒充「已知版本」，否则下游（面板播报、install_done）会把「未知」显示成一个可念出去的版本号；缺失时如实说「未回读」，**绝不**回落到 Node 版本。
+        
     pub npm_version: Option<String>,
 }
 
@@ -26,7 +24,6 @@ pub fn path() -> PathBuf {
     crate::env::supervisor_dir().join("runtime.json")
 }
 
-/// npm 的候选**垫片**路径（按优先级），与 `probe_npm` 共用：去重按「已出现即跳过」而非 `Vec::dedup()`（`dedup()` 只消相邻重复，会让同一条路径在文案里出现两次）。
 pub fn npm_shim_candidates(bin_dir: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = Vec::new();
     for name in [
@@ -51,7 +48,6 @@ pub fn npm_cli_js(bin_dir: &Path) -> PathBuf {
         .join("npm-cli.js")
 }
 
-/// 解析 npm 可执行（工具链契约的一部分）。返回 (program, prefix_args)：program 可直接 spawn；npm 仅有包内 JS（或垫片在本平台根本拉不起来）时 program=node、prefix=[npm-cli.js]；找不到返回 None，绝不伪造路径。给出的 program 会被 Command::new 直接执行，故必须过 is_directly_spawnable（Windows CreateProcessW 不认 .cmd/.bat/sh）。
 pub fn probe_npm(node: &Path, bin_dir: &Path) -> Option<(PathBuf, Vec<String>)> {
     let plat = crate::platform::current();
     for p in npm_shim_candidates(bin_dir) {
@@ -71,7 +67,6 @@ pub fn npm_unspawnable_hint() -> &'static str {
      需随 Node 一起提供 node_modules/npm/bin/npm-cli.js"
 }
 
-/// 由 Node 路径 + 版本推导 npm 路径与 bin 目录（npm 与 node 同目录）。npm 缺失返回 None（环境不就绪，由壳安装/修复，绝不伪造）。只做路径解析、不执行 npm：本函数服务启动路径（ensure），在那里执行外部进程一旦挂住就是不可恢复的停顿；代价是 npm_version 只能留 None。
 pub fn derive(node: &Path, version: &str) -> Option<NodeRuntime> {
     let node_bin_dir = node.parent()?.to_path_buf();
     let (npm, npm_prefix) = probe_npm(node, &node_bin_dir)?;
@@ -113,7 +108,6 @@ pub struct NpmUsable {
     pub version: String,
 }
 
-/// 解析并真实执行 npm（--version）- 「文件存在」不等于「可用」。不变量：npmOk 只有在本函数返回 Ok 时才可为 true；否则 0 字节/损坏/被拦截的 npm 会让「环境已就绪」成为假象。失败必须带出原因：归档解残缺、垫片拉不起来、npm 执行报错三类处置完全不同。
 pub fn probe_npm_usable(node: &Path, bin_dir: &Path) -> Result<NpmUsable, String> {
     let (path, args) = match probe_npm(node, bin_dir) {
         Some(x) => x,
@@ -126,7 +120,6 @@ pub fn probe_npm_usable(node: &Path, bin_dir: &Path) -> Result<NpmUsable, String
 
 const NPM_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 
-/// 执行 `<prog> <args…> <tail…>` 并取首个非空行（npm 在 Windows 可能先吐空行）；失败原因如实返回。关键不变量：探针与消费者必须是同一条 spawn 路径 —— 探针经 `cmd /C` 包装、消费者直接拉起同一个 .cmd 会形成「探针能跑、真装必挂」的不对称；平台知识已由 Platform::is_directly_spawnable 收口，本函数无平台分支。
 pub fn run_npm_line(prog: &Path, args: &[String], tail: &[&str]) -> Result<String, String> {
     let mut cmd = std::process::Command::new(prog);
     cmd.args(args).args(tail);
@@ -159,21 +152,20 @@ pub fn derive_usable(node: &Path, version: &str) -> Option<NodeRuntime> {
     usable_runtime(node, version, &u)
 }
 
-/// 契约的 JSON 形态。写与读共用这一处键映射：两处各列一遍键名，加字段时必然漏一侧，就会出现「写了 npmArgs、读回只看 npm」那类不对称。
 fn meta(rt: &NodeRuntime) -> serde_json::Value {
     let node_s = rt.node.display().to_string();
     let bin_s = rt.node_bin_dir.display().to_string();
     let npm_s = rt.npm.display().to_string();
     serde_json::json!({
         "schema": SCHEMA,
-        // 署名 = 单源 `GUI_BIN_NAME` + 壳版本；壳四处契约必须同形（J-10 对账）。
+        
         "writtenBy": format!("{}@{}", crate::brand::GUI_BIN_NAME, env!("CARGO_PKG_VERSION")),
         "nodeBinDir": bin_s,
         "npmPath": npm_s,
         "npmArgs": rt.npm_prefix,
         "node": { "path": node_s, "binDir": bin_s, "version": rt.version },
         "npm": { "path": npm_s, "args": rt.npm_prefix, "version": rt.npm_version },
-                // 旧键（内核 env-catalog 已在读；不得删除）
+                
         "nodePath": node_s,
         "nodeVersion": rt.version,
         "minNode": crate::node::MIN_NODE,
@@ -216,8 +208,6 @@ fn from_meta(v: &serde_json::Value) -> Option<NodeRuntime> {
     })
 }
 
-/// 私有 Node 迁到全局后，运行时契约的路径也必须改写（node / binDir / npm / npmArgs）。
-/// 不改写 ⇒ ensure() 判定 is_file 失败 ⇒ 守卫拉不起来。
 pub fn retarget_prefix(from: &Path, to: &Path) -> bool {
     let Some(cur) = read_node() else { return false; };
     let from_txt = from.to_string_lossy().to_string();
@@ -255,7 +245,6 @@ pub fn retarget_prefix(from: &Path, to: &Path) -> bool {
     true
 }
 
-/// 原子写契约（tmp + rename）。保留旧键供内核兼容读取。权限：契约只有路径、无机密，且所在目录已 0700 —— 顶层模块因此不做平台权限分支。
 pub fn write(rt: &NodeRuntime) {
     let dir = crate::env::supervisor_dir();
     let _ = std::fs::create_dir_all(&dir);
@@ -275,7 +264,6 @@ pub fn read_node() -> Option<NodeRuntime> {
     from_meta(&v)
 }
 
-/// 确保契约存在且指向**可执行**的 Node：先读；缺失/失效则经 nodeprobe 解析并写入。返回 `None` = 本机 Node 未就绪 —— 调用方如实报错，绝不猜路径（契约的意义就在于此）。
 pub fn ensure() -> Option<NodeRuntime> {
     if let Some(rt) = read_node() {
         if rt.node.is_file() && rt.npm.is_file() {
@@ -288,7 +276,6 @@ pub fn ensure() -> Option<NodeRuntime> {
     Some(rt)
 }
 
-/// 由 Node 目录 + 家族固定落点 + ambient PATH 组装 PATH（nodeBinDir **必在首位**）。为什么把 ~/.npm-global/bin 与 ~/.local/bin 显式加入：内核 spawn 的 `dsh` 与内核自身的 shim 常在其一；GUI 启动的壳 ambient PATH 可能不含它们。
 pub fn env_path(node_bin_dir: &Path) -> String {
     let mut dirs: Vec<PathBuf> = vec![node_bin_dir.to_path_buf()];
     let h = crate::env::home();
@@ -357,7 +344,7 @@ mod toolchain_tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
-        /// 契约的硬不变量：`probe_npm` 给出的程序**永远**能被 `Command::new` 直接拉起。三种布局（只垫片 / 垫片+包内 JS / 只包内 JS）逐一过一遍判据。node 夹具用本平台真实文件名：以 node 承载 npm-cli.js 时那个 node 路径会被交出去，裸 `node` 在 Windows 上不是生产形态的名字。
+        
     #[test]
     fn probe_npm_result_is_always_directly_spawnable() {
         let layouts = ["shim", "shim+cli", "cli"];
