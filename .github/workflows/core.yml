@@ -57,13 +57,14 @@ jobs:
       DSH_ARCH_OVERRIDE: ${{ matrix.arch_override }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - name: 禁令执行器 · 不得新增测试/门禁/冒烟
+      - name: 唯一门禁 · 禁测试门禁冒烟 + 禁代码注释
         shell: bash
         run: |
           set -u
           cd "$GITHUB_WORKSPACE" || exit 1
           V=""
           hit() { V="$V\n  - $1"; }
+
           [ -d core/test ] && hit "core/test/ 目录存在（测试资产已全量拆除）"
           [ -d shell/src-tauri/tests ] && hit "shell/src-tauri/tests/ 目录存在"
           while IFS= read -r f; do hit "测试文件: $f"; done < <(find . -name "*-test.js" -not -path "./node_modules/*" 2>/dev/null)
@@ -72,12 +73,29 @@ jobs:
           while IFS= read -r f; do
             if grep -qE "cargo[ ]test|npm[ ](run )?test" "$f" 2>/dev/null; then hit "workflow 含测试步骤: $f"; fi
           done < <(find .github/workflows -type f 2>/dev/null)
+
+          CNT=0
+          while IFS= read -r f; do
+            LN=0
+            while IFS= read -r line; do
+              LN=$((LN+1))
+              t=$(printf "%s" "$line" | sed "s/^[[:space:]]*//")
+              case "$t" in
+                "") continue ;;
+                "//"*|"/*"*) hit "注释 $f:$LN"; CNT=$((CNT+1)) ;;
+                "*"*) case "$t" in "* "*|"*/"*) hit "注释 $f:$LN"; CNT=$((CNT+1)) ;; esac ;;
+                "#"*) if [ "$LN" = "1" ]; then continue; fi; hit "注释 $f:$LN"; CNT=$((CNT+1)) ;;
+              esac
+              if [ "$CNT" -gt 20 ]; then break; fi
+            done < "$f"
+            if [ "$CNT" -gt 20 ]; then break; fi
+          done < <(find core/src shell/src-tauri/src shell/ci core/release/scripts -type f \( -name "*.js" -o -name "*.ts" -o -name "*.rs" -o -name "*.sh" -o -name "*.ps1" \) 2>/dev/null)
+
           if [ -n "$V" ]; then
-            echo "::error::违反 NO-TESTS.md —— 本仓禁止测试/门禁/冒烟，唯一判据是构建：$V"
+            echo "::error::违反仓规（唯一门禁）：$V"
             exit 1
           fi
-          echo "禁令执行器：未发现测试/门禁/冒烟资产"
-
+          echo "唯一门禁：未发现测试/门禁/冒烟资产，未发现代码注释"
       - name: Install Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
