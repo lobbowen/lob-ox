@@ -12,10 +12,6 @@ const ref = require('./registry-ref');
 const policies = require('./policies');
 const input = require('../util/input');
 
-// 安全不变量（W2/O-16 收口）：安装期一律禁用生命周期脚本。
-// 此前 `--ignore-scripts` 只出现在「无 commandTemplate」分支 ⇒ 用户配了 commandTemplate 时安全姿态**静默消失**，
-// 同一行为两条路径给出不同安全语义（典型补丁逻辑）。现提升为两条路径共用的强制常量：
-// 模板分支若已显式写了该开关（或用户显式写了 --no-ignore-scripts）则尊重用户，否则补上。
 const IGNORE_SCRIPTS_FLAG = '--ignore-scripts';
 
 const PKG_NAME_RE = input.PKG_NAME_RE;
@@ -44,7 +40,7 @@ function runNpmInstall(opts) {
   if (action === 'install' && !VERSION_RE.test(String(o.version))) return fail('runNpmInstall: 非法版本号（须为严格 semver）: ' + String(o.version).slice(0, 80));
   let argv;
   const contractLauncher = runtimeContract.npmLauncher();
-  // 启动形态注入必须整对接管：只换程序会让假解释器去跑契约的 npm-cli.js。
+  
   const launcher = (o.launcher && o.launcher.program)
     ? { program: String(o.launcher.program), args: Array.isArray(o.launcher.args) ? o.launcher.args.map(String) : [] }
     : contractLauncher;
@@ -57,10 +53,10 @@ function runNpmInstall(opts) {
     if (!fromTemplate && launcher.source === 'path' && bin === 'npm' && !execPath.resolveExecutable('npm')) {
       return fail('runNpmInstall: 未找到可执行的 npm（commandTemplate[0]="npm" 解析失败）');
     }
-    // 安全不变量对模板分支同样成立：未显式声明则补上（用户显式写了 --no-ignore-scripts 则尊重用户）。
+    
     if (!argv.includes(IGNORE_SCRIPTS_FLAG) && !argv.includes('--no-ignore-scripts')) argv.push(IGNORE_SCRIPTS_FLAG);
     for (const a of argv) {
-      // win32 盘符绝对路径整体豁免（反斜杠为路径分隔符），其余项零豁免。
+      
       if (BAD_ARGV_CHAR_RE.test(String(a)) && !WIN_DRIVE_ABS_RE.test(String(a))) {
         return fail('runNpmInstall: commandTemplate 替换后含禁用字符（空白/shell 元字符）: ' + String(a).slice(0, 80));
       }
@@ -151,7 +147,6 @@ function portListening(host, port) {
   });
 }
 
-// 健康验证须端口 + systemd 单元 active 双查并留稳定期：只探端口会把「先监听后崩溃」误判成功。
 async function waitPortHealthy(opts) {
   const o = opts || {};
   const host = o.host || '127.0.0.1';
@@ -159,18 +154,18 @@ async function waitPortHealthy(opts) {
   if (!Number.isInteger(port) || port <= 0) return { ok: false, reason: 'waitPortHealthy: 非法端口 ' + o.port };
   const unit = o.unit || null;
   const stabilityMs = o.stabilityMs !== undefined ? o.stabilityMs : 15000;
-  // isUnitActive 现返回 Outcome 三态。此处**只接受 ok**：
-  // 此前 null（未知）是真值 ⇒ "端口有人监听"被当成"我们的实例在跑" ⇒ 升级校验假成功、不回滚（P0）。
+  
+  
   const ctx = { port, unit };
   if (o.pidFile !== undefined) ctx.pidFile = o.pidFile;
   if (Array.isArray(o.anchors)) ctx.anchors = o.anchors;
-  // 单元活跃判据：端口 + 单元 active 双查（只探端口会把「先监听后崩溃」误判成功，P0）。
-  // 但 portable 档下，调用方若只给端口（unit/pidFile/锚点都缺失），isUnitActive 只能给 UNKNOWN——
-  // 那是「判不出身份」，不是「确定不活跃」；此时应以端口监听为准（孤端口进程也视为健康）。
-  // 只有显式带了单元身份（unit 或 pidFile/anchors）时，才要求 isUnitActive 为 OK（真值失败 ⇒ 明确不活跃）。
+  
+  
+  
+  
   const unitActive = () => {
     if (!unit && !ctx.pidFile && (!Array.isArray(ctx.anchors) || !ctx.anchors.length)) {
-      return true; // 无单元身份可查：端口监听即健康
+      return true; 
     }
     const r = service.isUnitActive(unit, ctx);
     return OUTCOME.isOk(r);
