@@ -1,8 +1,5 @@
-//! 统一更新决策模型（桌面壳与内核同一形状）：artifact / current / latest / available / channel / source / error，各侧特有键以 extra 附加。执行器按产物类型分派（壳 = Tauri updater，内核 = npm），但决策模型是一套。
-
 use serde_json::{json, Map, Value};
 
-/// 版本字面量 -> 发布通道词表（`-CANARY.` / `-BETA.` / `-RC.`）。这是「版本号自己叫什么」，不是「被哪个 tag 选中」：后者由 `release_channel::Selected::via` 回答。`latest` / `rollback` 是通道身份、不出现在版本号里，混为一谈会让面板把「回退中」显示成「测试版」。
 pub fn channel_of(version: Option<&str>) -> &'static str {
     match version {
         Some(v) if v.contains("-CANARY.") => "canary",
@@ -12,7 +9,6 @@ pub fn channel_of(version: Option<&str>) -> &'static str {
     }
 }
 
-/// 选版依据 -> 通道词。回答「这一版是怎么被选出来的」，故 `rollback` 只在显式回退 tag 生效时为真 —— 这是「当前是否有回退在生效」唯一可靠的观测来源。
 pub fn selected_channel_of(via: &str) -> &'static str {
     match via {
         "rollback" => "rollback",
@@ -96,7 +92,7 @@ mod tests {
         assert_eq!(selected_channel_of("???"), "latest");
     }
 
-    /// **回退中的版本**其 `channel_of` 仍是 beta，但 `selected_channel_of` 必须是 rollback —— 二者不可互相替代。
+    
     #[test]
     fn rollback_is_observable_even_when_version_name_looks_like_beta() {
         let v = Some("0.1.5-BETA.6");
