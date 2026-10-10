@@ -1,7 +1,5 @@
 'use strict';
 
-// forwardOnce 在 response 时即清 connectGuard(15s)/responseGuard(180s)，此后读上游体无时限——发完头即挂起会永久悬挂。
-
 const NONSTREAM_BODY_MAX_MS = 300000;
 
 function readUpstreamBody(ur, maxBytes, timeoutMs) {
