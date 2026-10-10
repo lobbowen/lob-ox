@@ -66,7 +66,7 @@ impl ProcessManager {
     ///
     /// 同时执行**重启退避**（框架策略，机箱持有）：窗口内累计失败次数达 burst ⇒
     /// 相位转 Failed 且退避跳闸，停手等人工 —— 崩溃不靠循环拉起来掩盖故障。
-    pub fn record_exit(&self, id: &str, last_will: state_machine::LastWill) {
+    pub fn record_exit(&self, id: &str, last_will: state_machine::LastWill, startup_failure: bool) {
         let mut s = self.states.lock().unwrap();
         if let Some(st) = s.get_mut(id) {
             st.last_will = Some(last_will);
@@ -80,6 +80,10 @@ impl ProcessManager {
                 st.window_start = Some(now);
                 st.fail_count = 0;
             }
+            // 只有「启动窗口内的失败」才计入退避：活过窗口后的正常重启不计、无上限
+            //   （与内核 guardian.makeBudget 的 startupFailure 语义一致，否则长期运行的实例
+            //    正常重启若干次就会被误判为崩溃风暴并停手 —— 「未安装/差一步」的制造者）。
+            if !startup_failure { return; }
             st.fail_count = st.fail_count.saturating_add(1);
             if st.fail_count >= st.restart_burst.max(1) {
                 st.restart_backoff = state_machine::RestartBackoff::Tripped;
