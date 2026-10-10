@@ -1,5 +1,5 @@
 'use strict';
-// 必须复用 src/shared/version.js:3 的 VERSION_RE；内联更窄正则会拒掉合法 SemVer。
+
 const mode = process.argv[2] || '--core';
 const bad = [];
 function coreCheck() {
