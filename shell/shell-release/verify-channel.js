@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -41,7 +40,6 @@ async function fetchBuf(url, tries) {
   throw new Error(url + ' 取不到: ' + last);
 }
 
-// minisign 公钥 = base64( "untrusted comment: ... key: <ID>\n" + base64( alg(2) keyId(8) key(32) ) )；清单里的 signature 是双层 base64：外层解出 4 行 minisign 文本，第二行再解出 alg(2)+keyId(8)+ed25519(64)=74 字节。
 function loadPubKey(conf) {
   const b64 = conf.plugins.updater.pubkey;
   const outer = Buffer.from(b64, 'base64').toString('utf8').split('\n');
@@ -58,7 +56,6 @@ function loadPubKey(conf) {
 
 function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('hex'); }
 
-// 这里只判「钥匙是不是配置里那把」「字节是不是本次构建那份」；签名有效性归 updater_artifacts V2/V3/V4（与用户端同一个 minisign-verify crate）。在 node 里重实现验签只有两种结局：口径不对年年假红，口径错了还判绿 —— minisign 的 "ED" 是 prehash 变体，Node stdlib 的纯 Ed25519 对已知正确三元组也验不过。
 function unwrapSig(key, b64, wantKeyId, wantId) {
   const text = Buffer.from(b64, 'base64').toString('utf8');
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
