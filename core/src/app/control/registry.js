@@ -5,17 +5,13 @@ const path = require('node:path');
 const { writeAtomic } = require('../../platform/util/fs');
 const { DESIRED, MANAGED_KINDS, kindMeta, registerKind: registerManagedKind, createEntry, normalizeOwnership } = require('./managed-object');
 
-// 目录相位集合：'backoff' 已随 U-5 统一重启策略删除（全域只有一条：窗口内 N 次失败 ⇒ failed，无阶梯、无等待）。
 const PHASES = ['stopped', 'installing', 'starting', 'running', 'draining', 'failed'];
-// 老状态文件里可能残留已删除的登记相位 ⇒ 读取时归一到新集合（同 app/state/phase.js 的做法），不许读崩。
+
 const LEGACY_PHASES = { backoff: 'failed', restarting: 'starting' };
 
 const { runHeartbeat } = require('./heartbeat');
 const pmClient = require('../../platform/contract/pm-client');
 
-
-// 相位词汇归一：内核 PHASES 含 installing（壳侧无）、壳侧有 restarting（内核已删）。
-//   不归一，壳侧 parse_phase 会对 installing 返回 None，事件被静默丢弃。
 const PM_PHASE = { installing: 'starting' };
 const pmPhase = (p) => PM_PHASE[p] || p;
 
@@ -120,8 +116,8 @@ class ManagedRegistry {
     if (i >= 0) this._objects.splice(i, 1);
   }
 
-  // 自定义 kind 扩展点：零调用但刻意保留（见 managed-object.js 的说明）——
-  // 它是「新增受管对象类型」的唯一入口，删除等于永久关闭扩展能力。
+  
+  
   registerKind(kind, meta) {
     registerManagedKind(kind, meta);
     return this;
