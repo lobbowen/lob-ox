@@ -1,4 +1,3 @@
-//! 本地 HTTP 客户端（与内核对齐的最小实现），只服务壳与内核之间的本机回环交互（握手、会话态、停止握手）。不引 reqwest/ureq：请求极简（无 TLS / 无重定向 / 无连接复用），壳是安装器，少一个依赖就少一份供应链与体积负担。必须用 connect_timeout（防火墙 DROP 时裸 connect 会等到 SYN 重试耗尽，Windows 默认 20+ 秒）并设读写超时；托盘回调里的网络 I/O 一律经 spawn_local_post 派发，否则整个界面含重绘冻结。
 use std::net::TcpStream;
 
 pub(crate) fn post_local(port: u16, path: &str) {
@@ -32,7 +31,6 @@ pub(crate) fn post_local_timeout(port: u16, path: &str, timeout: std::time::Dura
     Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
-/// 本地 HTTP GET，返回 (状态码, 全文)，供守卫就绪探针用。`None` = 这次问不出状态码：连不上、写不进去、或对方一个字节都没回；不得把「没有状态行」糊成 `(0, "")`（那会让「端口通了但服务没起来」与「服务回了 5xx」变成同一句话）。
 pub(crate) fn http_get_local(port: u16, path: &str, timeout: std::time::Duration) -> Option<(u16, String)> {
     let mut stream = connect_local(port, LOCAL_CONNECT_TIMEOUT)?;
     let _ = stream.set_read_timeout(Some(timeout));
