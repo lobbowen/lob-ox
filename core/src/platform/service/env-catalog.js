@@ -45,7 +45,6 @@ function cachedWhichVersionAsync(bin, args) {
   return whichVersionAsync(bin, args).then((v) => cacheSet(key, v));
 }
 
-// 与壳侧同源（决策 D4）：两侧都从 shared-constants.json 取，不再各存一份。
 const MIN_NODE_DEFAULT = SHARED.runtime.minNode;
 
 let _runtimeMetaCache = null;
