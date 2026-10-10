@@ -52,7 +52,7 @@ function createDesired(deps) {
     return { ok: true };
   }
 
-    // 既有 config.json 读/解析失败时拒绝写回（fail-closed）：瞬时读错后继续写会抹掉 apiAccessKey 等全部键；ENOENT 视为首启。
+    
   function persistConfigPatch(patch) {
     const p = configPath();
     if (!p) return false;
