@@ -153,7 +153,7 @@ pub(crate) fn ensure_guard(app: &tauri::AppHandle) -> Result<(), LaunchError> {
     if port_open(port) {
         let verdict = serving_state(port);
         step(&verdict.note());
-        if matches!(verdict, Serving::Alive | Serving::Sick) {
+        if matches!(verdict, Serving::Alive) {
                         
             if let Some((rt_wd, guard_wd)) = resolve_local(None) {
                 match crate::platform::LaunchSpec::from_runtime(&rt_wd, guard_wd) {
