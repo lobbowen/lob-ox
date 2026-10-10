@@ -66,7 +66,6 @@ while read -r P_OS P_PLAT P_ARCH; do
   mkdir -p "$DIR/bin"
   cat > "$DIR/bin/lobox" <<'LAUNCHER'
 'use strict';
-// 统一 launcher 启动器。require 同目录 core.cjs（esbuild bundle）。
 require('../core.cjs');
 LAUNCHER
   chmod 755 "$DIR/bin/lobox"
