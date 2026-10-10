@@ -1,5 +1,3 @@
-//! 桌面壳身份与日志：只负责壳自身的身份落盘与日志。identity.json 由壳写，内核只读其中的运行时字段（version / phase / exe / lastSeenAt 等）；内核 domains/shell/watchdog 用 exe 在壳崩溃后把它拉起，故必须保留。
-
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -26,15 +24,14 @@ fn test_state_dir_override() -> Option<PathBuf> {
 
 fn identity_path() -> PathBuf { state_dir().join("identity.json") }
 fn log_path() -> PathBuf { state_dir().join("shell.log") }
-/// 守卫子进程的输出落点：`<状态根>/shell/guard.log`；与壳自身的 shell.log 分开以保留「谁说的话」的归属。公开是为了让报错能指名证据在哪。
+
 pub fn guard_log_path() -> PathBuf { state_dir().join("guard.log") }
 
-/// 打开守卫输出日志（追加 + 建目录）。**打不开时返回 None**，由调用方退回 null。这条通道只做「有则记」：它绝不能成为拉起失败的原因。
 pub fn guard_log_file() -> Option<std::fs::File> {
     let dir = state_dir();
     let _ = fs::create_dir_all(&dir);
     let p = guard_log_path();
-    // 写这个文件的是**子进程**，它不会自己滚动；守卫若陷入崩溃循环，一晚上就能把磁盘写满。超限（512KB）时先截断保留后半部分。
+    
     if let Ok(md) = fs::metadata(&p) {
         if md.len() > 512 * 1024 {
             if let Ok(s) = fs::read_to_string(&p) {
@@ -112,7 +109,6 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// 写 identity.json —— 身份文件的唯一写入点。runtime_fields 描述本次调用的运行时上下文；其余字段从现有文件保留。
 fn write_identity_for(runtime_fields: &serde_json::Value) -> serde_json::Value {
     let mut v = read_json(&identity_path());
     if !v.is_object() {
@@ -153,7 +149,6 @@ pub fn init_identity(version: &str) -> serde_json::Value {
     id
 }
 
-/// 更新阶段上报（引导页各步骤调用）。
 pub fn set_phase(phase: &str) {
     write_identity_for(&serde_json::json!({ "phase": phase }));
     log(&format!("阶段 → {}", phase));
