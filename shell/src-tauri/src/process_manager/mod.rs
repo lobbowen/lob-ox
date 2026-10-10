@@ -12,6 +12,7 @@
 pub mod port_authority;
 pub mod state_machine;
 pub mod supervisor;
+pub mod mgmt;
 
 use std::sync::{Mutex, Arc};
 use std::collections::HashMap;

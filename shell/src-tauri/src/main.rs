@@ -178,6 +178,11 @@ fn main() {
         .invoke_handler(tauri::generate_handler![commands::node_status, commands::system_node_ready, commands::boot_trace, commands::core_status, commands::core_plan, commands::core_apply, commands::kernel_update_apply, commands::shell_bridge_contract, commands::guard_start, commands::guard_ready, commands::start_node_install, commands::finish_boot, commands::win_ctl, commands::shell_identity, commands::shell_update_check, commands::shell_update_apply, commands::shell_restart, commands::shell_set_phase, commands::mirror_status, commands::mirror_set, commands::node_latest, commands::mirror_warmup, commands::mirror_cached, commands::shell_panel_url, commands::pm_status])
         .setup(|app| {
             bt!("setup enter");
+            // 机箱 loopback 管理端点（内核子进程单向上报进程管理真相，端口受 PortAuthority 分配）。
+            {
+                let pm = app.state::<std::sync::Arc<crate::process_manager::ProcessManager>>();
+                tauri::async_runtime::spawn(crate::process_manager::mgmt::run(pm.inner().clone()));
+            }
             env::migrate_legacy();
                         // 托盘直发本地 API 的端口：显式 DSH_SUPERVISOR_TRAY_PORT 优先，否则**每次点击现取**。不做 setup 期快照：守卫因端口占用顺延过时，快照会把启动/停止/退出全打在没人监听的端口上，而 guardctl 一侧读的是当前值 —— 同一事实两套答案，退出握手就打错了对象。
             let port = || std::env::var("DSH_SUPERVISOR_TRAY_PORT")
