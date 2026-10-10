@@ -18,7 +18,7 @@ use hyper_util::rt::TokioIo;
 use crate::process_manager::state_machine;
 use crate::process_manager::ProcessManager;
 
-type MgmtErr = Box<dyn std::error::Error + Send + Sync>;
+type MgmtErr = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 pub async fn run(state: Arc<ProcessManager>) {
     let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
