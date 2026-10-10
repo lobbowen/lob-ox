@@ -24,13 +24,7 @@ class PortAllocator {
     }
   }
 
-  /**
-   * Lease I1：把"检查"与"置位"放在**同一个同步块**内。
-   *
-   * 修前：`while (r._allocLock) { await sleep(10); } r._allocLock = true;`
-   * —— 检查与置位之间隔着 await，两个并发 claimSlot 可同时观察到 false 并都置 true（真 TOCTOU）。
-   * 现在用 Lease.acquireSync 做同步 test-and-set；未取得则由调用方退避重试。
-   */
+  
   async _acquireAlloc() {
     const r = this._registry;
     let waited = 0;
@@ -38,7 +32,7 @@ class PortAllocator {
       if (lease.acquireSync(r, '_allocLock')) break;
       await new Promise((res) => setTimeout(res, 10));
       waited += 10;
-      // 有界退避：避免某处忘记释放导致永久挂起（fail-open 有界，与既有 XLOCK_TIMEOUT_MS 同一取舍）。
+      
       if (waited >= XLOCK_TIMEOUT_MS) { r._allocLock = true; break; }
     }
     this._xrel = await this._acquireXLock();
@@ -51,7 +45,7 @@ class PortAllocator {
     if (rel) { try { rel(); } catch {  } }
   }
 
-  // 跨进程分配锁 best-effort：获取超时返回 null 并继续（fail-open 有界，登记后复检是第二道防线）。
+  
   async _acquireXLock() {
     const f = String(this._registry._file || '') + '.alloc.lock';
     const deadline = Date.now() + XLOCK_TIMEOUT_MS;
@@ -66,9 +60,9 @@ class PortAllocator {
       } catch (e) {
         if (fh) { try { fs.closeSync(fh); } catch {  } }
         if (e && e.code === 'EEXIST') {
-          // Lease I3：回收前必须校验持锁者是否存活。
-          // 修前是 statSync 后直接 unlinkSync（无归属校验）⇒ 本进程可能删掉**另一进程持有的活锁**，
-          // 随后多个进程同时建锁并全部进入临界区。
+          
+          
+          
           let recyclable = false;
           try { recyclable = lease.lockRecyclable(f, XLOCK_STALE_MS); } catch { recyclable = false; }
           if (recyclable) { try { fs.unlinkSync(f); } catch {  } }
@@ -155,7 +149,7 @@ class PortAllocator {
     if (!port) return null;
     const r = this._registry;
     const reserved = o.reservedPorts instanceof Set ? o.reservedPorts : null;
-    // 审计 RL-4：若 preferred 端口已被其它账本占用，则视为不可复用（不抢 router 的端口）。
+    
     if (reserved && reserved.has(Number(port))) return null;
     const rec = r._records.get(port);
     if (probe.listeningPid(port) === process.pid) { this._register(port, rangeKey, owner); return { port, mode: 'self-listening' }; }
@@ -173,8 +167,8 @@ class PortAllocator {
     const offset = o.range ? 0 : r._anchorOffset(rangeKey);
     for (let n = 0; n < range.count; n++) {
       const p = range.base + ((offset + n) % range.count);
-      // 审计 RL-4：跨账本防撞。reservedPorts 为其它账本（如 router）已占用的端口集合，
-      // 命中则跳过该候选，绝不把 router 的端口分给本域（router caller 不传此集合，行为不变）。
+      
+      
       if (reserved && reserved.has(p)) continue;
       if (r._records.has(p)) continue;
       if (await r.isTaken(p)) {
