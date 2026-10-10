@@ -112,7 +112,6 @@ describe("访问密钥携带与 401 语义", () => {
   });
 });
 
-/** vitest 环境为 node，无法挂载 React hook：这里只测纯判据。 */
 describe("假成功判据 failureFromResult", () => {
   it("ok:false + error → 返回后端拒因", () => {
     expect(failureFromResult({ ok: false, error: "安全策略：仅允许公网地址" })).toBe("安全策略：仅允许公网地址");
