@@ -1,4 +1,5 @@
-//! IPC 命令边界层（**只做校验与委托**）。分层（硬约束）：commands 调 domain/platform 再组装返回值；命令体**禁止**平台分支 #[cfg(target_os)]（那属于 platform 层）；main.rs 只注册这些命令。
+//! IPC 命令边界层（**只做校验与委托**）。分层（硬约束）：commands 调 domain/platform 再组装返回值；命令体**禁止**平台分支 #[cfg(target_os)
+        commands::pm_status]（那属于 platform 层）；main.rs 只注册这些命令。
 
 use std::sync::Mutex;
 
@@ -542,6 +543,30 @@ pub fn shell_identity(app: tauri::AppHandle) -> serde_json::Value {
 #[tauri::command]
 pub fn shell_set_phase(phase: String) {
     crate::update::set_phase(&phase);
+}
+
+/// 进程管理器机箱状态快照（只读聚合）：壳自身 + 内核模块 + 子负载的统一相位真相。
+#[tauri::command]
+pub fn pm_status(app: tauri::AppHandle) -> serde_json::Value {
+    let pm = app.state::<std::sync::Arc<crate::process_manager::ProcessManager>>();
+    let states = pm.states.lock().unwrap();
+    let ports = pm.ports.lock().unwrap();
+    let workloads: serde_json::Value = states
+        .iter()
+        .map(|(id, st)| {
+            serde_json::json!({
+                "id": id,
+                "phase": format!("{:?}", st.phase),
+                "desired": format!("{:?}", st.desired),
+                "restart_backoff": format!("{:?}", st.restart_backoff),
+                "last_will": st.last_will.as_ref().map(|w| serde_json::json!({"code": w.code, "signal": w.signal})),
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "workloads": workloads,
+        "ports": ports.to_json(),
+    })
 }
 
 #[tauri::command]
