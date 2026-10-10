@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# 平台清单单源 = package.json#npmPublish.packages；不得在脚本/workflow 另存硬编码矩阵。
-# 输出每行 <osTag> <plat> <arch>（不含包名）：osTag=linux|darwin|win，plat=process.platform（win→win32），arch=x64|arm64。
 
 dsh_platform_matrix() {
   node -e '
