@@ -1,7 +1,5 @@
 'use strict';
 
-// 安装标识用自生成 UUID（IP/主机名/MAC 会变、共享、可伪造）；首次生成后只读，读/写失败返回 null，绝不静默新建或覆盖。
-
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
