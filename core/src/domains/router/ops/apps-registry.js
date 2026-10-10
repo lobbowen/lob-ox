@@ -3,7 +3,7 @@
 const { PROXY_APPS } = require('../proxy-apps');
 const { invalidatePkgCache } = require('../providers/pkg-cache');
 const { semverCompare } = require('../../../shared/version');
-// W3：任务终态→视图态取 shared 单源（此前本处内联抄了一份）。
+
 const { taskStateToView } = require('../../../shared/task-state');
 
 function createAppsRegistryOps(deps) {
