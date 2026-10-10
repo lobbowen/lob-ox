@@ -5,10 +5,8 @@ const { isLoopbackAddress, isPrivateIpv4 } = require('../../shared/ip');
 const { remoteTokenStrength } = require('../../shared/credential');
 const BRAND = require('../../shared/brand');
 
-// 门卫 cookie 名取自单源：它由**我方**签发与校验（不是 harness 的 `dsh-auth-*`），改名即所有在途 LAN 会话失效。
 const LAN_COOKIE_RE = new RegExp('(?:^|;\\s*)' + BRAND.COOKIE_LAN_TOKEN + '=([^;]+)');
 
-// 来源闸收窄到回环/RFC1918：relay 监听 0.0.0.0 且把 Origin/Referer 改写成回环权威，连得上即等于拿到 DSH 特权面（不是鉴权）。
 function isTrustedSource(req, sock) {
   const addr = (req && req.socket && req.socket.remoteAddress)
     || (sock && sock.remoteAddress)
@@ -36,17 +34,11 @@ function cookieByName(headerValue, name) {
   return null;
 }
 
-// 透传上游 path+query 并仅剥离「我方」门卫令牌参数（?token=<remoteToken>），
-// 其余逐字节原样保留。关键：绝不能用 WHATWG URL + searchParams 重建 URL——
-// 它会把上游文档相对 combo 路由中的 '/'（如 /plugins/??@deepseek-ai/dsh-client-modules/client.js）
-// 编码成 %2F，导致 DSH 的 combo 路由 404、client-modules 引导注册缺失，
-// 浏览器报 "HTML did not preload @deepseek-ai/dsh-client-modules/client.js"。
-// 旧实现正是用 URL.searchParams 重建，已由 relay-upstream-path-fidelity-test 抓回归。
 function stripGateTokenAndPreserve(rawUrl) {
   if (!rawUrl) return '/';
   let url = rawUrl;
   const hashIdx = url.indexOf('#');
-  if (hashIdx >= 0) url = url.slice(0, hashIdx); // 片段不上游，落日志也无意
+  if (hashIdx >= 0) url = url.slice(0, hashIdx); 
   const qIdx = url.indexOf('?');
   const path = qIdx >= 0 ? url.slice(0, qIdx) : url;
   if (qIdx < 0) return path || '/';
@@ -59,7 +51,7 @@ function stripGateTokenAndPreserve(rawUrl) {
     const rawKey = eq >= 0 ? pair.slice(0, eq) : pair;
     let key = rawKey;
     try { key = decodeURIComponent(rawKey); } catch {}
-    if (key === 'token') continue; // 剥我方门卫令牌，不转发给 DSH
+    if (key === 'token') continue; 
     kept.push(pair);
   }
   const out = path || '/';
@@ -67,7 +59,7 @@ function stripGateTokenAndPreserve(rawUrl) {
 }
 
 function upstreamPath(rawUrl) {
-  // 上游转发只用 path+query（host 由 buildForwardHeaders 另写），逐字节保真。
+  
   return stripGateTokenAndPreserve(rawUrl);
 }
 
@@ -84,10 +76,9 @@ if (typeof crypto.randomUUID !== 'function') {
 }
 </script>`;
 
-
 function redactLogPath(rawUrl) {
-  // 日志脱敏：剥离 ?token=<secret>，其余路径原样保留（含 combo 的 '/'），
-  // 既不为日志重写 URL，也不把令牌写进 lan-daemon.log / guard.log（RL-1）。
+  
+  
   return rawUrl ? stripGateTokenAndPreserve(rawUrl) : '';
 }
 
@@ -98,10 +89,9 @@ function lanGateCookieValue(token, salt) {
   return crypto.createHash('sha256').update(s + '\n' + t).digest('hex');
 }
 
-
 function tokenGateDecision(req, token, salt, mode) {
-  // fail-closed（D1/RL-2）：空令牌（含被显式清除）对 WAN/未指定模式一律拒，杜绝"空令牌即开放中继"。
-  // LAN 模式信任 RFC1918 网络边界（isTrustedSource 已前置拦截），空令牌放行（非开放中继）。
+  
+  
   if (!token) return normalizeRemoteMode(mode) === 'lan' ? { ok: true } : { ok: false, unauthorized: true };
   const url = new URL(req.url, 'http://localhost');
   const cookies = req.headers.cookie || '';
@@ -123,11 +113,10 @@ function tokenGateDecision(req, token, salt, mode) {
   return { ok: false, unauthorized: true };
 }
 
-
 function hasValidToken(req, token, salt, mode) {
-  // fail-closed（D1/RL-2）：空令牌即无令牌。但 LAN 模式信任 RFC1918 网络边界
-  // （http 层 isTrustedSource 已前置拦截非私网/非本机来源），不构成开放中继 ⇒ 放行；
-  // WAN/未指定模式空令牌一律判无授权，杜绝"空令牌开放转发"（开放中继）。
+  
+  
+  
   if (!token) return normalizeRemoteMode(mode) === 'lan';
   const url = new URL(req.url, 'http://localhost');
   const queryToken = url.searchParams.get('token');
@@ -175,8 +164,8 @@ function normalizeFrpSettings(patch, current) {
   return {
     serverAddr: String(j.serverAddr !== undefined ? j.serverAddr : cur.serverAddr).trim(),
     serverPort: Number(j.serverPort) || cur.serverPort,
-    // authToken：null/undefined 归一为空串（frpc 遇空串不写 auth.token，避免 String(null)==="null" 被当成共享密钥）；
-    //   非空串统一 trim，与 serverAddr 同口径。
+    
+    
     authToken: (j.authToken === undefined ? cur.authToken : (j.authToken == null ? '' : String(j.authToken).trim())),
     user: String(j.user || cur.user || 'dsh'),
   };
