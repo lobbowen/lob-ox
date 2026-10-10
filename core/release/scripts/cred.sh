@@ -155,7 +155,6 @@ case "${1:-list}" in
     echo '== 2) 条目可寻址 + 清单内的文件是否都在库内 =='
     node -e "
       const j=require(process.env.INDEX);
-      // 审计面不得按 kind 挑条目（真机清单的 kind 与旧过滤值不同形，按 kind 筛会一条都不命中）；
       // 条目靠 name 寻址，缺 name / name 重复时 get/path/put/verify 对该条目失效，必须判红。
       const fs=require('fs');
       //  必须用 ${STORE}（DSH_CRED_DIR 可覆盖），不可硬编码库根 —— 否则换库根就误报
