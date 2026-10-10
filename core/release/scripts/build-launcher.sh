@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
-# Node SEA 单文件二进制在 macOS 注入后即段错误（上游缺陷），故全平台统一发布 Node launcher npm 包。
-# 依赖：目标机需有 node >=18（非 SEA 免运行时）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-# 安全不变量：发布产物只能由 GitHub CI 产出，本地禁止（守卫置于参数解析之前，覆盖全部调用形态）。
 if [ "${GITHUB_ACTIONS:-}" != 'true' ]; then
   echo '拒绝：launcher 构建只允许在 GitHub CI 内运行（GITHUB_ACTIONS=true）。' >&2
   echo '  硬标准：所有平台构建与发布必须经 GitHub CI 完成；本地不得产生发布产物。' >&2
@@ -17,7 +14,7 @@ VER="$(node -p "require('./package.json').version")"
 
 ALL=0
 OUT_REL="dist/launcher"
-while [ $# -gt 0 ]; do
+while [ $
   case "$1" in
     --all-platforms) ALL=1 ;;
     -*) echo "未知参数: $1（支持 [outDir] / --all-platforms）"; exit 2 ;;
@@ -28,7 +25,6 @@ done
 mkdir -p "$OUT_REL"
 OUT="$(cd "$OUT_REL" && pwd)"
 
-# shellcheck source=./_platforms.sh
 . "$ROOT/release/scripts/_platforms.sh"
 
 HOST_PLAT="$(node -p "process.platform")"
@@ -49,8 +45,6 @@ bash "$ROOT/release/scripts/build-ui.sh"
 [ -f "$ROOT/ui-react/supervisor.html" ] || { echo "错误：UI 镜像缺失"; exit 1; }
 
 echo "[2/6] esbuild 打包 bin → core.cjs…（平台无关：仅 --platform=node + 版本注入）"
-# 版本形态校验后才插值 --define，防含引号/空格/$ 的 version 破坏参数或注入 shell。
-# npx 浮动拉包会让同 commit 的构建结果随时间变化，故固版并复跑 --version 对账。
 case "$VER" in
   [0-9]*.[0-9]*.[0-9]*) ;;
   *) echo "非法 version（只允许点分数字/x-prerelease）：$VER"; exit 1 ;;
@@ -71,14 +65,12 @@ while read -r P_OS P_PLAT P_ARCH; do
   rm -rf "$DIR"
   mkdir -p "$DIR/bin"
   cat > "$DIR/bin/lobox" <<'LAUNCHER'
-#!/usr/bin/env node
 'use strict';
 // 统一 launcher 启动器。require 同目录 core.cjs（esbuild bundle）。
 require('../core.cjs');
 LAUNCHER
   chmod 755 "$DIR/bin/lobox"
   cp "$OUT/core.cjs" "$DIR/core.cjs"
-  # ui-react 定位依据 src/api/index.js 候选2：(bin/../ui-react)
   rm -rf "$DIR/ui-react"
   cp -r "$ROOT/ui-react" "$DIR/ui-react"
   echo "$VER" > "$DIR/version.txt"
@@ -86,7 +78,6 @@ LAUNCHER
   echo "  $P_OS-$P_ARCH → $(basename "$DIR")"
 done <<< "$PLATFORMS"
 
-# 不变量断言：四平台 core.cjs 必须逐字节一致。
 if [ "$ALL" = 1 ]; then
   echo "[3/6] 一致性断言：四平台 core.cjs 必须逐字节相同"
   BASE="${DIRS[0]}/core.cjs"
@@ -101,7 +92,6 @@ if [ "$ALL" = 1 ]; then
   echo "  OK 四平台 core.cjs 同源（sha256=${BASE_HASH:0:16}…）"
 fi
 
-#   触发 "Directory not empty" 并在 set -e 下中止整个构建。
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   sleep 0.3
 done
