@@ -120,7 +120,7 @@ module.exports = {
       if (d.mChild() !== child) return;
       d.events().append(BRAND.EVENT_HARNESS_EXITED, { code, signal, phase: d.state().phase() });
       // 机箱 last-will：退出码/信号单向上报底座（引导页「为何崩」的真相源在壳，不上报即无据）。
-      pmClient.recordExit('dsh-main', code, signal);
+      pmClient.recordExit('main', code, signal, d.state().phase() === 'STARTING');
       d.mSetChild(null);
       if (d.stopping()) return;
       if (d.state().desired() !== 'running') return;
@@ -131,7 +131,7 @@ module.exports = {
         const why = code !== null ? String(code) : 'sig' + signal;
         const inStartup = phase === 'STARTING';
         if (inStartup || d.state().guardian()) {
-          pmClient.requestRestart('dsh-main');
+          pmClient.requestRestart('main');
           d.beginRestart('exit:' + why, { startupFailure: inStartup });
         } else {
           d.writeCrashHalted(true);
