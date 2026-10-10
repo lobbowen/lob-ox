@@ -41,8 +41,8 @@ module.exports = {
       }
       const running = !!(st && st.running);
       try { d.syncSandboxRegistryEntry(entry); } catch (e) { d.logger() && d.logger().warn && d.logger().warn('sandbox entry sync: ' + ((e && e.message) || e)); }
-      // 存活=身份匹配（H-02）。端口被占但听者不是本实例时 running=false，需与「端口空着」区分开报：
-      // 前者是外来占用（人工介入），后者是实例没起来（守卫去重拉）。
+      
+      
       if (!running && st && st.portTaken) {
         const why = st.identityUnknown ? '端口监听者身份不可读' : '端口被非 DSH 进程占用';
         return { ok: false, error: '沙箱实例未运行：端口 ' + (entry && entry.port) + ' ' + why
@@ -60,14 +60,14 @@ module.exports = {
         return;
       }
       try { d.control().upsert(d.control().sandboxSpec(inst)); } catch (e) { d.logger() && d.logger().warn && d.logger().warn('sandbox upsert: ' + ((e && e.message) || e)); }
-      // 实例域相位（U-5 后只有 STOPPED/INSTALLING/STARTING/RUNNING/FAILED）；老落盘里的 'BACKOFF'（等级退避）
-      // 已删除 ⇒ 归一为 'failed'（停靠、等人工重试），与主链 app/state/phase.js 的 BACKOFF→failed 同向。
+      
+      
       const map = { STOPPED: 'stopped', INSTALLING: 'installing', STARTING: 'starting', RUNNING: 'running', BACKOFF: 'failed', FAILED: 'failed' };
       const ph = map[(inst.state && inst.state.phase) || 'STOPPED'] || 'stopped';
       try {
         if (entry.phase !== ph) d.managedObjects().setPhase(entry.id, ph);
       } catch (e) { d.logger() && d.logger().warn && d.logger().warn('sandbox setPhase: ' + ((e && e.message) || e)); }
-      // 计数真相统一（S7/T6）：实例域 restartCount 写入受管对象（单一计数源），不再让 ManagedRegistry 上的值永远为 0。
+      
       try {
         const rc = Number(inst.state && inst.state.restartCount) || 0;
         if (entry.restartCount !== rc) d.managedObjects().setRestartCount(entry.id, rc);
