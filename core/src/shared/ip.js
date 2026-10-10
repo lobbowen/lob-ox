@@ -22,7 +22,6 @@ function isPrivateIpv4(a) {
   return false;
 }
 
-// 非公网段判定：回环 / RFC1918 / 链路本地（含 169.254.169.254 元数据）/ CGNAT 100.64/10 / 0/8 / 组播保留 / IPv6 字面量 / localhost .local .internal .home.arpa。
 function isPrivateHostLiteral(host) {
   const h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '');
   if (!h) return true;
