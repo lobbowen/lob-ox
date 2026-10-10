@@ -31,7 +31,7 @@ async function spawnInstance(provider, inst) {
       if (pkgMarker && cmd.indexOf(pkgMarker) >= 0) {
         if (provider.logger && provider.logger.warn) provider.logger.warn('[proxy-instance] 重启幸存者弃用重拉 pid=' + boundPid + ' port=' + inst.port + '（stdio 归属旧代，禁 adopt）');
         if (provider.events) provider.events.append('proxy_instance_survivor_reclaimed', { app: provider.proxyAppId, port: inst.port, pid: boundPid, reason: 'restart-survivor-stdio-unsafe' });
-        // 统一停进程原语（S3）：收敛到 ProcessLifecycle，不再内联 killTree。
+        
         try { ProcessLifecycle.stopProcess({ pid: boundPid, port: inst.port }); } catch {}
         const dl = Date.now() + 3000;
         while (Date.now() < dl && (await ports.isTaken(inst.port, 'proxy:' + (inst.keyId || 'unknown')).catch(() => false))) {
@@ -126,7 +126,7 @@ async function spawnInstance(provider, inst) {
     if (provider.events) provider.events.append('proxy_instance_stopped', { app: provider.proxyAppId, port, code });
   });
   child.on('error', (err) => {
-    // spawn 失败（ENOENT）派生：pid 已无，态必须回 COLD（DEAD 的定义是「进程在但不健康」）。
+    
     if (inst.pid === child.pid) { inst.pid = null; inst.healthy = false; inst.status = INSTANCE_STATES.COLD; }
     if (provider.events) provider.events.append('proxy_instance_failed', { app: provider.proxyAppId, port, error: err.message });
   });
