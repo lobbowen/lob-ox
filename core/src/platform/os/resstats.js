@@ -51,7 +51,6 @@ function parsePsTable(text) {
   return procs;
 }
 
-// Get-CimInstance Win32_Process 的 JSON：时间单位 100ns，WorkingSetSize 字节。
 function parseCimJson(text) {
   let data;
   try { data = JSON.parse(text); } catch { return []; }
