@@ -16,13 +16,13 @@ function createProjection(deps) {
     const ph = String(st.phase() || '');
     const desiredRunning = st.desired() === 'running';
     const ob = (e && e.lastObserved) || null;
-    // 健康 = 进程还在（登记观测 ok 来自 app/control/scheduler 的进程判据）；没有 HTTP 健康门，也没有端口健康门。
+    
     const alive = !!(ob && ob.ok);
     const at = (ob && ob.at) || null;
     if (desiredRunning) {
       dsh.wantRunning();
       dsh._monitoring = true;
-      // lastProbeAt 是面板既有的「最近观测时刻」字段（ui/** 契约不动），喂的是登记观测时间，不是探测结果。
+      
       if (at) dsh.lastProbeAt = at;
       if (ph === 'RUNNING') {
         dsh._setPhase('running');
@@ -86,7 +86,7 @@ function createProjection(deps) {
     if (!lc) return;
     lc.wantRunning();
     lc._monitoring = true;
-    // healthy 来自登记表读数本身（adapters 的 status 读失败即 null）：读数不可用时面板须显示降级，不得无条件绿灯。
+    
     const snap = typeof lc.snapshot === 'function' ? lc.snapshot() : null;
     const detail = snap ? snap.detail : null;
     lc.lastProbeAt = new Date().toISOString();
