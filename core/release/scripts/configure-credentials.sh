@@ -1,18 +1,11 @@
 #!/usr/bin/env bash
-# 原则：本脚本不接收命令行明文参数、不打印 token、不写仓库内任何文件。
-# Git 凭据由 cred.sh 管理，只应存在规范库这一份：repo-local `credential.helper store --file <规范库>/git-credentials`。
-# 规范位置 = 真实用户 home 下的 .npmrc（不是沙箱 $HOME）；与 publish-core.sh 共用 _npm-auth.sh 的同一份解析。
-#   DSH 沙箱把 $HOME 指向实例数据目录：写到 $HOME/.npmrc 只对该沙箱可见，换沙箱即 ENEEDAUTH。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
-# shellcheck source=./_npm-auth.sh
 . "$ROOT/release/scripts/_npm-auth.sh"
 
 REAL_HOME="$(dsh_real_home)"
 NPMRC="$(dsh_canonical_npmrc)"
-# 权限位读取用 node 而非 `stat -c %a`（GNU 专有：macOS 的 BSD stat 不认，Windows 没有 stat），
-#   与 cred.sh 同源，三平台一致。
 perm_of() { node -e "try{process.stdout.write((require('fs').statSync(process.argv[1]).mode & 0o777).toString(8).padStart(3,'0'))}catch(e){process.stdout.write('?')}" "$1"; }
 
 write_npmrc() {
@@ -38,12 +31,10 @@ check() {
   echo "=== 凭据自检（不含值） ==="
   echo "真实 home: $REAL_HOME"
   if [ "$HOME" != "$REAL_HOME" ]; then echo "当前 \$HOME: ${HOME}（沙箱覆盖，不影响发布：解析以真实 home 为准）"; fi
-  # 用与 publish-core 完全相同的解析器判定，避免「自检说没配、发布却成功」的错位
   if dsh_npm_auth_setup; then
     echo "NPM: ✅ 命中认证来源 → $(dsh_npm_auth_describe)"
     dsh_npm_auth_cleanup
   else
-    # 本机无 npm 认证非缺陷：发布在 CI 经仓库 secret NPM_TOKEN；仅手工 publish 才需 --npm。
     echo "NPM: 本机无认证来源（正常：发布走 CI 的 NPM_TOKEN；仅本机手工 publish 才需 --npm）"
   fi
   if [ -f "$NPMRC" ]; then
@@ -69,7 +60,6 @@ check() {
   else
     echo "gh: 未安装"
   fi
-  # 绝不打印 remote（可能再含 token）；只确认 remote 是否已脱敏
   if git remote -v | grep -q 'github_pat_\|x-access-token:[^@]*@github' 2>/dev/null; then
     echo "⚠️ 警告：remote URL 疑似含明文 token，请立即脱敏"
   else
