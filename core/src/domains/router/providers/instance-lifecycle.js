@@ -35,7 +35,7 @@ function arbitrateStop(provider, inst, force) {
     provider._persist();
     return;
   }
-  // pid 必须在置 null 前快照，否则 kill(-null)=kill(-0) 会自杀当前进程组。
+  
   const pid = inst.pid;
   if (provider._terminatingPids && provider._terminatingPids.size) {
     for (const q of [...provider._terminatingPids]) {
