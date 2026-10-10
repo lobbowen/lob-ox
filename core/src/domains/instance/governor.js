@@ -9,7 +9,7 @@ const CPU_FLOOR_PERCENT = 100;
 const BURST_TRIGGER_RATIO = 0.9;
 const BURST_MAX_MULT = 1;
 const MEM_HIGH_RATIO = 0.9;
-// 偏离上一生效值 10% 内不下发、单拍步长不超 25%：防振荡、防对 systemd 写放大。
+
 const DEADBAND = 0.10;
 const MAX_STEP = 0.25;
 const MEM_VIOLATION_TICKS = 3;
@@ -166,8 +166,6 @@ function budgetSnapshot(instances, facts) {
   };
 }
 
-// 沙箱能力判定（有副作用：读平台能力表）⇒ 刻意**不**放在 sandbox.js ——
-// sandbox.js 在契约里声明为 pure（纯路径计算），不得碰平台层。
 function sandboxSupported(override) {
   if (override !== undefined && override !== null) return override === true;
   try {
