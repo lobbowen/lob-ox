@@ -559,6 +559,9 @@ pub fn pm_status(app: tauri::AppHandle) -> serde_json::Value {
                 "phase": format!("{:?}", st.phase),
                 "desired": format!("{:?}", st.desired),
                 "restart_backoff": format!("{:?}", st.restart_backoff),
+                "fail_count": st.fail_count,
+                "restart_burst": st.restart_burst,
+                "halted": matches!(st.restart_backoff, crate::process_manager::state_machine::RestartBackoff::Tripped),
                 "last_will": st.last_will.as_ref().map(|w| serde_json::json!({"code": w.code, "signal": w.signal})),
             })
         })
