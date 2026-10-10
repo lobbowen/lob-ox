@@ -101,14 +101,10 @@ if [ "$ALL" = 1 ]; then
   echo "  OK 四平台 core.cjs 同源（sha256=${BASE_HASH:0:16}…）"
 fi
 
-# 必须等进程真正退出再 rm：kill 异步，daemon 子进程仍可能写 $SMOKE_HOME，
 #   触发 "Directory not empty" 并在 set -e 下中止整个构建。
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-  kill -0 "$SMOKE_PID" 2>/dev/null || break
   sleep 0.3
 done
-kill -9 "$SMOKE_PID" 2>/dev/null || true
-rm -rf "$SMOKE_HOME" 2>/dev/null || true
 
 echo "[5/6] 产物清单"
 for d in "${DIRS[@]}"; do ls -lh "$d/core.cjs" | awk '{printf "  %-46s %s\n", $9, $5}'; done
