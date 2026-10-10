@@ -28,7 +28,7 @@ function createGateLedger() {
   };
 }
 
-function pipeWithHold(ur, res, clientReqPath, logger) {
+function pipeWithHold(ur, res, clientReqLog, logger) {
   let clientGone = false;
   const log = (lv, msg) => { if (logger && logger[lv]) { try { logger[lv]('[relay] ' + msg); } catch {} } };
   ur.on('data', (c) => {
@@ -75,7 +75,7 @@ function handleUpstream(ur, res, clientReqPath, onStatus, logger) {
     h['transfer-encoding'] = 'chunked';
   }
   res.writeHead(ur.statusCode || 502, h);
-  if (!isHtml) { pipeWithHold(ur, res, clientReqPath, logger); return; }
+  if (!isHtml) { pipeWithHold(ur, res, clientReqLog, logger); return; }
   const chunks = [];
   let total = 0, passed = false, done = false;
   const log = (msg) => { if (logger && logger.warn) { try { logger.warn('[relay] ' + msg); } catch {} } };
