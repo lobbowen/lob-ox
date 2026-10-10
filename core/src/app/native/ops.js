@@ -142,10 +142,6 @@ function startUninstall(host) {
   return { ok: true, started: true };
 }
 
-
-// 审计 P0-4 / P1-7：卸载递归删除 dataPaths 时，必须把关在「产品自身数据根」内。
-// 原实现直接 fs.rmSync(recursive)，万一 manifest 被旧版/异常写入了越界路径（或符号链接），会越权删除。
-// 故每个待删路径都校验：必须位于 host.dshHome（数据路径）或 npmRoot（包目录）之下，否则跳过并报告警。
 function _withinAncestor(target, ancestors) {
   if (!target || !Array.isArray(ancestors)) return false;
   let rp;
@@ -174,7 +170,7 @@ async function uninstall(host) {
     const safeAncestors = [host.dshHome, host.npmRoot].filter(Boolean);
     const rm = (p) => {
       if (!p) return;
-      // 越界路径不删：dataPaths 必须落在产品数据根 / npm 根内，防止异常 manifest 越权删除。
+      
       if (!_withinAncestor(p, safeAncestors)) {
         host.logger.warn && host.logger.warn('uninstall 跳过越界路径（不在产品数据根内）: ' + p);
         return;
