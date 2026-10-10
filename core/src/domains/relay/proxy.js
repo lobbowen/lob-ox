@@ -6,7 +6,6 @@ const { isTrustedSource, tokenGateDecision, backoffGate, upstreamPath, redactLog
 const { createSession } = require('./session');
 const { createTunnelHandler } = require('./tunnel');
 
-// HTML polyfill 缓冲上限 2MB：超限放弃注入按流透传，绝不无界缓冲。
 const HTML_INJECT_MAX_BYTES = 2 * 1024 * 1024;
 
 function createGateLedger() {
@@ -64,7 +63,7 @@ function buildForwardHeaders(req, authority, cookie) {
 }
 
 function handleUpstream(ur, res, clientReqPath, onStatus, logger) {
-  // RL-1：日志只用脱敏后的路径（剥离 ?token=），绝不把远程访问令牌写进日志。
+  
   const clientReqLog = redactLogPath(clientReqPath);
   if (onStatus) onStatus(ur.statusCode);
   const h = { ...ur.headers };
@@ -140,7 +139,7 @@ function createRelay(targetHost, targetPort, opts) {
     const peerIp = (req.socket && req.socket.remoteAddress) || '?';
     const gate = tokenGateDecision(req, token, gateSalt, mode);
     if (!gate.ok) {
-      // 退避闸：同 IP 60s 内 >=10 次失败即 429（frp 把公网访客呈现为回环/私网，来源闸挡不住爆破）。
+      
       const waitMs = gateLedger.waitMsFor(peerIp);
       if (waitMs !== null) {
         res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': String(Math.max(1, Math.ceil(waitMs / 1000))) });
