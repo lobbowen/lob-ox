@@ -1,5 +1,5 @@
 (function (NS) {
-    // 工具链快照的**唯一写入点**，且只由 readEnv 调用：快照描述的是「最后一次真实探测读到了什么」，而不是「某个分支决定放行」—— 散装两字段时代每个分支各写一遍，漏写一处不报错，只让就绪文案少一半，并在重试时残留上一轮的值。
+    
   function applyToolchain(st) {
     if (!st || st.__timeout || st.probing || st.busy) return;
     var t = NS.emptyToolchain();
@@ -8,7 +8,7 @@
     NS.toolchain = t;
   }
 
-    // node_status 的**唯一读取口**：查询超时预算与快照写入都只在这里发生一次。三个轮询点各写一遍 15000/超时文案，改一处就会漏两处（快照与探测脱节即由此而来）。
+    
   function readEnv() {
     return NS.withTimeout(NS.core.invoke('node_status'), 15000, '环境查询无响应').then(function (st) {
       var o = st || {};
@@ -41,7 +41,7 @@
       var settled = false;
       function poll() {
         if (settled) return;
-                // 每次查询都要包一层超时：裸 invoke 一旦永不 settle，poll() 再也不会被调度，界面就永久停在「正在检测系统环境…」且不报错 - 轮询循环需要独立于被调方的心跳。
+                
         NS.readEnv().then(function (st) {
           if (settled) return;
           if (st.__timeout) {
@@ -93,21 +93,21 @@
         ? '卡在 ' + NS.envStuck.on + '（已 ' + Math.round((NS.envStuck.ms || 0) / 1000) + 's 无响应）'
         : '无任何维度结论');
     NS.fail('环境检测超时（探针无响应，可能有异常的可执行文件占位）· 已探明：' + known);
-        // 给出「跳过检测直接安装」出口：这是**唯一**能让用户自救的路径（下载 Node 不需要本机已有 Node）。
+        
     NS.$('btnForceNode').style.display = '';
   }
 
   function afterEnv(st) {
     if (st.busy) { NS.setStep(0); NS.status(st.status || '正在准备 Node.js 运行环境…'); return NS.stepNodeWait(); }
     if (!st.installed) {
-          // 有界轮询（900ms）没探到 ≠ 系统真的没有 Node。
-          // 首装场景实测：探测要枚举落点 + 扫 PATH + 逐个执行 node --version，900ms 内跑不完 ⇒ installed=null；
-          // 于是"系统有达标 Node 却重装"，装完第二次才识别（观感：重启一次才稳）。
-          // 故决定安装前，先用**完备探测**确认一次（system_node_ready），真的没有才装。
+          
+          
+          
+          
       NS.status('正在完备探测系统 Node…');
       return NS.withTimeout(NS.core.invoke('system_node_ready'), 30000, '完备探测无响应').then(function (full) {
         var f = full || {};
-            // 判定依据留痕到壳日志：此前靠文件时间与面板快照反推，结论自相矛盾（下载早于决定安装）。
+            
         NS.core.invoke('boot_trace', { line: 'afterEnv 决定前有界轮询 installed=' + st.installed + ' probing=' + st.probing + '；完备探测 installed=' + f.installed + ' minOk=' + f.minOk + ' npmOk=' + f.npmOk + ' nodePath=' + f.nodePath }).catch(function () {});
         if (f.installed && f.minOk !== false && f.npmOk === true) {
           NS.status('环境就绪 · Node ' + NS.versionLabel(f.installed) + '（系统自带，已复用）');
@@ -126,7 +126,7 @@
         return null;
       });
     }
-        // 必须校验**最低门槛**：后端一直回传 minOk（DSH 要求 Node >= v22.12），而前端曾长期忽略它 —— 装了旧版 Node 也照常放行，直到内核启动才失败。
+        
     if (st.minOk === false) {
       NS.setStep(0);
       return NS.probeMirrorThen(function () {
@@ -134,8 +134,8 @@
         return NS.core.invoke('start_node_install').then(function () { return NS.stepNodeWait('node'); });
       });
     }
-        // npm 与 node 并行同权且独立成支：两者是不同缺失项，共用文案会把「没有 Node」与「有 Node 但缺 npm」混成一句无从下手的话。后端 run_install 在同一条管线里装 node 并修复 npm，故这里触发同一次安装调用；npmOk 由 node_status 的真实探测回传。
-        // 只有 npmOk === true 才算环境就绪；null=探测没取到 node 路径，同样不得放行（不变量 T-1b）。
+        
+        
     if (st.npmOk !== true) {
       NS.setStep(0);
       return NS.probeMirrorThen(function () {
@@ -148,7 +148,7 @@
     return NS.stepNodeDone();
   }
 
-    // kind = 本次触发安装的缺失项（'node' | 'npm'），仅用于**失败文案前缀**：同一段等待逻辑要能如实说出是「Node 没补上」还是「npm 没补上」，否则用户无法判断该重试什么。
+    
   function stepNodeWait(kind) {
     NS.phase('node');
     return new Promise(function (resolve) {
@@ -156,7 +156,7 @@
       var t = setInterval(function () {
         NS.readEnv().then(function (st) {
           if (st.__timeout) return;
-                    // 失败前置检查（SSOT  节 3.1）：安装器报错后它不再 busy，若只看 busy 会一路轮询到兜底超时并被当作成功、直奔内核步骤 —— 而 npm 仍缺失，装内核必失败。
+                    
           if (!st.busy && st.error) { if (!done) { done = true; clearInterval(t); resolve(failOnMissingNpm(kind, st.error)); } return; }
           if (!st.busy && st.installed && st.minOk !== false && st.npmOk === true) { if (!done) { done = true; clearInterval(t); resolve(NS.stepNodeDone()); } }
         }).catch(function () {});
