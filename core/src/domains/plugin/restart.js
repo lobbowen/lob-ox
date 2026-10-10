@@ -25,7 +25,7 @@ async function applyPluginChange(ctx, target, kind, onLog) {
       if (!targetRunning(ctx, target)) { log('实例未运行：插件变更将在下次启动时生效'); return false; }
       log('重启实例「' + (target.name || target.id) + '」使插件变更生效…');
       if (ctx.events) ctx.events.append('plugin_restart_started', { name: target.name || target.id, target: target.id, kind });
-      try { ctx.instances.stopInstance(target.id); } catch (e) { log('停止实例失败: ' + e.message); }
+      try { await ctx.instances.stopInstance(target.id); } catch (e) { log('停止实例失败: ' + e.message); }
       let res = null;
       for (let i = 0; i < 6; i++) {
         try { res = await ctx.instances.startInstance(target.id); } catch (e) { res = { ok: false, error: e.message }; }
@@ -42,17 +42,17 @@ async function applyPluginChange(ctx, target, kind, onLog) {
       return true;
     }
     if (target.kind === 'native') {
-      if (!targetRunning(ctx, target)) { log('原生 DSH 未运行：插件变更将在下次启动时生效'); return false; }
-      if (typeof ctx.onNativeRestart === 'function') {
-        let rr;
-        try { rr = ctx.onNativeRestart(); } catch (e) { log('原生 DSH 重启请求失败: ' + e.message); return false; }
-        if (rr && rr.ok === false) { log('原生 DSH 重启请求未生效：' + ((rr && rr.error) || 'unknown')); return false; }
-        log('已请求重启原生 DSH 使插件变更生效');
-        if (ctx.events) ctx.events.append('plugin_restart_done', { name: '原生实例', target: 'native', kind, via: 'supervisor' });
-        return true;
+      const nr = ctx.onNativeRestart;
+      if (typeof nr !== 'function') {
+        log('原生 DSH 未配置重启回调：插件变更将在下次启动时生效');
+        return false;
       }
-      log('提示：原生 DSH 需重启后插件变更生效（当前未配置自动重启）');
-      return false;
+      let rr;
+      try { rr = ctx.onNativeRestart(); } catch (e) { log('原生 DSH 重启请求失败: ' + e.message); return false; }
+      if (rr && rr.ok === false) { log('原生 DSH 重启请求未生效：' + ((rr && rr.error) || 'unknown')); return false; }
+      log('已请求重启原生 DSH 使插件变更生效');
+      if (ctx.events) ctx.events.append('plugin_restart_done', { name: '原生实例', target: 'native', kind, via: 'supervisor' });
+      return true;
     }
     return false;
   } catch (e) {
