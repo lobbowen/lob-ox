@@ -86,7 +86,6 @@ const SURFACE = [
   { path: '/shell/health',         methods: ['POST'], domain: 'shell', category: 'operational', consumers: ['运维：排障时手工上报壳阶段（壳未接线，实测零调用）'], note: '诊断用途：phase=ready 即更新确认信号，供排障手工驱动安全网；当前 evaluate() 因缺输入恒 idle' },
   { path: '/shell/update-pending', methods: ['POST'], domain: 'shell', category: 'operational', consumers: ['运维：排障时手工建立更新账本（壳未接线，实测零调用）'], note: '诊断用途：建立更新账本（待重启确认），供排障手工驱动内核侧安全网' },
   { path: '/shell/check-update',   methods: ['POST'], domain: 'shell', category: 'public',      consumers: ['UI(关于卡)'], note: '壳版本检测（与内核自更新同源：npm registry + 镜像回退）' },
-  { path: '/shell/restart',        methods: ['POST'], domain: 'shell', category: 'public',      consumers: ['UI(关于卡)'], note: '重启桌面壳以应用更新（壳门 0 在新进程内完成安装）' },
 
 ];
 

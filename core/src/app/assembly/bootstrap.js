@@ -38,7 +38,7 @@ function _bootstrap(host) {
     if (!host._beatScheduler) host._beatScheduler = new BeatScheduler({ logger: host.logger, intervalMs: host.config.tickIntervalMs || 5000 });
     const beat = host._beatScheduler;
     const tickMs = host.config.tickIntervalMs || 5000;
-    beat.unregister('main'); beat.unregister('heartbeat'); beat.unregister('shell-watchdog'); beat.unregister('instance-supervise'); beat.unregister('upgrade-check');
+    beat.unregister('main'); beat.unregister('heartbeat') beat.unregister('instance-supervise'); beat.unregister('upgrade-check');
     // 主链收敛（受 controller.converge 内部 _ticking 互斥保护）。
     beat.register('main', () => host.tick(), { every: 1 });
     // 心跳：ManagedRegistry 驱动 dsh/router-daemon/lan-daemon/sandbox-instance 适配器；
