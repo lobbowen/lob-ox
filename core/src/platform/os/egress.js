@@ -13,8 +13,6 @@ function hostOf(url) {
   try { return new URL(String(url)).hostname.toLowerCase() || null; } catch { return null; }
 }
 
-// win32 系统代理只认 HKCU Internet Settings（唯一文档化位置）：ProxyEnable 是 DWORD，ProxyServer/AutoConfigURL 是字符串，三者缺一不能定有无代理。
-// 三条查询必须异步：在 HTTP 路径上同步跑是最长 3 x 2.5s 的事件循环冻结。
 function proxyWin(runner, note) {
   const KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
   const read = (args) => Promise.resolve(runner('reg.exe', args));
