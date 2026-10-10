@@ -1,10 +1,7 @@
-//! 镜像源适配（壳自持）：装机时机器上没有内核，壳必须先于内核跑完镜像探测，内核消费壳投放的 registry.json。不变量：并行探测全部候选（串行会被最慢源拖死）；Node 版本取全部可达源中的最高版本（镜像同步滞后，首个成功即采用会装到旧版）；壳对内核只交证据（目录 + 探测规格 + 逐源实测），从不交选择。
-
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// npm registry 预设：仅元数据可读不算可用（部分镜像只代理元数据、不代理 tarball）。
 pub const NPM_PRESETS: [&str; 6] = [
     "https://registry.npmmirror.com",
     "https://registry.npmjs.org",
@@ -27,23 +24,19 @@ pub const NODE_PRESETS: [&str; 10] = [
     "https://mirrors.pku.edu.cn/nodejs-release",
 ];
 
-/// 壳自更新清单预设（Tauri updater 的 endpoints，完整清单 URL）：必须是能直链**静态 JSON 文件**的源 —— 多数 npm 镜像只提供 registry 元数据 API，npmmirror /files/ 返回 403，npm 官方无静态文件服务。
 pub const SHELL_PRESETS: [&str; 2] = [
     "https://unpkg.com/@lob-ox/shell-release@latest/shell-manifest.json",
     "https://cdn.jsdelivr.net/npm/@lob-ox/shell-release@latest/shell-manifest.json",
 ];
 
-/// 安装包（清单里 `platforms.*.url` 指向的东西）的可换主机 npm CDN：入选判据是实测能把本平台安装包的完整字节取回（HTTP 200 + 全量），只看清单或元数据可达不算。
 pub const SHELL_ARTIFACT_NPM_CDNS: [&str; 2] = [
     "https://unpkg.com",
     "https://cdn.jsdelivr.net/npm",
 ];
 
-/// 安装包的另一类源：CI 挂上 GitHub Release 的同名安装程序（`shell-<ver>/<文件名>`）。⚠ tag 段是 `shell-<壳版本>`（不带 `v`，与 tauri.conf.json#version 直接对账），owner/repo 必须是真实发布仓 `lobbowen/lob-ox`：两段任一对不上都会 404，而它只是候选源之一，失败是静默换源、不会红。
 pub const SHELL_ARTIFACT_RELEASE_BASE: &str =
     "https://github.com/lobbowen/lob-ox/releases/download";
 
-/// 除清单声明的那一个 URL 外，安装包还该按序尝试哪些源（声明源永远第一）：Tauri 插件下载阶段不会自己换源，`Update::download_url` 是公开字段、壳可改写它；验签仍在插件内按清单签名做，任何源都没有让 updater 装上篡改包的能力。文件名不含架构标识时不挂 Release 候选（macOS 两架构产物同名，换过去取到的是错架构的包，表现为验签失败，更难排障）。
 pub fn artifact_candidates(declared: &tauri::Url, ver: &str) -> Vec<tauri::Url> {
     let mut out = vec![declared.clone()];
     let path = declared.path().to_string();
@@ -68,10 +61,8 @@ pub fn artifact_candidates(declared: &tauri::Url, ver: &str) -> Vec<tauri::Url> 
 
 const ARCH_TOKENS: [&str; 5] = ["x64", "amd64", "x86_64", "arm64", "aarch64"];
 
-/// 单次探测的总超时：index.json 单个就有 1.5~2MB（90+ 版本），过短的超时会让全部镜像在慢网/代理下一起超时，把「探针过短」误报成「全部 Node 镜像均不可用」。
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// 进程级 HTTP agent（统一代理与超时）：壳的全部 HTTP 都必须经本 agent，否则探测与下载会出现两套代理/超时行为。ureq 默认既不读环境变量也不读系统代理，「只有代理、没有直连」的机器上会全源直连必败而无从得知原因；故按 ALL_PROXY / HTTPS_PROXY / HTTP_PROXY（大小写）显式解析，无效地址忽略并记日志。
 pub fn agent() -> &'static ureq::Agent {
     static A: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
     A.get_or_init(|| {
@@ -105,7 +96,6 @@ pub fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// 一个 npm 源的最近一次实测结论。为什么逐源存而不是只存「选中的那个」：内核采用壳的证据的前提是证据覆盖它当前的**全部**候选，缺一源就得自己重测一轮 —— 只交一个结论等于不交。
 #[derive(Clone)]
 pub struct Measurement {
     pub origin: String,
@@ -168,7 +158,6 @@ fn cfg_path() -> PathBuf {
     crate::update::state_dir().join("mirrors.json")
 }
 
-/// 读取壳镜像配置；缺失或损坏时返回内置预设（**绝不失败** —— 装机首启必须可用）。
 pub fn load() -> Mirrors {
     let mut m = Mirrors::default();
     if let Ok(s) = std::fs::read_to_string(cfg_path()) {
@@ -229,29 +218,26 @@ pub fn save(m: &Mirrors) -> Result<(), String> {
     Ok(())
 }
 
-/// 契约 schema 版本（内核据此判断格式是否兼容）。按「谁写哪份」拆分：壳只交 catalog（镜像目录）/ probe（探测规格）/ measurements（逐源实测），mode 与 manualOrigin 一类的**选择**字段在内核自持的 registry-choice.json；内核照 probe 规格执行即可与壳得到同一答案。
 pub const CONTRACT_SCHEMA: u64 = 3;
 
-/// 契约文档本体（纯）：与写盘路径分开，便于独立校验形状。不变量：键集合恰为 schema/writtenBy/writtenAt/catalog/probe/measurements —— 出现任何 mode/manualOrigin/selected 一类的**选择**字段即为回归（那份所有权在内核）。
 fn contract_doc(m: &Mirrors) -> serde_json::Value {
     serde_json::json!({
         "schema": CONTRACT_SCHEMA,
-        // 署名 = 单源 `GUI_BIN_NAME` + 壳版本：本处原写死 `shell@`，与壳另外三份契约的 `lobox-shell@`
-        //   并存 ⇒ 用户/日志里出现两个「写入者」。名字在单源里已有，一律派生、不得再写字面量（J-10 对账）。
+        
+        
         "writtenBy": format!("{}@{}", crate::brand::GUI_BIN_NAME, env!("CARGO_PKG_VERSION")),
         "writtenAt": now_secs(),
         "catalog": m.npm,
         "probe": {
             "kind": "package-metadata",
             "pathTemplate": npm_probe_path(),
-                        // 必须由 PROBE_TIMEOUT 派生（单一事实源）：两侧探测超时不一致时，介于两者之间的源会一侧判可达、另一侧判不可达，选源再次分叉。
+                        
             "timeoutMs": PROBE_TIMEOUT.as_millis() as u64,
         },
         "measurements": m.npm_measurements.iter().map(|x| x.json()).collect::<Vec<_>>(),
     })
 }
 
-/// 导出镜像契约给内核（`<产品状态根>/supervisor/registry.json`）：所有权在壳、方向单向（壳写内核读）—— 装壳那一刻机器上没有内核，壳必须先于内核跑完探测；由 main.rs setup 在启动时无条件导出。契约里一个字的选择都不写，所以内核固定过哪个源也不会让这份目录停止更新。
 pub fn export_to_kernel(m: &Mirrors) -> Result<(), String> {
     if m.npm.is_empty() {
         return Ok(());
@@ -267,7 +253,6 @@ pub fn export_to_kernel(m: &Mirrors) -> Result<(), String> {
     Ok(())
 }
 
-/// 把一轮 npm 逐源探测落成契约证据、并重投契约：预热与面板手动重测两条路径共用此出口，否则「用户在引导页点了重新测速」的结果只留在内存，内核仍按旧证据选源。全部不可达时**清空**证据：留着旧结论会在其新鲜窗口内压住内核自测，网络恢复后面板仍显示一批死源；证据缺失时内核会自己测一轮（目录照投，只是不附结论）。
 pub fn record_npm_measurements(probes: &[Probe]) {
     if probes.is_empty() {
         return;
@@ -296,7 +281,6 @@ pub fn record_npm_measurements(probes: &[Probe]) {
     }
 }
 
-/// 壳启动时无条件导出契约：探测失败时也必须写，否则内核完全拿不到源；失败只记日志，绝不阻断引导 —— 契约是增强，不是壳启动的前提。
 pub fn export_on_boot() {
     let m = load();
     if let Err(e) = export_to_kernel(&m) {
@@ -312,12 +296,10 @@ pub struct Probe {
     pub error: Option<String>,
 }
 
-/// npm registry 的探测探针包名（必须是一个真实存在的包）：多数 registry 根路径返回 404，用根路径会把健康源判为不可达、无谓地少一个可用镜像。用我们自己的平台包：真实存在，且与最终用途一致。
 fn npm_probe_path() -> String {
     crate::core::package_name().unwrap_or_else(|_| "@lob-ox/core-linux-x64".to_string())
 }
 
-/// 用 std::thread::scope 实现并发（std 自带，无需新依赖）：单源超时 PROBE_TIMEOUT，整体耗时约为最慢者而非累加；`path` 为空时视为 npm registry 探测（用真实包名而非根路径）。
 pub fn probe_all(sources: &[String], path: &str) -> Vec<Probe> {
     let owned;
     let path = if path.is_empty() {
@@ -378,13 +360,10 @@ pub fn probe_all(sources: &[String], path: &str) -> Vec<Probe> {
     v
 }
 
-// 形态尺：什么才算「一个镜像源」、什么才算「一个可下载的产物地址」。与内核 distribution/registry-ref.js 的 parseRegistryBase 逐条对齐；两仓语言不同、只能各有一份实现，故判据以双侧同表 golden vectors 钉死。
-
 pub fn normalize_base(raw: &str) -> String {
     raw.trim().trim_end_matches('/').to_string()
 }
 
-/// 主机是不是回环/私网/链路本地/保留段字面量（内核 shared/ip.js 的 isPrivateHostLiteral 同尺）。只判字面量：DNS 记录指到内网不在射程内。IPv6 字面量整族拒绝 —— 壳没有任何正当用途要访问它。
 fn private_host_literal(host: &str) -> bool {
     use std::net::IpAddr;
     let h = host.trim_start_matches('[').trim_end_matches(']').to_lowercase();
@@ -428,7 +407,6 @@ fn checked_http_url(raw: &str, noun: &str) -> Result<tauri::Url, String> {
     Ok(u)
 }
 
-/// 配置形态的镜像基址（面板可填、可进契约 catalog 的那种）：允许带 path —— 华为云/腾讯云 npm 就是这个形态；但凭证、查询串、片段一律拒 —— 它们会把「同一个源」变成两个身份不同的地址。
 pub fn registry_base(raw: &str) -> Result<String, String> {
     let base = normalize_base(raw);
     let u = checked_http_url(&base, "镜像源")?;
@@ -441,7 +419,6 @@ pub fn registry_base(raw: &str) -> Result<String, String> {
     Ok(base)
 }
 
-/// 由远端元数据给出的下载目标（npm `dist.tarball`）。与配置基址差两点：查询串**必须允许**（签名 CDN 的凭据参数就在 query 里，砍掉等于装不上这类镜像），主机**必须过私网闸** —— 这个主机不是操作者选的而是 registry 选的，等价于一次跨主机跳转。
 pub fn asset_url(raw: &str) -> Result<String, String> {
     let u = checked_http_url(raw, "下载地址")?;
     if u.fragment().is_some() {
@@ -452,7 +429,6 @@ pub fn asset_url(raw: &str) -> Result<String, String> {
     }
     Ok(u.as_str().to_string())
 }
-
 
 static WARM: std::sync::OnceLock<Mutex<Option<ProbeSnapshot>>> = std::sync::OnceLock::new();
 
@@ -479,7 +455,6 @@ pub fn cached() -> Option<ProbeSnapshot> {
 
 static WARMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// 离开线程体（正常返回或 panic）就把 WARMING 落下。手写 `store(false)` 只覆盖不 panic 的路径：探测链上任一处 panic 都会让标记永久停在 true，此后每次预热都被第一行的 swap 挡掉 —— 表现为 registry 那一格再也不更新，且无日志。
 struct WarmingGuard;
 impl Drop for WarmingGuard {
     fn drop(&mut self) {
@@ -491,7 +466,7 @@ pub fn warmup_async() {
     if WARMING.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return;
     }
-        // 线程开不起来时**必须**回滚 WARMING：它在上面已置 true，留着就永久没有下一次预热，registry 那一格会一直停在「测速尚未完成」，且没有任何地方能解释为什么。
+        
     let spawned = std::thread::Builder::new()
         .name("mirror-warmup".to_string())
         .spawn(|| {
@@ -517,7 +492,7 @@ pub fn warmup_async() {
                 npm_probes: mp,
                 at: now_secs(),
             };
-                        // 结果必须落盘并重投契约（规则只在一处，见 record_npm_measurements）：只放内存快照的话，内核拿到的永远是「壳没测过」，它会自己再跑一轮同样的探测。
+                        
             record_npm_measurements(&npm_p);
             match warm().lock() {
                 Ok(mut g) => *g = Some(snap),
@@ -551,7 +526,7 @@ mod tests {
             "候选不能重复: {:?}", all);
     }
 
-        /// Windows：npm 换主机 + 同名 Release 资产；且**绝不**出现实测不成立的源（实测取不到安装包字节的源，一律不许回到表里）。
+        
     #[test]
     fn windows_candidates_cover_measured_sources_only() {
         let d = url("https://unpkg.com/@lob-ox/shell-win-x64@1.2.0/artifact/lobox_1.2.0_x64-setup.exe");
@@ -633,7 +608,7 @@ mod tests {
         for h in public {
             assert!(!private_host_literal(h), "公网主机被误判为私网: {}", h);
         }
-        // IPv6 整族（含带方括号的 URL hostname 形态）与单标签短名一律非公网信任集。
+        
         for h in ["::1", "fe80::1", "[::1]", "[fd00::1]", "intranet", ""] {
             assert!(private_host_literal(h), "该主机必须判为非公网: {:?}", h);
         }
@@ -663,7 +638,7 @@ mod tests {
         }
     }
 
-        /// 契约形状：键集合**等值**而非「含 catalog」—— 回潮一个 mode/selected 会红在这里，而只数条数的话它照样绿。
+        
     #[test]
     fn contract_doc_is_evidence_only() {
         let m = Mirrors {
