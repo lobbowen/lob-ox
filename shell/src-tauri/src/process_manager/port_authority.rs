@@ -44,7 +44,7 @@ impl PortAuthority {
 
     /// 分配动态端口（实例 / 供应商端点），避开已占与保留池。
     pub fn allocate(&mut self, role: &str, owner: &str) -> Result<u16, String> {
-        for p in 49000..50000u16 {
+        for p in 20000..49000u16 {
             if self.reserved_of(p) || self.records.contains_key(&p) { continue; }
             self.records.insert(p, Record { port: p, role: role.into(), owner: owner.into() });
             return Ok(p);
