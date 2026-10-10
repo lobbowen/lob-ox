@@ -50,15 +50,6 @@ else
   bash release/scripts/build-ui.sh
 fi
 
-echo "=== [2/5] 本宿主相关的内核回归（仅 L2 分层，全链由 test job 跑一遍） ==="
-# 监控 E2E 需图形会话（src/platform/os/desktop.js::sessionAvailable）：linux 需 xvfb-run 供 DISPLAY，darwin/win32 恒有。
-if command -v xvfb-run >/dev/null 2>&1; then
-  echo "[test] 经 xvfb-run 提供图形会话（监控 E2E 需要）..."
-  xvfb-run -a npm run test:os-behavior
-else
-  npm run test:os-behavior
-fi
-
 echo "=== [3/5] 构建内核 launcher（build:launcher：esbuild bundle + node 启动脚本，全平台统一） ==="
 npm run build:launcher --
 
