@@ -28,12 +28,12 @@ function runCli({ target, args, opts, registryOrigin, logger }) {
       if (!rp.ok && logger && logger.warn) {
         logger.warn('plugin CLI: 无可用的 registry 镜像（' + rp.violation + '），回退 pnpm 默认（npmjs.org）');
       }
-      // 环境：白名单透传（不再整体继承 process.env，防 NPM_TOKEN 等凭据泄漏给生命周期脚本）。
+      
       const env = ProcessSpec.childEnv(target.env, rp.ok ? rp.env : null);
       let child;
       try {
-        // 进程构造走 ProcessSpec：安全不变量（--ignore-scripts、白名单校验）内置于构造器，
-        // 不再依赖本调用方记忆——此前正是此处漏了 --ignore-scripts（全仓唯一）。
+        
+        
         const built = ProcessSpec.build({
           runtime: target.runtime,
           bin: target.bin,
