@@ -23,8 +23,8 @@ function createForwarder(deps) {
   const getPricing = d.getPricing || (() => null);
   const readBody = d.readBody || parse.readBody;
   const agents = d.agents || {};
-  // W5：此前这里是 `d.forwardOnceImpl ||` 的注入缝，但全仓零处传入 ⇒ 缝永不生效。
-  // 直接调 forwardOnce：死缝会误导读者以为存在可替换的上游实现。
+  
+  
   const callUpstream = (...a) => forwardOnce(...a);
 
   function endInflight(acc, prov) {
@@ -66,7 +66,7 @@ function createForwarder(deps) {
     const attempts = Math.max((prov.accounts || []).length, 1);
     let stripInjectionRetried = false, injectedThisAttempt = false;
     const triedKeys = new Set();
-    // begin 之后任何跳出都不许留在途计数：inflight>0 是 arbitrateStop 的「不可停」判据，泄漏会让实例悬挂、restartPending 永不补做。
+    
     let attemptEnded = true;
     let activeProv = prov;
     const endAttempt = () => {
