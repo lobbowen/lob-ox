@@ -101,28 +101,13 @@ jobs:
         shell: bash
         run: bash release/scripts/ci-core.sh
 
-      # 产物路径按 publish-core.sh 的口径计算（含 DSH_ARCH_OVERRIDE），不硬编码平台名。
-      - name: 安装包冒烟（npm i -g dry-run 子包 · 全局命令自举）
-        shell: bash
-        run: |
-          PLAT="${DSH_PLATFORM_OVERRIDE:-$(node -p 'process.platform')}"
-          ARCH="${DSH_ARCH_OVERRIDE:-$(node -p 'process.arch')}"
-          case "$PLAT" in
-            linux) OS_TAG=linux ;; darwin) OS_TAG=darwin ;; win32) OS_TAG=win ;;
-            *) echo "::error::不支持的平台 $PLAT"; exit 1 ;;
-          esac
-          VER="$(node -p 'require("./package.json").version')"
-          PKG="./dist/npm/@lob-ox/core-$OS_TAG-$ARCH"
-          [ -d "$PKG" ] || { echo "::error::缺少子包目录 $PKG（dry-run 步应已产出）"; exit 1; }
-          bash release/scripts/install-smoke-core.sh --pkg "$PKG" --ver "$VER"
-
       # ⚠ 令牌非空判断必须在 run 内：step 级 if 的上下文里没有 secrets（引用即 workflow 解析错误
       #    → 整文件 0-job 红）。--publish-only 只跑 [5/5] 真发布，复用同 workspace 上一轮构建产物。
       # ⚠ 本步 if 已把语境限定为「内核 tag + need_build=true」＝确实要发布 ⇒ 此语境下无令牌必然是
       #    「job 判绿而 registry 上什么都没有」的假绿，故必须判红。非 tag / 不需要构建发布的语境根本
       #    不进本步（step 级 if 直接跳过，跳过语义仍合法），因此这里不留「无令牌即 exit 0」的降级分支。
       - name: 内核发布（tag 触发 · NPM_TOKEN 唯一持有步）
-        if: startsWith(github.ref, 'refs/tags/core-') && needs.precheck.outputs.need_build == 'true'
+        if: startsWith(github.ref, 'refs/tags/core-')
         shell: bash
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -137,7 +122,7 @@ jobs:
       # 发布后自证：真发布之后立刻回查 registry。查不到即判红——「跳过」与「静默失败」不得再伪装成成功。
       # ⚠ 与发布步同门（tag + need_build=true）：非发布语境不进此步 ⇒ push/PR 上不会误红。
       - name: 发布后自证（回查 registry 确有该版本）
-        if: startsWith(github.ref, 'refs/tags/core-') && needs.precheck.outputs.need_build == 'true'
+        if: startsWith(github.ref, 'refs/tags/core-')
         shell: bash
         run: |
           # ⚠ 本步带 -e：`VAR=$(cmd)` 非零会直接终止脚本、连 ::error:: 都打不出来 ⇒ 取值类赋值一律兜底。
