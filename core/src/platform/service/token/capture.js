@@ -1,7 +1,5 @@
 'use strict';
 
-// 三源优先级 stdout > 本地恢复文件 > journald 顺序不可颠倒（journal 会把旧 token 覆盖掉 stdout 刚捕获的新 token）；journalctl 必须异步（同步会冻结生命周期 tick）。
-
 const ex = require('../../util/exec');
 const service = require('../../os/service');
 const persist = require('./persist');
@@ -14,7 +12,6 @@ function parseDshTokenLine(line) {
 
 const _channelNoticed = new Set();
 
-// journald 只在单元真由 systemd 拉起时才存在（portable 档同样带 dsh-web@ 前缀）；任何失败都 resolve(null)，绝不 reject。
 async function captureJournal(unit, opts) {
   const o = opts || {};
   const logger = o.logger || console;
