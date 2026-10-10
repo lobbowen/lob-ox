@@ -7,7 +7,6 @@ import {
   type KernelUpdateResult,
 } from "./kernelUpdateBridge";
 
-// 与实现同值的冻结字面量（改实现不改此处必红）；壳侧同名的字面量由 core/test/brand-single-source-test.js J 段对账。
 const REQUEST = "lobox:kernel-update-request";
 const RESULT = "lobox:kernel-update-result";
 const PROGRESS = "lobox:kernel-update-progress";
@@ -63,7 +62,7 @@ describe("kernelUpdateBridge：出站请求", () => {
     expect(msg.v).toBe(BRIDGE_PROTOCOL_VERSION);
     expect(msg.type).toBe(REQUEST);
     expect(typeof msg.requestId).toBe("string");
-    // 出站允许 '*'：壳主帧是 Tauri 自定义协议 origin，面板无从预知（入向另有硬校验）。
+    
     expect(target).toBe("*");
   });
 });
