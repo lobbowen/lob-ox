@@ -1,7 +1,5 @@
 'use strict';
 
-// reg.exe 的排版、%VAR% 不展开、根名已展开三件事只在此认一次（浏览器探测与出网条件共用，各自解析必然分叉）。
-
 function regValueOf(out) {
   const m = String(out || '').match(/REG_(?:EXPAND_SZ|SZ)\s+(.*)/);
   if (!m) return null;
