@@ -3,8 +3,6 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-// 镜像候选来自 mirror.rs 的 NODE_PRESETS（壳自持配置，支持用户自定义）。
-
 const HTTP_TOTAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
@@ -16,7 +14,7 @@ pub(crate) fn http_get_bytes_progress(
     total_hint: Option<u64>,
     on_bytes: Option<&dyn Fn(u64, Option<u64>)>,
 ) -> Result<Vec<u8>, String> {
-  // 与镜像探测共用同一个 agent：代理与超时只有一处定义（见 mirror::agent）。
+  
     let resp = crate::mirror::agent()
         .get(url)
         .timeout(HTTP_TOTAL_TIMEOUT)
@@ -28,7 +26,7 @@ pub(crate) fn http_get_bytes_progress(
         .or(total_hint)
         .filter(|t| *t > 0);
     let mut buf = Vec::with_capacity(total.unwrap_or(0).min(64 * 1024 * 1024) as usize);
-  // 没有它，一个谎报或持续产字的源就能把壳进程喂到 OOM —— 读满为止，超时前无人拦。
+  
     let cap = total.map(|t| t.saturating_add(1024 * 1024)).unwrap_or(512 * 1024 * 1024);
     let mut reader = resp.into_reader();
     let mut chunk = [0u8; 64 * 1024];
@@ -60,7 +58,6 @@ pub(crate) fn http_get_bytes_progress(
     Ok(buf)
 }
 
-/// 不变量：判定依据与下载对象必须是同一种制品 —— macOS `osx-{arch}-tar`、Linux `linux-{arch}`、Windows `win-{arch}-zip`，各自解包成对应归档，三平台均零权限解包到 <状态根>/node。
 fn platform_artifact(version: &str) -> Option<crate::platform::NodeArtifact> {
     crate::platform::current().node_artifact(version)
 }
@@ -104,7 +101,7 @@ pub fn latest_lts() -> Result<LtsChoice, String> {
         .map(|p| (p.source.clone(), p.ok, p.latency_ms))
         .collect();
 
-  let mut best: Option<(String, String, u128, String)> = None; // (ver, file, latency, src)
+  let mut best: Option<(String, String, u128, String)> = None; 
     for p in &probes {
         if !p.ok { continue; }
         let Some(body) = &p.body else { continue };
@@ -124,7 +121,7 @@ pub fn latest_lts() -> Result<LtsChoice, String> {
             if let Err(e) = crate::mirror::save(&m) {
                 crate::update::log(&format!("镜像配置写入失败（不影响本次安装）: {}", e));
             }
-  // 同步导出契约给内核（内核消费同一份目录；本机没装内核时写下也无害，装完就会读到）。
+  
             if let Err(e) = crate::mirror::export_to_kernel(&m) {
                 crate::update::log(&format!("导出内核镜像偏好失败（不影响本次安装）: {}", e));
             }
@@ -187,7 +184,7 @@ pub fn download_verified(
             Err(e) => { last_err = Some(e); continue; }
         };
         let digest = hex::encode(Sha256::digest(&data));
-    // SHASUMS 获取失败（网络失败 / 非 UTF-8 / 条目未找到同理）必须 continue：用 ? 会让一次限流或超时中断整条镜像回退链。
+    
         let sums = match http_get_bytes(&format!("{}/{}/SHASUMS256.txt", base, version)) {
             Ok(bytes) => match String::from_utf8(bytes) {
                 Ok(s) => s,
@@ -227,7 +224,6 @@ pub fn outdated(installed: Option<&str>, latest: &str) -> bool {
     }
 }
 
-/// DSH 运行最低 Node 门槛（commander 要求 Node >= 22.12.0）；达到门槛即放行，不要求最新 LTS。
 pub const MIN_NODE: &str = "v22.12.0";
 
 pub fn meets_minimum(installed: Option<&str>) -> bool {
@@ -276,9 +272,8 @@ pub fn npm_manual_hint(version: &str) -> String {
     )
 }
 
-/// `version` 由 `finalize_install` 传入已校验值；不兜空版本 —— 空版本一旦写进契约，下游每条「已就绪」播报都会念出一个看不见的号。
 pub fn reinstall_for_npm(local: &Path, version: &str) -> Result<crate::runtime_contract::NodeRuntime, String> {
-    // 重装可能把「另一个旧 Node」留在 PATH/记录里，故用安装器返回的路径直接复探（再问一次 PATH 可能拿到旧版本，与目标版本不一致 -> 永不收敛）。
+    
     let node = install(local)?;
     let rt = crate::runtime_contract::derive_usable(&node, version)
         .ok_or_else(|| npm_manual_hint(version))?;
@@ -301,8 +296,8 @@ pub fn finalize_install(
   }
     if let Some(rt) = crate::runtime_contract::derive_usable(node_bin, &v) {
         crate::runtime_contract::write(&rt);
-        // 装完必须**登记到用户 PATH**：否则只有本进程自造的 PATH 能找到它，
-        // 终端与其它产品一概看不见 —— 那正是「私有化」的实质（Q1 决策：全局）。
+        
+        
         match crate::env::ensure_global_bin_on_path() {
             Ok(how) => crate::update::log(&format!("全局 PATH 登记：{}", how)),
             Err(e) => crate::update::log(&format!("全局 PATH 登记失败（不阻断本次安装）：{}", e)),
@@ -318,8 +313,6 @@ pub fn probe_after() -> Option<(PathBuf, String)> {
     crate::env::known_install_node_path().and_then(|p| crate::env::node_version(&p).map(|v| (p, v)))
 }
 
-// 运行期契约只有 runtime_contract::write 单一写入点（两个写者会互相覆盖 npm 事实）。
-
 pub fn now_iso() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -332,7 +325,6 @@ pub fn now_iso() -> String {
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, m, d, h, mi, s)
 }
 
-/// 算法来源：Howard Hinnant 的 `civil_from_days`（公有领域，已被广泛验证）。
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
   let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
