@@ -21,7 +21,6 @@ function readState(snap: unknown): JobState | null {
   return null;
 }
 
-/** @param fetchStatus 取状态快照，如 supervisorApi.pluginInstallStatus(jobId) */
 export async function pollJob<T>(
   fetchStatus: () => Promise<T>,
   opts: PollJobOptions = {},
@@ -35,20 +34,20 @@ export async function pollJob<T>(
     try {
       const snap = await fetchStatus();
       last = snap;
-      if (opts.onTick) { try { opts.onTick(snap); } catch { /* 忽略回调异常 */ } }
+      if (opts.onTick) { try { opts.onTick(snap); } catch {  } }
       const st = readState(snap);
       if (st === "done") return { state: "done", snapshot: snap, error: null };
       if (st === "failed") {
         const err = (snap as { error?: string | null } | null)?.error ?? null;
         return { state: "failed", snapshot: snap, error: err };
       }
-      // 后端返回 { error: 'job not found' }：视为终态失败（避免无限轮询）
+      
       const rawErr = (snap as { error?: unknown } | null)?.error;
       if (rawErr && st === null) {
         return { state: "failed", snapshot: snap, error: String(rawErr) };
       }
     } catch {
-      // 单次失败：继续重试
+      
     }
     if (Date.now() - started >= timeoutMs) {
       return { state: "running", snapshot: last, timedOut: true };
