@@ -1,8 +1,5 @@
 'use strict';
 
-// 令牌唯一写入点：原子写 + 写后显式 chmod（write 的 mode 只对新建文件生效）+ 脱敏。
-// 超限必须轮转而非清空（清空唯一持久链路即永久丢失）；Windows 忽略 POSIX mode，安全边界由目录级 protectDir 承担。
-
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -38,8 +35,8 @@ function ensureDir(dir) {
 
 function writeAtomic(file, data) {
   const fp = path.resolve(file);
-  // tmp 名补时间戳：修前是 `fp + '.tmp' + pid`（无时间戳），
-  // 同进程并发写者会撞名互相截断，一次写入静默丢失。
+  
+  
   const tmp = fp + '.tmp.' + process.pid + '.' + Date.now();
   try {
     ensureDir(path.dirname(fp));
@@ -49,17 +46,16 @@ function writeAtomic(file, data) {
     try { fs.chmodSync(fp, 0o600); } catch (e) { chmodWarn(file, e); }
     return { ok: true, path: fp };
   } catch (e) {
-    // unlink 而非 truncate：修前留下 0 字节 tmp 文件且永不清理。
+    
     try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch {  }
     return { ok: false, path: fp, reason: (e && e.message) || String(e) };
   }
 }
 
-// 权限收口失败的统一记录口（不抛出：chmod 失败不影响数据已落盘这一事实）。
 function chmodWarn(file, e) {
   try {
     console.warn('[token] chmod 收口失败（数据已落盘，权限可能不符预期）: ' + file + ' — ' + ((e && e.message) || e));
-  } catch { /* 记录失败也不得影响主流程 */ }
+  } catch {  }
 }
 
 function rotateByBackup(file, opts) {
