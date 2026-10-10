@@ -77,9 +77,9 @@ class FrpManager {
     const settings = this.loadSettings();
     const { text, count } = this.buildConfig(settings, instances);
     fs.mkdirSync(this.dir, { recursive: true });
-    // RL-8：审计指出本函数每次调用都无条件重写并重启 frpc，导致「改动一个 lan 实例 ⇒ 所有 WAN 隧道全断」。
-    // 修法：先比对现有 frpc.toml 字节；字节相同则**只更新 _lastCount、不重写不重启**（无 diff 不动进程）。
-    // 仅在首次生成、或字节确实不同（真有 wan 实例/令牌/服务器变更）时才重写 + 重启。
+    
+    
+    
     let unchanged = false;
     try {
       if (fs.existsSync(this.configFile)) {
@@ -88,7 +88,7 @@ class FrpManager {
       }
     } catch {}
     if (!unchanged) {
-      // frpc.toml / frp.json 含 auth.token 明文：新写入 0600，启动时补加固旧文件。
+      
       writeAtomic(this.configFile, text, { mode: 0o600 });
     }
     this._lastCount = count;
@@ -145,7 +145,7 @@ class FrpManager {
       pushLog('[exited code=' + code + ']');
       if (this.child !== child) return;
       this.child = null;
-      // 兜底重启：非主动 stop 且配置仍应运行才按退避重拉（最多 5 次，封顶 60s）。
+      
       if (!this._intentionalStop) this._scheduleRestart();
     });
     if (this.events) this.events.append('frpc_started', { pid: child.pid });
