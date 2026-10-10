@@ -12,7 +12,7 @@ function getJson(url, timeoutMs = 10000, redirectsLeft = 5) {
         res.resume();
         if (redirectsLeft <= 0) return reject(new Error('too many redirects from ' + url));
         const next = String(res.headers.location);
-        if (!/^https?:\/\//i.test(next)) return reject(new Error('重定向到不支持的协议: ' + next.slice(0, 64)));
+        if (!/^https?:\/\
         return getJson(next, timeoutMs, redirectsLeft - 1).then(resolve, reject);
       }
       if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -47,7 +47,7 @@ function getText(url, timeoutMs = 8000, redirectsLeft = 5) {
         res.resume();
         if (redirectsLeft <= 0) return reject(new Error('too many redirects from ' + url));
         const next = String(res.headers.location);
-        if (!/^https?:\/\//i.test(next)) return reject(new Error('重定向到不支持的协议: ' + next.slice(0, 64)));
+        if (!/^https?:\/\
         return getText(next, timeoutMs, redirectsLeft - 1).then(resolve, reject);
       }
       if (res.statusCode < 200 || res.statusCode >= 300) {
