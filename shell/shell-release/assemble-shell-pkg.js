@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -31,7 +30,7 @@ function parseArgs(argv) {
     if (!a.startsWith('--')) continue;
     const k = a.slice(2);
     const nxt = argv[i + 1];
-        // 布尔开关不能吞掉后一个 token 当值：否则末尾的 --require-sig 会得到 undefined，且它前面的真值参数会被整体错位一格。
+        
     if (nxt === undefined || nxt.startsWith('--')) { o[k] = true; continue; }
     o[k] = nxt;
     i += 1;
@@ -57,7 +56,7 @@ function findArtifacts(bundleDir, installer, version) {
     hits = by(FALLBACK_PATTERNS[installer]);
     if (hits.length) console.log('   主形态未命中，改用备用形态（关闭 updater 产物的验证构建）');
   }
-    // 必须按版本过滤：bundle 目录会累积历史版本安装包，不过滤会把旧版本一并打进发布包（体积膨胀 + 语义混乱，且清单与包内容不一致）。CI 每次全新 workspace 故只产一个版本，但本地开发/重跑会命中此问题（实测 1.0.1 与 1.0.2 同目录）。
+    
   const versionHits = version ? hits.filter((f) => path.basename(f).includes(version)) : hits;
   const picked = versionHits.length ? versionHits : hits;
   if (version && versionHits.length && versionHits.length < hits.length) {
