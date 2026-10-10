@@ -1,7 +1,5 @@
 'use strict';
 
-// 三端各自命令：linux ip route / ip -o addr，darwin route -n get default + ifconfig，win32 PowerShell Get-NetRoute / Get-NetIPAddress。
-
 const ex = require('../util/exec');
 
 const PLATFORM = process.platform;
@@ -37,7 +35,7 @@ function linux() {
   if (!out) return [];
   const records = [];
   for (const line of out.split('\n')) {
-    const m = line.match(/^\d+:\s+(\S+?)(@\S+)?\s+inet\s+([0-9.]+)\//);
+    const m = line.match(/^\d+:\s+(\S+?)(@\S+)?\s+inet\s+([0-9.]+)\
     if (!m) continue;
     records.push({ iface: m[1], addr: m[3], dyn: /(?:secondary|dynamic)/.test(line) });
   }
