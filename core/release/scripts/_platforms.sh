@@ -4,7 +4,6 @@ dsh_platform_matrix() {
   node -e '
   const p = require("./package.json");
   const list = (p.npmPublish && p.npmPublish.packages) || [];
-  /* 固定顺序：与历史发布顺序一致，便于 diff 与人工核对 */
   const ORDER = ["linux-x64", "darwin-arm64", "darwin-x64", "win-x64"];
   const parsed = [];
   for (const name of list) {
