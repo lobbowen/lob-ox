@@ -1,7 +1,5 @@
 'use strict';
 
-// 无图形会话时拉起 GUI 必失败（周期重试会酿成重启风暴）；systemd --user 不 import DISPLAY/WAYLAND_DISPLAY，须按实测 socket 补齐。
-
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
