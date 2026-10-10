@@ -27,7 +27,7 @@ function sandboxTarget(ctx, inst) {
   const dataDir = ctx.instances && ctx.instances.sandboxDataDir ? ctx.instances.sandboxDataDir(inst) : null;
   const installDir = ctx.instances && ctx.instances.sandboxInstallDir ? ctx.instances.sandboxInstallDir(inst) : null;
   if (!dataDir || !installDir) return null;
-  // sandbox.js 的 rootDir 参数不含实例 id（内部再 join(inst.id)），故此处再上溯一层。
+  
   const sandboxRoot = (ctx.instances && ctx.instances.sandboxRoot) ? path.dirname(ctx.instances.sandboxRoot(inst)) : path.dirname(path.dirname(installDir));
   return {
     id: inst.id,
