@@ -28,7 +28,7 @@ function createLayers({ overlayFile, logger }) {
     profile.dsh = profile.dsh || {};
     profile.dsh.profile = profile.dsh.profile || {};
     profile.dsh.profile.bundles = nextBundles;
-    // 原子写：裸 writeFileSync 在并发/中断下可能撕裂 package.json，且默认 umask 可能世界可读。
+    
     writeAtomic(profilePath, JSON.stringify(profile, null, 2) + '\n', { mode: 0o600 });
     return true;
   };
