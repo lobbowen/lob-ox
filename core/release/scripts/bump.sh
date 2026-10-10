@@ -5,7 +5,7 @@ ver_lt() {
 }
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
-[ $
+[ $# -ge 1 ] || { echo "用法: bump.sh <--core> <新版本>"; exit 2; }
 MODE="$1"; NEW="${2:?}"
 if ! VLIB="$ROOT/src/shared/version.js" NEW="$NEW" node -e 'const {VERSION_RE}=require(process.env.VLIB);process.exit(VERSION_RE.test(process.env.NEW||"")?0:1)'; then
   echo "非法版本号（须为合法 SemVer：主.次.补丁 + 可选任意预发布后缀，如 x.y.z / x.y.z-BETA.1 / x.y.z-test1；与 verify-versions.js 同一判定）: $NEW"; exit 1
