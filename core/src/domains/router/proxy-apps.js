@@ -9,7 +9,7 @@ const PROXY_APPS = {
     healthPath: '/health',
     modelPath: '/v1/models',
     upstream: 'https://api.commandcode.ai',
-    // keyEnv 是密钥注入的唯一 env 名（绝不进 cmdline）；其余 env/超时一律不注入，跑上游默认配置。
+    
     keyEnv: 'CC_API_KEY',
     repo: 'thaolaptrinh/commandcode-api-proxy',
     registry: 'commandcode-api-proxy',
