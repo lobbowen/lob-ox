@@ -25,4 +25,30 @@ function bumpStartupFailure(w, now, cfg) {
   return { start, count, tripped: count >= burst };
 }
 
-module.exports = { shouldGuard, bumpStartupFailure };
+// 按域参数化的「启动失败限流预算」（S5 / T4 的统一节流原语封装）：
+// 消费方（主链 startup-throttle、实例 state-machine、路由 reconcile）只持有这一份 budget，
+// 不再各自重写阈值判定。startupFailure=false 表示「活过启动窗口后的正常重启」（不计失败、无上限）；
+// 否则计入窗口内失败次数，达到 burst 即 tripped（停止自动拉起，等人工重试 / 窗口过期自然恢复）。
+function makeBudget(cfg) {
+  const windowMs = (cfg && Number(cfg.windowMs) > 0) ? Number(cfg.windowMs) : 60000;
+  const burst = (cfg && Number(cfg.burst) >= 1) ? Number(cfg.burst) : 5;
+  let state = { start: null, count: 0 };
+  const self = {
+    windowMs, burst,
+    get count() { return state.count; },
+    get tripped() { return state.count >= burst; },
+    // 返回 { tripped, count, halted }；halted=true 表示本次已触发上限（调用方须停止自动拉起）。
+    note(startupFailure) {
+      if (startupFailure === false || startupFailure == null) {
+        return { tripped: false, count: state.count, halted: false };
+      }
+      const dec = bumpStartupFailure(state, Date.now(), { windowMs, burst });
+      state.start = dec.start; state.count = dec.count;
+      return { tripped: dec.tripped, count: state.count, halted: dec.tripped };
+    },
+    reset() { state = { start: null, count: 0 }; },
+  };
+  return self;
+}
+
+module.exports = { shouldGuard, bumpStartupFailure, makeBudget };

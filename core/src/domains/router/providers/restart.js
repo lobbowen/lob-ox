@@ -2,6 +2,23 @@
 
 const { INSTANCE_STATES } = require('../model');
 const ports = require('../../../platform/service/ports').shared;
+const { makeBudget } = require('../../../shared/guardian');
+
+// 统一重启节流（S5 / T4）：代理实例的「启动窗口内失败」复用共享 guardian 预算，
+// 与主链、沙箱实例同一条规则、按域参数化。此前代理实例的 reconcile 无限重拉（无上限），
+// 是智能路由域游离于统一控制面之外的最直接后果——本补丁把它接回单源节流，
+// 达到 burst 即停止自动拉起（phase 落 COLD 且标记 _throttled=true，等窗口过期/人工），
+// 不再风暴式重生。
+const PROXY_INSTANCE_THROTTLE = { windowMs: 10 * 60 * 1000, burst: 5 };
+
+function budgetFor(inst) {
+  if (!inst) return makeBudget(PROXY_INSTANCE_THROTTLE);
+  if (!inst._restartBudget) inst._restartBudget = makeBudget(PROXY_INSTANCE_THROTTLE);
+  return inst._restartBudget;
+}
+
+// 重置预算（人工/窗口过期后的显式重启入口调用）：clear 由 provider.startInstance({manual}) 触发。
+function resetBudget(inst) { if (inst) inst._restartBudget = makeBudget(PROXY_INSTANCE_THROTTLE); }
 
 function createRestartOrchestrator(deps) {
   const d = deps || {};
@@ -35,8 +52,9 @@ function createRestartOrchestrator(deps) {
   return { respawn };
 }
 
-async function runReconcile(provider, allowStop) {
-  const out = { started: [], stopped: [], desired: [] };
+// 受节流门控的 reconcile：每个实例进入「启动窗口内失败」时计入预算，tripped 即停止自动拉起。
+async function runReconcileThrottled(provider, allowStop) {
+  const out = { started: [], stopped: [], desired: [], throttled: [] };
   const desired = provider.desiredRunningAccounts();
   const list = desired.list || [];
   out.desired = list.map((a) => a.keyId);
@@ -45,11 +63,25 @@ async function runReconcile(provider, allowStop) {
     const inst = provider.instanceOf(acc);
     if (!inst || inst.pid || inst.startingPromise) continue;
     if (inst.status === INSTANCE_STATES.DEAD && !inst.pid) inst.status = INSTANCE_STATES.COLD;
+    const b = budgetFor(inst);
+    if (b.tripped) {
+      inst._throttled = true;
+      out.throttled.push(acc.keyId);
+      continue;
+    }
+    inst._throttled = false;
+    const wasRunning = !!inst.pid;
     try {
       const r = await provider.startInstance(inst);
+      // 启动窗口内失败（刚拉起即死）= 计入预算；活过窗口后的正常重启不计入（同主链语义）。
+      const startupFailure = !r.ok || (!wasRunning && !inst.pid);
+      b.note(startupFailure);
       if (r && r.ok) {
         await provider._waitHealthy(inst).catch(() => {});
         out.started.push(acc.keyId);
+        if (b.tripped && provider.logger && provider.logger.warn) {
+          provider.logger.warn('[reconcile] 实例启动反复失败已达上限 key=' + (acc.maskedKey || acc.keyId) + '，停止自动拉起（等人工/窗口过期）');
+        }
         if (provider.logger && provider.logger.info) {
           const role = desired.active && acc.keyId === desired.active.keyId ? '在用' : '预热';
           provider.logger.info('[reconcile] 拉起实例 key=' + acc.maskedKey + '（' + role + '）');
@@ -57,8 +89,9 @@ async function runReconcile(provider, allowStop) {
       }
     } catch {}
   }
-  if (!allowStop) return out;
+  // 停止侧：保持既有语义（desired 之外的在跑实例停止/回收）。
   for (const inst of (provider.instances || []).slice()) {
+    if (!allowStop) break;
     if (!inst.pid) {
       if (!desiredIds.has(inst.keyId) && inst.port) {
         try { ports.unregister('proxy:' + inst.keyId); } catch {}
@@ -91,7 +124,7 @@ async function reconcileInstances(provider, opts) {
     try { await provider._reconcileBusy; } catch {}
   }
   if (provider._reconcileBusy) return provider._reconcileBusy;
-  const p = runReconcile(provider, allowStop);
+  const p = runReconcileThrottled(provider, allowStop);
   provider._reconcileBusy = p;
   try { return await p; } finally { if (provider._reconcileBusy === p) provider._reconcileBusy = null; }
 }
@@ -101,4 +134,4 @@ function reconcileNow(provider) {
   reconcileInstances(provider).catch(() => {});
 }
 
-module.exports = { createRestartOrchestrator, runReconcile, reconcileInstances, reconcileNow };
+module.exports = { createRestartOrchestrator, runReconcileThrottled, reconcileInstances, reconcileNow, budgetFor, resetBudget, PROXY_INSTANCE_THROTTLE };

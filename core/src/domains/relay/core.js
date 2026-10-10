@@ -36,12 +36,59 @@ function cookieByName(headerValue, name) {
   return null;
 }
 
+// 透传上游 path+query 并仅剥离「我方」门卫令牌参数（?token=<remoteToken>），
+// 其余逐字节原样保留。关键：绝不能用 WHATWG URL + searchParams 重建 URL——
+// 它会把上游文档相对 combo 路由中的 '/'（如 /plugins/??@deepseek-ai/dsh-client-modules/client.js）
+// 编码成 %2F，导致 DSH 的 combo 路由 404、client-modules 引导注册缺失，
+// 浏览器报 "HTML did not preload @deepseek-ai/dsh-client-modules/client.js"。
+// 旧实现正是用 URL.searchParams 重建，已由 relay-upstream-path-fidelity-test 抓回归。
+function stripGateTokenAndPreserve(rawUrl) {
+  if (!rawUrl) return '/';
+  let url = rawUrl;
+  const hashIdx = url.indexOf('#');
+  if (hashIdx >= 0) url = url.slice(0, hashIdx); // 片段不上游，落日志也无意
+  const qIdx = url.indexOf('?');
+  const path = qIdx >= 0 ? url.slice(0, qIdx) : url;
+  if (qIdx < 0) return path || '/';
+  const query = url.slice(qIdx + 1);
+  if (!query) return path || '/';
+  const kept = [];
+  for (const pair of query.split('&')) {
+    if (!pair) { kept.push(pair); continue; }
+    const eq = pair.indexOf('=');
+    const rawKey = eq >= 0 ? pair.slice(0, eq) : pair;
+    let key = rawKey;
+    try { key = decodeURIComponent(rawKey); } catch {}
+    if (key === 'token') continue; // 剥我方门卫令牌，不转发给 DSH
+    kept.push(pair);
+  }
+  const out = path || '/';
+  return kept.length ? out + '?' + kept.join('&') : out;
+}
+
 function upstreamPath(rawUrl) {
-  try {
-    const u = new URL(rawUrl, 'http://127.0.0.1');
-    if (u.searchParams.has('token')) u.searchParams.delete('token');
-    return u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : '');
-  } catch { return rawUrl || '/'; }
+  // 上游转发只用 path+query（host 由 buildForwardHeaders 另写），逐字节保真。
+  return stripGateTokenAndPreserve(rawUrl);
+}
+
+const POLYFILL_SCRIPT = `<script>
+if (typeof crypto.randomUUID !== 'function') {
+  crypto.randomUUID = function () {
+    var b = crypto.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    var h = '';
+    for (var i = 0; i < 16; i++) h += (i === 4 || i === 6 || i === 8 || i === 12 ? '-' : '') + ('0' + b[i].toString(16)).slice(-2);
+    return h;
+  };
+}
+</script>`;
+
+
+function redactLogPath(rawUrl) {
+  // 日志脱敏：剥离 ?token=<secret>，其余路径原样保留（含 combo 的 '/'），
+  // 既不为日志重写 URL，也不把令牌写进 lan-daemon.log / guard.log（RL-1）。
+  return rawUrl ? stripGateTokenAndPreserve(rawUrl) : '';
 }
 
 function lanGateCookieValue(token, salt) {
@@ -51,26 +98,6 @@ function lanGateCookieValue(token, salt) {
   return crypto.createHash('sha256').update(s + '\n' + t).digest('hex');
 }
 
-function hasValidToken(req, token, salt, mode) {
-  // fail-closed（D1/RL-2）：空令牌即无令牌。但 LAN 模式信任 RFC1918 网络边界
-  // （http 层 isTrustedSource 已前置拦截非私网/非本机来源），不构成开放中继 ⇒ 放行；
-  // WAN/未指定模式空令牌一律判无授权，杜绝"空令牌开放转发"（开放中继）。
-  if (!token) return normalizeRemoteMode(mode) === 'lan';
-  const url = new URL(req.url, 'http://localhost');
-  const queryToken = url.searchParams.get('token');
-  if (queryToken && safeEqual(queryToken, token)) return true;
-  const cookies = req.headers.cookie || '';
-  const m = LAN_COOKIE_RE.exec(cookies);
-  if (m) {
-    try {
-      const want = lanGateCookieValue(token, salt);
-      return !!want && safeEqual(decodeURIComponent(m[1]), want);
-    } catch {
-      return false;
-    }
-  }
-  return false;
-}
 
 function tokenGateDecision(req, token, salt, mode) {
   // fail-closed（D1/RL-2）：空令牌（含被显式清除）对 WAN/未指定模式一律拒，杜绝"空令牌即开放中继"。
@@ -96,29 +123,26 @@ function tokenGateDecision(req, token, salt, mode) {
   return { ok: false, unauthorized: true };
 }
 
-const POLYFILL_SCRIPT = `<script>
-if (typeof crypto.randomUUID !== 'function') {
-  crypto.randomUUID = function () {
-    var b = crypto.getRandomValues(new Uint8Array(16));
-    b[6] = (b[6] & 0x0f) | 0x40;
-    b[8] = (b[8] & 0x3f) | 0x80;
-    var h = '';
-    for (var i = 0; i < 16; i++) h += (i === 4 || i === 6 || i === 8 || i === 12 ? '-' : '') + ('0' + b[i].toString(16)).slice(-2);
-    return h;
-  };
-}
-</script>`;
 
-
-// 日志脱敏：请求路径里可能带 ?token=<secret>（relay 把令牌放在 query）。落日志前剥离 token 参数，
-// 避免把用户远程访问令牌写进 lan-daemon.log / guard.log（RL-1）。
-function redactLogPath(rawUrl) {
-  if (!rawUrl) return '';
-  try {
-    const u = new URL(rawUrl, 'http://127.0.0.1');
-    if (u.searchParams.has('token')) u.searchParams.delete('token');
-    return u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : '');
-  } catch { return String(rawUrl || '').replace(/[?&]token=[^&]*/, ''); }
+function hasValidToken(req, token, salt, mode) {
+  // fail-closed（D1/RL-2）：空令牌即无令牌。但 LAN 模式信任 RFC1918 网络边界
+  // （http 层 isTrustedSource 已前置拦截非私网/非本机来源），不构成开放中继 ⇒ 放行；
+  // WAN/未指定模式空令牌一律判无授权，杜绝"空令牌开放转发"（开放中继）。
+  if (!token) return normalizeRemoteMode(mode) === 'lan';
+  const url = new URL(req.url, 'http://localhost');
+  const queryToken = url.searchParams.get('token');
+  if (queryToken && safeEqual(queryToken, token)) return true;
+  const cookies = req.headers.cookie || '';
+  const m = LAN_COOKIE_RE.exec(cookies);
+  if (m) {
+    try {
+      const want = lanGateCookieValue(token, salt);
+      return !!want && safeEqual(decodeURIComponent(m[1]), want);
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 function buildFrpcToml(settings, instances) {

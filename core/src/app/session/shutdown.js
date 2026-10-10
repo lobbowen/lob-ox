@@ -29,14 +29,10 @@ function shutdown(host) {
     host.events.append('guard_exit', {});
     host.logger.info('guard shutting down');
     host.writeState(true);
-    if (host._timer) clearInterval(host._timer);
-    if (host._heartbeatTimer) clearInterval(host._heartbeatTimer);
+    if (host._beatScheduler) host._beatScheduler.stop();
     if (host._killTimer) clearTimeout(host._killTimer);
     if (host._adoptKillTimer) clearTimeout(host._adoptKillTimer);
     abortInflightNpm(host, 'guard-shutdown');
-    if (host._initialCheckTimer) clearTimeout(host._initialCheckTimer);
-    if (host._upgradeTimer) clearInterval(host._upgradeTimer);
-    if (host._shellWatchdogTimer) clearInterval(host._shellWatchdogTimer);
     if (host.api) {
       try {
         host.api.close();
@@ -66,16 +62,10 @@ async function shutdownAll(host) {
     host._setSessionState('stopping');
     host._shellHalted = true;
     try { host.writeState(true); } catch (e) { host.logger.warn && host.logger.warn('shutdownAll persist shellHalted: ' + e.message); }
-    if (host._shellWatchdogTimer) { clearInterval(host._shellWatchdogTimer); host._shellWatchdogTimer = null; }
-    if (host._heartbeatTimer) { clearInterval(host._heartbeatTimer); host._heartbeatTimer = null; }
-    if (host._timer) { clearInterval(host._timer); host._timer = null; }
-    if (host._initialCheckTimer) { clearTimeout(host._initialCheckTimer); host._initialCheckTimer = null; }
-    if (host._upgradeTimer) { clearInterval(host._upgradeTimer); host._upgradeTimer = null; }
-    if (host._killTimer) { clearTimeout(host._killTimer); host._killTimer = null; }
-    if (host._adoptKillTimer) { clearTimeout(host._adoptKillTimer); host._adoptKillTimer = null; }
     host.logger.info('[session] 退出流程开始：停止全部被管对象…');
     host.events && host.events.append('shutdown_all', {});
     abortInflightNpm(host, 'session-exit');
+    if (host._beatScheduler) host._beatScheduler.stop();
     host._stopMainDsh();
     await host._stopAllSandboxes();
     const stopDaemon = async (kind) => {

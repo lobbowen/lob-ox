@@ -4,6 +4,7 @@ const execPath = require('../../platform/os/exec-path');
 
 const crypto = require('node:crypto');
 const { bootstrapDshCookie } = require('../../platform/service/token/exchange');
+const { liveApiPort } = require('../security');
 
 const OPEN_WEB_CODES = new Map();
 const OPEN_WEB_CODE_TTL_MS = 30000;
@@ -49,13 +50,13 @@ function findInstanceOrMain(sup, id) {
 }
 
 function handleOpen(ctx) {
-  const { sup, req, res, identity, originAllowed, tokOf } = ctx;
+  const { sup, req, res, identity, originAllowed, tokOf, server } = ctx;
   const url = new URL(req.url, 'http://localhost');
-  const apiPort = sup.config.apiPort;
+  const apiPort = liveApiPort(server, sup);
   const code = url.searchParams.get('code');
   const deny = (status, msg) => { res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(msg); };
   if (!identity.loopback) return deny(403, '仅允许本机访问');
-  if (!originAllowed(req, apiPort)) return deny(403, 'origin not allowed');
+  if (!originAllowed(req)) return deny(403, 'origin not allowed');
   const rec = consumeOpenWebCode(code);
   if (!rec) return deny(code ? 400 : 404, code ? '授权码无效或已过期' : '缺少授权码');
   const it = findInstanceOrMain(sup, rec.id);
@@ -119,7 +120,7 @@ function commandShapeError(command, dshBin) {
 }
 
 function handle(ctx) {
-  const { sup, req, res, pathname, identity, send, collectBody, originAllowed, tokOf, browser } = ctx;
+  const { sup, req, res, pathname, identity, send, collectBody, originAllowed, tokOf, browser, server } = ctx;
   function openInSystemBrowser(url) { return browser.openBrowser(url, { logger: sup.logger }); }
 
     if (req.method === 'GET' && pathname === '/open') return handleOpen(ctx);
@@ -148,7 +149,7 @@ function handle(ctx) {
       return render();
     }
     if (req.method === 'POST' && pathname.startsWith('/instances/')) {
-      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, {}); }
+      if (!originAllowed(req)) { req.resume(); return send(403, {}); }
       const act = pathname.slice('/instances/'.length);
       collectBody(req, res, 65536, (body) => {
         try {
@@ -181,7 +182,7 @@ function handle(ctx) {
               if (!it) return send(404, { ok: false, error: '实例不存在' });
               if (!(Number(it.port) > 0)) return send(400, { ok: false, error: '非法端口' });
               const code = issueOpenWebCode(j.id);
-              const url = 'http://127.0.0.1:' + sup.config.apiPort + '/open?code=' + code;
+              const url = 'http://127.0.0.1:' + (liveApiPort(server, sup) || sup.config.apiPort) + '/open?code=' + code;
               return Promise.resolve(openInSystemBrowser(url)).then((r) => {
                 if (!r.ok) dropOpenWebCode(code);
                 return send(r.ok ? 200 : 500, r);

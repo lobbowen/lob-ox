@@ -6,7 +6,7 @@ const { API_DOMAINS } = require('../router-table');
 const { collectBody } = require('./body');
 const { serveStatic } = require('../static');
 const { identify } = require('../identity');
-const { originAllowed, requestHasAccessKey, isShellOrigin } = require('../security');
+const { originAllowed, requestHasAccessKey, isShellOrigin, liveApiPort } = require('../security');
 const browserExit = require('../../platform/os/browser');
 const environmentExit = require('../../platform/os/environment');
 
@@ -24,7 +24,7 @@ function safeFail(res, err, where) {
 function createServer(sup, deps) {
   const browser = (deps && deps.browser) || browserExit;
   const environment = (deps && deps.environment) || environmentExit;
-  return http.createServer((req, res) => {
+  const server = http.createServer((req, res) => {
     const shellOrigin = (() => {
       const o = req.headers.origin;
       if (!o) return null;
@@ -48,6 +48,9 @@ function createServer(sup, deps) {
     };
 
     const identity = identify(req);
+
+    // 同源/ CORS 闸门统一读运行时真实端口（ports.json#supervisor-api），而非冻结 config.apiPort。
+    const originAllowedLive = (req) => originAllowed(req, liveApiPort(server, sup));
 
     // apiAccessKey fail-closed：非回环必须带匹配 key，未配置 key 时同样拒绝（否则 0.0.0.0 零认证可驱动写 API）；回环与 OPTIONS 预检豁免。
     const accessKey = (sup && sup.config && sup.config.apiAccessKey) || null;
@@ -89,7 +92,7 @@ function createServer(sup, deps) {
       return send(400, { error: 'bad request encoding' });
     }
 
-    const ctx = { sup, req, res, pathname: decodedPathname, identity, send, collectBody, originAllowed, tokOf, browser, environment };
+    const ctx = { sup, req, res, pathname: decodedPathname, identity, send, collectBody, originAllowed: originAllowedLive, tokOf, browser, environment, server };
 
     for (const d of API_DOMAINS) {
       if (d.owns(pathname)) {
@@ -116,6 +119,7 @@ function createServer(sup, deps) {
     }
     return send(405, { error: 'method not allowed' });
   });
+  return server;
 }
 
 module.exports = { createServer };

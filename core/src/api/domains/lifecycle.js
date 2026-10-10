@@ -17,7 +17,7 @@ function handle(ctx) {
       return send(200, { sessionState: sup.sessionState ? sup.sessionState() : 'unknown' });
     }
     if (req.method === 'POST' && pathname === '/session/stop') {
-      if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
+      if (!originAllowed(req)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
       req.resume();
       return Promise.resolve(sup.shutdownAll())
         .then((r) => send(r && r.ok === false ? 400 : 200, r || { ok: true }))
@@ -40,7 +40,7 @@ function handle(ctx) {
         return lc ? send(200, lc.snapshot()) : send(404, { error: '模块未注册: ' + id });
       }
       if (req.method === 'POST' && action) {
-        if (!originAllowed(req, sup.config.apiPort)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
+        if (!originAllowed(req)) { req.resume(); return send(403, { ok: false, error: 'cross-origin request rejected' }); }
         const lc = lm.get(id);
         if (!lc) return send(404, { error: '模块未注册: ' + id });
         if (id === 'dsh' && sup && (action === 'start' || action === 'stop' || action === 'restart')) {

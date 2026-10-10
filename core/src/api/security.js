@@ -70,4 +70,21 @@ function requestHasAccessKey(req, key) {
   return false;
 }
 
-module.exports = { originAllowed, isLocalOrLanHost, isShellOrigin, requestHasAccessKey };
+
+// 守卫「实际监听端口」是同源/ CORS 闸门的唯一运行时真相：直接取本进程 http.Server 的绑定端口
+// （sup.api.address().port），而非冻结的 config.apiPort —— 冻结值只在「尚未绑定 / 无连接对象」时兜底。
+// 壳侧 discovered_api_port 读 ports.json，而 bin/lobox 在 listen 回调里把同一绑定端口 registerSole
+// 写入 ports.json ⇒ 内核（活端口）与壳（ports.json）天然指向同一端口，不再各持一份可发散的真相
+// （双源真相缺陷，同源 DSH native-manifest 那一类）。
+function liveApiPort(server, sup) {
+  // 守卫「实际监听端口」是同源/ CORS 闸门的唯一运行时真相：取本进程 http.Server 的真实绑定端口，
+  // 而非冻结的 config.apiPort（后者只在尚未绑定/无连接对象时兜底）。内核与壳的真相此刻天然一致：
+  // bin/lobox 在 listen 回调里把同一绑定端口 registerSole 写入 ports.json，壳侧 discovered_api_port
+  // 即读该文件 ⇒ 内核（活端口）与壳（ports.json）永不发散（双源真相缺陷，同源 DSH native-manifest）。
+  const live = server && typeof server.address === 'function' ? server.address() : null;
+  if (live && Number.isInteger(live.port) && live.port > 0) return live.port;
+  const cfg = sup && sup.config && sup.config.apiPort;
+  return Number.isInteger(cfg) ? cfg : null;
+}
+
+module.exports = { originAllowed, isLocalOrLanHost, isShellOrigin, requestHasAccessKey, liveApiPort };

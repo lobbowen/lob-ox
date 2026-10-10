@@ -2,6 +2,7 @@
 
 const life = require('./instance-lifecycle');
 const restart = require('./restart');
+const { resetBudget } = restart;
 const probe = require('./probe');
 const pool = require('./pool');
 const pidlook = require('../../../platform/os/pidlookup');
@@ -119,6 +120,7 @@ function withProcessPool(Base) {
       }
       inst._restartAt = Date.now() + 120000;
       inst._restartPending = null;
+      try { resetBudget(inst); } catch {}
       if (this.logger && this.logger.warn) this.logger.warn('[proxy-instance] 实例重启 key=' + inst.maskedKey + ' port=' + inst.port + ' reason=' + reason);
       const hadPid = !!inst.pid;
       try { this.stopInstance(inst, true); } catch (e) { this.logger.warn && this.logger.warn('[proxy-instance] 重启 stop 异常: ' + (e && e.message)); }
