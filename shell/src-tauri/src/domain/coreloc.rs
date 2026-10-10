@@ -1,4 +1,3 @@
-//! 内核（`lobox`）的定位：候选枚举 + 版本仲裁。内核是 npm 全局包，落点随安装方式而异，故枚举全部候选再按版本取最高；只认一个路径会在「装了却找不到」或「装了新版却用旧版」时出错。is_file/canonicalize 在断开的映射盘或 UNC 上会触网，故先问 `platform::is_local_fixed_dir`（GetDriveTypeW 不触网）再访问文件系统。
 use tauri::Manager;
 
 use std::path::PathBuf;
@@ -7,7 +6,6 @@ pub(crate) fn core_exe_names() -> &'static [&'static str] {
     crate::platform::current().core_exe_names()
 }
 
-/// 把 npm 垫片规范化为可被 node 执行的 JS 入口。Windows 的 npm 全局 bin 是 `<prefix>\<name>.cmd` 批处理垫片，`node <垫片>` 会当 JS 解析而必然失败；真实入口在 `<prefix>\node_modules\<pkg>\bin\<name>`，找不到包内入口时原样返回。返回值总是外部工具可用的规范路径：归一在 `platform::external_path` 一处完成，调用方不得再各自剥前缀。
 pub fn normalize_guard(bin: PathBuf, pkg: Option<&str>) -> PathBuf {
     let bare = crate::platform::external_path(&bin);
     let ext = bare.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase());
@@ -45,7 +43,7 @@ pub(crate) fn locate_core_candidates(resource_dir: Option<PathBuf>) -> Vec<PathB
         );
         if !out.contains(&real) { out.push(real); }
     };
-    // 先位置契约（core.json.bin）—— 安装成功后壳写入的**确切位置**：npm 全局 prefix 可能是 nvm/volta/fnm 的 node 目录或任何自定义目录，PATH 与下面的硬编码目录都不含它。
+    
     let names_owned: Vec<&str> = crate::domain::coreloc::core_exe_names().to_vec();
     if let Some(c) = crate::core_contract::read() {
         add(c.bin.clone(), &mut out);
@@ -75,7 +73,6 @@ pub(crate) fn locate_core_candidates(resource_dir: Option<PathBuf>) -> Vec<PathB
     out
 }
 
-/// 在候选集（含指定 prefix 的平台候选）中找**恰好等于 `version`** 的内核；安装成功后回读确切位置并记录 core.json。找不到 -> None：调用方必须如实报「已安装但定位不到目标版本（安装前缀不一致）」，绝不假装成功。
 pub(crate) fn locate_core_at_version(
     app: &tauri::AppHandle,
     version: &str,
@@ -98,7 +95,6 @@ pub(crate) fn locate_core(app: &tauri::AppHandle) -> Option<PathBuf> {
     locate_core_with_version(app).map(|(p, _)| p)
 }
 
-/// 定位内核并**一并返回其版本**（避免调用方再执行一次二进制取版本）：多候选按版本最高选取（旧内核不得遮蔽新内核）；探测失败的候选不参与仲裁，整批都探不到时版本返回 `None`，而非会一路显示到面板的假版本 0.0.0。
 pub(crate) fn locate_core_with_version(app: &tauri::AppHandle) -> Option<(PathBuf, Option<String>)> {
     let cands = crate::domain::coreloc::locate_core_candidates(app.path().resource_dir().ok());
     if cands.is_empty() { return None; }
