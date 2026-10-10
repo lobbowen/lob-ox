@@ -6,7 +6,6 @@ const { writeAtomic } = require('../../platform/util/fs');
 const fs = require('node:fs');
 const path = require('node:path');
 
-// SIGKILL 后复核窗口：同一拍断言 isAlive 会把「正在死」误判成「杀不掉」，过窗口仍存活才判停止落空。
 const ADOPT_KILL_VERIFY_MS = 2000;
 
 const DEPS = new WeakMap();
@@ -50,7 +49,7 @@ module.exports = {
     } catch { return null; }
   },
 
-  // 归属凭据：spawn 与 adopt 两条取得所有权的路线都要写；落盘走 writeAtomic + 0600。
+  
   _writeMainOwner(dshPid, port) {
     const d = depsOf(this);
     try {
@@ -107,7 +106,7 @@ module.exports = {
     }, d.config().stopGraceMs));
   },
 
-    // 代际 gen 保护共享的 _adoptKillTimer 槽位：定时器只在「本代仍是当前代」时置空。
+    
   _killAdopted(pid) {
     const d = depsOf(this);
     const gen = (d.readAdoptKillGen() || 0) + 1;
@@ -120,7 +119,7 @@ module.exports = {
     d.writeAdoptKillTimer(setTimeout(() => {
       releaseSlot();
       if (pidlook.isAlive(pid)) {
-                // POSIX 外来 pid 不发组信号（可能恰为无关进程组组长，kill(-pid) 误杀整组），退化为单进程 SIGKILL；Windows 走整树。
+                
         const pc = platform.processControl;
         if (pc && typeof pc.killTree === 'function') {
           pc.killTree(pid, 'SIGKILL', () => {});
