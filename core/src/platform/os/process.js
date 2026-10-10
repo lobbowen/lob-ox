@@ -13,7 +13,6 @@ function signalProcess(pid, sig) {
   try { process.kill(-pid, sig); } catch { try { process.kill(pid, sig); } catch {} }
 }
 
-// Windows taskkill 必带 /F（无 /F 只投 WM_CLOSE，无窗口子进程杀不掉仍占端口）+ 10s 有界超时；/T 对外来 pid 安全。
 function killTree(pid, sig, cb, opts) {
   if (!Number.isInteger(pid) || pid <= 0) { if (cb) cb(new Error('invalid pid')); return; }
   if (isWindows) {
