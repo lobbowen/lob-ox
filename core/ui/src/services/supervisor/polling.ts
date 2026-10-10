@@ -15,7 +15,7 @@ export interface SupervisorSnapshot {
   events: EventsPage["events"];
   eventsSeq: number;
   online: boolean;
-  /** 全部读取都因 401（访问密钥缺失/过期）失败：是「鉴权被拒」而非「管家离线」，须呈现为可操作错误。 */
+  
   authFailed: boolean;
 }
 
@@ -33,7 +33,7 @@ let snap = empty();
 let started = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let busy = false;
-/** refreshEvents 与 syncAll 相互独立，慢网下并发交叠会让同批事件双插。 */
+
 let eventsBusy = false;
 
 const BASE_TICK_MS = 2000;
@@ -45,8 +45,6 @@ function tickDelayMs(): number {
   return Math.min(MAX_TICK_MS, BASE_TICK_MS * 2 ** (failStreak - 1));
 }
 
-/** 后端 r.seq 可能是 null/字符串/NaN：NaN 写进 eventsSeq 会永久污染（Math.max(NaN,x) 恒为 NaN，
- *  下轮 after=NaN 再也拉不到事件），故非法值退回当前游标，不回退 0 造成重放。 */
 function safeSeq(v: unknown, fallback: number): number {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -84,7 +82,7 @@ async function syncAll() {
     ]);
     const online = !!status;
     failStreak = online ? 0 : failStreak + 1;
-    // 心跳不含 /tasks：TasksPage 自管 state + 手动刷新，避免每拍白拉。
+    
     setPartial({ status, instances, lan, frp, router, providers, ports, online, authFailed: !online && authHit });
   } catch {
     failStreak += 1;
@@ -100,7 +98,7 @@ async function refreshEvents() {
   try {
     const r = await supervisorApi.events(snap.eventsSeq, 60);
     if (r.events && r.events.length) {
-      // 后端增量升序 -> 反转后新批次在前（数组头 = 最新）。
+      
       const seen = new Set<number>();
       const merged: EventsPage["events"] = [];
       for (const e of [...r.events].reverse().concat(snap.events)) {
@@ -114,7 +112,7 @@ async function refreshEvents() {
         eventsSeq: Math.max(snap.eventsSeq, safeSeq(r.seq, snap.eventsSeq)),
       });
     }
-  } catch { /* 静默 */ }
+  } catch {  }
   finally { eventsBusy = false; }
 }
 
