@@ -34,7 +34,7 @@ export async function pollJob<T>(
     try {
       const snap = await fetchStatus();
       last = snap;
-      if (opts.onTick) { try { opts.onTick(snap); } catch {  } }
+      if (opts.onTick) { try { opts.onTick(snap); } catch { void 0; } }
       const st = readState(snap);
       if (st === "done") return { state: "done", snapshot: snap, error: null };
       if (st === "failed") {
@@ -46,9 +46,7 @@ export async function pollJob<T>(
       if (rawErr && st === null) {
         return { state: "failed", snapshot: snap, error: String(rawErr) };
       }
-    } catch {
-      
-    }
+    } catch { void 0; }
     if (Date.now() - started >= timeoutMs) {
       return { state: "running", snapshot: last, timedOut: true };
     }
