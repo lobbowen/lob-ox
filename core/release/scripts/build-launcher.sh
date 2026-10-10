@@ -14,7 +14,7 @@ VER="$(node -p "require('./package.json').version")"
 
 ALL=0
 OUT_REL="dist/launcher"
-while [ $
+while [ $# -gt 0 ]; do
   case "$1" in
     --all-platforms) ALL=1 ;;
     -*) echo "未知参数: $1（支持 [outDir] / --all-platforms）"; exit 2 ;;
@@ -90,10 +90,6 @@ if [ "$ALL" = 1 ]; then
   done
   echo "  OK 四平台 core.cjs 同源（sha256=${BASE_HASH:0:16}…）"
 fi
-
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  sleep 0.3
-done
 
 echo "[5/6] 产物清单"
 for d in "${DIRS[@]}"; do ls -lh "$d/core.cjs" | awk '{printf "  %-46s %s\n", $9, $5}'; done
