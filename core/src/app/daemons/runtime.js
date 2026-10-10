@@ -62,8 +62,8 @@ module.exports = {
         spawnEnv: () => ({ DSH_SUPERVISOR_CONFIG: cfgPath }),
         logger: d.logger(),
         events: d.events(),
-        // `this` 是宿主（本方法经 host._daemonLifecycle(kind) 调用）；箭头函数捕获它。
-        // 此前写作 host._exitIntended()，而 host 只存在于 depsOf(host) 形参作用域 ⇒ 延迟回调求值时 ReferenceError。
+        
+        
         exitIntended: () => this._exitIntended(),
       });
       return lc[kind];
@@ -100,7 +100,7 @@ module.exports = {
             tokens[i.id] = String(t || '');
           } catch {}
         }
-                                // lan-state 哈希必须用稳定内容（无时间戳），否则每次监督 tick 都视为变化并重复 applyToken/换 cookie。
+                                
         const body = JSON.stringify({ instances: instances.map((i) => ({
           id: i.id, name: i.name, port: i.port,
           remoteMode: i.remoteMode === 'lan' || i.remoteMode === 'wan' ? i.remoteMode : 'off',
@@ -162,7 +162,7 @@ module.exports = {
         }
         if (desiredRunning === false) {
           if (daemonActive && managed) {
-                        // managed 锁只是静态授权（锁内 pid 从不比对）：kill 前必须经 classify() 判动态归属，否则误杀外来同名 daemon。
+                        
             const lcS = d.daemonLifecycle('router');
             const c = (lcS && typeof lcS.classify === 'function') ? lcS.classify() : null;
             if (c && c.mode === 'external') {
