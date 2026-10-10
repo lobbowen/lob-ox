@@ -35,7 +35,7 @@ function linux() {
   if (!out) return [];
   const records = [];
   for (const line of out.split('\n')) {
-    const m = line.match(/^\d+:\s+(\S+?)(@\S+)?\s+inet\s+([0-9.]+)\
+    const m = line.match(/^\d+:\s+(\S+?)(@\S+)?\s+inet\s+([0-9.]+)\//);
     if (!m) continue;
     records.push({ iface: m[1], addr: m[3], dyn: /(?:secondary|dynamic)/.test(line) });
   }
