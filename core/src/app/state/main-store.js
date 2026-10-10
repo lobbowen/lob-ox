@@ -55,7 +55,7 @@ function createMainStore(deps) {
     return live;
   }
 
-  // fail-closed：corrupt 态拒绝以默认值覆盖写（会静默清零令牌），唯一解锁途径是携带显式非空 remoteToken 的写入。
+  
   function writeDshMain(meta) {
     const m = meta || {};
     if (!live) live = readDshMainFile();
