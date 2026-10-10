@@ -21,7 +21,7 @@ export function setStoredAccessKey(key: string): void {
   try {
     if (key) globalThis.localStorage?.setItem(ACCESS_KEY_STORAGE, key);
     else globalThis.localStorage?.removeItem(ACCESS_KEY_STORAGE);
-  } catch {  }
+  } catch { void 0; }
 }
 
 (() => {
@@ -32,7 +32,7 @@ export function setStoredAccessKey(key: string): void {
     if (!k) return;
     setStoredAccessKey(k);
     g.history.replaceState(null, "", g.location.pathname + g.location.hash);
-  } catch {  }
+  } catch { void 0; }
 })();
 export const LONG_TIMEOUT_MS = 210_000;
 
@@ -67,7 +67,7 @@ async function http<T>(method: string, path: string, body?: unknown, opts?: Http
     clear();
   }
   let data: unknown = null;
-  try { data = await res.json(); } catch {  }
+  try { data = await res.json(); } catch { void 0; }
   if (!res.ok) {
     const d = data as { error?: string; message?: string } | null;
     const msg = d?.error || d?.message || `HTTP ${res.status} ${path}`;
