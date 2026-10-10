@@ -31,6 +31,8 @@ pub async fn run(state: Arc<ProcessManager>) {
     // 端口受机箱权威分配：OS 分配后回写（等效 allocate 但避开竞争窗口）。
     if let Ok(mut guard) = state.ports.lock() {
         let _ = guard.register_sole("guard-mgmt", port);
+        // 机箱端口真相落盘（内核只读）：guard-mgmt 的端口必须被内核读到，否则单向上报无从发起。
+        guard.persist();
     }
     eprintln!("[mgmt] guard-mgmt 监听 127.0.0.1:{port}");
     // 端口回灌内核（壳写内核读，单向）：内核 daemon 与 GUI 壳是两个独立进程
