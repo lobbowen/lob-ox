@@ -21,7 +21,7 @@ export function useSupervisorAction() {
     setBusy(key);
     let ok = true;
     try {
-      // 写端点可能 HTTP 200 回 { ok:false }，须按返回值判失败
+      
       const rejected = failureFromResult(await fn());
       if (rejected) throw new Error(rejected);
       if (opts?.success) toast.success(opts.success);
