@@ -120,7 +120,7 @@ describe("loginUrlOf：等待授权期间常驻的地址行（toast 十几秒就
 
 describe("evidenceDetail：把启动形态摊给用户（真机报错只有文案时无人能定位）", () => {
   it("不可信形态标注「退出码不作证据」，并可执行文件名而非全路径", () => {
-    // Windows 只剩直启探测解析出的本体这一种形态，可被既有实例吸收，故退出码两向都不作证据。
+    
     expect(evidenceDetail({ bin: "C:\\Windows\\System32\\notepad.exe", via: "browser", ownsWindow: false, exitCode: 1 }))
       .toBe("notepad.exe | browser | 退出码不作证据 | exit 1");
   });
@@ -223,7 +223,7 @@ describe("servedByKernelHost：浏览器与内核是否同一台机器", () => {
       expect(servedByKernelHost()).toBe(true);
     });
   }
-  // 127.example.com 以 127. 开头但不是 IP：前缀判据的漏网之鱼，误判会让远程访客的面板把动作推给内核。
+  
   for (const h of ["192.168.1.20", "dsh.example.com", "127.example.com", "127.0.0.1.evil.com", "[::2]", ""]) {
     it("反向：" + h + " 不是回环，此时请内核开浏览器是在别人的机器上弹窗", () => {
       installWindow(h);
