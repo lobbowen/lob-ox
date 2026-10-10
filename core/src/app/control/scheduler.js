@@ -44,7 +44,7 @@ module.exports = {
       }
     } catch (e) { d.logger() && d.logger().debug && d.logger().debug('orphan audit: ' + ((e && e.message) || e)); }
     if (d.eventHub()) { try { await d.eventHub().sync(); } catch (e) { d.logger() && d.logger().debug && d.logger().debug('eventHub sync: ' + ((e && e.message) || e)); } }
-    // 存活 = 进程还在（childAlive / adoptedAlive）；不是端口、不是 HTTP。
+    
     const snap = d.mainSnapshot();
     const alive = !!(snap && (snap.childAlive || snap.adoptedAlive));
     const ph = d.state().phase();
