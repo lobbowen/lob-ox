@@ -25,8 +25,8 @@ function depsOf(host) {
 
 module.exports = {
   methods: {
-  // 唯一一条限流：startupFailWindowMs 内「启动窗口内退出」达 startupFailBurst 次 ⇒ phase=FAILED。
-  // 到点即停自动重启：不排队、不退避、不指数等待；恢复的唯一入口是人工重试（_retryStartupFailure）。
+  
+  
   _noteStartupFailure() {
     const d = depsOf(this);
     const windowMs = d.config().startupFailWindowMs || 60000;
@@ -49,7 +49,7 @@ module.exports = {
     return { failed: true, count: dec.count };
   },
 
-  // 手动重试入口：清计数后回到 STARTING（随后由 STARTING 分支重新 spawn，新的 startsecs 窗口）。
+  
   _retryStartupFailure() {
     const d = depsOf(this);
     d.mSetStartupFailWindowStart(null);
