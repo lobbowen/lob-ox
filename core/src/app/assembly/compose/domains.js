@@ -18,7 +18,7 @@ const ports = require('../../../platform/service/ports').shared;
 
 function composeDomains(host) {
     const swDir = path.dirname(host.config.stateFile);
-    // 端口账本必须在 RouterService 构造前指向 stateFile 派生文件（注册表进程级单例、最后一个 configureFile 生效；见 router/index.js:43-45）。
+    
     try { ports.configureFile(path.join(path.dirname(host.config.stateFile), 'ports.json')); } catch (e) { host.logger.warn && host.logger.warn('ports configure: ' + e.message); }
     host.router = new RouterService({
       config: host.config,
@@ -40,7 +40,7 @@ function composeDomains(host) {
       tasks: host.tasks,
       tokenService: host.tokenService,
       dshBin: host.config.command && host.config.command[1] ? host.config.command[1] : 'dsh',
-      // 实例域限流参数：与主链同一条规则、按域参数化（窗口 600s > 5 × 30s 启动窗口）；单源取自域常量。
+      
       throttle: THROTTLE_DEFAULTS,
     });
     host.instances.load();
