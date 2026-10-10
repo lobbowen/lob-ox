@@ -11,6 +11,13 @@ const PHASES = ['stopped', 'installing', 'starting', 'running', 'draining', 'fai
 const LEGACY_PHASES = { backoff: 'failed', restarting: 'starting' };
 
 const { runHeartbeat } = require('./heartbeat');
+const pmClient = require('../../platform/contract/pm-client');
+
+
+// 相位词汇归一：内核 PHASES 含 installing（壳侧无）、壳侧有 restarting（内核已删）。
+//   不归一，壳侧 parse_phase 会对 installing 返回 None，事件被静默丢弃。
+const PM_PHASE = { installing: 'starting' };
+const pmPhase = (p) => PM_PHASE[p] || p;
 
 class ManagedRegistry {
   constructor(opts) {
@@ -134,6 +141,7 @@ class ManagedRegistry {
     this._syncPortsOwner(e, true);
     this._save();
     this._event('managed_object_registered', { kind: e.kind, id: e.id, name: e.name });
+    pmClient.register({ id: e.id, spawn_cmd: [], restart_window_ms: 60000, restart_burst: 5 });
     return e;
   }
 
@@ -144,6 +152,7 @@ class ManagedRegistry {
     if (p.desired !== undefined) {
       if (!DESIRED.includes(p.desired)) return { ok: false, error: '非法 desired: ' + p.desired };
       e.desired = p.desired;
+      pmClient.setDesired(e.id, p.desired);
     }
     if (p.name !== undefined) e.name = String(p.name || e.id);
     if (p.ownership !== undefined) {
@@ -168,6 +177,7 @@ class ManagedRegistry {
     this._drop(e);
     this._save();
     this._event('managed_object_removed', { kind: e.kind, id: e.id });
+    pmClient.setDesired(e.id, 'stopped');
     return { ok: true };
   }
 
@@ -225,6 +235,7 @@ class ManagedRegistry {
       e.lastTransitionAt = new Date().toISOString();
       this._event('managed_object_phase', { kind: e.kind, id: e.id, phase: p });
       this._save();
+      pmClient.onPhase(e.id, pmPhase(p));
     }
     return e;
   }
