@@ -1,7 +1,5 @@
 'use strict';
 
-// 「是否值得为插件变更重启」= 存活判据（身份匹配），不是「端口上有没有人」（H-02）。
-// 端口上蹲着外来进程时重启毫无意义（我们拉起的实例根本不在这）⇒ 必须按 running 判，不能按 portTaken 判。
 function targetRunning(ctx, target) {
   if (!ctx.instances || !target) return false;
   try {
