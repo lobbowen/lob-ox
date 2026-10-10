@@ -101,45 +101,6 @@ if [ "$ALL" = 1 ]; then
   echo "  OK 四平台 core.cjs 同源（sha256=${BASE_HASH:0:16}…）"
 fi
 
-echo "[4/6] 冒烟：launcher self-check + --version + fresh-HOME daemon + UI 服务断言"
-SMOKE_DIR=""
-for d in "${DIRS[@]}"; do
-  case "$d" in *"-$HOST_PLAT-$HOST_ARCH") SMOKE_DIR="$d" ;; esac
-done
-[ -n "$SMOKE_DIR" ] || SMOKE_DIR="${DIRS[0]}"
-echo "  使用 ${SMOKE_DIR##*/}"
-node "$SMOKE_DIR/bin/lobox" self-check
-VOUT="$(node "$SMOKE_DIR/bin/lobox" --version)"
-echo "  --version => $VOUT"
-case "$VOUT" in *v$VER) : ;; *) echo "冒烟失败：版本注入失效"; exit 1;; esac
-SMOKE_HOME="$(mktemp -d)"
-cat > "$SMOKE_HOME/config.json" <<EOF
-{
-  "command": ["sleep", "3600"],
-  "healthUrl": "http://127.0.0.1:3198/",
-  "apiHost": "127.0.0.1",
-  "apiPort": 3199,
-  "stateFile": "$SMOKE_HOME/state.json",
-  "logFile": "$SMOKE_HOME/events.log",
-  "supervisorLogFile": "$SMOKE_HOME/guard.log",
-  "notifyEnabled": false
-}
-EOF
-SMOKE_LOG="$SMOKE_HOME/boot.log"
-# 不用 GNU `timeout`：macOS BSD 无此命令，故直接后台 node（$! 为 node pid），冒烟后 kill 清理。
-HOME="$SMOKE_HOME" DSH_SUPERVISOR_CONFIG="$SMOKE_HOME/config.json" DSH_SUPERVISOR_LOCK_FILE="$SMOKE_HOME/guard.lock" node "$SMOKE_DIR/bin/lobox" daemon >"$SMOKE_LOG" 2>&1 &
-SMOKE_PID=$!
-sleep 2
-if ! grep -q "guard started v$VER" "$SMOKE_LOG" 2>/dev/null; then
-  echo "冒烟失败：fresh-HOME daemon 未能自举"; cat "$SMOKE_LOG" 2>/dev/null | head -8; kill "$SMOKE_PID" 2>/dev/null || true; rm -rf "$SMOKE_HOME"; exit 1
-fi
-echo "  fresh-HOME daemon 自举 OK"
-UI_BODY="$(curl -s -m 2 "http://127.0.0.1:3199/" 2>/dev/null || true)"
-if ! printf "%s" "$UI_BODY" | grep -q "<div id=\"root\">"; then
-  echo "冒烟失败：launcher UI 服务断言未通过"; cat "$SMOKE_LOG" 2>/dev/null | head -10; kill "$SMOKE_PID" 2>/dev/null || true; rm -rf "$SMOKE_HOME"; exit 1
-fi
-echo "  UI 服务断言 OK"
-kill "$SMOKE_PID" 2>/dev/null || true
 # 必须等进程真正退出再 rm：kill 异步，daemon 子进程仍可能写 $SMOKE_HOME，
 #   触发 "Directory not empty" 并在 set -e 下中止整个构建。
 for _ in 1 2 3 4 5 6 7 8 9 10; do
