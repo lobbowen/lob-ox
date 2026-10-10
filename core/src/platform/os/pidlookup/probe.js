@@ -72,12 +72,6 @@ function linuxFindSs(port) {
   return null;
 }
 
-/**
- * 进程存活三态（Outcome 的规范生产者之一）。
- * 保留字符串返回以兼容既有 33 处调用；新增 outcomeAlive() 供需要区分 unknown 的调用点。
- *
- * 语义：alive / dead / unknown —— unknown 既不判活也不判死（例：非 EPERM/ESRCH 的错误码）。
- */
 function probeAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return 'dead';
   try { process.kill(pid, 0); return 'alive'; }
@@ -89,7 +83,6 @@ function probeAlive(pid) {
   }
 }
 
-/** Outcome 形态：unknown 显式化，不再塌成布尔 */
 function outcomeAlive(pid) {
   const st = probeAlive(pid);
   if (st === 'alive') return OUTCOME.OK;
@@ -97,15 +90,10 @@ function outcomeAlive(pid) {
   return OUTCOME.UNKNOWN;
 }
 
-/**
- * 布尔门面：**unknown 视为不存活**——这是显式策略选择，不是隐式塌缩。
- * 需要区分 unknown 的调用点请改用 probeAlive() / outcomeAlive()。
- */
 function isAlive(pid) {
   return probeAlive(pid) === 'alive';
 }
 
-// zombie：kill(pid,0) 仍为 true 但端口/stdio 已释放，停服等待须区分；linux 读 /proc/<pid>/stat，macOS 走 ps state，win32 恒 false。
 function isZombie(pid) {
   if (!Number.isInteger(pid) || pid <= 0 || isWindows) return false;
   if (isLinux) {
@@ -163,7 +151,7 @@ function pgrepList(pattern) {
       return out;
     }
     if (isWindows) {
-      // Windows 无 pgrep：走 Win32_Process 查询（含 CommandLine），按子串匹配。
+      
       const ps = "Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress";
       const j = ex.runOut('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { timeoutMs: 8000 }) || '';
       let arr = [];
