@@ -7,15 +7,15 @@ function createAdminOps(deps) {
   const maskKey = d.maskKey || ((k) => k);
   const logger = d.logger || null;
 
-  // 账号拆除（W3 单源）：实例停止 + 端口注销 + 实例摘除。
-  // W3 前这份逻辑有四份：providers/process-pool.js 的 onDiscardAccount 钩子（权威版）与 admin.js 两处手写
-  // （setProviderKeys 的批量分支、removeProxyKey 的单条分支），后者**绕过钩子** ⇒ 已实际分叉：
-  // 手写版漏掉按引用摘除 instances 与 account_discarded 事件。
-  // 统一走钩子：钩子只在 supports('instanceLifecycle') 时才安装（process-pool.js），非反代供应商上没有它
-  // ⇒ 与原先 `if (p.supports(...))` 的守卫等价，不会对直连供应商误触 stopInstance。
+  
+  
+  
+  
+  
+  
   function teardownAccount(p, acc) {
     const hook = p._hooks && typeof p._hooks.onDiscardAccount === 'function' ? p._hooks.onDiscardAccount : null;
-    if (hook) { try { hook(acc); } catch (e) { /* 钩子异常不阻断拆除 */ } return; }
+    if (hook) { try { hook(acc); } catch (e) {  } return; }
     if (acc.instance) acc.instance.port = null;
     p.instances = (p.instances || []).filter((i) => i.keyId !== acc.keyId);
   }
