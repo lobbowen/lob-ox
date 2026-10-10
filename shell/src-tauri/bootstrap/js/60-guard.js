@@ -3,12 +3,12 @@
     NS.setStep(3);
     NS.phase('guard');
     NS.status('正在启动守卫…');
-        // 必须有界：guard_start 内部可能最长约 2 分钟；超时兜底 + 阶段进度上报。
+        
     return NS.withTimeout(NS.core.invoke('guard_start'), NS.GUARD_START_BUDGET_MS, '守卫启动超时').then(function (r) {
       if (r && r.__timeout) return NS.guardFailed('守卫启动超时：' + (r.error || '服务管理器无响应'));
       if (r && r.__error) return NS.guardFailed('守卫启动异常：' + r.__error);
       if (!r || r.ok !== true) {
-                // 规范 KERNEL-LAUNCH-STANDARD 前置：磁盘内核未与线上最新对齐 -> 先对齐一次再重试。只自动对齐一次，避免与内核源不可达形成死循环（第二次仍失败则如实报错）。
+                
         if (r && r.code === 'KERNEL_NOT_ALIGNED' && !NS._alignRetried) {
           NS._alignRetried = true;
           NS.status('内核未与线上对齐 · 正在对齐…');
@@ -35,7 +35,7 @@
   }
 
   function guardFailed(msg) {
-        // 内核零回退：更新失败即失败，不得回退旧内核（唯一允许回退的是 DSH 自身升级）。
+        
     NS.fail(msg);
     return null;
   }
