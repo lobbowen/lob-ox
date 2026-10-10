@@ -1,4 +1,3 @@
-
 export type DshPhase =
   | "RUNNING" | "STOPPED" | "STARTING"
   | "OBSERVED" | string;
@@ -56,7 +55,7 @@ export interface SupervisorStatus {
   restartCount?: number;
   lastFailure?: string | null;
   upgradeHold?: boolean;
-  /** 退出管家持久标记：退出后守卫重启不得凭监控把壳拉回。 */
+  
   shellHalted?: boolean;
   commandMissing?: boolean;
   dshTokenCaptured?: boolean;
@@ -96,7 +95,6 @@ export interface PortRecord {
 }
 export interface PortsResponse { records?: PortRecord[]; }
 
-
 export type InstanceDomain = "native" | "sandbox";
 export interface InstanceSandbox { privateTmp?: boolean; protectHome?: boolean; }
 export interface InstanceState {
@@ -130,7 +128,7 @@ export interface SupervisorInstance {
   domain: InstanceDomain;
   kind?: string;
   guardian: boolean;
-  /** 就绪态/访问 URL 的单一来源是 LanItem.remote 视图。 */
+  
   remoteMode?: RemoteMode;
   unitName?: string;
   sandbox?: InstanceSandbox;
@@ -140,22 +138,20 @@ export interface SupervisorInstance {
   updateJob?: InstanceUpdateJob | null;
   state?: InstanceState;
   authUrl?: string;
-  /** 后端返回契约（src/api/domains/instances.js）：loopback 时为 true。 */
+  
   tokenPresent?: boolean;
   tokenSet?: boolean;
-  /** 明文仅回环来源下发（与 authUrl 的 ?token= 同一判据），远程访客读到 undefined。 */
+  
   remoteToken?: string;
 }
-/** /instances 响应：instances[] 仅沙箱；native 为原生主干 main 的只读条目，启停走 /lifecycle/dsh/*，安装/升级走 /native/*。 */
+
 export interface InstancesResponse {
   instances: SupervisorInstance[];
   native?: SupervisorInstance | null;
 }
 
-/** 唯一意图字段；写入口 /remote/set-mode。 */
 export type RemoteMode = "off" | "lan" | "wan";
-/** 后端 relay/core.projectRemoteView 是唯一事实源，前端零判定直消费；ready = 可扫码即用（wan 另需令牌
- *  + frps 地址 + frpc 隧道存活）；accessUrl 与 ready 正交。 */
+
 export interface RemoteView {
   mode: RemoteMode;
   ready: boolean;
@@ -170,7 +166,7 @@ export interface LanItem {
   running: boolean;
   tokenSet?: boolean;
   remote?: RemoteView | null;
-  /** 后端白名单下发，不含任何令牌明文。 */
+  
   inject?: {
     tokenSet?: boolean;
     cookieReady?: boolean;
@@ -180,8 +176,7 @@ export interface LanItem {
   } | null;
 }
 export interface LanAccessResponse { items: LanItem[]; addresses: string[]; }
-// /remote/frp 只下发 authTokenSet 布尔，不回显令牌明文；提交为 patch 语义（缺省=保留现值），
-// 故 authToken 仅提交新值时带。
+
 export interface FrpSettings { serverAddr: string; serverPort: number; authToken?: string; authTokenSet?: boolean; user?: string; }
 export interface FrpStatus {
   installed: boolean;
@@ -189,7 +184,7 @@ export interface FrpStatus {
   pid?: number | null;
   settings: FrpSettings;
   logTail?: string[];
-  /** port = 隧道口，与本机 relay wanPort 恒同号。 */
+  
   instancesExposed?: Array<{ id?: string; name?: string; port?: number | null }>;
 }
 
@@ -327,7 +322,7 @@ export interface MarketResponse {
   plugins: MarketPlugin[];
   indexedAt?: number;
   sources?: { npm?: number; github?: number; community?: number; official?: number };
-  /** 后台构建时读端点立即回快照：面板须轮询（等同步响应会被 15s 计时误判成失败）。 */
+  
   building?: boolean;
   error?: string | null;
 }
@@ -450,15 +445,15 @@ export interface PlatformCapabilities {
   sandboxLaunch?: boolean;
   sandboxEnforcement?: "cgroup" | "supervise" | "none";
   pidAdoption?: boolean;
-  /** POSIX 组信号 / Windows taskkill /T。 */
+  
   processTreeKill?: boolean;
   desktopNotify?: boolean;
-  /** systemd --user + linger / LaunchAgent / schtasks。 */
+  
   autostart?: boolean;
   frpExpose?: boolean;
   hostService?: string;
 }
-/** governor.budgetSnapshot 形状（/env/status.sandboxBudget）：内存一律 MB、CPU 百分比（单核=100），UI 不做换算。 */
+
 export interface SandboxBudget {
   headroom: number;
   memFloorMb: number;
@@ -472,7 +467,7 @@ export interface SandboxBudget {
   cpuUsedPct: number;
   capacity: number;
 }
-/** platform/service/env-catalog 的 probe/summary 形状；required 项必须在前端同现，不得只挑 Node 渲染。 */
+
 export interface EnvCatalogItem {
   label: string;
   required?: boolean;
@@ -506,7 +501,7 @@ export interface EnvStatus {
     expectedAbsence?: boolean;
   } | null;
 }
-/** GET /env/node-lts；内核 src/app/settings/node-lts.js::nodeLtsStatus() 不做远端查询，本类型与之对齐。 */
+
 export interface NodeLtsStatus {
   ok: boolean;
   current?: string | null;
@@ -520,8 +515,6 @@ export interface NodeLtsStatus {
 
 export interface GenericOk { ok?: boolean; error?: string | null; [k: string]: unknown; }
 
-/** 与内核 platform/os/browser.js 的 outcome 同字段。三档语义不得在界面合并：confirmed 拿到成功证据 /
- *  handedOff 只交出地址 / ok=false 明确失败；url 恒在场，任何一档都要能复制。 */
 export interface OpenExternalResult {
   ok?: boolean;
   confirmed?: boolean;
@@ -542,25 +535,23 @@ export interface OpenExternalResult {
     exitSignal?: string | null;
     error?: string | null;
     diagnostics?: BrowserDiagnostics | null;
-    /** 内核 environment.js#checkEgress；null = 不涉及隔离窗口或表单未探测。 */
+    
     egress?: EgressVerdict | null;
   } | null;
 }
 
-/** 三态结论：内核不得把「判不出」折成 false。 */
 export interface EgressVerdict {
   host?: string | null;
   viable?: boolean | null;
   basis?: string;
   detail?: string | null;
-  /** 系统代理读数 on/off/unknown；unknown 不等于 off。 */
+  
   proxy?: string;
   at?: number | null;
 }
 
-/** 内核 platform/os/browser.js#launchDiagnostics 的产出，与 GET /env/environment 完整表单同源；面板只渲染它。 */
 export interface BrowserDiagnostics {
-  /** 内核 platform/os/environment.js#pickLauncher 的 how 字段：user-preference / candidate-rank / only-installed / none-found。 */
+  
   pick?: string | null;
   default?: { id: string; source?: string | null } | null;
   preference?: { id?: string | null; matched?: boolean } | null;
@@ -568,8 +559,6 @@ export interface BrowserDiagnostics {
   probed?: Array<{ source: string; detail?: string | number | null }>;
 }
 
-/** 内核 environment.js#form 的 sections 值；state 四档必须分开呈现（不得把 pending/empty/error 混成「没有」）。
- *  一律用 type 而非 interface：维度数据要当 Record 用，interface 拿不到隐式索引签名。 */
 export type EnvironmentSection<T = Record<string, unknown>> = {
   label?: string;
   at?: number | null;
@@ -620,8 +609,6 @@ export type StartupSectionData = {
   } | null;
 };
 
-/** 壳投放的环境报告（内核 platform/contract/shell-report.js 的读回产物）。available=false 要分清
- *  never-written 与 unreadable-or-schema-mismatch，后者是要去查文件的故障。 */
 export type ShellSectionData = {
   available?: boolean;
   path?: string;
@@ -647,7 +634,6 @@ export type EnvironmentSections = {
   [id: string]: EnvironmentSection | undefined;
 };
 
-/** 内核 platform/os/environment.js 的装配产物（GET /env/environment）。 */
 export interface EnvironmentForm {
   schema?: number;
   at?: number | null;
@@ -661,13 +647,12 @@ export interface EnvironmentForm {
   default?: { id: string; source?: string | null } | null;
   browsers?: Array<{ id: string; name?: string; bin?: string; engine?: string; sources?: string[]; isDefault?: boolean }>;
   pick?: { how?: string; id?: string | null; name?: string | null; wanted?: string | null; stale?: boolean };
-  /** 异步维度只由 refresh() 拍，未拍即 state='pending'：不得拿空当结论。 */
+  
   sections?: EnvironmentSections | undefined;
   probed?: Array<{ section?: string; source: string; detail?: string | number | null }>;
   snapshot?: { path?: string; written?: boolean; error?: string | null };
 }
 
-/** GET /env/environment/last（内核 environment.js#lastSnapshot）：只读留痕，不得与当拍字段合并。 */
 export interface EnvironmentSnapshotRead {
   available?: boolean;
   path?: string;
@@ -677,7 +662,6 @@ export interface EnvironmentSnapshotRead {
   data?: EnvironmentForm | null;
 }
 
-/** GET|POST /settings/external-browser。 */
 export interface ExternalBrowserStatus {
   ok?: boolean;
   error?: string | null;
@@ -690,8 +674,6 @@ export interface ExternalBrowserStatus {
   platform?: string | null;
 }
 
-/** POST /router/proxy/login/start。isolated 与 isolatedBasis 必须成对读：「未隔离」可能是引擎无隔离方言，
- *  也可能是冷档案注定空白（cold-profile-blocked），处置不同（换浏览器 vs 配系统代理）。 */
 export interface ProxyLoginStart extends OpenExternalResult {
   authUrl?: string;
   state?: string;
@@ -715,7 +697,7 @@ export interface LifecycleModuleState {
   monitoring?: boolean;
   error?: string | null;
   startedAt?: string | null;
-  // restartCount 不在此处：/status.restartCount = dsh，instance.state.restartCount = 沙箱。
+  
   detail?: unknown;
 }
 
