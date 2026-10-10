@@ -4,13 +4,11 @@ module.exports = {
   domain: 'shell',
 
   exports: [
-    'status', 'evaluate', 'health', 'markPending', 'identity',
-    'readJournal', 'shellDir', 'checkUpdate', 'restartShell', 'SHELL_RELEASE_PKG',
+    'status', 'evaluate', 'health', 'markPending', 'identity', 'readJournal', 'shellDir',
   ],
 
   PUBLIC_API: [
-    'status', 'evaluate', 'health', 'markPending', 'identity',
-    'readJournal', 'shellDir', 'checkUpdate', 'restartShell', 'SHELL_RELEASE_PKG',
+    'status', 'evaluate', 'health', 'markPending', 'identity', 'readJournal', 'shellDir',
   ],
 
   classApi: {},

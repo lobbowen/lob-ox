@@ -199,9 +199,7 @@ const GUI_BIN_NAMES = ['lobox-shell', 'lobox-shell.exe'];
 // 守卫进程的命令行匹配模式：Windows 按命令行含此串精确杀守卫（镜像名是 node.exe，按镜像名杀不到）。
 const PROC_MATCH_GUARD = SHARED.proc.matchGuard;
 // 壳进程名匹配串：内核用 pgrep 找壳进程。
-const PROC_MATCH_GUI = 'lobox-shell';
 // 壳进程正则源：内核 isShellProcess 判命令行是否属于壳（.exe 可选）。
-const PROC_MATCH_GUI_RE = 'lobox-shell(\\.exe)?';
 
 // ── 跨侧契约字段（波 3）───────────────────────────────────────────────────────
 // 为什么必须两侧同波改：内核（core/**，含面板 bundle core/ui/**）与壳（shell/**，Tauri）是**各自独立发布**
@@ -236,9 +234,7 @@ const EVENT_HARNESS_REMOTE_TOKEN_CHANGED = 'harness_remote_token_changed';
 const EVENT_LAN_HARNESS_TOKEN_UPDATED = 'lan_harness_token_updated';
 const EVENT_UPGRADE_STOPPING_HARNESS = 'upgrade_stopping_harness';
 // 壳（shell/*）事件：此前在 api/domains/shell.js 里以裸字面量出现（事件词表第三份拷贝）⇒ 登记进单源。
-const EVENT_SHELL_UPDATE_PENDING = 'shell_update_pending';
 const EVENT_SHELL_UPDATE_CHECKED = 'shell_update_checked';
-const EVENT_SHELL_RESTART_REQUESTED = 'shell_restart_requested';
 
 // systemd 模板让位后缀：模板名 `dsh-web@.service` 属**被监管产品**（不改），后缀是**我方**加的标记
 //   （我们把阻挡 systemd-run 的模板改名保留，而不是删除）。
@@ -369,8 +365,6 @@ module.exports = {
   CLI_SHIM_NAMES,
   GUI_BIN_NAMES,
   PROC_MATCH_GUARD,
-  PROC_MATCH_GUI,
-  PROC_MATCH_GUI_RE,
   BRIDGE_MSG_KERNEL_UPDATE_REQUEST,
   BRIDGE_MSG_KERNEL_UPDATE_RESULT,
   BRIDGE_MSG_KERNEL_UPDATE_PROGRESS,
@@ -387,9 +381,7 @@ module.exports = {
   EVENT_HARNESS_REMOTE_TOKEN_CHANGED,
   EVENT_LAN_HARNESS_TOKEN_UPDATED,
   EVENT_UPGRADE_STOPPING_HARNESS,
-  EVENT_SHELL_UPDATE_PENDING,
   EVENT_SHELL_UPDATE_CHECKED,
-  EVENT_SHELL_RESTART_REQUESTED,
   SYSTEMD_TEMPLATE_ASIDE_SUFFIX,
   corePackageName,
   stateRoot,

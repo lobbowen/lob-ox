@@ -38,10 +38,6 @@ module.exports = {
               ? this.instances.budgetSnapshot() : null;
           } catch { return null; }
         })(),
-        shellWatchdog: (() => {
-          try { return this.shellWatchdog && typeof this.shellWatchdog.status === 'function' ? this.shellWatchdog.status() : null; }
-          catch { return null; }
-        })(),
       };
     },
 

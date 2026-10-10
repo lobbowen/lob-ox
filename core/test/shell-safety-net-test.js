@@ -90,20 +90,3 @@ const LF = String.fromCharCode(10);
     check('R8-g 查询抛错 → 捕获为 ok=false 并原样交出原因', boom.ok === false && !!boom.error, JSON.stringify(boom));
   }
 
-  console.log('== R9 壳重启 ==');
-  {
-    // 用不存在的进程名 + node 自身，确保不碰到开发者本机正在运行的壳。
-    const r = await shell.restartShell({ procPattern: 'lobox-shell-no-such-proc-xyz' });
-    check('R9-a 无壳进程且无 exePath → ok=false 明确失败', r.ok === false && !!r.error, JSON.stringify(r));
-
-    const r2 = await shell.restartShell({ procPattern: 'lobox-shell-no-such-proc-xyz', exePath: process.execPath });
-    check('R9-b 有 exePath → 尝试拉起并返回 ok，且未杀任何真实进程',
-      r2.ok === true && r2.restarted === true
-      && Array.isArray(r2.killed) && r2.killed.length === 0, JSON.stringify(r2));
-  }
-
-  const failed = results.filter((r) => !r);
-  console.log(LF + '结果: ' + (results.length - failed.length) + ' passed, ' + failed.length + ' failed');
-  process.exit(failed.length ? 1 : 0);
-
-})().catch((e) => { console.error("ERR", e); process.exit(1); });

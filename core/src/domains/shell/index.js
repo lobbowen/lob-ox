@@ -10,6 +10,6 @@ const {
   status,
 } = require('./journal');
 
-const { SHELL_RELEASE_PKG, checkUpdate, restartShell } = require('./restart');
-
-module.exports = { status, evaluate, health, markPending, identity, readJournal, shellDir, checkUpdate, restartShell, SHELL_RELEASE_PKG };
+// 注意：restartShell / checkUpdate / SHELL_RELEASE_PKG 已迁至壳（Rust 底座）。
+// 内核对壳仅做只读聚合：status/evaluate/health/markPending/identity/readJournal/shellDir。
+module.exports = { status, evaluate, health, markPending, identity, readJournal, shellDir };

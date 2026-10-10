@@ -103,41 +103,9 @@ function registerAll(mgr, deps) {
     dsh._monitoring = true;
   }
 
-  if (supervisor && supervisor.shellWatchdog) {
-    // 桌面壳：由统一节拍调度器的 'shell-watchdog' beat 监督（已并入 host._beatScheduler），
-    // 此处仅作为受管对象登记，使壳的相位/重启计数与主链、路由、实例同处统一受管对象表（S1/T5）。
-    // 壳不可由守卫启停（守卫永不 SIGKILL 壳），故 startable/guardable=false，相位仅反映看门狗观测。
-    const sw = supervisor.shellWatchdog;
-    const slc = new ManagedLifecycle({
-      id: 'shell',
-      kind: 'shell',
-      name: '桌面壳',
-      startable: false,
-      guardable: false,
-      logger,
-      status: () => (sw && typeof sw.status === 'function') ? sw.status() : null,
-    });
-    mgr.register(slc);
-    // 看门狗每拍写回相位 + 重启计数到受管对象（统一计数真相 S7/T6）。
-    const origTick = sw.tick.bind(sw);
-    sw.tick = function () {
-      return Promise.resolve(origTick()).then((res) => {
-        try {
-          const st = sw.status && sw.status();
-          if (st) {
-            if (mgr.get('shell')) {
-              const ph = res && (res.restarted || res.alive) ? 'running' : (res && res.skipped ? 'stopped' : 'running');
-              if (mgr.get('shell').phase !== ph) mgr.get('shell')._setPhase(ph);
-              const rc = Number(st.restartsInWindow) || 0;
-              if (mgr.get('shell').restartCount !== rc) mgr.setRestartCount('shell', rc);
-            }
-          }
-        } catch (e) {}
-        return res;
-      });
-    };
-  }
-
+  // 壳（shell）由 Rust 底座单方面拥有生命周期：底座监督并上报，内核只作只读聚合。
+  // 内核绝不反向监督或以任何方式拉起其父进程（壳）——倒挂修复。故此处不登记
+  // shellWatchdog 节拍、不做 tick monkey-patch 写回相位/重启计数。
   if (pluginManager) {
     const plc = new ManagedLifecycle({
       id: 'plugins',

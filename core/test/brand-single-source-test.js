@@ -175,7 +175,6 @@ const EXPECT = {
   SEA_BUNDLE_NAME: 'core.cjs',
   SEA_VERSION_DEFINE: '__DSH_VERSION__',
   PROC_MATCH_GUARD: '*lobox*',
-  PROC_MATCH_GUI: 'lobox-shell',
 };
 {
   const bad = [];
@@ -688,9 +687,7 @@ const HOME = path.join('H', 'ome');
     EVENT_HARNESS_REMOTE_TOKEN_CHANGED: 'harness_remote_token_changed',
     EVENT_LAN_HARNESS_TOKEN_UPDATED: 'lan_harness_token_updated',
     EVENT_UPGRADE_STOPPING_HARNESS: 'upgrade_stopping_harness',
-    EVENT_SHELL_UPDATE_PENDING: 'shell_update_pending',
     EVENT_SHELL_UPDATE_CHECKED: 'shell_update_checked',
-    EVENT_SHELL_RESTART_REQUESTED: 'shell_restart_requested',
     SYSTEMD_TEMPLATE_ASIDE_SUFFIX: '.disabled-by-lobox-',
   };
   {

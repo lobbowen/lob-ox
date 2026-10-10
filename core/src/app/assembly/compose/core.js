@@ -67,7 +67,7 @@ function composeCore(host, rawConfig, configPath) {
         return {
           bootAt: s.bootAt, envDelayMs: s.envDelayMs,
           routerAutostart: s.routerAutostart, routerMode: s.routerMode,
-          updateCheck: s.updateCheck, shellWatchdog: s.shellWatchdog, lastRefresh: s.lastRefresh,
+          updateCheck: s.updateCheck, lastRefresh: s.lastRefresh,
         };
       },
     });
@@ -112,12 +112,10 @@ function composeCore(host, rawConfig, configPath) {
     host._upgradeHold = false;
     host._upgradeHoldSince = null;
     host._timer = null;
+    host._beatScheduler = null;
     host._heartbeatBusy = false;
     host._killTimer = null;
     host._adoptKillTimer = null;
-    host._initialCheckTimer = null;
-    host._upgradeTimer = null;
-    host._shellWatchdogTimer = null;
     host._lastOccupiedWarn = 0;
     host._lastMainPortRederive = 0;
     host._lastPortUp = false;
