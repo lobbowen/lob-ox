@@ -24,9 +24,9 @@ function probeTargetError(origin, sup) {
   }
 
   const deny = '安全策略：探测目标仅允许公网地址（已配置的镜像源不在此限）';
-  // W3：私网判定取 shared/ip 的 isPrivateHostLiteral 单源。此前本处抄了一份，且漏了 127/8 整段
-  // （只认 isLoopbackAddress 的 127.0.0.1）⇒ 127.5.5.5 这类回环段地址会被判成"公网"放行探测。
-  // 合并后该洞随单源一起补上（下面这条断言已钉住）。
+  
+  
+  
   if (isPrivateHostLiteral(host)) return deny;
   return null;
 }
@@ -61,7 +61,7 @@ function handle(ctx) {
         let j = {};
         try { j = body ? JSON.parse(body) : {}; } catch {}
         const origin = String(j.origin || '').trim();
-        if (!/^https?:\/\//.test(origin)) return send(400, { ok: false, error: 'origin 必须以 http(s):// 开头' });
+        if (!/^https?:\/\
         const targetErr = probeTargetError(origin, sup);
         if (targetErr) return send(400, { ok: false, error: targetErr });
         Promise.resolve(sup.dist.probeOrigin(origin))
