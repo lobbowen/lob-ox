@@ -64,7 +64,7 @@ function createCtlServer({ target, allowMethods, logger, events } = {}) {
         try { list = events.tailSince(afterSeq); } catch (e2) { return send(200, { ok: false, error: (e2 && e2.message) || String(e2) }); }
         return send(200, { ok: true, value: { seq: events.seq, events: list } });
       }
-      // 白名单闸：未登记方法一律 404（不透露存在与否），_ 前缀内部方法永不可达。
+      
       if (!isMethodAllowed(allowMethods, method) || !target || typeof target[method] !== 'function') {
         if (logger && logger.warn && method) logger.warn('[ctl] 拒绝未登记方法: ' + method);
         return send(404, { ok: false, error: 'method not allowed: ' + method });
