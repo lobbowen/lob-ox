@@ -1,8 +1,3 @@
-//! 相位状态机（机箱唯一真相，取代内核 ManagedRegistry 相位）。
-//!
-//! 相位集合全域唯一：stopped / starting / running / draining / failed / restarting。
-//! 「重启退避」是框架策略（窗口内 N 次失败 ⇒ failed，停手等人工），不随内核变化。
-
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,7 +9,6 @@ pub enum Desired { Running, Stopped }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RestartBackoff { None, Tripped }
 
-/// 崩溃 last-will：记录子进程为何退出，供引导页诊断（不靠循环拉起来掩盖故障）。
 #[derive(Debug, Clone)]
 pub struct LastWill {
     pub code: Option<i32>,
@@ -25,7 +19,7 @@ pub struct LastWill {
 #[derive(Debug, Clone)]
 pub struct WorkloadDesc {
     pub id: String,
-    /// 机箱只持有「机制」：spawn 命令与重启策略；业务判定由内核负责。
+    
     pub spawn_cmd: Vec<String>,
     pub restart_window_ms: u64,
     pub restart_burst: u32,
@@ -40,8 +34,8 @@ pub struct WorkloadState {
     pub pending_restart: bool,
     pub last_transition: Instant,
     pub last_will: Option<LastWill>,
-    // 重启退避记账（框架策略，不随内核变化）：窗口内失败次数与窗口起点。
-    // 真相在机箱：内核只上报「退出了」，是否该停手由机箱按窗口/次数判。
+    
+    
     pub fail_count: u32,
     pub window_start: Option<Instant>,
     pub restart_window_ms: u64,
