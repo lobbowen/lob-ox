@@ -1,9 +1,3 @@
-//! 守卫的启停与就绪判定（生命周期所有权的调用方）。铁律：壳**自己**是守卫生命周期的所有者 ——
-//! 服务管理器是产品自身的监控器（见 `platform::service`），进程由本产品持有，**不向**
-//! systemd / launchd / 任务计划程序投递任何东西，也不存在「用系统通道投递」的选项。
-//! 监控（`--watchdog` / `panel_watch_tick`）则相反：只观测，不拉起、不强杀、不改生命周期。
-//! 阶段序列 P0 契约 -> P1 对齐 -> P3 定位 -> P4 登记 -> P5 启动 -> P6 就绪；P1 是 P5 的前置（磁盘内核必须等于线上最新，否则拒绝启动）。所有等待都有上限，退出也要能在受管对象无响应时走完。
-
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use tauri::{Emitter, Manager};
@@ -26,7 +20,7 @@ impl LaunchError {
 }
 
 pub(crate) enum AlignOutcome {
-    /// P1 对齐结果：只有「版本 == 线上最新」的内核才放行；线上版本查询失败（离线/源不可达）无法验证对齐 -> 不启动；磁盘上没有一致内核 -> 必须先安装（P1）。
+    
     Aligned { bin: std::path::PathBuf, version: String },
     ResolveFailed(String),
     NotAligned { latest: Option<String>, searched: Vec<String> },
@@ -46,7 +40,7 @@ pub(crate) fn resolve_aligned_with(resource_dir: Option<std::path::PathBuf>) -> 
         Err(e) => return AlignOutcome::ResolveFailed(format!("{}：{}", pkg, e)),
     };
     let pkg_opt = Some(pkg.as_str());
-    // 位置契约命中且版本一致（最快路径）。契约路径可能含 `.cmd` 垫片或 `\\?\` 前缀，先规范化再判可用。版本按 semver 相等判定：两侧字符串分别来自契约与 registry 快照，文本差（build metadata 等）不该让已对齐的内核判成未对齐。
+    
     if let Some(c) = crate::core_contract::read() {
         let bin = crate::domain::coreloc::normalize_guard(c.bin, pkg_opt);
         if bin.is_file() && crate::core::semver_cmp(&c.version, &latest) == 0 {
@@ -75,7 +69,6 @@ pub(crate) fn resolve_aligned_with(resource_dir: Option<std::path::PathBuf>) -> 
     }
 }
 
-/// `--run-guard` 的本地检测（不触网）：解析可运行的 node + 守卫（取本地最高版本）。服务定义只指向稳定入口，故每次启动重新检测，node 迁移（nvm/volta/fnm）与内核升级后自动适配；线上对齐（P1）仍由壳在创建/启动服务前把关，此处只做本地解析，离线也能启动。
 pub fn resolve_local(resource_dir: Option<std::path::PathBuf>) -> Option<(crate::runtime_contract::NodeRuntime, std::path::PathBuf)> {
     let rt = crate::runtime_contract::ensure()?;
     let guard = crate::domain::coreloc::pick_highest(
@@ -85,7 +78,7 @@ pub fn resolve_local(resource_dir: Option<std::path::PathBuf>) -> Option<(crate:
 }
 
 pub(crate) fn shutdown_all(port: u16) {
-    // 退出握手：1) 带超时请求内核停全部被管对象并等回执（守卫挂起时壳不无限阻塞）；2) 轮询 sessionState 直到 stopped（守卫已不可达同样视为完成）；3) 由所有者停止守卫进程 —— 守卫自身从不停止自己（所有权归一）。握手最长约 70s，其间「不在服役」是预期结果，监控必须闭嘴。
+    
     EXITING.store(true, Ordering::SeqCst);
     let _ = crate::domain::localhttp::post_local_timeout(port, "/session/stop", std::time::Duration::from_secs(60));
     for _ in 0..40 {
@@ -104,7 +97,6 @@ pub(crate) fn shutdown_all(port: u16) {
     }
 }
 
-/// 服务管理器路径（P4 建立定义 -> P5 请求启动）的阶段产物。不变量由结构强制：`started` 只可能在 `defined` 为 `Ok` 时才是 `Some` —— 定义失败时那条出边是关闭的。丢掉 `ensure_defined` 的错误再无条件 `start()`，报错就只剩「/Run 失败（退出码 1）」，真实失败点可能在更早的 P4。
 pub(crate) struct ServiceLaunch {
     defined: Result<String, String>,
     started: Option<Result<(), String>>,
@@ -157,12 +149,12 @@ pub(crate) fn ensure_guard(app: &tauri::AppHandle) -> Result<(), LaunchError> {
         let _ = app.emit("guard_progress", serde_json::json!({ "status": s }));
         crate::update::log(s);
     };
-        // 早退必须回答「这个守卫还在为本产品服役吗」，而不是「端口上有没有人」：走完 /session/stop 握手的守卫进程还占着端口，服务链却已拆光，据此早退会把面板交给一个不再干活的守卫（观感＝127.0.0.1 拒绝连接），而 P5 的即时启动只会让新守卫撞守卫锁退出。
+        
     if port_open(port) {
         let verdict = serving_state(port);
         step(&verdict.note());
         if matches!(verdict, Serving::Alive | Serving::Sick) {
-                        // 守卫已在服役（或只是还没应答）时也确保一次服务定义：退出时 Windows stop() 会 /Delete 监控任务，而登录任务可能已先拉起守卫使本函数提前返回，那样监控任务永不重建、崩溃自愈在本会话内失效。ensure_defined 三平台幂等且自愈，也不得引入平台分支。
+                        
             if let Some((rt_wd, guard_wd)) = resolve_local(None) {
                 match crate::platform::LaunchSpec::from_runtime(&rt_wd, guard_wd) {
                     Ok(spec_wd) => {
@@ -175,7 +167,7 @@ pub(crate) fn ensure_guard(app: &tauri::AppHandle) -> Result<(), LaunchError> {
             }
             return Ok(());
         }
-                // 唯一的例外：进程活着但服务链已拆（走过 /session/stop）。由所有者先把它停干净，再落回下面的正常启动序列 —— 监控通道刚被 stop() 摘掉，没有第二条恢复路径。
+                
         if !stop_and_await_release(port) {
             return Err(LaunchError::new(
                 "GUARD_STOP_FAILED",
@@ -230,9 +222,9 @@ pub(crate) fn ensure_started(
         }
     }
 
-        // Run 键通道（定义写在 HKCU 自启项）下 start() 明确返回 Err —— 它确实不支持即时启动。
-        // 但**不能因此跳过就绪确认**：直接拉起后若不等 /healthz，就把「拉起了但没确认就绪」当成成功路径，
-        // 面板随后连不上守卫会表现为「127.0.0.1 拒绝连接」。故直接启动后一律走同一段就绪等待。
+        
+        
+        
     step("服务管理器未能拉起守卫 · 改用直接启动…");
     let evidence = launch.evidence();
     match crate::platform::service().spawn_daemon(spec) {
@@ -266,7 +258,6 @@ pub(crate) fn ensure_started(
     }
 }
 
-/// 兜底直拉后的等待：就绪判据与 [`await_ready`] 同源，但子进程非零退出即早停 —— 一个已经退出的进程不会再变绿，让它跑满 60 秒就是把「拉起即失败」说成「启动超时」。退出码 0 不算失败：Windows 上稳定入口 `<壳> --run-guard` 是先 detach 出 node 再退出的，它退了不代表守卫退了。
 fn await_daemon(
     budget: std::time::Duration,
     child: &mut std::process::Child,
@@ -310,7 +301,6 @@ fn guard_log_tail() -> String {
 const SERVICE_READY_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 const DAEMON_READY_BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// 守卫就绪判据的**唯一**实现产物：`GET /healthz` 返回 2xx —— 唯一算「就绪」的形态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Readiness {
     Ready,
@@ -330,7 +320,6 @@ impl Readiness {
     }
 }
 
-/// 裸 TCP 可达判定 —— **只**用于「不再可达 = 进程已停」这类否定问题（重启前的等待）。就绪与否**不得**用它回答（那是 [`ready`] 的活）：端口能连只说明有人在听，守卫在绑定端口与真正可服务之间还有一大段启动过程。
 pub(crate) fn port_open(port: u16) -> bool {
     let addr = format!("127.0.0.1:{}", port);
     if let Ok(mut it) = addr.to_socket_addrs() {
@@ -352,7 +341,6 @@ pub(crate) fn ready(port: u16, http_timeout: std::time::Duration) -> Readiness {
     }
 }
 
-/// 「守卫还在为本产品服役吗」——`ready()`（TCP + /healthz 2xx）**且**会话没在退出链里。裸 TCP 单独回答不了这个问题：服务链拆完的守卫照样 accept 连接，`/healthz` 也照样 2xx，只有 `/session/status` 说真话。
 #[derive(Debug)]
 pub(crate) enum Serving {
     Alive,
@@ -378,19 +366,17 @@ pub(crate) fn serving_state(port: u16) -> Serving {
     }
     match crate::domain::localhttp::get_session_state(port) {
         Some(s) if s == "stopping" || s == "stopped" => Serving::SessionHalted(s),
-                // 读不到会话态就按「在服役」处理：探针抖动不得升级成「停掉一个健康守卫」。
+                
         _ => Serving::Alive,
     }
 }
 
-/// 面板投影的**唯一**判据：URL 与「此刻能不能投」必须同出一个答案。分两处问就会失效：`go_panel` 查了服役、`shell_panel_url` 没查，而壳框架主帧一定先按后者导航，于是被查过的那次判定永远来不及生效。
 pub(crate) fn panel_view() -> (String, bool) {
     let port = crate::env::current_api_port();
     let serving = matches!(serving_state(port), Serving::Alive);
     (crate::env::api_base_url(), serving)
 }
 
-/// 监控一拍的纯决策：返回（新的连续失服役拍数，是否回引导页）。解除观察态是「回一次引导页」的伴随动作，不靠第二次调用去补 —— 引导页会重跑 guard_start，那是全仓唯一的恢复链；重复弹跳只会把用户在两页之间来回甩。
 pub(crate) fn panel_watch_tick(down: u32, serving: bool, armed: bool, exiting: bool, needed: u32) -> (u32, bool) {
     if exiting || !armed { return (0, false); }
     if serving { return (0, false); }
@@ -399,7 +385,6 @@ pub(crate) fn panel_watch_tick(down: u32, serving: bool, armed: bool, exiting: b
     (n, false)
 }
 
-/// 面板显示期的服役监控。壳此前只在「进入面板」那一刻判一次服役，之后守卫无论因何消失（被所有者停掉、崩溃、更新后重启失败），界面都停在引擎自己的「127.0.0.1 拒绝连接」页上：WebKit 对被拒的 iframe 导航不触发 error 事件，前端的失败重试形同不存在。
 pub(crate) fn watch_panel(app: &tauri::AppHandle) {
     PANEL_WATCH_ARMED.store(true, Ordering::SeqCst);
     if PANEL_WATCH_RUNNING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
@@ -434,11 +419,9 @@ pub(crate) fn watch_panel(app: &tauri::AppHandle) {
     });
 }
 
-/// 监控节拍与失服役门槛：单次 `serving_state` 最长约 1.2s（`SERVING_PROBE_TIMEOUT`），3 拍约 15s —— 短于用户对「页面死了」的判断，长到能骑过守卫正常重启的间隙。
 const PANEL_WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 const PANEL_WATCH_DOWN_TICKS: u32 = 3;
 
-/// 由所有者把守卫停干净：`service().stop()` + 等端口**不再可达**（裸 TCP 在此问的是「还在不在」，是 `port_open` 的合法用途）。返回 false = 预算内端口仍被占，此时重拉只会撞守卫锁退出，调用方必须如实失败而不是假装重启过。
 fn stop_and_await_release(port: u16) -> bool {
     if let Err(e) = crate::platform::service().stop() {
         crate::update::log(&format!("重拉前的停止请求失败: {}", e));
@@ -453,12 +436,10 @@ fn stop_and_await_release(port: u16) -> bool {
     !port_open(port)
 }
 
-/// 等守卫让出端口的预算：`stop()` 是异步的（杀进程 + 内核回收），15 秒覆盖真机上观察到的退出耗时；再长就是在启动路径上干等，不如把失败如实报出去。
 const GUARD_RELEASE_BUDGET: std::time::Duration = std::time::Duration::from_secs(15);
 
 const SERVING_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1200);
 
-/// 等待预算内轮询就绪（每 tick 500ms），返回最后一次判定。每 tick 重读实际端口：内核可能因端口占用而顺延并持久化（见 env::current_api_port），只盯固定端口会永远等不到已健康的守卫。用时长而非 tick 数计预算：每 tick 成本不是常数（多了 /healthz 一次往返），按 tick 计数会让总上界随网络状态漂移。
 pub(crate) fn await_ready(budget: std::time::Duration) -> Readiness {
     let started = std::time::Instant::now();
     let mut last = Readiness::PortClosed;
@@ -507,7 +488,7 @@ mod tests {
         l.local_addr().expect("回环监听必有地址").port()
     }
 
-    /// 就绪判据必须**分辨得出**四种现场 —— 它们的可操作结论完全不同：没起来（继续等）/ 起了但病了（看日志）/ 应答 5xx（真失败）/ 健康（放行）；只回 `bool` 会让它们变成同一句话。
+    
     #[test]
     fn readiness_distinguishes_closed_healthz_and_sick() {
         assert_eq!(
@@ -590,6 +571,5 @@ mod tests {
         assert_eq!(panel_watch_tick(9, false, true, true, 3), (0, false), "退出握手中不得甩页");
     }
 }
-
 
 const READINESS_HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(800);
