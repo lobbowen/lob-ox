@@ -102,7 +102,7 @@ jobs:
 
           # ④ CI 里的测试步骤
           while IFS= read -r f; do
-            if grep -qE 'cargo test|npm (run )?test' "$f" 2>/dev/null; then hit "workflow 含测试步骤: $f"; fi
+            if grep -qE 'cargo[ ]test|npm[ ](run )?test' "$f" 2>/dev/null; then hit "workflow 含测试步骤: $f"; fi
           done < <(find .github/workflows -type f 2>/dev/null)
 
           if [ -n "$VIOLATIONS" ]; then
