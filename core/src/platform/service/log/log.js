@@ -37,7 +37,7 @@ class Rotator {
       console.error('[logger] rotate failed:', e.message);
     }
     try {
-      // mode 仅作用于文件首次创建：日志含启动令牌 URL，故收紧 0600（默认 0644 同机他用户可读）。
+      
       fs.appendFileSync(this.file, line + '\n', { mode: 0o600 });
       if (this._size !== null) this._size += Buffer.byteLength(line) + 1;
       this._writes += 1;
