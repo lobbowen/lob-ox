@@ -1,7 +1,3 @@
-//! Windows 平台实现。本文件是 Windows 的**全部**平台知识。
-//! 服务管理由产品自身的监控器承担（见 `super::service`）：本文件**不调用** schtasks、
-//! 也不写 HKCU 登录自启项 —— 操作系统服务机制与本产品无关，也不存在「用系统通道投递」的选项。
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -10,14 +6,12 @@ use super::{home_dir, Capabilities, LaunchSpec, Platform};
 
 pub const NAME: &str = "windows";
 
-/// 无头监控入口的参数（`--watchdog`）：只观测（在不在 / 端口 / 版本 / 健康），不拉起、不强杀。
 pub const WATCHDOG_ARGS: &[&str] = &["--watchdog"];
 
 fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
-/// 归档解包超时（15 分钟；下载已完成，余量给解包与慢盘）。
 const INSTALL_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 fn fresh_dir(dir: &Path) -> Result<(), String> {
@@ -25,7 +19,6 @@ fn fresh_dir(dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())
 }
 
-/// 首选解包器：Windows 10 1803+ 内置的 bsdtar（`System32\tar.exe`，走宽字符路径 API）。PowerShell 的 `Expand-Archive` 对超过 260 字符的路径条目会静默丢弃且退出码为 0（Node 的 npm 依赖树必然超过）。返回 Err 只代表「这条路走不通」，由调用方决定是否回退。
 fn extract_with_tar(archive: &Path, dest: &Path) -> Result<(), String> {
     fresh_dir(dest)?;
     let (src, dst) = (archive.display().to_string(), dest.display().to_string());
@@ -39,7 +32,6 @@ fn extract_with_tar(archive: &Path, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// 回退解包器：PowerShell 内置 `Expand-Archive`（更老的 Windows 上唯一无需安装的解法）。它可能产出**残缺树** —— 调用方必须过 `commit_user_node` 的完整性校验：宁可报「不含可用 npm」，也不报「环境已就绪」。
 fn extract_with_expand_archive(archive: &Path, dest: &Path) -> Result<(), String> {
     fresh_dir(dest)?;
     let ps = format!(
@@ -93,7 +85,7 @@ impl Platform for Impl {
     }
 
     fn node_artifact(&self, version: &str) -> Option<super::NodeArtifact> {
-                // 用户级安装：官方对 x64/arm64 都提供 zip，解到 <状态根>/node，无需 UAC；arm64 用原生制品（MSI 路径提权后常读不到用户 profile 下的包，msiexec 1619）。
+                
         let arch = match std::env::consts::ARCH {
             "x86_64" => "x64",
             "aarch64" => "arm64",
@@ -107,7 +99,7 @@ impl Platform for Impl {
     }
 
     fn node_candidate_paths(&self) -> Vec<PathBuf> {
-                // 不得硬编码 C:\Program Files：真实路径随系统盘符与系统语言变化（中文系统是本地化目录名），也可能装在 Program Files (x86)，故一律经环境变量推导。
+                
         let exe = "node.exe";
         let mut v: Vec<PathBuf> = vec![self.node_bin_after_install()];
         let env_dir = |var: &str, rest: &[&str]| -> Option<PathBuf> {
@@ -171,7 +163,7 @@ impl Platform for Impl {
     }
 
     fn install_node(&self, file: &Path) -> Result<PathBuf, String> {
-                // 用户级解包（zip），零权限：MSI+UAC 路径提权后常读不到用户 profile 下的 .msi（msiexec 1619），且 canonicalize() 返回的 \\?\ 前缀 msiexec 不认；zip 解包两条问题都不存在。
+                
         let root = crate::env::node_install_target();
         let staging = root.with_file_name("node.extract");
         let extractors: [(&str, fn(&Path, &Path) -> Result<(), String>); 2] = [
@@ -270,17 +262,12 @@ impl Platform for Impl {
     }
 }
 
-/// 服务管理由产品自身的监控器承担：本文件**不再**建立计划任务、登录自启项或监控任务
-/// —— 操作系统服务机制与本产品无关，也不存在「用系统通道投递」的选项。
-/// 因此本层也不再保留「改换投递通道」一类的东西（原 Channel / 动作记录 / 权限类判定），
-/// 它们只服务于「向 OS 投递」这条已被删除的路径。
-
 impl ServiceControl for Impl {
     fn kind(&self) -> &'static str {
         "process"
     }
 
-    /// 监控器登记表落点（产品状态根下）。**不是**计划任务，也不是 HKCU Run 键。
+    
     fn definition_path(&self) -> PathBuf {
         crate::platform::monitor_registry_path()
     }
@@ -289,8 +276,8 @@ impl ServiceControl for Impl {
         self.definition_path().is_file()
     }
 
-    /// 登记受管对象（幂等，且内容过时时自愈）：登记的是「产品自己在管谁」，
-    /// 不含任何 OS 投递语义 —— 不建计划任务、不写 Run 键、不建监控任务。
+    
+    
     fn ensure_defined(&self, spec: &LaunchSpec) -> Result<String, String> {
         let path = self.definition_path();
         let (shell, args) = spec.service_command();
@@ -317,7 +304,7 @@ impl ServiceControl for Impl {
         ))
     }
 
-    /// 启动受管对象：产品自己拉起进程（`--run-guard` 稳定入口），不向任务计划程序投递。
+    
     fn start(&self) -> Result<(), String> {
         let mut cmd = Command::new(crate::platform::self_exe()?);
         cmd.arg("--run-guard");
@@ -328,7 +315,7 @@ impl ServiceControl for Impl {
             .map(|_| ())
     }
 
-    /// 停止受管对象：产品自己的进程管理，绝不调用 schtasks /End 或 /Delete。
+    
     fn stop(&self) -> Result<(), String> {
         crate::platform::kill_managed_processes()
     }
@@ -353,7 +340,7 @@ fn drive_is_fixed(letter: u16) -> bool {
     extern "system" {
         fn GetDriveTypeW(lp_root_path_name: *const u16) -> u32;
     }
-        // DRIVE_FIXED = 3；其余（REMOTE=4 / NO_ROOT_DIR=1 / UNKNOWN=0）一律跳过
+        
     let fixed = unsafe { GetDriveTypeW(root.as_ptr()) } == 3;
     if let Ok(mut m) = cache.lock() {
         m.insert(letter, fixed);
@@ -485,8 +472,8 @@ mod toolchain_tests {
             .unwrap_or_else(|| panic!("{} 解出来后 npm 不可用：node={}", choice.version, node.display()));
         let v = rt.npm_version.clone().expect("真实执行过 npm，必须回读到版本号");
         assert!(!v.is_empty());
-        // 位置受控（监控语义不变）：全局化后安装必须落在**全局安装根**；
-        // 老布局（状态根下已装过）仍允许 —— node_install_target 会优先复用，不硬搬既有用户。
+        
+        
         let global_root = crate::env::global_install_root();
         assert!(
             node.starts_with(&global_root) || node.starts_with(&home),
@@ -499,9 +486,9 @@ mod toolchain_tests {
 
 #[cfg(test)]
 mod definition_tests {
-        /// 服务管理器的产物**不得**引用任何 OS 服务机制（唯一权威：STANDARDS.md）。
-        /// 本文件历史上是 schtasks 的集中地，故在此钉死：登记表与启动命令里
-        /// 不许再出现 schtasks / HKCU Run / 计划任务的痕迹。
+        
+        
+        
     #[test]
     fn windows_monitor_outputs_never_reference_os_service_mechanisms() {
         let shell = std::path::Path::new(r"C:\Program Files\lobox\lobox-shell.exe");
