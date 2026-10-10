@@ -1,6 +1,3 @@
-//! 无头自检入口（任何平台可跑，无需 GUI）：不建图形会话即可验证镜像 / 环境 / 内核治理链路。用户的机器大多没有 Xvfb，出问题时这些命令是唯一的现场取回手段。
-
-
 pub(crate) fn cli_mirror_plan() -> i32 {
     println!("== 镜像测速自检 ==");
     let m = crate::mirror::load();
@@ -42,7 +39,7 @@ pub(crate) fn cli_mirror_plan() -> i32 {
 pub(crate) fn cli_env_plan() -> i32 {
     println!("== 环境探测自检 ==");
     println!("平台          = {}", std::env::consts::OS);
-    // 候选摘要由**探测线程**写入缓存，必须在 status() 之后再读，否则首次调用会读到空串。
+    
     let out = crate::nodeprobe::status(std::time::Duration::from_secs(60));
     println!("{}", crate::nodeprobe::candidate_summary());
     println!("完成          = {}", out.finished);
@@ -101,7 +98,7 @@ pub(crate) fn cli_service_plan() -> i32 {
         std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| "(未设置)".into())
     );
 
-    // 守卫可执行文件定位（与实际 ensure_guard 同一路径推导，避免「自检通过但运行时找不到」）。DSH_GUARD_BIN 可显式覆盖：用于 1) 自动定位失败的机器做诊断 2) 测试隔离 HOME。
+    
     let guard: Option<std::path::PathBuf> = std::env::var("DSH_GUARD_BIN")
         .ok()
         .filter(|s| !s.is_empty())
@@ -115,7 +112,7 @@ pub(crate) fn cli_service_plan() -> i32 {
         None => println!("守卫可执行    = （未定位到，请先安装内核）"),
     }
 
-    // 打出的必须是**真正会写进服务定义的那一行**：走运行时同一条装配路径（LaunchSpec::from_runtime + service_command），不在此另拼一遍，否则「自检显示正确、实际写入不同」本身就是排障陷阱。
+    
     match (&guard, crate::runtime_contract::read_node()) {
         (Some(g), Some(rt)) => match crate::platform::LaunchSpec::from_runtime(&rt, g.clone()) {
             Ok(spec) => {
@@ -161,10 +158,10 @@ pub(crate) fn cli_service_plan() -> i32 {
 }
 
 pub(crate) fn cli_run_guard() -> i32 {
-    // 诊断留痕：此前只报一句"未找到"，无法区分是 runtime 契约缺失还是内核候选全部取不到版本。
-    // 真机上两者文件都在却仍失败 ⇒ 必须分别报告，否则排障只能靠推理。
-    // 诊断留痕：此前只报一句"未找到"，无法区分 runtime 契约缺失还是内核候选全部取不到版本。
-    // 真机上两者文件都在却仍失败 ⇒ 必须分别报告，否则排障只能靠推理。
+    
+    
+    
+    
     {
         let rt_diag = crate::runtime_contract::ensure();
         let cands = crate::domain::coreloc::locate_core_candidates(None);
@@ -201,14 +198,6 @@ pub(crate) fn cli_run_guard() -> i32 {
     }
 }
 
-/// 无头监控入口（`--watchdog`，Windows 计划任务每 5 分钟调用一次）。
-///
-/// ★ 产品定位：lob-ox 是 Agent 的跨平台管理面板，此处是**监控**而非监控进程。
-///   原实现在「守卫未就绪」时调用 ensure_started **强拉起守卫**，会带来：
-///     1) 端口死锁：为拉起而占用/等待固定端口，受管对象真实端口被锁死；
-///     2) 生命周期越权：监控程序决定被监控对象"该不该活着"，与「只观测」冲突。
-///   现只观测：记录此刻是否在服役（在不在 / 端口 / 就绪否），不拉起、不杀进程、不改状态。
-///   判据与 GUI 启动、面板轮询同一实现（`guardctl::ready`）。
 pub(crate) fn cli_watchdog() -> i32 {
     let port = crate::env::current_api_port();
     let verdict = crate::domain::guardctl::ready(port, WATCHDOG_PROBE_TIMEOUT);
@@ -219,7 +208,7 @@ pub(crate) fn cli_watchdog() -> i32 {
         serving,
         verdict.describe()
     ));
-    // 退出码 0 仅表示"本拍观测完成"，**不表示守卫存活**。
+    
     0
 }
 
