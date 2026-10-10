@@ -60,7 +60,7 @@ class TokenPool {
     this.clear(id);
   }
 
-  // journalctl 同步查询会冻结生命周期 tick 的事件循环，故 journal 档非阻塞发射（见 capture.js）。
+  
   capture(id) {
     const src = this._sources.get(id);
     if (!src) return null;
@@ -69,7 +69,7 @@ class TokenPool {
       if (src.file) this._persistLine(id, src.file, hit.line);
       return this._commit(id, hit.token, hit.source);
     }
-    // attach 世代守卫：发射前后各校验一次换代，源按 id 从池重取（闭包 src 的 unit/file 属旧代事实），防死令牌以新 gen 回灌。
+    
     if (src.unit && kinds.isCaptured(src.kind)) {
       const gen = this._attachGen.get(id) || 0;
       const fresh = () => ((this._attachGen.get(id) || 0) === gen ? this._sources.get(id) : null);
