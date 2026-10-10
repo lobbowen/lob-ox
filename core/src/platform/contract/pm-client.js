@@ -28,6 +28,13 @@ function file() {
 }
 
 // 读取端点契约：拿不到就返回 null（调用方静默降级）。
+// 契约里的 pid 是否还活着：--run-guard 在 Unix 走 exec 替换，壳进程会变成内核自身，
+//   此后 guard-mgmt.json 里的 pid/端口即陈旧值 —— 不校验就会把上报打到已关闭或被复用的端口。
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; } catch (e) { return false; }
+}
+
 function endpoint() {
   let text;
   try {
@@ -44,6 +51,7 @@ function endpoint() {
   if (!j || typeof j !== 'object' || j.schema !== SUPPORTED_SCHEMA) return null;
   const port = Number(j.port);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) return null;
+  if (!pidAlive(Number(j.pid))) return null;
   return { port, host: typeof j.host === 'string' && j.host ? j.host : HOST };
 }
 
