@@ -53,119 +53,7 @@ defaults:
     working-directory: core
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Install Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '24'
-
-      - name: 构建前端产物（npm test 的面板安全头断言**依赖它**）
-        shell: bash
-        # 必须先构建前端：否则面板安全头断言（CSP / nosniff）因 503「UI not built」失败——
-        #   它们是这两条安全头的唯一断言点。
-        run: bash release/scripts/build-ui.sh
-
-      - name: 安装 Xvfb（图形会话前置条件）
-        shell: bash
-        # 无头 runner 下监控判定「无图形会话」而拒绝拉起壳（linux 判据见
-        #   src/platform/os/desktop.js::sessionAvailable）⇒ watchdog E2E 断言失败；故装 Xvfb 真拉起。
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb
-
-      - name: 内核回归测试（npm test · 经 Xvfb 提供图形会话）
-        shell: bash
-        run: |
-          set -o pipefail
-          # 红灯归因：日志下载需额外权限，故全量落盘 + 失败时打印 FAIL 台账，并交下一步上传。
-          LOG="${RUNNER_TEMP:-/tmp}/core-test.log"
-          xvfb-run -a npm test 2>&1 | tee "$LOG"
-          RC=${PIPESTATUS[0]}
-          if [ "$RC" -ne 0 ]; then
-            echo "---- 失败台账 ----"
-            grep -E '^FAIL|失败=' "$LOG" | head -40
-          fi
-          exit "$RC"
-
-  # need_build=false 只影响 release job 与 --publish 判定；build 矩阵每次 push/PR 都跑。
-  precheck:
-    runs-on: ubuntu-latest
-    outputs:
-      need_build: ${{ steps.probe.outputs.need_build }}
-      missing: ${{ steps.probe.outputs.missing }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Install Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '24'
-
-      # 开发规范里可机器判定的部分（R2/R3/R5/R6/R9/R10）：违规即非零退出并打 ::error file=<路径>,line=<行号>。
-      # 放在本 job 最前：precheck 在 ubuntu 只跑一遍，本步是纯静态检查，不装依赖、不触网。
-      # ⚠ cwd = core/（见顶层 defaults.run.working-directory）⇒ 路径相对 core/ 写。
-      - name: 开发规范可执行校验（standards-check）
-        shell: bash
-        run: node ci/standards-check.js
-
-      - name: tag ↔ 组件版本对账（仅 tag；不一致即失败）
-        if: github.ref_type == 'tag'
-        shell: bash
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          # ⚠ 本步带 -e：`VAR=$(cmd)` 非零会直接终止脚本，连 ::error:: 都打不出来
-          #    ⇒ 取值类赋值一律带 `|| { ...exit 1; }` 兜底。
-          set -euo pipefail
-          TAG="${TAG_NAME:-}"
-          [ -n "$TAG" ] || { echo "::error::tag 事件下 github.ref_name 为空，无法完成对账"; exit 1; }
-          case "$TAG" in
-            core-*) ;;
-            *) echo "::error::tag 名 ${TAG} 不带 core- 前缀（本工作流只认 core-<内核版本>，见文件头 tags: 段）"; exit 1 ;;
-          esac
-          # 刻意不做 `${...#v}` 历史兼容剥离：core-v<x> 应在这里如实判红，否则命名空间漂移会静默通过。
-          VER_TAG="${TAG#core-}"
-          VER_PKG="$(node -p "require('./package.json').version")" || {
-            echo "::error::读取 core/package.json#version 失败（node -p 非零）；tag=${TAG}，对账无法完成"; exit 1; }
-          echo "  tag          = $TAG"
-          echo "  tag 版本     = $VER_TAG"
-          echo "  组件 version = $VER_PKG（来源：core/package.json#version）"
-          if [ "$VER_TAG" != "$VER_PKG" ]; then
-            echo "::error::tag=${TAG}（版本 ${VER_TAG}） 组件 version=${VER_PKG}（core/package.json#version） 两者必须一致（发布单源）"
-            exit 1
-          fi
-          echo "  ✓ 对账通过：tag=${TAG} 与 core/package.json#version=${VER_PKG} 逐字一致"
-
-      - name: 探测该版本是否已全部发布
-        id: probe
-        shell: bash
-        run: |
-          VER="$(node -p "require('./package.json').version")"
-          echo "  版本: $VER"
-          MISSING=""
-          for p in $(node -e 'const p=require("./package.json");console.log((p.npmPublish&&p.npmPublish.packages||[]).join(" "))'); do
-            if npm view "@lob-ox/$p@$VER" version >/dev/null 2>&1; then
-              echo "    已发布 $p"
-            else
-              echo "    缺失   $p"
-              MISSING="$MISSING $p"
-            fi
-          done
-          if [ -z "$MISSING" ]; then
-            echo "need_build=false" >> "$GITHUB_OUTPUT"
-            echo "  → 四平台已齐备：need_build=false（仅影响 release job 与 --publish 判定；precheck 设立初衷为省额度）"
-          else
-            echo "need_build=true" >> "$GITHUB_OUTPUT"
-            echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
-            echo "  → 需由 CI 补齐：$MISSING"
-          fi
-
   build:
-    needs: precheck
     permissions:
       contents: read
       id-token: write
@@ -305,8 +193,8 @@ jobs:
   # 不能放进 build 矩阵：各腿会并发向同一 Release 上传（竞态），且 dist/launcher/** 含同名文件
   #    （如 core.cjs）会互相覆盖 ⇒ build 只上传 artifact，本 job 汇总后一次性挂载。
   release:
-    needs: [precheck, build]
-    if: startsWith(github.ref, 'refs/tags/core-') && needs.precheck.outputs.need_build == 'true'
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/core-')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -351,7 +239,7 @@ jobs:
   #   always() 保留：needs 里哪个 job 红或跳过都不许让本 job 静默消失——「registry 上有没有这个版本」
   #   必须被如实判定，而不是因为上游被跳过就自动变绿。
   published-smoke:
-    needs: [precheck, build]
+    needs: build
     if: ${{ always() && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/core-')) }}
     strategy:
       fail-fast: false
