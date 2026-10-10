@@ -38,7 +38,7 @@ echo "=== [1/5] 前端门禁（typecheck + lint + vitest）+ 构建 UI 产物 ==
 if [ -f ui/package.json ]; then
   echo "[ui] 安装前端依赖（npm ci，可复现构建）..."
   (cd ui && npm ci) || { echo "[ui] ERROR: 前端依赖安装失败（npm ci）"; exit 1; }
-  echo "[ui] 前端门禁（verify = typecheck + lint + test + build）..."
+  echo "[ui] 前端门禁（verify = typecheck + lint + build）..."
   (cd ui && npm run verify) || { echo "[ui] ERROR: 前端门禁未通过（typecheck/lint/test/build）"; exit 1; }
   DSH_UI_SKIP_INSTALL=1 bash release/scripts/build-ui.sh
 else
