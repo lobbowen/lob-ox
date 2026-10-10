@@ -1,7 +1,5 @@
 'use strict';
 
-// 壳上报读取口：<状态根>/supervisor/shell-report.json（schema 1）；三态 ok/writable/reachable 的 null 表示壳也判不出，不得折成 false。
-
 const fs = require('node:fs');
 const path = require('node:path');
 const stateRoot = require('../service/state-root');
