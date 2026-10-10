@@ -140,6 +140,7 @@ jobs:
         shell: bash
         run: |
           set -u
+          cd "$GITHUB_WORKSPACE" || exit 1
           V=""
           hit() { V="$V\n  - $1"; }
           [ -d core/test ] && hit "core/test/ 目录存在（测试资产已全量拆除）"
