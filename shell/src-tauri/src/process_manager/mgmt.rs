@@ -7,8 +7,9 @@
 
 use std::sync::Arc;
 
-use hyper::body::to_bytes;
-use hyper::body::Bytes;
+use bytes::Bytes;
+use http_body_util::{BodyExt, Full};
+use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
@@ -41,7 +42,7 @@ pub async fn run(state: Arc<ProcessManager>) {
         let io = TokioIo::new(stream);
         let st = state.clone();
         tokio::spawn(async move {
-            let svc = service_fn(move |req: Request<hyper::body::Incoming>| {
+            let svc = service_fn(move |req: Request<Incoming>| {
                 let st = st.clone();
                 async move { handle(st, req).await }
             });
@@ -54,11 +55,11 @@ pub async fn run(state: Arc<ProcessManager>) {
 
 async fn handle(
     state: Arc<ProcessManager>,
-    req: Request<hyper::body::Incoming>,
-) -> Result<Response<Bytes>, MgmtErr> {
+    req: Request<Incoming>,
+) -> Result<Response<Full<Bytes>>, MgmtErr> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
-    let body = to_bytes(req.into_body()).await?;
+    let body = req.into_body().collect().await?.to_bytes();
     let json: serde_json::Value = if body.is_empty() {
         serde_json::Value::Null
     } else {
@@ -119,11 +120,11 @@ async fn handle(
     }
 }
 
-fn reply(status: StatusCode, msg: &str) -> Response<Bytes> {
+fn reply(status: StatusCode, msg: &str) -> Response<Full<Bytes>> {
     Response::builder()
         .status(status)
-        .body(Bytes::from(msg.as_bytes().to_vec()))
-        .unwrap_or_else(|_| Response::new(Bytes::from_static(b"err")))
+        .body(Full::new(Bytes::from(msg.as_bytes().to_vec())))
+        .unwrap_or_else(|_| Response::new(Full::new(Bytes::from_static(b"err"))))
 }
 
 fn parse_desc(v: &serde_json::Value) -> Option<state_machine::WorkloadDesc> {
