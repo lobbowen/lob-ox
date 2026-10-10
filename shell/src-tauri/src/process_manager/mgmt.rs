@@ -143,6 +143,7 @@ async fn handle(
             if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
                 let code = json.get("code").and_then(|v| v.as_i64()).map(|x| x as i32);
                 let signal = json.get("signal").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let startup_failure = json.get("startup_failure").and_then(|v| v.as_bool()).unwrap_or(false);
                 state.record_exit(
                     id,
                     state_machine::LastWill {
@@ -150,6 +151,7 @@ async fn handle(
                         signal,
                         at: std::time::Instant::now(),
                     },
+                    startup_failure,
                 );
             }
             Ok(reply(StatusCode::OK, "ok"))
