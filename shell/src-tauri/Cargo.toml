@@ -17,8 +17,12 @@ tauri-plugin-process = "2"
 tokio = { version = "1", features = ["time", "net", "rt", "rt-multi-thread", "macros", "io-util", "sync"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# loopback 机箱管理端点（Y 模式底座真相）：hyper v1 服务端 + http-body-util（Full/BodyExt）+ bytes。
+# 三者均已在依赖图内（tauri/hyper 间接引入），此处提升为直接依赖，零新增下载。
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
 ureq = { version = "2", default-features = false, features = ["tls", "proxy-from-env"] }
 sha2 = "0.10"
 hex = "0.4"
