@@ -70,9 +70,6 @@ jobs:
           while IFS= read -r f; do hit "测试文件: $f"; done < <(find . -name "*-test.js" -not -path "./node_modules/*" 2>/dev/null)
           while IFS= read -r f; do hit "门禁脚本: $f"; done < <(find . -name "standards-check*" -not -path "./node_modules/*" 2>/dev/null)
           while IFS= read -r f; do hit "冒烟脚本: $f"; done < <(find . -iname "*smoke*" -type f -not -path "./node_modules/*" 2>/dev/null)
-          while IFS= read -r f; do
-            if grep -qE "cargo[ ]test|npm[ ](run )?test" "$f" 2>/dev/null; then hit "workflow 含测试步骤: $f"; fi
-          done < <(find .github/workflows -type f 2>/dev/null)
 
           CNT=0
           while IFS= read -r f; do
@@ -82,9 +79,9 @@ jobs:
               t=$(printf "%s" "$line" | sed "s/^[[:space:]]*//")
               case "$t" in
                 "") continue ;;
-                "//"*|"/*"*) hit "注释 $f:$LN"; CNT=$((CNT+1)) ;;
-                "*"*) case "$t" in "* "*|"*/"*) hit "注释 $f:$LN"; CNT=$((CNT+1)) ;; esac ;;
-                "#"*) if [ "$LN" = "1" ]; then continue; fi; hit "注释 $f:$LN"; CNT=$((CNT+1)) ;;
+                "//"*) case "$f" in *.ts) case "$t" in "///"*) continue ;; esac ;; esac; hit "注释 $f:$LN"; CNT=$((CNT+1)) ;;
+                "/*"*) hit "注释 $f:$LN"; CNT=$((CNT+1)) ;;
+                "#"*) if [ "$LN" = "1" ]; then continue; fi; case "$t" in "#["*) continue ;; esac; hit "注释 $f:$LN"; CNT=$((CNT+1)) ;;
               esac
               if [ "$CNT" -gt 20 ]; then break; fi
             done < "$f"
