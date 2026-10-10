@@ -15,12 +15,12 @@
         NS.install.begin('kernel', '发现新内核 v' + p.latest + '（当前 v' + p.installed + '）· 正在强制更新…');
         return NS.coreApply();
       }
-            // 远端版本查询失败必须如实告知：build_plan 在 latest 查询失败时给出 action=unknown 且带 error 原因；installed 非空时若不看 p.error，就会把「这次根本没查成」报成「内核已是最新」，抹掉用户唯一的网络诊断线索。故停在当前阶段，报因并给重试，不得继续。
+            
       if (p.error) {
         NS.fail('内核版本检查失败：' + p.error);
         return null;
       }
-      var mt = p.registry ? String(p.registry).replace(/^https?:\/\//, '') : NS.mirrorText();
+      var mt = p.registry ? String(p.registry).replace(/^https?:\/\
       NS.status('内核已是最新（v' + p.installed + '）' + (mt ? ' · 源 ' + mt : ''));
       NS.coreVersion = p.installed;
       return NS.wait(300).then(NS.stepCoreDone);
@@ -28,7 +28,7 @@
   }
 
   function coreApply() {
-        // 在飞互斥：boot 链、guard 的 KERNEL_NOT_ALIGNED 自动对齐、btnRetry 都会再打这条命令，而 npm 安装不是幂等的可重入操作 —— 与 shell.html 面板桥那条路同款互斥，缺了就并发写同一前缀。
+        
     if (NS.coreApplyPending) {
       NS.status('内核安装正在进行中 · 本次不重复发起');
       return Promise.resolve(false);
@@ -44,7 +44,7 @@
   }
 
   function coreApplyOnce() {
-        // 有界：上界由 NS.coreApplyBudgetMs() 以后端契约（预算 + 收尾余量）加前端余量得出，保证前端只会比后端更晚放弃等待。withTimeout 只放弃等待、不取消后端：安装仍在跑并可能随后落盘，故先按 core_status 判实际结果。
+        
     return NS.withTimeout(NS.core.invoke('core_apply'), NS.coreApplyBudgetMs(), '内核安装超时（已中止等待）').then(function (r) {
       if (r && r.__timeout) return coreApplyPoll(0);
       if (r && r.__error) { NS.fail('内核安装异常：' + r.__error); return false; }
