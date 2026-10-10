@@ -1,16 +1,14 @@
-//! 窗口导航与显示。壳的窗口语义：关窗 = 隐藏到托盘（服务继续常驻，见 main.rs 的 CloseRequested）；「退出管家」= 停全部服务链（见 `crate::domain::guardctl::shutdown_all`）。
-
 use tauri::{Emitter, Manager};
 
 const PANEL_PUSH_DELAYS: [u64; 3] = [400, 1200, 2500];
 
 pub(crate) fn go_panel(app: &tauri::AppHandle, force: bool) {
-    // 壳框架(shell.html)的 evt listener 在首帧注册；setup 线程的 emit 可能早于注册被丢弃，故延时重发数次覆盖竞态（listener 就绪后任一次生效即切面板；force=true 时 URL 相同也强制重载）。
+    
     for (i, delay_ms) in PANEL_PUSH_DELAYS.iter().copied().enumerate() {
         let h = app.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-                        // 每一拍都重新判据并现取 URL（守卫可能已顺延端口）；最后一拍仍不在服役就回引导页重跑启动链。判据与 URL 必须同出 `panel_view` 一个答案：主帧那条导航路径不经本函数，在此单独判一次服役并不能阻止它按未判据的 URL 抢先导航。
+                        
             let (url, serving) = crate::domain::guardctl::panel_view();
             if serving {
                 let _ = h.emit("shell:goto-panel", serde_json::json!({ "url": url, "seq": i, "force": force }));
