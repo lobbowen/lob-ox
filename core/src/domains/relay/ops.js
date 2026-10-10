@@ -34,8 +34,8 @@ class LanManager {
     this._reconcileInFlight = null;
     this._lanServers = {};
     this.tokenOf = opts.tokenOf || (() => '');
-    // 审计 RL-5：按实例串行的 syncProxy 链（key=inst.id）。所有 syncProxy 调用都经此入口，
-    // 同一实例的并发/重复调用被串到同一条链，后者在前一次完成后重读状态并提前返回，防止重复记录 + 孤儿监听器。
+    
+    
     this._syncChains = new Map();
     this._proxyChain = Promise.resolve();
   }
@@ -117,11 +117,11 @@ class LanManager {
     return this._allManaged().some((x) => normalizeRemoteMode(x.remoteMode) === 'wan');
   }
   syncFrpc() {
-    // frp 不可用 ⇒ 如实 ok:false（旧版直接 return undefined，被上层当成功）。
+    
     if (!this.frp) return { ok: false, error: 'frpmgr 不可用' };
-    // 审计 RL-9：合并同一 tick 内的多次 syncFrpc 调用（去重）。多个 syncProxy 串行/并行完成后
-    // 都会触发 syncFrpc，结合 RL-8（TOML 无变化时重启为 no-op）仍应去重，避免对 frpc 配置反复重建/探测。
-    // 同一同步突发窗口内只跑一次真实同步，其余调用复用结果。
+    
+    
+    
     if (this._syncFrpcCoalescing) return this._lastSyncFrpcResult || { ok: true, coalesced: true };
     this._syncFrpcCoalescing = true;
     const result = this._syncFrpcNow();
@@ -131,7 +131,7 @@ class LanManager {
     return result;
   }
 
-  _syncFrpcNow() {// 返回同步结果：此前结果被整体丢弃 ⇒ 上层无从知道隧道是否建成（frpAction 对同类失败早已是 ok:false+error）。
+  _syncFrpcNow() {
     if (!this.frp) return { ok: false, error: 'frpmgr 不可用' };
     try {
       const all = this.lanInstances || [];
@@ -167,9 +167,9 @@ class LanManager {
   async removeProxyForInstance(instId) { return reconcile.removeProxyForInstance(this, instId); }
 
   async syncProxy(inst) {
-    // 审计 RL-5：按实例串行 + 去重。直接调用（bootstrap/observers/domain-actions）与经 reconcile 的调用
-    // 全部走此入口；同一实例的多次调用串到同一条链，后者等前者完成后重读 existing，命中已建记录即提前返回，
-    // 不再重复 claim/push，也从根上消除 purgeDuplicates 误释放仍监听账本记录（孤儿监听器）的竞态。
+    
+    
+    
     if (!inst) return;
     const key = inst.id || String(inst.dshPort);
     const prev = this._syncChains.get(key) || Promise.resolve();
