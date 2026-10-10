@@ -29,9 +29,9 @@ function findManagedDshPort(config) {
 function applyMainPort(host, newPort, pid) {
   const oldPort = host.config.targetPort;
   if (!Number.isInteger(newPort) || newPort <= 0 || newPort === oldPort) return false;
-  // 审计 P0-8：register 与 release 必须原子。修前先 register 新口、再 try{release 旧口}catch{}，
-  // 中间若 release 失败则 old+new 双占端口（新口 register 成功但旧口未释放）。
-  // 改法：release 失败则回滚新口 register（release 旧口），保证「要么都改、要么都不变」，杜绝双占。
+  
+  
+  
   try {
     ports.register('dsh-main', newPort);
   } catch (e) {
@@ -43,14 +43,14 @@ function applyMainPort(host, newPort, pid) {
     if (oldPort !== newPort && ports.release(oldPort, 'system:dsh-main')) released = true;
     else released = true;
   } catch (e) {
-    // 旧口释放失败 ⇒ 回滚新口 register，避免 old+new 双占端口。
+    
     try { ports.release(newPort, 'system:dsh-main'); } catch {}
     host.logger.warn && host.logger.warn('release 旧端口 ' + oldPort + ' 失败，已回滚新端口 ' + newPort + ' 登记: ' + ((e && e.message) || e));
     return false;
   }
   host.config.targetPort = newPort;
   host.config.healthUrl = 'http://' + host.config.targetHost + ':' + newPort + '/';
-  // relay/LAN 同步结果必须可见：此前 catch{} 吞掉失败却仍打印"已更正注册与 relay 目标"（假断言）。
+  
   let lanSync = 'failed';
   try {
     if (host.daemons && typeof host.daemons.syncLanState === 'function') host.daemons.syncLanState();
