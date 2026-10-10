@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
-# 由 .github/workflows/core.yml 的四平台 build 矩阵调用。
-# 硬标准：构建与发布均必须经 GitHub CI；本地不得产生发布产物。
-# 不用 Node SEA：macOS 注入后段错误（故全平台统一 Node launcher）。
-# 认证不变式：不改动用户全局 npm 配置；NPM_TOKEN 只写进临时 userconfig（进程结束即删）并仅经 NPM_CONFIG_USERCONFIG 传给子进程。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 PUBLISH=0
 PUBLISH_ONLY=0
-while [ $# -gt 0 ]; do
+while [ $
   case "$1" in
     --publish) PUBLISH=1 ;;
     --publish-only) PUBLISH=1; PUBLISH_ONLY=1 ;;
@@ -39,7 +35,6 @@ echo "=== [0/5] 版本自洽校验（内核 package.json 单源；壳版本互�
 npm run verify:versions
 
 echo "=== [1/5] 前端门禁（typecheck + lint + vitest）+ 构建 UI 产物 ==="
-# CI 为全新检出（无 ui/node_modules）：须先 npm ci，否则 tsc 对每个依赖报 TS2307。
 if [ -f ui/package.json ]; then
   echo "[ui] 安装前端依赖（npm ci，可复现构建）..."
   (cd ui && npm ci) || { echo "[ui] ERROR: 前端依赖安装失败（npm ci）"; exit 1; }
