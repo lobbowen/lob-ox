@@ -1,7 +1,5 @@
 'use strict';
 
-// win32 无 shell spawn .cmd 垫片必 EINVAL，故未命中缓存时走注入的 npx 成对启动形态。
-
 function buildCommand(ctx) {
   const { app, port, cachedBin, registry, launcher, execPath } = ctx || {};
   if (!app || !Array.isArray(app.command)) return { ok: false, error: '无效应用命令模板', cmd: [], registry: registry || null };
