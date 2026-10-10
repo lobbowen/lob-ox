@@ -78,10 +78,11 @@ module.exports = {
   SUPPORTED_SCHEMA,
   file,
   endpoint,
-  // 下列五个路由与壳侧 process_manager/mgmt.rs 的路由表一一对应。
+  // 下列路由与壳侧 process_manager/mgmt.rs 的路由表一一对应（新增路由需两端同步）。
   register(desc) { return post('/pm/register', desc); },
   setDesired(id, desired) { return post('/pm/set-desired', { id, desired }); },
   onPhase(id, phase) { return post('/pm/on-phase', { id, phase }); },
   recordExit(id, code, signal) { return post('/pm/record-exit', { id, code, signal }); },
   requestRestart(id) { return post('/pm/request-restart', { id }); },
+  resetBackoff(id) { return post('/pm/reset-backoff', { id }); },
 };
