@@ -5,6 +5,7 @@
 //! 机箱持有唯一账本；内核侧 PortRegistry 改为本权威的「客户端」，调用签名不变。
 
 use std::collections::HashMap;
+use serde_json;
 
 #[derive(Debug, Clone)]
 struct Record { port: u16, role: String, owner: String }

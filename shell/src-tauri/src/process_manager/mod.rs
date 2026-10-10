@@ -70,5 +70,3 @@ impl ProcessManager {
 
 impl Default for ProcessManager { fn default() -> Self { Self::new() } }
 
-/// 全局单例：用 Arc 包装以便跨命令共享，由 main 经 tauri::Builder::manage 注入。
-pub type ProcessManagerHandle = Arc<ProcessManager>;
