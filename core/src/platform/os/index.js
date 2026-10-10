@@ -10,7 +10,6 @@ const desktop = require('./desktop');
 const CAPABILITY_PROFILES = require('./capability-profile');
 const environment = require('./environment');
 
-// W6/单源：平台三态转调 shared/platform.js（此前本文件一份、sandbox.js 抄一份 ⇒ 同一事实两份）。
 const { PLATFORM, ARCH, isLinux, isMac, isWindows } = require('../../shared/platform');
 
 const _toolCache = {};
@@ -45,8 +44,8 @@ function capabilities() {
   const pl = p.platform;
   if (pl === 'linux') {
     p.sandboxLaunch = true;
-    // ★ 服务管理器不借 OS 通道（唯一权威：STANDARDS.md）⇒ 不再有 cgroup 级强制，
-    //   资源约束改由产品自身的监控与限流承担。如实声明为 supervise，不谎报 cgroup。
+    
+    
     p.sandboxEnforcement = 'supervise';
     p.desktopNotify = hasTool('notify-send');
     p.autostart = hasTool('systemctl');
