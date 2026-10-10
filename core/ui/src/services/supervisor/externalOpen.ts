@@ -1,4 +1,3 @@
-/** 结果呈现的唯一出口在 features/supervisor/openExternal.tsx。 */
 import { supervisorApi } from "./client";
 import type { OpenExternalResult, ProxyLoginStart } from "./types";
 
@@ -80,7 +79,6 @@ export function loginIsolationText(s?: ProxyLoginStart | null): string | null {
   return "本次登录未使用隔离窗口" + (s.isolatedDetail ? "：" + s.isolatedDetail : "，换账号请先在浏览器里退出");
 }
 
-/** 来自 HTTP 响应、会被渲染成可点链接：非 https 一律不返回。 */
 export function loginUrlOf(s?: { url?: string | null; authUrl?: string | null } | null): string {
   const u = typeof s?.url === "string" && s.url ? s.url : (typeof s?.authUrl === "string" ? s.authUrl : "");
   return u.startsWith("https://") ? u : "";
