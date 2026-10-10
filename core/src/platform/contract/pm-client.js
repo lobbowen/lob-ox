@@ -1,18 +1,5 @@
 'use strict';
 
-// 机箱进程管理端点客户端（Y 模式：底座持有真相，内核单向上报）。
-//
-// 拓扑约束（与直觉相反，改本文件前必读）：
-//   --run-guard 在 Unix 上走 exec 替换（壳进程直接变成 node 内核），Windows 上分离启动。
-//   ⇒ 内核与「持有 mgmt 端点的 GUI 壳」是**两个独立进程**，内核启动时壳未必在跑，
-//   也不存在「父进程把端口塞进子进程的 env」这条可靠通道（exec 会替换掉壳自己）。
-//   故端口发现走**落盘契约**：壳把 guard-mgmt 端口原子写进 <状态根>/supervisor/guard-mgmt.json
-//   （范式同壳侧 mirror::export_to_kernel：tmp → rename，所有权在壳、方向单向）。
-//
-// 降级契约（关键，不得加 throw）：内核是常更新模块、壳是底座，端点是**增强**而非依赖。
-//   契约文件缺失 / 端口非法 / 连不上 / 超时 —— 一律静默，绝不影响内核既有行为与返回值。
-//   这样即使老壳（还没写该文件）配新内核，也只是「不上报」，不会崩、不会改语义。
-
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
@@ -27,9 +14,6 @@ function file() {
   return path.join(stateRoot.supervisorDir(), FILE_NAME);
 }
 
-// 读取端点契约：拿不到就返回 null（调用方静默降级）。
-// 契约里的 pid 是否还活着：--run-guard 在 Unix 走 exec 替换，壳进程会变成内核自身，
-//   此后 guard-mgmt.json 里的 pid/端口即陈旧值 —— 不校验就会把上报打到已关闭或被复用的端口。
 function pidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try { process.kill(pid, 0); return true; } catch (e) { return false; }
@@ -55,7 +39,6 @@ function endpoint() {
   return { port, host: typeof j.host === 'string' && j.host ? j.host : HOST };
 }
 
-// 单向上报：fire-and-forget。失败静默（记 debug 级，不上抛），内核业务不受端点影响。
 function post(route, payload) {
   const ep = endpoint();
   if (!ep) return false;
@@ -86,7 +69,7 @@ module.exports = {
   SUPPORTED_SCHEMA,
   file,
   endpoint,
-  // 下列路由与壳侧 process_manager/mgmt.rs 的路由表一一对应（新增路由需两端同步）。
+  
   register(desc) { return post('/pm/register', desc); },
   setDesired(id, desired) { return post('/pm/set-desired', { id, desired }); },
   onPhase(id, phase) { return post('/pm/on-phase', { id, phase }); },
