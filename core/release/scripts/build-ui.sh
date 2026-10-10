@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
-#   源码唯一事实源 = ui/（入口 supervisor.html）
-#   ui-react/ = 守卫托管发布镜像（GET / 服务；release.sh/npm 子包携带）
-# 被调方：release.sh / ci-core.sh / build-launcher.sh / CI
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 UI="$ROOT/ui"
 SKIP_INSTALL=0
 [ "${1:-}" = "--skip-install" ] && SKIP_INSTALL=1
-# DSH_UI_SKIP_INSTALL=1 由 ci-core.sh 设置（它已先跑 npm ci），以免重复安装。
 [ "${DSH_UI_SKIP_INSTALL:-0}" = "1" ] && SKIP_INSTALL=1
 
 echo "[ui] unified frontend build (src=$UI)"
