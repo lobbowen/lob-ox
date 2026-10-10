@@ -1,10 +1,3 @@
-//! 机箱 loopback 管理端点（Y 模式：底座持有的真相，由内核子进程单向上报）。
-//!
-//! 拓扑：壳（父）经 spawn_daemon 拉起内核（子）；内核无反向 invoke 壳的通道，
-//! 故底座在此暴露 127.0.0.1 的极简 HTTP 端点（端口受 PortAuthority 唯一分配，
-//! 登记为 guard-mgmt），内核经 HTTP POST 上报 register / set-desired / on-phase /
-//! record-exit / request-restart。浏览器策略天然封死跨源；底座持有唯一真相。
-
 use std::convert::Infallible;
 use std::sync::Arc;
 
@@ -28,15 +21,15 @@ pub async fn run(state: Arc<ProcessManager>) {
         }
     };
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
-    // 端口受机箱权威分配：OS 分配后回写（等效 allocate 但避开竞争窗口）。
+    
     if let Ok(mut guard) = state.ports.lock() {
         let _ = guard.register_sole("guard-mgmt", port);
-        // 机箱端口真相落盘（内核只读）：guard-mgmt 的端口必须被内核读到，否则单向上报无从发起。
+        
         guard.persist();
     }
     eprintln!("[mgmt] guard-mgmt 监听 127.0.0.1:{port}");
-    // 端口回灌内核（壳写内核读，单向）：内核 daemon 与 GUI 壳是两个独立进程
-    //   （--run-guard 走 exec 替换，壳进程不再存在），故不能用父传子 env，改走落盘契约。
+    
+    
     export_port(port);
     loop {
         let (stream, _addr) = match listener.accept().await {
@@ -57,8 +50,6 @@ pub async fn run(state: Arc<ProcessManager>) {
     }
 }
 
-/// 把 guard-mgmt 端口回灌给内核（所有权在壳、方向单向：壳写内核读）。
-/// 范式同 `mirror::export_to_kernel`：tmp → rename 原子提交，内核侧读不到就当端点不存在（客户端静默降级）。
 fn export_port(port: u16) {
     let path = crate::env::supervisor_dir().join("guard-mgmt.json");
     let body = match serde_json::to_string_pretty(&serde_json::json!({
@@ -91,15 +82,13 @@ fn export_port(port: u16) {
     }
 }
 
-// 错误类型用 Infallible：内核上报表单是「尽力而为」的控制面，任一环节失败都就地转成 4xx/5xx 响应，
-// 不应让整条连接 panic 或被 serve_connection 要求 Into<Box<dyn Error+'static>>（那会逼出 From 生命周期错误）。
 async fn handle(
     state: Arc<ProcessManager>,
     req: Request<Incoming>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
-    // body 收集失败（连接异常）兜底为空字节，交由后续解析分支返回 400。
+    
     let body = match req.into_body().collect().await {
         Ok(c) => c.to_bytes(),
         Err(_) => Bytes::new(),
@@ -162,7 +151,7 @@ async fn handle(
             }
             Ok(reply(StatusCode::OK, "ok"))
         }
-        // 人工重试：退避跳闸后唯一的复位入口（清空记账 + 重新期望运行）。
+        
         ("POST", "/pm/reset-backoff") => {
             if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
                 state.reset_backoff(id);
