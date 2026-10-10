@@ -63,9 +63,45 @@ impl ProcessManager {
     }
 
     /// 崩溃 last-will：子进程退出时记录退出码 / 信号，供引导页「为何崩」展示。
+    ///
+    /// 同时执行**重启退避**（框架策略，机箱持有）：窗口内累计失败次数达 burst ⇒
+    /// 相位转 Failed 且退避跳闸，停手等人工 —— 崩溃不靠循环拉起来掩盖故障。
     pub fn record_exit(&self, id: &str, last_will: state_machine::LastWill) {
         let mut s = self.states.lock().unwrap();
-        if let Some(st) = s.get_mut(id) { st.last_will = Some(last_will); }
+        if let Some(st) = s.get_mut(id) {
+            st.last_will = Some(last_will);
+            let now = Instant::now();
+            // 窗口过期则重新计数：一次偶发崩溃不该永久计入历史。
+            let fresh = match st.window_start {
+                None => true,
+                Some(t) => now.duration_since(t).as_millis() as u64 > st.restart_window_ms,
+            };
+            if fresh {
+                st.window_start = Some(now);
+                st.fail_count = 0;
+            }
+            st.fail_count = st.fail_count.saturating_add(1);
+            if st.fail_count >= st.restart_burst.max(1) {
+                st.restart_backoff = state_machine::RestartBackoff::Tripped;
+                st.phase = state_machine::Phase::Failed;
+                st.desired = state_machine::Desired::Stopped;
+                st.pending_restart = false;
+                st.last_transition = now;
+            }
+        }
+    }
+
+    /// 人工重试（引导页「重试」）：清空退避记账并重新期望运行 —— 唯一的复位入口。
+    pub fn reset_backoff(&self, id: &str) {
+        let mut s = self.states.lock().unwrap();
+        if let Some(st) = s.get_mut(id) {
+            st.fail_count = 0;
+            st.window_start = None;
+            st.restart_backoff = state_machine::RestartBackoff::None;
+            st.desired = state_machine::Desired::Running;
+            st.pending_restart = true;
+            st.last_transition = Instant::now();
+        }
     }
 }
 
