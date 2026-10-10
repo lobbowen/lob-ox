@@ -1,4 +1,3 @@
-// 必须最先加载 - onerror / unhandledrejection 未先注册时，后续文件的错误无人捕获（不变量 F2）。按职责分文件让一处语法错不再导致全页不执行；每文件独立语法检查。
 window.__BOOT_NS = window.__BOOT_NS || {};
 (function (NS) {
   NS.core = (window.__TAURI__ && window.__TAURI__.core) || null;
@@ -27,7 +26,7 @@ window.__BOOT_NS = window.__BOOT_NS || {};
   NS.ENV_PROBE_BUDGET_MS = 45000;
   NS.CORE_PLAN_BUDGET_MS = 90000;
   NS.GUARD_START_BUDGET_MS = 200000;
-    // 内核安装的等待上界 = 后端 maxWaitMs（预算 + 收尾余量）+ 前端余量，取不到契约时退到本常量。前端不得比后端先放弃：后端仍在装时提前判超时，会把一次其实成功的安装说成失败。
+    
   NS.CORE_APPLY_BUDGET_MS = 1080000;
   NS.CORE_APPLY_MARGIN_MS = 90000;
   NS.coreApplyBudgetMs = function () {
@@ -37,8 +36,8 @@ window.__BOOT_NS = window.__BOOT_NS || {};
   };
 
   function showFatal(text) {
-        // 致命错误**必须每次都留痕**（此前只记录 phase=error，且 fatalShown 后连文案都丢弃 ⇒ 排障无据）。
-        // 显示层仍幂等（不刷屏），但日志层与 lastFatal 始终更新 —— 真错误后至时不能沉默。
+        
+        
     try { if (NS.core && NS.core.invoke) NS.core.invoke("boot_trace", { line: "fatal: " + String(text) }); } catch (e) {}
     NS.lastFatal = String(text);
     if (NS.fatalShown) return;
