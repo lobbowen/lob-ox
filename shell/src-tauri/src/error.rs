@@ -1,11 +1,8 @@
-//! 结构化错误模型。IPC 边界命令统一返回 `ShellResult`（`#[serde(tag = "kind")]`），前端按 `kind` 分支并显示 `hint`。不变量：`Probe` 带 stage/elapsed_ms；`Unsupported` 类型可见；内部仍用 `Result<_, String>` 并经 `From<String>` 在边界升级；`guard_start` 的 JSON `error` 例外地保持字符串。
-
 use serde::Serialize;
 
-/// 壳的结构化错误。`hint` 必须真的进入 JSON（手工 `Serialize` 并入输出），前端 `errText()` 依赖它显示可操作建议。
 #[derive(Debug, Clone)]
 pub enum ShellError {
-    /// 探测失败：**必须带阶段与耗时**（「卡住时看得见」）；失败发生在哪一步（如 `enumerate` / `version` / `path-scan`）。
+    
     Probe {
         stage: String,
         cause: String,
@@ -19,7 +16,6 @@ pub enum ShellError {
     Unsupported { capability: String, platform: String },
 }
 
-/// 手工 `Serialize`：派生字段 + `hint`（`hint()` 是方法，派生不会带上它）。字段格式固定为 `kind` kebab-case、字段名 snake_case，否则前端读取 `e.stage`/`e.cause`/`e.elapsed_ms` 会失效。
 impl Serialize for ShellError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
