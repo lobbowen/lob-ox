@@ -14,7 +14,6 @@ const isLinux = process.platform === 'linux';
 const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
 
-// 落点文件名一律从跨语言单源派生（brand.js）：自启定义里写错名字 ⇒ 登录自启静默失效（拿裸名或旧名去 spawn）。
 const CLI_EXE = isWindows ? BRAND.CLI_NAME + '.exe' : BRAND.CLI_NAME;
 const GUI_EXE = isWindows ? BRAND.GUI_BIN_NAME + '.exe' : BRAND.GUI_BIN_NAME;
 
