@@ -9,9 +9,6 @@ const { liveApiPort } = require('../security');
 const OPEN_WEB_CODES = new Map();
 const OPEN_WEB_CODE_TTL_MS = 30000;
 
-// 审计 P0-6：OPEN_WEB_CODES 是模块级单例，原实现只在 consume 时判 exp、无任何定时清理。
-// 若浏览器取到码但从不回调（或守卫重启），条目永久驻留内存直到进程退出 ⇒ 每次 open-web 泄漏一条。
-// 故加一个惰性清理：每次 issue/consume 顺手扫一遍过期条目（O(n) 但 n 极小，且只在有操作时发生，无独立定时器开销）。
 function _sweepExpiredOpenWebCodes() {
   const now = Date.now();
   for (const [code, rec] of OPEN_WEB_CODES) {
@@ -41,9 +38,6 @@ function owns(pathname) {
   return pathname === '/open' || pathname === '/instances' || pathname.startsWith('/instances/');
 }
 
-// 实例/主实例查表（W3 单源）：`main` 是原生主实例的保留 id，不在 instances 表里，须走 dshMainView()。
-// 此前这段判定抄了两份（handleOpen 与 POST /instances/open-web），逐字相同 ⇒ 改口径必漏一处。
-// 第三处（list 的 render）只要主实例视图、不做 id 分支，保留原样（它不是同一条规则的副本）。
 function findInstanceOrMain(sup, id) {
   if (id === 'main' && sup.dshMainView && typeof sup.dshMainView === 'function') return sup.dshMainView();
   return (sup.instances.list() || []).find((x) => x.id === id) || null;
@@ -73,7 +67,6 @@ function handleOpen(ctx) {
   }).catch((e) => { dropOpenWebCode(code); deny(500, (e && e.message) || 'open failed'); });
 }
 
-// command 原样交 systemd-run = 以守卫身份执行任意命令，故 fail-closed：结构校验 + 入口白名单，路径存在性不作放行依据。
 function commandShapeError(command, dshBin) {
   if (command === undefined || command === null) return null;
   if (!Array.isArray(command)) return 'command 必须为参数数组';
