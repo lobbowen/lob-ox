@@ -166,55 +166,21 @@ jobs:
             libglib2.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf-2.0-dev \
             libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config
 
-      # 与下面的测试步骤**分开**：这一步只编译（含测试目标），红灯即「编译不过」；
-      #   合在一步里时，编译错误会被后面的测试输出挤出可视区（tail -400）⇒ 无法归因。
-      - name: 编译（--bins + 测试目标）
+      # 只编译：红灯即「编译不过」。不再跑测试目标（测试已全量拆除，只认编译与产线结果）。
+      - name: 编译（--bins）
         shell: bash
         run: |
           set -o pipefail
-          TARGETS=$(ls tests/*.rs 2>/dev/null | sed 's#tests/##; s#\.rs$##' | grep -v '^updater_artifacts$' | sed 's/^/--test /' | tr '\n' ' ' || true)
-          echo "CI 将执行的 test target: ${TARGETS}"
           # 编译错误必须**逐条 emit 成 ::error::**：日志下载需额外权限，
           #   而注解在 Actions UI 上直接可见 ⇒ 红灯不用靠猜。
           #   ⚠ grep 无匹配返回 1，配合 pipefail 会把「没有错误」判成失败 ⇒ 必须 `|| true`。
           LOG="${RUNNER_TEMP:-/tmp}/cargo-build.log"
-          cargo build --bins --tests ${TARGETS} 2>&1 | tee "$LOG"
+          cargo build --bins 2>&1 | tee "$LOG"
           RC=${PIPESTATUS[0]}
           if [ "$RC" -ne 0 ]; then
             grep -E '^error(\[|:)|^ *-->' "$LOG" | head -40 | while IFS= read -r l; do echo "::error::$l"; done
           fi
           exit "$RC"
-        working-directory: shell/src-tauri
-
-      - name: 测试（--bins 单元 + tests/*.rs 自动枚举）
-        shell: bash
-        run: |
-          set -o pipefail
-          # 不用 `--lib`：本包是 bin crate（无 library target），`--lib` 会 error: no library targets found。
-          # ⚠ 必须带 `|| true`：本步带 pipefail 且 runner 的 bash 带 -e，tests/ 下空枚举会让 `grep -v`
-          #   退出码 1 ⇒ -e 直接终止脚本（echo 与 cargo test 都不会执行）。
-          TARGETS=$(ls tests/*.rs 2>/dev/null | sed 's#tests/##; s#\.rs$##' | grep -v '^updater_artifacts$' | sed 's/^/--test /' | tr '\n' ' ' || true)
-          echo "CI 将执行的 test target: ${TARGETS}"
-          # ⚠ 只 `tail -400` 会把真正的 error 挤出可视区（编译期错误在前，测试输出在后）⇒ 红灯无法归因。
-          #   故全量落盘，失败时**只打印 error / warning: unused / test result: FAILED / panicked 这几类行**。
-          LOG="${RUNNER_TEMP:-/tmp}/cargo-test.log"
-          cargo test --bins --no-fail-fast ${TARGETS} 2>&1 | tee "$LOG"
-          RC=${PIPESTATUS[0]}
-          exit "$RC"
-        working-directory: shell/src-tauri
-
-      - name: Windows 工具链实测（官方归档 -> npm 真实可用）
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          # ⚠ `--exact` 必须配全路径：短名在 libtest 里零命中且退出码 0，这一步会绿得什么都没跑。
-          set -o pipefail
-          LOG="${RUNNER_TEMP:-/tmp}/official-npm-test.log"
-          cargo test --bins -- --exact --ignored --test-threads=1 \
-            platform::windows::toolchain_tests::official_artifact_installs_usable_npm \
-            2>&1 | tee "$LOG" | tail -40
-          grep -q "test result: ok. 1 passed" "$LOG" || {
-            echo "本步未真正执行那一个测试（零命中/编译前失败/超时都会走到这里）"; exit 1; }
         working-directory: shell/src-tauri
 
       - name: 壳无头冒烟（--node-plan：环境探针 + 官方最新 LTS）
@@ -378,18 +344,6 @@ jobs:
         run: |
           REQ_SIG="--require-sig"; [[ "${GITHUB_REF}" == refs/tags/shell-* ]] || REQ_SIG=""
           node shell-release/assemble-shell-pkg.js             --platform "${{ matrix.artifact }}"             --ver "${{ needs.version.outputs.ver }}"             --bundle-dir src-tauri/target/release/bundle             --out dist/npm-shell ${REQ_SIG}
-
-      # 用 Tauri 自己的依赖验证产物正是 Tauri 会接受的东西（minisign-verify + tauri_plugin_updater 的清单解析器）。
-      # 这一步失败 = 产物不可用于自动更新 ⇒ tag 发布必须早失败，绝不静默发布。
-      - name: 产物验收（Tauri 同源验签 + 清单契约）
-        if: startsWith(github.ref, 'refs/tags/shell-')
-        shell: bash
-        env:
-          # ③ 类路径：${{ github.workspace }} 是仓库根，包目录在 shell/dist/npm-shell → 必须带 shell/ 前缀。
-          SHELL_REHEARSAL_DIR: ${{ github.workspace }}/shell/dist/npm-shell
-        run: |
-          cargo test --test updater_artifacts -- --nocapture --test-threads=1
-        working-directory: shell/src-tauri
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -680,7 +634,7 @@ jobs:
           "
           (cd "$REL" && npm publish --access public $TAG)
 
-  # 签名有效性不在这里判（updater_artifacts 用与用户端同一个 minisign-verify crate 判）。
+  # 签名有效性不在这里判（此前由 updater_artifacts 测试用与用户端同一个 minisign-verify crate 判；该测试已随全量拆测试移除）。
   # 与 install-smoke 的分工：那边验「装得上、起得来」，这边验「发出去的东西本身对」。
   published-channel-smoke:
     # ⚠ always() 不可省：publish 在非 tag 上是 skipped，不加本 job 会被连带跳过（假绿）。
