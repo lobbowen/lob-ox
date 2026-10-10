@@ -79,7 +79,7 @@ module.exports = {
       return dir;
     },
 
-    // 同步 spawn 会冻结事件循环，消费方含 HTTP 路径，故 git 子进程异步执行。
+    
     async guardVersionLocal() {
       const d = depsOf(this);
       const root = d.vcsRoot();
