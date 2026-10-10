@@ -58,14 +58,14 @@ module.exports = {
     if (d.exitIntended()) return;
     d.writeTicking(true);
     try {
-      // 端口视角只用于「谁在监听这个端口」：孤儿接管与占用告警。存活判据不在这里。
+      
       const targetView = await monitor.probe(d.config().targetHost, d.config().targetPort);
       const portUp = targetView.up;
       d.writeLastPortUp(portUp);
       const host = d.config().targetHost;
       const port = d.config().targetPort;
-      // 存活判据取自 app/main/decide 的单源（W1）：此前本处重算一遍 child/adopt 的存活，
-      // 与 _mainStateSnapshot 的同名判定逐字重复 ⇒ 改口径必漂一处。controller 侧的 m* 读数就是快照的同一批来源。
+      
+      
       const childAlive = childAliveOf(d.mChild());
       const adoptedAlive = adoptedAliveOf(d.mAdoptPid());
       const targetAlive = childAlive || adoptedAlive;
@@ -122,8 +122,8 @@ module.exports = {
         return;
       }
 
-      // 人工重启（面板 /lifecycle/dsh/restart 或 CLI）：RUNNING/STARTING 走正常重启（不计启动失败）；
-      // FAILED 由下面的 FAILED 分支接（清计数后回到 STARTING）。
+      
+      
       const manual = d.manualRestart();
       if (manual) {
         d.writeManualRestart(false);
@@ -154,11 +154,11 @@ module.exports = {
           break;
         }
         case 'STARTING': {
-          // STARTING = 仍在 startsecs 窗口内（或刚判定重启、等端口释放落点）。
-          // 窗口到点且进程还活着 ⇒ RUNNING；进程退出由 child 的 exit 事件记账（启动失败）。
+          
+          
           if (!targetAlive) {
-            // 审计 P0-3：mRestartAt 初始为 null 时 Date.now() >= null 恒 true（null 被转 0）。
-            // 无重启计划 ⇒ 不应立即再次 startProcess。显式补 null 判据。
+            
+            
             if (d.mStartDeadline() === null && (d.mRestartAt() === null || Date.now() >= d.mRestartAt())) {
               if (await monitor.isPortListening(host, port, 1000)) {
                 d.daemons().warnOccupied();
@@ -182,11 +182,11 @@ module.exports = {
             if (guarded) d.main().beginRestart('child_exit', { startupFailure: false });
             else { d.writeCrashHalted(true); d.events().append('guardian_off_exit', { reason: 'child_exit 未监控，保持停止' }); d.state().setPhase('STOPPED'); }
           }
-          // 除此之外 RUNNING 下没有任何判据会触发重启：不探测、不因“忙/慢”杀进程。
+          
           break;
         }
         case 'FAILED': {
-          // 限流停靠：无人干预就不重启。人工重试入口 = /lifecycle/dsh/restart（manualRestart）或 /start（start 意图）。
+          
           const startIntent = d.intents().consume('start');
           const restartIntent = d.intents().consume('restart');
           const wantsRetry = manual || startIntent !== undefined || restartIntent !== undefined;
