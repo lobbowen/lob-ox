@@ -1,6 +1,3 @@
-//! 有界子进程执行（公共设施）：全仓外部命令一律经此文件，`.output()` 这类无界调用统一包装为超时 + kill。
-//! 输出重定向到临时文件而非管道（不抽读的管道填满 64KB 后子进程会阻塞成死锁）；超时用轮询 try_wait 实现（std 无跨平台 wait-with-timeout，挂起后同步 wait 就是无界的）。
-
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -16,7 +13,7 @@ pub struct ExecRecord {
 }
 
 impl ExecRecord {
-    /// 人可读正文：stderr 优先，为空才回退 stdout（两路都不丢）。
+    
     pub fn detail(&self) -> &str {
         let e = self.stderr.trim();
         if !e.is_empty() {
@@ -29,7 +26,7 @@ impl ExecRecord {
         cmd_line_of(&self.program, &self.args)
     }
 
-    /// 退出状态的统一措辞；调用点不得各自再拼一份。
+    
     pub fn code_label(&self) -> String {
         if self.timed_out {
             return format!("超时被终止（>{}s）", self.timeout_secs);
@@ -71,7 +68,7 @@ pub fn prepare(cmd: &mut Command) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        cmd.creation_flags(0x0800_0000); 
     }
     #[cfg(not(windows))]
     {
@@ -79,7 +76,6 @@ pub fn prepare(cmd: &mut Command) {
     }
 }
 
-/// Windows 上 npm 类命令是 `npm.cmd` -> cmd.exe -> node.exe 三层：只杀直接子进程等于只杀 cmd.exe，孙进程仍占着端口与状态根（非 Windows 无这一层）。
 pub fn kill_tree(child: &mut std::process::Child) {
     #[cfg(windows)]
     {
@@ -103,7 +99,6 @@ pub struct Live {
     pub last_line: String,
 }
 
-/// 与 [`run`] 的唯一区别是这条心跳；二者共用 [`run_inner`]，行为不可能分叉。
 pub fn run_watch(
     cmd: &mut Command,
     timeout: Duration,
@@ -113,7 +108,6 @@ pub fn run_watch(
     run_inner(cmd, timeout, Some((heartbeat, on_live)))
 }
 
-/// 只有「没能跑起来」才是 Err；「跑完了但没成功」（含超时被杀）一律返回 Ok(记录)：输出与退出状态作为证据保留，调用方才能区分「命令不存在」与「命令挂了」。
 pub fn run(cmd: &mut Command, timeout: Duration) -> Result<ExecRecord, String> {
     run_inner(cmd, timeout, None)
 }
@@ -123,7 +117,7 @@ fn run_inner(
     timeout: Duration,
     watch: Option<(Duration, &dyn Fn(&Live))>,
 ) -> Result<ExecRecord, String> {
-    // 命令原文在此捕获，不让每个调用方自己记得带上：这是「诊断必含命令」的唯一保证。
+    
     let program = cmd.get_program().to_string_lossy().into_owned();
     let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
     let timeout_secs = timeout.as_secs();
@@ -142,7 +136,7 @@ fn run_inner(
 
     let out_file = std::fs::File::create(&out_path)
         .map_err(|e| format!("{} 无法执行（创建临时输出文件失败）: {}", cmd_line, e))?;
-    // 不变量：任一临时文件创建失败或 spawn 失败时，必须清掉已建的文件（不留残渣）。
+    
     let err_file = match std::fs::File::create(&err_path) {
         Ok(f) => f,
         Err(e) => {
@@ -250,7 +244,6 @@ fn read_log(p: &std::path::Path) -> String {
     }
 }
 
-/// 子进程原始字节 -> 字符串，全仓唯一解码点：Windows 控制台程序按 OEM 码页写 stderr，按 UTF-8 lossy 解码会把双字节换成 U+FFFD，故先试 UTF-8，失败交操作系统按当前控制台码页转换，仍失败才 lossy 保底。
 #[cfg(windows)]
 fn decode_console(bytes: &[u8]) -> String {
     if bytes.is_empty() {
@@ -265,7 +258,6 @@ fn decode_console(bytes: &[u8]) -> String {
     }
 }
 
-/// GUI 子系统没有控制台时 `GetConsoleOutputCP` 返回 0，回退系统 OEM 码页。
 #[cfg(windows)]
 fn console_code_page() -> u32 {
     extern "system" {
@@ -280,7 +272,6 @@ fn console_code_page() -> u32 {
     }
 }
 
-/// 允许显式传码页：回归用例须任意语言的 runner 上确定性复现，绑在 runner 码页上会跟着机器抖。
 #[cfg(windows)]
 fn decode_codepage(bytes: &[u8], cp: u32) -> Option<String> {
     extern "system" {
@@ -330,7 +321,7 @@ fn tail(s: &str, n: usize) -> String {
 mod tests {
     use super::*;
 
-        /// 本模块的测试串行执行（锁见下）：有用例要数 temp 目录里的 dsh-cmd-*.log，并发用例的创建/清理会让计数抖动、断言误失败。
+        
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
@@ -369,7 +360,7 @@ mod tests {
 
     #[test]
     fn exec_record_failure_renders_command_and_code_once() {
-            // 命令原文刻意用中性程序：本仓不得再出现 OS 服务机制（schtasks/systemctl/launchctl）的字样。
+            
         let r = ExecRecord {
             program: "lobox-shell".into(),
             args: vec!["--run-guard".into()],
@@ -391,13 +382,13 @@ mod tests {
 
     #[test]
     fn decode_console_preserves_utf8_and_empty() {
-        // 三平台共同契约：UTF-8（node/npm 的输出）必须逐字节等价，不得被二次转换弄脏。
+        
         assert_eq!(decode_console(b""), "");
         assert_eq!(decode_console("内核已对齐 v0.1.5".as_bytes()), "内核已对齐 v0.1.5");
         assert_eq!(decode_console(b"plain ascii"), "plain ascii");
     }
 
-        /// 中文 Windows 现场回归（GBK/cp936 字节）：显式传 936 而不走 decode_console —— runner 的控制台码页由机器决定，判据绑在它上会跟着机器抖。
+        
     #[cfg(windows)]
     #[test]
     fn decode_console_reads_gbk_console_output() {
