@@ -175,7 +175,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .manage(Mutex::new(RunState::default()))
         .manage(std::sync::Arc::new(crate::process_manager::ProcessManager::new()))
-        .invoke_handler(tauri::generate_handler![commands::node_status, commands::system_node_ready, commands::boot_trace, commands::core_status, commands::core_plan, commands::core_apply, commands::kernel_update_apply, commands::shell_bridge_contract, commands::guard_start, commands::guard_ready, commands::start_node_install, commands::finish_boot, commands::win_ctl, commands::shell_identity, commands::shell_update_check, commands::shell_update_apply, commands::shell_restart, commands::shell_set_phase, commands::mirror_status, commands::mirror_set, commands::node_latest, commands::mirror_warmup, commands::mirror_cached, commands::shell_panel_url])
+        .invoke_handler(tauri::generate_handler![commands::node_status, commands::system_node_ready, commands::boot_trace, commands::core_status, commands::core_plan, commands::core_apply, commands::kernel_update_apply, commands::shell_bridge_contract, commands::guard_start, commands::guard_ready, commands::start_node_install, commands::finish_boot, commands::win_ctl, commands::shell_identity, commands::shell_update_check, commands::shell_update_apply, commands::shell_restart, commands::shell_set_phase, commands::mirror_status, commands::mirror_set, commands::node_latest, commands::mirror_warmup, commands::mirror_cached, commands::shell_panel_url, commands::pm_status])
         .setup(|app| {
             bt!("setup enter");
             env::migrate_legacy();
