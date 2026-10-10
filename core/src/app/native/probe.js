@@ -59,8 +59,8 @@ function installedVersion(host) {
 }
 
 function targetPort(config) {
-  // 权威 = config.targetPort（config.js 以 command --port 为准派生，也是真实 spawn 用的端口）；
-  // 只在它不可用时才回落到 healthUrl 派生——此前只看 healthUrl ⇒ 两者不一致时升级会等错端口并回滚健康实例。
+  
+  
   const direct = Number(config && config.targetPort);
   if (Number.isInteger(direct) && direct > 0) return direct;
   try { return Number(new URL(config.healthUrl).port) || null; } catch { return null; }
