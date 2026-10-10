@@ -9,11 +9,8 @@ DIR="$DIST/$PAK"
 
 rm -rf "$DIR"; mkdir -p "$DIR"
 for d in bin src; do [ -e "$ROOT/$d" ] && cp -r "$ROOT/$d" "$DIR/"; done
-# 不拷 ROOT/config.json（含构建机绝对路径的死双源）；守卫运行读内嵌 DEFAULT_CONFIG
-#   或用户配置 <产品状态根>/supervisor/config.json
 cp "$ROOT/package.json" "$DIR/"
 
-# 统一构建入口 release/scripts/build-ui.sh（构建 -> ui/dist -> ui-react 镜像）。
 if [ -d "$ROOT/ui" ] && [ -f "$ROOT/ui/package.json" ]; then
   bash "$ROOT/release/scripts/build-ui.sh"
 elif [ ! -f "$ROOT/ui-react/supervisor.html" ]; then
@@ -24,8 +21,6 @@ if [ -d "$ROOT/ui-react" ]; then
   [ -f "$DIR/ui-react/supervisor.html" ] || { echo "发布中止：ui-react 缺少 supervisor.html"; exit 1; }
 fi
 
-# find 必须用 -print0 配 read -d ""（默认换行输出会让循环体永不执行），
-# 并用括号限定 -o 优先级，只收集 .js 与 bin 入口。
 fails=0
 while IFS= read -r -d "" f; do
   case "$f" in *vendor*) continue;; esac
