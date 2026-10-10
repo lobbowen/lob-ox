@@ -22,7 +22,7 @@ module.exports = {
       return { configured: !!cfg.apiAccessKey, host: cfg.apiHost || undefined };
     },
 
-        // 清空密钥必须同时回关 LAN（apiHost→127.0.0.1）：只清 key 不动 apiHost 会留下「绑定 0.0.0.0 且零认证」的暴露窗口。
+        
     setAccessKey(key) {
       try {
         const cfg = this.config || {};
