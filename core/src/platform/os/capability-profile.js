@@ -2,7 +2,7 @@
 
 const linux = {
   sandboxLaunch: true,
-  // 服务管理器一律走产品自身的进程管理（不借 systemd）⇒ 无 cgroup 强制，如实为 supervise。
+  
   sandboxEnforcement: 'supervise',
   pidAdoption: true,
   processTreeKill: true,
