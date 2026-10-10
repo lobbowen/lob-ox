@@ -1,6 +1,7 @@
 'use strict';
 
 const guardian = require('../../shared/guardian');
+const pmClient = require('../../platform/contract/pm-client');
 
 const DEPS = new WeakMap();
 function depsOf(host) {
@@ -53,6 +54,7 @@ module.exports = {
     const d = depsOf(this);
     d.mSetStartupFailWindowStart(null);
     d.mSetStartupFailCount(0);
+    pmClient.resetBackoff('main');
     d.events().append('startup_retry', {});
     d.logger().warn('启动失败计数已清零：人工重试，回到 STARTING');
     return { ok: true };
