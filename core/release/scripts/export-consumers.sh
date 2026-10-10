@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# 刻意不进 test/manifest.js 登记表（非门禁）。
-# 判定向安全侧失败：宁可漏判定义，不可把消费者误判成定义（假「可删」= 删活代码）；
-#   {methods} 门面同文件内的 this.<名>() 调用会被计为 0 外部消费者，故补搜并降级为「需人工确认」。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
@@ -91,7 +88,6 @@ is_definition_line() {
   return 1
 }
 
-# bash 3.2 无关联数组，用分隔串做成员判定。
 DEF_FILES="|"
 add_def_file() {
   case "${DEF_FILES}" in
@@ -127,7 +123,6 @@ CONS_LINES=(); DEF_LINES=()
 
 while IFS= read -r hit; do
   if [ -z "${hit}" ]; then continue; fi
-  # 前提：仓库内文件名不含冒号（否则须改用 -z 分隔）。
   file="${hit%%:*}"
   file="${file#./}"
   rest="${hit#*:}"
@@ -162,7 +157,6 @@ done <<< "${RAW}"
 
 DEF_DISPLAY="$(printf "%s" "${DEF_FILES}" | tr "|" " " | sed "s/  */ /g; s/^ //; s/ $//")"
 
-# bash 3.2：不用 mapfile，空数组展开前先判计数（set -u）。
 THIS_REF=0; THIS_LINES=()
 while IFS= read -r _df; do
   [ -z "${_df}" ] && continue
