@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-// W6：环境变量名取 brand.js 单源（此前硬编 'DSH_UI_DIR'；brand.js 的 ENV_UI_DIR 曾零 JS 消费者 ⇒ 改名必漏这一处）。
+
 const { ENV_UI_DIR } = require('../shared/brand');
 
 function resolveUiDir() {
@@ -38,7 +38,7 @@ const MIME = {
   '.png': 'image/png',
   '.ico': 'image/x-icon',
 };
-// frame-ancestors 必须是壳 origin 白名单而非 'none'：'none' 连壳 iframe 一起拒，面板永远空白。
+
 const FRAME_ANCESTORS = "tauri://localhost http://tauri.localhost https://tauri.localhost";
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors " + FRAME_ANCESTORS;
 
