@@ -49,10 +49,10 @@ function createServer(sup, deps) {
 
     const identity = identify(req);
 
-    // 同源/ CORS 闸门统一读运行时真实端口（ports.json#supervisor-api），而非冻结 config.apiPort。
+    
     const originAllowedLive = (req) => originAllowed(req, liveApiPort(server, sup));
 
-    // apiAccessKey fail-closed：非回环必须带匹配 key，未配置 key 时同样拒绝（否则 0.0.0.0 零认证可驱动写 API）；回环与 OPTIONS 预检豁免。
+    
     const accessKey = (sup && sup.config && sup.config.apiAccessKey) || null;
     if (!identity.loopback && req.method !== 'OPTIONS' && (!accessKey || !requestHasAccessKey(req, accessKey))) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
