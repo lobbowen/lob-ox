@@ -13,10 +13,6 @@ function classifyUpstreamLimited(status, text) {
   return 'none';
 }
 
-// 上游限流重试时长（H-04）：headerRetryMs / bodyResetMs 曾在 providers 侧与生产各存一份（逐字近似的两份实现）。
-// 已实测两实现**行为完全等价**（ISO 分支：两侧同一条正则，且正则捕获串永不匹配 normalizeResetTs 的 epoch 分支
-// ⇔ 恒走 Date.parse ⇒ 与生产同值）⇒ 合并为生产单源，此处只转调、不再自带一份。
-// 方向：providers（下层）依赖 policies（上层、zero-dep 的纯策略层），不反向。
 const { headerRetryMs, bodyResetMs } = require('../../policies/failure');
 
 function normalizeResetTs(v) {
@@ -112,7 +108,7 @@ function creditsResetDue(acc, now) {
 
 function creditsRefilled(acc) {
   if (!acc || !acc.limit || acc.limit.kind !== 'credits') return false;
-  // fail-closed：Number(null)===0 是有限值，基线缺失必须显式判空，否则任意正余额被判「已充值」。
+  
   const raw = acc.limit.creditsAt;
   if (raw === null || raw === undefined || typeof raw !== 'number' || !Number.isFinite(raw)) return false;
   const base = raw;
