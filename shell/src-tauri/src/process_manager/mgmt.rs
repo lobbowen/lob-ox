@@ -5,18 +5,19 @@
 //! 登记为 guard-mgmt），内核经 HTTP POST 上报 register / set-desired / on-phase /
 //! record-exit / request-restart。浏览器策略天然封死跨源；底座持有唯一真相。
 
-use std::convert::Infallible;
 use std::sync::Arc;
 
 use hyper::body::to_bytes;
 use hyper::body::Bytes;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use hyper::{Method, Request, Response, StatusCode};
+use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
 use crate::process_manager::state_machine;
 use crate::process_manager::ProcessManager;
+
+type MgmtErr = Box<dyn std::error::Error + Send + Sync>;
 
 pub async fn run(state: Arc<ProcessManager>) {
     let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
@@ -54,13 +55,10 @@ pub async fn run(state: Arc<ProcessManager>) {
 async fn handle(
     state: Arc<ProcessManager>,
     req: Request<hyper::body::Incoming>,
-) -> Result<Response<Bytes>, Infallible> {
+) -> Result<Response<Bytes>, MgmtErr> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
-    let body = match to_bytes(req.into_body()).await {
-        Ok(b) => b,
-        Err(_) => return Ok(reply(StatusCode::BAD_REQUEST, "read body")),
-    };
+    let body = to_bytes(req.into_body()).await?;
     let json: serde_json::Value = if body.is_empty() {
         serde_json::Value::Null
     } else {
