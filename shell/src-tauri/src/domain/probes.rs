@@ -1,12 +1,9 @@
-//! 环境探测记录的唯一所有者：维度表 `Probe`、记录形态 `Record`（`ok` 三态）、渲染（`render` / `json`）。本文件不做网络 I/O（registry 只读 mirror::cached() 并写明是缓存），依赖维度按 TTL 复用缓存。`ok = None` 是「无从判定」，与 Some(false) 两件事。
-
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::runtime_contract::NpmUsable;
 
-/// 探针维度。这里是全壳唯一一份维度表：`as_str` 决定面板与 CLI 看到的名字。
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Probe {
     Node,
@@ -33,7 +30,7 @@ pub struct Record {
     pub target: String,
     pub ms: u128,
     pub ok: Option<bool>,
-    /// 版本、延迟或**失败原因**。失败时不得为空 —— 只报「缺失」等于把排障推给用户。
+    
     pub note: String,
 }
 
@@ -90,7 +87,6 @@ pub fn render(records: &[Record]) -> String {
     s
 }
 
-/// npm 维度的结论：面板字段、契约落盘与失败文案**共用**这一个来源。本轮是否看到 node 可执行文件；false = npm 无从判定，必须报「未知」而不是「缺失」。
 #[derive(Clone)]
 pub struct NpmFact {
     pub node_seen: bool,
@@ -130,7 +126,6 @@ impl Snapshot {
     }
 }
 
-/// 依赖探测的复用窗口。取值口径：远小于「装完 Node 后引导页收敛」的可接受延迟，又远大于 400ms 轮询间隔；安装完成处另有显式 `invalidate_all()`，不靠窗口到期。
 const DEPENDENT_TTL: Duration = Duration::from_secs(10);
 
 struct Cached {
@@ -150,13 +145,11 @@ fn invalidate() {
     }
 }
 
-/// 作废**全部**环境事实缓存（node 候选 + 依赖维度）。node 安装/升级完成处调用。必须一起作废：只失效一半会出现「新 Node + 旧 npm 结论」这种自相矛盾的快照，而它恰好出现在刚装完 Node 的那一刻 —— 引导页最需要正确结论的时候。
 pub fn invalidate_all() {
     crate::nodeprobe::invalidate();
     invalidate();
 }
 
-/// 是否复用上一轮依赖结论。**纯判据**：换 node 必须重探，过期必须重探。抽成纯函数：这条判据只能靠真实探测（含子进程 + 系统时钟）验证的话，测试就是在猜时序 —— 而它恰恰是「刚装完新 Node 却沿用旧 npm 结论」这类自相矛盾快照的唯一防线。
 fn reusable(cached_node: &Option<PathBuf>, node: &Option<PathBuf>, age: Duration) -> bool {
     cached_node == node && age < DEPENDENT_TTL
 }
@@ -232,7 +225,6 @@ fn probe_npm(node: Option<&Path>) -> (Record, NpmFact) {
     }
 }
 
-/// npm registry 可达性：只读镜像**预热缓存**，故本维度零网络 I/O。单独成一条记录：内核安装要连 npm 源，而镜像片段与环境探测结论分属两套文字时排障对不上号。
 fn registry_record() -> Record {
     let t0 = Instant::now();
     match crate::mirror::cached() {
@@ -257,7 +249,6 @@ fn registry_record() -> Record {
     }
 }
 
-/// npm 全局前缀的可写性 —— 内核安装真正落盘的那一步。EACCES/只读前缀会让 `npm install -g` 在跑了十几分钟之后才失败，而面板当时只剩一个退出码；一条 `prefix` 记录就能说清根因。
 fn probe_prefix(npm: &NpmFact) -> Record {
     let t0 = Instant::now();
     let ms = || t0.elapsed().as_millis();
@@ -274,7 +265,7 @@ fn probe_prefix(npm: &NpmFact) -> Record {
         Err(why) => return Record::new(Probe::Prefix, "npm prefix -g", String::new(), ms(), Some(false), why),
         Ok(line) => PathBuf::from(line.trim()),
     };
-    // 先做盘符判定**再**碰这个目录：网络盘/UNC 上的 `exists()` 本身就可能是无界阻塞调用，那正是本仓反复消除的一类故障 —— 不能为了诊断卡死而引入新的卡死点。
+    
     if !crate::env::is_local_fixed_dir(&dir) {
         return Record::pending(
             Probe::Prefix,
