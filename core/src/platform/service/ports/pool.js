@@ -48,9 +48,9 @@ class PortRegistry {
   }
 
   reload() {
-    // 审计 P0-2：reload 由只读端点 /ports 周期性调用，原为副作用地清零 _allocLock
-    // （分配器临界区锁），会破坏并发 claimSlot 的原子性（alloc.js 靠 _allocLock 做同步 test-and-set）。
-    // 改为只重新载入磁盘记录、保留内存锁；记录重载与并发登记互不干扰（register/release 都已 _save 落盘）。
+    
+    
+    
     this._records = new Map();
     this._load();
   }
