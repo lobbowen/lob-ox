@@ -2,7 +2,6 @@
 
 const { spawn } = require('node:child_process');
 
-// detached:true 固定（kill(-pid) 依赖进程组语义，不得因隐藏窗口丢失），stdio 默认 ignore，覆盖只动 stdio。
 function detached(cmd, args, opts) {
   const o = opts || {};
   return spawn(cmd, args, Object.assign({}, o, {
