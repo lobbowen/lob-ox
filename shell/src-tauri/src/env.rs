@@ -1,10 +1,7 @@
-//! 本文件的子进程一律先经 `bounded::prepare`（CREATE_NO_WINDOW 的唯一封装点）；release 下壳是 GUI 子系统，不带该标志时每次探测都会弹控制台窗口。复用 prepare 而非 `bounded::run`，以保留 spawn 后轮询 try_wait 的非阻塞行为。
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-/// Node 版本探测的时间上限：Windows 的 `WindowsApps\node.exe` 是 Store 应用执行别名存根，执行会挂起 —— 必须有界。
 const NODE_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 const NODE_PROBE_TOTAL_BUDGET: Duration = Duration::from_secs(20);
@@ -13,7 +10,6 @@ pub fn node_exe() -> &'static str {
     crate::platform::current().node_exe_name()
 }
 
-/// Windows 必须过滤两类伪可执行：`\WindowsApps\` 下的 Store 执行别名存根（执行会挂起）、0 字节文件。
 pub fn is_usable_candidate(cand: &Path) -> bool {
     crate::platform::current().is_usable_executable(cand)
 }
@@ -54,7 +50,6 @@ pub fn recorded_node_path() -> Option<PathBuf> {
     if is_usable_candidate(&cand) { Some(cand) } else { None }
 }
 
-/// 超时/失败一律返回 None（视为不可用），绝不阻塞调用方 —— 这是「引导页不会因某个坏的可执行文件而永久卡住」的根本保证。
 pub fn node_version(node: &Path) -> Option<String> {
     use std::process::Stdio;
     let mut cmd = Command::new(node);
@@ -97,15 +92,6 @@ pub fn probe_system_node() -> Option<(PathBuf, String)> {
     crate::nodeprobe::resolve(NODE_PROBE_TOTAL_BUDGET)
 }
 
-/// 全局工具链安装根（**用户级、零权限、跨产品共享**）。
-///
-/// 决策：产品不再把 Node/DSH 私有化到状态根 —— 私有化导致「装完了谁也看不见」：
-/// 运行时只能靠自造 PATH 找到自己装的东西，于是两个产品各装一份、彼此不通，
-/// DSH 装在其中一家，另一家就永远报「未安装」。
-/// 现改为用户级全局落点（与 pip --user / npm 用户 prefix 同源）：
-///   - Windows：%APPDATA%\\lobox\bin（npm 的 %APPDATA%\npm 语义相近，但独立子目录便于卸载）
-///   - 其它：<home>/.local/bin
-/// 前提：机器级目录（Program Files / /usr/local）在无管理员时不可写（实测 EPERM），故只取用户级。
 pub const GLOBAL_BIN_DIRNAME: &str = "bin";
 pub const GLOBAL_APP_DIRNAME: &str = "lobox";
 
@@ -120,22 +106,13 @@ pub fn global_install_root() -> PathBuf {
     if cfg!(windows) { base.join(GLOBAL_APP_DIRNAME).join(GLOBAL_BIN_DIRNAME) } else { base.join(GLOBAL_BIN_DIRNAME) }
 }
 
-/// 用户级 Node 安装根（**零权限**）：<状态根>/node。
-/// 兼容：老布局的状态根下若已装过 Node，继续复用（避免把既有用户硬搬到新目录）。
 pub fn node_install_root() -> PathBuf {
     state_root().join("node")
 }
 
-/// Node 落点：**一律取用户级全局根**（产品决策：不做私有化）。
-///
-/// 此前写成"老布局已装则复用" —— 那会让全局化对既有用户永远不生效，
-/// Node 依旧私有在状态根里，只有本产品自己看得见。这与产品定位冲突
-/// （本产品就是替用户解决环境问题，装完必须真全局可用）。
-/// 老布局的迁移由 state_reconcile::reconcile_node_layout 负责（移动 + 同步契约）。
 pub fn node_install_target() -> PathBuf {
     global_install_root()
 }
-
 
 pub fn known_install_node_path() -> Option<PathBuf> {
     let p = crate::platform::current().node_bin_after_install();
@@ -146,10 +123,8 @@ pub fn known_install_node_path() -> Option<PathBuf> {
     }
 }
 
-/// 产品状态根 schema（与内核 src/platform/state-root.js 的 SCHEMA 握手）。
 pub const STATE_ROOT_SCHEMA: u32 = 1;
 
-/// 必须独立于 DSH 的 ~/.dsh：本产品**管控** DSH，放在被管控对象的 ~/.dsh 下会被 DSH 的卸载/清理/迁移一并带走（config/state/ports/logs）。
 pub fn state_root() -> PathBuf {
     if let Ok(v) = std::env::var(crate::brand::ENV_STATE_ROOT) {
         if !v.trim().is_empty() {
@@ -167,7 +142,6 @@ pub fn shell_dir() -> PathBuf {
     state_root().join(crate::brand::STATE_SHELL_SUBDIR)
 }
 
-/// 前向自愈迁移：把旧位置（DSH 数据目录下）的条目并入产品状态根，不覆盖已存在文件；壳启动早期调用一次，失败不阻断，迁移完成后为 no-op。
 pub fn migrate_legacy() {
     let home = home();
     let root = state_root();
@@ -198,14 +172,12 @@ pub fn migrate_legacy() {
     }
 }
 
-/// 一律真 JSON 解析，禁止字符串扫描 —— 空白格式微调即会让扫描失效（apiPort/closeAction 等字段都从这里取）。
 fn config_json() -> Option<serde_json::Value> {
     std::fs::read_to_string(supervisor_dir().join("config.json"))
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
 }
 
-/// 守卫本地 API 基址：**与就绪判据同一个端口源**（优先 ports.json 的实际登记，其次 config.json 的 apiPort，最后落回默认常量）—— 守卫因占用顺延过端口时必然失配，导航侧不许留着第二套答案。
 pub const DEPRECATED_API_PORTS: &[u16] = &[36360];
 
 pub fn is_deprecated_api_port(port: u16) -> bool {
@@ -221,22 +193,20 @@ pub fn api_base_url() -> String {
             .map(|n| n as u16)
     };
     let port = discovered_api_port().or_else(from_config).unwrap_or(default_port);
-    // 弃用端口迁移：36360 由老产品 dsh-supervisor 的守卫长期占用，
-    // 新产品若沿用会命中「守卫在服役 · 跳过启动」⇒ 自己的守卫永不起来。
-    // 仅改 DEFAULT_API_PORT 对**已有 config.json** 无效（配置优先于常量），
-    // 故对已落盘的旧端口必须显式迁移，否则存量用户升级后依旧撞端口。
+    
+    
+    
+    
     let port = if is_deprecated_api_port(port) { default_port } else { port };
     format!("http://127.0.0.1:{}/", port)
 }
 
-/// 判定只认真 JSON 布尔 true（字符串 `"true"` 不算）：防手改配置少读一位，把稳定版机器悄悄变成灰度机；字段读取一律经本函数。
 pub fn config_flag(key: &str) -> bool {
     config_json()
         .and_then(|v| v.get(key).and_then(|x| x.as_bool()))
         .unwrap_or(false)
 }
 
-/// 关闭窗口时的行为（读守卫 config.closeAction；'exit'=退出管家全关，其余含缺失/解析失败=隐藏至托盘）。
 pub fn close_action() -> String {
     config_json()
         .and_then(|v| v.get("closeAction").and_then(|x| x.as_str()).map(|s| s.to_string()))
@@ -255,7 +225,6 @@ pub fn api_port() -> u16 {
         .unwrap_or(DEFAULT_API_PORT)
 }
 
-/// 内核持久化的**实际** API 端口：内核在 EADDRINUSE 时会顺延端口并持久化，只认 config.json 的期望值会让壳永远等一个没人监听的端口；同 role 有多条时取 `createdAt` 最新的一条（登记表以端口号为键）。
 pub fn discovered_api_port() -> Option<u16> {
     let s = std::fs::read_to_string(supervisor_dir().join("ports.json")).ok()?;
     let v: serde_json::Value = serde_json::from_str(&s).ok()?;
@@ -266,9 +235,9 @@ pub fn discovered_api_port() -> Option<u16> {
             .filter(|r| r.get("role").and_then(|x| x.as_str()) == Some("supervisor-api"))
             .max_by_key(|r| r.get("createdAt").and_then(|x| x.as_u64()).unwrap_or(0)),
     )?;
-        // 弃用端口同样不得采信：ports.json 里那条可能是**老产品**写的
-        // （实证：36360 由 dsh-supervisor 的守卫登记并常驻）。照单全收会让壳
-        // 用 36360 判「在服役」、却用 37360 导航（api_base_url 已迁移）⇒ 两个端口不一致 ⇒ 面板拒绝连接。
+        
+        
+        
     if is_deprecated_api_port(port) {
         return None;
     }
@@ -284,19 +253,14 @@ pub fn current_api_port() -> u16 {
     discovered_api_port().unwrap_or_else(api_port)
 }
 
-/// 把全局 bin 目录**登记进用户级 PATH**（Q1 决策：装完必须能被看见）。
-///
-/// 存在理由：此前全仓 0 处写 PATH —— 装到哪都行，但终端/其它产品**永远找不到**，
-/// 于是只能靠运行时自造 PATH 找到自己装的东西（这正是"私有化"的实质）。
-/// 语义：只写**用户级**环境变量（HKCU\\Environment / shell profile），不动机器级，零权限。
 pub fn ensure_global_bin_on_path() -> Result<String, String> {
     let dir = global_install_root();
     if !dir.is_dir() {
         return Ok("全局目录尚不存在，跳过 PATH 登记".to_string());
     }
     let d = dir.to_string_lossy().to_string();
-    // 平台分支必须走**编译期** #[cfg]：若用运行时 cfg!()，非目标平台的分支函数不会被编译，
-    // 在 Linux/macOS 上直接 E0425（找不到函数）—— CI 四平台编译会全红。
+    
+    
     #[cfg(windows)]
     { return windows_path_add(&d); }
     #[cfg(not(windows))]
@@ -350,14 +314,13 @@ pub fn home() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("/tmp"))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    /// 弃用端口必须被迁移：老产品守卫常驻 36360，若沿用 ⇒ 新产品守卫永不起来。
-    /// 且仅改 DEFAULT_API_PORT 对已有 config.json 无效（配置优先），故必须显式迁移。
+    
+    
     #[test]
     fn a4_deprecated_ports_are_migrated() {
         for p in DEPRECATED_API_PORTS {
@@ -374,12 +337,12 @@ mod tests {
         assert!(!is_deprecated_api_port(37361), "A-4 FAIL 正常端口被误判为弃用");
     }
 
-    /// 改全局 `HOME`/`USERPROFILE` 的用例**必须共用这一把模块级锁**。
-    ///
-    /// 实证：a3/a5 各自在函数内声明 static 锁 ⇒ 各锁各的，等于没锁；
-    ///   并行时「改 HOME 的用例」与「读真实状态根的用例」（含 state_reconcile 的 s1/s2）互相踩，
-    ///   CI 上表现为偶发红（darwin-x64 实测：a5 FAILED，122 passed / 1 failed）。
-    ///   与 state_reconcile::tests::STAMP_LOCK 是同一类问题：全局环境不是线程局部的。
+    
+    
+    
+    
+    
+    
     static HOME_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn home_env_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -387,8 +350,8 @@ mod tests {
     }
 
     #[test]
-    /// 弃用端口不得从 ports.json 被采信：那条记录可能是老产品写的（实证：36360 常驻）。
-    /// 若照单全收 ⇒ 用旧端口判"在服役"、用新端口导航 ⇒ 面板拒绝连接。
+    
+    
     #[test]
     fn a5_discovered_port_ignores_deprecated() {
         let _g = home_env_lock();
@@ -399,7 +362,7 @@ mod tests {
         let saved_ur = std::env::var_os("USERPROFILE");
         std::env::set_var("HOME", &dir);
         std::env::set_var("USERPROFILE", &dir);
-        // 写入一条登记弃用端口的 ports.json（模拟老产品留下的记录）
+        
         let ports = serde_json::json!({
             "records": [{ "port": 36360u16, "role": "supervisor-api", "createdAt": 1u64 }]
         });
@@ -409,7 +372,7 @@ mod tests {
         )
         .unwrap();
         let got = discovered_api_port();
-        // 还原环境
+        
         match &saved {
             Some(v) => std::env::set_var("HOME", v),
             None => std::env::remove_var("HOME"),
@@ -426,10 +389,10 @@ mod tests {
     }
 
     fn a3_default_port_constant_value_and_url_derivation() {
-        // 端口常量冻结：改端口须同步改此处，并同步 core/src/platform/service/config.js#apiPort（两处单源）。
-        // 37360 而非 36360：老产品 dsh-supervisor 的守卫常驻 36360，新产品原会命中「守卫在服役·跳过启动」。
+        
+        
         assert_eq!(DEFAULT_API_PORT, 3736 * 10, "A-3 FAIL 默认端口常量值被改动");
-        // 与 a5 共用模块级锁（各用各的锁等于没锁，见 HOME_ENV_LOCK 的说明）。
+        
         let _g = home_env_lock();
         let saved = std::env::var_os("HOME");
         let dir = std::env::temp_dir().join(format!("dsh-a3-home-{}", std::process::id()));
