@@ -1,4 +1,3 @@
-// 必须**最后加载**：它依赖前面所有模块已挂到 NS 上。
 (function (NS) {
   NS.$('btnUpdRetry').addEventListener('click', function () {
     NS.hideUpdChoice();
@@ -58,7 +57,7 @@
       if (p.status) NS.status(p.status);
     });
   }
-    // 安装/下载事件的唯一消费入口：node / npm / kernel / shell 同一形态，一律转交 NS.install.*。这里不拼下载/安装文案，也**不自行判定进度**：条只认事件里的 progress 字段（后端 download_line 由真实字节算出），null 表示本步没有分母。
+    
   if (NS.evt) {
     NS.evt.listen('install_progress', function (e) {
       var p = e.payload || {};
