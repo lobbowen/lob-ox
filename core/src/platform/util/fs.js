@@ -27,7 +27,6 @@ function dirSizeBytes(root) {
   return total;
 }
 
-// 原子写：唯一落盘路径。tmp 名含 pid+毫秒防并发写者互踩；mode 只对新建文件生效，rename 后再 chmod 收口。
 function writeAtomic(file, data, opts) {
   const mode = (opts && typeof opts.mode === 'number') ? opts.mode : 0o600;
   const fp = path.resolve(file);
@@ -36,23 +35,22 @@ function writeAtomic(file, data, opts) {
   try {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(tmp, data, { mode });
-    // chmod 失败不构成写入失败（Windows 忽略 POSIX mode），但必须留痕——静默会让权限问题无法诊断。
+    
     try { fs.chmodSync(tmp, mode); } catch (e) { chmodWarn(file, e); }
     fs.renameSync(tmp, fp);
     try { fs.chmodSync(fp, mode); } catch (e) { chmodWarn(file, e); }
     return fp;
   } catch (e) {
-    // 失败清理：必须 **unlink** 而非 truncate —— 后者会永久留下 0 字节 tmp 文件（P0 清理项）。
+    
     try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch {  }
     throw e;
   }
 }
 
-// 权限收口失败的统一记录口（不抛出：chmod 失败不影响数据已落盘这一事实）。
 function chmodWarn(file, e) {
   try {
     console.warn('[fs] chmod 收口失败（数据已落盘，权限可能不符预期）: ' + file + ' — ' + ((e && e.message) || e));
-  } catch { /* 记录失败也不得影响主流程 */ }
+  } catch {  }
 }
 
 function removeTreeDeferred(dir, ms) {
@@ -62,7 +60,6 @@ function removeTreeDeferred(dir, ms) {
   return t;
 }
 
-// 私有临时目录 0700：mode 显式给出，避免继承 umask 后同机他用户可读登录态。
 function allocTempDir(prefix) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix || 'dsh-'));
   try { fs.chmodSync(dir, 0o700); } catch {  }
