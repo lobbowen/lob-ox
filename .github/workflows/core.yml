@@ -98,13 +98,6 @@ jobs:
         with:
           node-version: '24'
 
-      - name: 安装 Xvfb（图形会话前置条件 · 仅 Linux）
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb
-
       - name: 内核发布产线（verify + build:launcher + 子包 dry-run · 不带发布令牌）
         shell: bash
         run: bash release/scripts/ci-core.sh
