@@ -17,7 +17,6 @@ function isSafeHttpUrl(url) {
   } catch { return false; }
 }
 
-// darwin open / linux xdg-open 是文档化调度器（退出码=是否接收）；win32 无可信交付命令（cmd /c start 的活性字符违反「argv 永不裹 shell」），只能直启浏览器本体。
 function openCommand(platform, url) {
   const pl = platform || process.platform;
   if (pl === 'darwin') return { cmd: 'open', args: [url] };
@@ -291,7 +290,7 @@ async function openBrowser(url, o) {
   evidence.exitCode = seen.code === undefined ? null : seen.code;
   evidence.exitSignal = seen.signal === undefined ? null : seen.signal;
   if (seen.stage === 'error') return out({ ok: false, reason: 'spawn-failed', url, evidence });
-  // 退出码只在「确定拥有自己的窗口」时是证据：判红与判绿必须同一条 &&，不可信形态两个方向都不成立。
+  
   const exitDecides = seen.stage === 'exit' && plan.exitIsEvidence === true;
   if (exitDecides && (seen.code !== 0 || seen.signal)) {
     return out({
