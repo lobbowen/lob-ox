@@ -7,7 +7,6 @@ const ex = require('../../util/exec');
 const { writeAtomic } = require('../../util/fs');
 const BRAND = require('../../../shared/brand');
 
-// .desktop 定义里的名字全部从跨语言单源派生：手写名字 = 改名漏一处 ⇒ 登录自启指向不存在的可执行文件。
 const GUI_AUTOSTART_TEMPLATE = [
   '[Desktop Entry]',
   'Type=Application',
