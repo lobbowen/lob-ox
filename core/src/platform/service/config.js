@@ -25,12 +25,12 @@ function normalizeExtension(ext) {
 }
 
 const BASE_DEFAULTS = {
-  // 守卫监控节拍（进程存活只由 child 的 exit/close 事件与平台 pidlookup 判定，见 app/main/*）。
+  
   tickIntervalMs: 5000,
-  // 启动窗口（秒）：spawn 后 startsecs 内退出 ⇒ 记一次「启动失败」；活过 startsecs 后退出 ⇒ 正常重启，不计失败。
+  
   startsecs: 10,
-  // 唯一一条限流：startupFailWindowMs 内「启动失败」达 startupFailBurst 次 ⇒ phase=FAILED，停止自动重启，等人工重试。
-  // 不变量：startupFailWindowMs > startupFailBurst × startsecs×1000（60s > 5×10s）；同一规则按域参数化，实例域见 domains/instance/state-machine.js。
+  
+  
   startupFailWindowMs: 60000,
   startupFailBurst: 5,
   stopGraceMs: 10000,
@@ -60,7 +60,7 @@ const BASE_DEFAULTS = {
   initialCheckDelayMs: 20000,
   upgradeTimeoutMs: 600000,
   installCommandTemplate: ['npm', 'install', '-g', '{pkg}@{version}'],
-  // apiAccessKey：非回环须带 Authorization: Bearer <key> 或 ?access_key=<key>，回环豁免；不配置则 LAN 受 RFC1918 约束、FRP 仍强制 remoteToken。
+  
   apiAccessKey: null,
   closeAction: 'hide',
   externalBrowser: null,
@@ -87,10 +87,7 @@ function buildDefaults(ext) {
 
 const DEFAULTS = buildDefaults(null);
 
-// 已弃用的**落盘值**：在线更新只换二进制，状态根不动 ⇒ 旧版写入的值会一直生效。
-// 实证：apiPort=36360 跨三个版本从未更新（老产品守卫常驻该端口 ⇒ 新产品守卫永不起来）。
-// 故 normalize 必须**用默认值覆盖弃用值**，而不是无脑信任落盘值 —— 否则默认值改了也对存量用户无效。
-// 与壳侧同源：现在两侧都从 shared-constants.json 取（不再是"两份常量 + 门禁对账"，而是单一来源）。
+
 const DEPRECATED_API_PORTS = SHARED.net.deprecatedApiPorts.slice();
 
 function isDeprecatedApiPort(v) {
@@ -102,9 +99,9 @@ function normalize(raw, ext) {
   const extension = normalizeExtension(ext);
   const provided = raw || {};
   const cfg = Object.assign(buildDefaults(extension), provided);
-  // 弃用值覆盖：落盘值已弃用 ⇒ 退回默认值。
-  // 判据只看 provided（落盘值）—— assign 之后 cfg.apiPort 已被落盘值覆盖，
-  // 再拿 cfg 判"默认值是否弃用"恒为假（这正是本条修掉的自反写法）。
+  
+  
+  
   if (isDeprecatedApiPort(provided.apiPort)) {
     cfg.apiPort = BASE_DEFAULTS.apiPort;
     cfg.__deprecatedOverridden = (cfg.__deprecatedOverridden || []).concat(['apiPort']);
@@ -114,7 +111,7 @@ function normalize(raw, ext) {
   cfg.supervisorLogFile = expandHome(cfg.supervisorLogFile);
   cfg.dshLogFile = expandHome(cfg.dshLogFile);
   cfg.upgradeLogFile = expandHome(cfg.upgradeLogFile);
-  // healthUrl 不再作为健康探测目标：它只用来派生 targetHost/targetPort（面板地址与端口占用判定）。
+  
   let u;
   try {
     u = new URL(cfg.healthUrl);
@@ -128,8 +125,8 @@ function normalize(raw, ext) {
   }
   const cmdPort = extractPortFromCommand(cfg.command);
   if (cmdPort !== null) cfg.targetPort = cmdPort;
-  // 不变量：healthUrl 端口必须等于 targetPort（真实 spawn 端口），否则以 targetPort 校正。
-  // port-rederive 改端口时同步写两者，反证二者本应恒等；此前无人强制 ⇒ 升级可能等错端口。
+  
+  
   if (u.port && Number(u.port) !== cfg.targetPort) { u.port = String(cfg.targetPort); cfg.healthUrl = u.toString(); }
   cfg.tickIntervalMs = Number(cfg.tickIntervalMs) > 0 ? Number(cfg.tickIntervalMs) : 5000;
   cfg.startsecs = Number(cfg.startsecs) > 0 ? Number(cfg.startsecs) : 10;
