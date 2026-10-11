@@ -152,6 +152,7 @@ async fn handle(
             }
             Ok(reply(StatusCode::OK, "ok"))
         }
+        _ => Ok(reply(StatusCode::NOT_FOUND, "not found")),
     }
 }
 
@@ -170,13 +171,9 @@ fn parse_desc(v: &serde_json::Value) -> Option<state_machine::WorkloadDesc> {
         .and_then(|a| a.as_array())
         .map(|arr| arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
         .unwrap_or_default();
-    let restart_window_ms = v.get("restart_window_ms").and_then(|x| x.as_u64()).unwrap_or(60_000);
-    let restart_burst = v.get("restart_burst").and_then(|x| x.as_u64()).unwrap_or(5) as u32;
     Some(state_machine::WorkloadDesc {
         id,
         spawn_cmd,
-        restart_window_ms,
-        restart_burst,
     })
 }
 
