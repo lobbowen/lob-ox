@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Phase { Stopped, Starting, Running, Draining, Failed, Restarting }
+pub enum Phase { Stopped, Installing, Starting, Running, Draining, Failed }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Desired { Running, Stopped }
