@@ -10,6 +10,11 @@ const SUPPORTED_SCHEMA = 1;
 const HOST = '127.0.0.1';
 const TIMEOUT_MS = 1500;
 
+let unavailableHook = null;
+function setUnavailableHook(fn) {
+  unavailableHook = typeof fn === 'function' ? fn : null;
+}
+
 function file() {
   return path.join(stateRoot.supervisorDir(), FILE_NAME);
 }
@@ -41,7 +46,10 @@ function endpoint() {
 
 function post(route, payload) {
   const ep = endpoint();
-  if (!ep) return false;
+  if (!ep) {
+    if (unavailableHook) { try { unavailableHook(route); } catch {} }
+    return false;
+  }
   let body;
   try {
     body = JSON.stringify(payload || {});
@@ -69,6 +77,7 @@ module.exports = {
   SUPPORTED_SCHEMA,
   file,
   endpoint,
+  setUnavailableHook,
   
   register(desc) { return post('/pm/register', desc); },
   setDesired(id, desired) { return post('/pm/set-desired', { id, desired }); },
