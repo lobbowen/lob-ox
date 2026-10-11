@@ -1,3 +1,10 @@
+//! 机箱 loopback 管理端点（Y 模式：底座持有的真相，由内核子进程单向上报）。
+//!
+//! 拓扑：壳（父）经 spawn_daemon 拉起内核（子）；内核无反向 invoke 壳的通道，
+//! 故底座在此暴露 127.0.0.1 的极简 HTTP 端点（端口受 PortAuthority 唯一分配，
+//! 登记为 guard-mgmt），内核经 HTTP POST 上报 register / set-desired / on-phase /
+//! record-exit / request-restart。浏览器策略天然封死跨源；底座持有唯一真相。
+
 use std::convert::Infallible;
 use std::sync::Arc;
 
@@ -21,14 +28,13 @@ pub async fn run(state: Arc<ProcessManager>) {
         }
     };
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
-    
+    // 端口受机箱权威分配：OS 分配后回写（等效 allocate 但避开竞争窗口）。
     if let Ok(mut guard) = state.ports.lock() {
         let _ = guard.register_sole("guard-mgmt", port);
-        
     }
     eprintln!("[mgmt] guard-mgmt 监听 127.0.0.1:{port}");
-    
-    
+    // 端口回灌内核（壳写内核读，单向）：内核 daemon 与 GUI 壳是两个独立进程
+    //   （--run-guard 走 exec 替换，壳进程不再存在），故不能用父传子 env，改走落盘契约。
     export_port(port);
     loop {
         let (stream, _addr) = match listener.accept().await {
@@ -49,6 +55,8 @@ pub async fn run(state: Arc<ProcessManager>) {
     }
 }
 
+/// 把 guard-mgmt 端口回灌给内核（所有权在壳、方向单向：壳写内核读）。
+/// 范式同 `mirror::export_to_kernel`：tmp → rename 原子提交，内核侧读不到就当端点不存在（客户端静默降级）。
 fn export_port(port: u16) {
     let path = crate::env::supervisor_dir().join("guard-mgmt.json");
     let body = match serde_json::to_string_pretty(&serde_json::json!({
@@ -81,13 +89,15 @@ fn export_port(port: u16) {
     }
 }
 
+// 错误类型用 Infallible：内核上报表单是「尽力而为」的控制面，任一环节失败都就地转成 4xx/5xx 响应，
+// 不应让整条连接 panic 或被 serve_connection 要求 Into<Box<dyn Error+'static>>（那会逼出 From 生命周期错误）。
 async fn handle(
     state: Arc<ProcessManager>,
     req: Request<Incoming>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
-    
+    // body 收集失败（连接异常）兜底为空字节，交由后续解析分支返回 400。
     let body = match req.into_body().collect().await {
         Ok(c) => c.to_bytes(),
         Err(_) => Bytes::new(),
@@ -131,7 +141,6 @@ async fn handle(
             if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
                 let code = json.get("code").and_then(|v| v.as_i64()).map(|x| x as i32);
                 let signal = json.get("signal").and_then(|v| v.as_str()).map(|s| s.to_string());
-                let startup_failure = json.get("startup_failure").and_then(|v| v.as_bool()).unwrap_or(false);
                 state.record_exit(
                     id,
                     state_machine::LastWill {
@@ -139,7 +148,6 @@ async fn handle(
                         signal,
                         at: std::time::Instant::now(),
                     },
-                    startup_failure,
                 );
             }
             Ok(reply(StatusCode::OK, "ok"))
@@ -147,13 +155,6 @@ async fn handle(
         ("POST", "/pm/request-restart") => {
             if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
                 state.request_restart(id);
-            }
-            Ok(reply(StatusCode::OK, "ok"))
-        }
-        
-        ("POST", "/pm/reset-backoff") => {
-            if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
-                state.reset_backoff(id);
             }
             Ok(reply(StatusCode::OK, "ok"))
         }
@@ -175,24 +176,20 @@ fn parse_desc(v: &serde_json::Value) -> Option<state_machine::WorkloadDesc> {
         .and_then(|a| a.as_array())
         .map(|arr| arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
         .unwrap_or_default();
-    let restart_window_ms = v.get("restart_window_ms").and_then(|x| x.as_u64()).unwrap_or(60_000);
-    let restart_burst = v.get("restart_burst").and_then(|x| x.as_u64()).unwrap_or(5) as u32;
     Some(state_machine::WorkloadDesc {
         id,
         spawn_cmd,
-        restart_window_ms,
-        restart_burst,
     })
 }
 
 fn parse_phase(s: &str) -> Option<state_machine::Phase> {
     Some(match s {
         "stopped" => state_machine::Phase::Stopped,
-        "installing" => state_machine::Phase::Installing,
         "starting" => state_machine::Phase::Starting,
         "running" => state_machine::Phase::Running,
         "draining" => state_machine::Phase::Draining,
         "failed" => state_machine::Phase::Failed,
+        "restarting" => state_machine::Phase::Restarting,
         _ => return None,
     })
 }

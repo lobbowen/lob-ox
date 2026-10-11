@@ -4,20 +4,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { writeAtomic } = require('../../platform/util/fs');
 const { DESIRED, MANAGED_KINDS, kindMeta, registerKind: registerManagedKind, createEntry, normalizeOwnership } = require('./managed-object');
-const { legacyToEntryPhase } = require('../state/phase');
 
+// 目录相位集合：'backoff' 已随 U-5 统一重启策略删除（全域只有一条：窗口内 N 次失败 ⇒ failed，无阶梯、无等待）。
 const PHASES = ['stopped', 'installing', 'starting', 'running', 'draining', 'failed'];
+// 老状态文件里可能残留已删除的登记相位 ⇒ 读取时归一到新集合（同 app/state/phase.js 的做法），不许读崩。
+const LEGACY_PHASES = { backoff: 'failed', restarting: 'starting' };
+
+const { runHeartbeat } = require('./heartbeat');
+const pmClient = require('../../platform/contract/pm-client');
 
 
-const configDefaults = require('../../platform/service/config');
-
-const RESTART_FALLBACK = { windowMs: 60000, burst: 5 };
-const restartDefaults = () => {
-  const r = configDefaults && configDefaults.restart;
-  if (r && Number.isFinite(r.windowMs) && Number.isFinite(r.burst)) return { windowMs: r.windowMs, burst: r.burst };
-  return RESTART_FALLBACK;
-};
-
+// 相位词汇归一：内核 PHASES 含 installing（壳侧无）、壳侧有 restarting（内核已删）。
+//   不归一，壳侧 parse_phase 会对 installing 返回 None，事件被静默丢弃。
+const PM_PHASE = { installing: 'starting' };
+const pmPhase = (p) => PM_PHASE[p] || p;
 
 class ManagedRegistry {
   constructor(opts) {
@@ -61,8 +61,7 @@ class ManagedRegistry {
       try {
         if (!o || !kindMeta(o.kind)) continue;
         const e = createEntry({ kind: o.kind, id: o.id, name: o.name, desired: o.desired, ownership: o.ownership });
-        const np = legacyToEntryPhase(o.phase);
-        if (PHASES.includes(np)) e.phase = np;
+        if (PHASES.includes(LEGACY_PHASES[o.phase] || o.phase)) e.phase = LEGACY_PHASES[o.phase] || o.phase;
         if (Number.isInteger(o.restartCount) && o.restartCount >= 0) e.restartCount = o.restartCount;
         if (o.startupFailWindowStart === null || typeof o.startupFailWindowStart === 'number') e.startupFailWindowStart = o.startupFailWindowStart;
         if (Number.isInteger(o.startupFailCount) && o.startupFailCount >= 0) e.startupFailCount = o.startupFailCount;
@@ -121,8 +120,8 @@ class ManagedRegistry {
     if (i >= 0) this._objects.splice(i, 1);
   }
 
-  
-  
+  // 自定义 kind 扩展点：零调用但刻意保留（见 managed-object.js 的说明）——
+  // 它是「新增受管对象类型」的唯一入口，删除等于永久关闭扩展能力。
   registerKind(kind, meta) {
     registerManagedKind(kind, meta);
     return this;
@@ -142,8 +141,8 @@ class ManagedRegistry {
     this._syncPortsOwner(e, true);
     this._save();
     this._event('managed_object_registered', { kind: e.kind, id: e.id, name: e.name });
-    const rd = restartDefaults();
-        return e;
+    pmClient.register({ id: e.id, spawn_cmd: [] });
+    return e;
   }
 
   update(id, patch) {
@@ -153,7 +152,8 @@ class ManagedRegistry {
     if (p.desired !== undefined) {
       if (!DESIRED.includes(p.desired)) return { ok: false, error: '非法 desired: ' + p.desired };
       e.desired = p.desired;
-          }
+      pmClient.setDesired(e.id, p.desired);
+    }
     if (p.name !== undefined) e.name = String(p.name || e.id);
     if (p.ownership !== undefined) {
       const old = e.ownership.ports;
@@ -177,7 +177,8 @@ class ManagedRegistry {
     this._drop(e);
     this._save();
     this._event('managed_object_removed', { kind: e.kind, id: e.id });
-        return { ok: true };
+    pmClient.setDesired(e.id, 'stopped');
+    return { ok: true };
   }
 
   _releasePort(port, ownerId) {
@@ -200,7 +201,8 @@ class ManagedRegistry {
   byKind(kind) { return this._objects.filter((o) => o.kind === kind); }
   count() { return this._objects.length; }
 
-  
+  heartbeat(intervalMs) { return runHeartbeat(this, intervalMs); }
+
   applyObservation(id, obs) {
     const e = this.get(id);
     if (!e) return null;
@@ -233,7 +235,8 @@ class ManagedRegistry {
       e.lastTransitionAt = new Date().toISOString();
       this._event('managed_object_phase', { kind: e.kind, id: e.id, phase: p });
       this._save();
-          }
+      pmClient.onPhase(e.id, pmPhase(p));
+    }
     return e;
   }
 }

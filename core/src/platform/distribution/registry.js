@@ -5,35 +5,11 @@ const policies = require('./policies');
 const ref = require('./registry-ref');
 const config = require('./registry-config');
 
-const PROBE_MAX_BODY_BYTES = 8 * 1024 * 1024;
-
 function platformTag() {
   return matrix.npmTag();
 }
 
-async function probeRegistry(state, origin) {
-  const spec = (state.contract && state.contract.ok && state.contract.probe) || null;
-  let tag = null;
-  try {
-    if (matrix.isSupported()) tag = platformTag();
-  } catch { tag = null; }
-  const target = policies.resolveProbe(origin, spec, tag);
-  if (!target.url) {
-    return { ok: false, latencyMs: 0, probe: target.kind, error: target.violation || '镜像基址非法' };
-  }
-  const start = Date.now();
-  const r = await ref.fetchRegistry(target.url, {
-    timeoutMs: target.timeoutMs, expect: 'text', maxBytes: PROBE_MAX_BODY_BYTES,
-  });
-  return { ok: !!r.ok, latencyMs: Date.now() - start, probe: target.kind, error: r.error || null };
-}
 
-async function probeOrigin(state, origin) {
-  const parsed = ref.parseRegistryBase(origin);
-  if (!parsed.ok) return { origin: ref.normalizeBase(origin), ok: false, latencyMs: null, error: parsed.violation };
-  const p = await probeRegistry(state, parsed.base);
-  return { origin: parsed.base, ok: !!p.ok, latencyMs: p.latencyMs, probe: p.probe, error: p.error || null };
-}
 
 function registryOrigins(state) {
   const seen = new Set();
@@ -48,14 +24,6 @@ function registryOrigins(state) {
   return out;
 }
 
-async function probeAllOrigins(state, origins) {
-  const results = await Promise.all(origins.map(async (origin) => {
-    const p = await probeRegistry(state, origin);
-    return { origin, ok: !!p.ok, latencyMs: p.latencyMs, error: p.error || null };
-  }));
-  results.sort((a, b) => (a.ok === b.ok ? a.latencyMs - b.latencyMs : (a.ok ? -1 : 1)));
-  return results;
-}
 
 async function probeOrAdopt(state, origins) {
   const c = state.contract;
@@ -63,7 +31,7 @@ async function probeOrAdopt(state, origins) {
     const adopted = policies.shellProbeResults(origins, c.measurements, Math.floor(Date.now() / 1000));
     if (adopted) return adopted;
   }
-  return probeAllOrigins(state, origins);
+  return (origins || []).map((origin) => ({ origin, ok: false, latencyMs: null, error: 'shell-contract 未提供测速结果（镜像源归壳侧底座）', from: 'no-contract' }));
 }
 
 function orderFor(primary, origins, results) {
@@ -202,9 +170,6 @@ async function setRegistryConfig(state, cfg) {
 
 module.exports = {
   platformTag,
-  probeRegistry,
-  probeOrigin,
-  probeAllOrigins,
   registryOrigins,
   orderFor,
   selectRegistry,
