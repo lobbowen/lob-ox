@@ -19,7 +19,7 @@ function statusSummary(host) {
       desired: host._mDesired(),
       phase: host._mPhase(),
       state: deriveState(host),
-      sessionState: (function () { const p = String(host._mPhase() || '').toUpperCase(); return (p === 'STARTING' || p === 'RUNNING') ? 'running' : 'stopped'; })(),
+      sessionState: (host.session ? host.session.state() : 'running'),
       dataDirProtected: Array.isArray(host._fileProtectStatus)
         ? (host._fileProtectStatus.length > 0 && host._fileProtectStatus.every((r) => r.ok))
         : null,
