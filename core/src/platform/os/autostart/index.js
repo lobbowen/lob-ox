@@ -14,14 +14,7 @@ const isLinux = process.platform === 'linux';
 const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
 
-const CLI_EXE = isWindows ? BRAND.CLI_NAME + '.exe' : BRAND.CLI_NAME;
 const GUI_EXE = isWindows ? BRAND.GUI_BIN_NAME + '.exe' : BRAND.GUI_BIN_NAME;
-
-function daemonCommand() {
-  const hit = resolveExecutable(BRAND.CLI_NAME, { envVar: BRAND.ENV_DAEMON });
-  if (hit) return hit;
-  return path.join(os.homedir(), '.local', 'bin', CLI_EXE);
-}
 
 function guiCommand() {
   const hit = resolveExecutable(BRAND.GUI_BIN_NAME, { envVar: BRAND.ENV_SHELL_EXE });
@@ -58,4 +51,4 @@ function setGuiAutostart(on, platform) {
   return linux.setGuiAutostart(on, DEPS);
 }
 
-module.exports = { status, setAutostart, setGuiAutostart, daemonCommand, guiCommand };
+module.exports = { status, setAutostart, setGuiAutostart, guiCommand };
