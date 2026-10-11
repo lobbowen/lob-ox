@@ -174,6 +174,10 @@ fn main() {
                 let pm = app.state::<std::sync::Arc<crate::process_manager::ProcessManager>>();
                 tauri::async_runtime::spawn(crate::process_manager::mgmt::run(pm.inner().clone()));
             }
+            {
+                let pm = app.state::<std::sync::Arc<crate::process_manager::ProcessManager>>();
+                tauri::async_runtime::spawn(crate::process_manager::supervisor::drive(pm.inner().clone()));
+            }
             env::migrate_legacy();
                         
             let port = || std::env::var("DSH_SUPERVISOR_TRAY_PORT")
