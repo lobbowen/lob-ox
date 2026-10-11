@@ -212,18 +212,3 @@ pub(crate) fn cli_run_guard() -> i32 {
     }
 }
 
-pub(crate) fn cli_watchdog() -> i32 {
-    let port = crate::env::current_api_port();
-    let verdict = crate::domain::guardctl::ready(port, WATCHDOG_PROBE_TIMEOUT);
-    let serving = matches!(verdict, crate::domain::guardctl::Readiness::Ready);
-    crate::update::log(&format!(
-        "[watchdog] 观测: 端口={} 在服役={} 判据={}（只观测，不拉起）",
-        port,
-        serving,
-        verdict.describe()
-    ));
-    
-    0
-}
-
-const WATCHDOG_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);

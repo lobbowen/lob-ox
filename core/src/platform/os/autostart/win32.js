@@ -11,10 +11,8 @@ function hasTask(tn) {
 }
 
 function status() {
-  const guard = hasTask(BRAND.WINDOWS_GUARD_TASK);
   const gui = hasTask(BRAND.WINDOWS_GUI_TASK);
-  const watchdog = hasTask(BRAND.WINDOWS_WATCHDOG_TASK);
-  return { kind: 'schtasks', on: guard || gui || watchdog, gui, watchdog, guard };
+  return { kind: 'schtasks', on: gui, gui };
 }
 
 function setAutostart(on, deps) {

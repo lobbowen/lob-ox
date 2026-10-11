@@ -133,9 +133,6 @@ fn main() {
         std::process::exit(domain::cli::cli_run_guard());
     }
         
-    if std::env::args().any(|a| a == "--watchdog") {
-        std::process::exit(domain::cli::cli_watchdog());
-    }
     
     
     

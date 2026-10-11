@@ -159,9 +159,7 @@ pub const ENV_ESBUILD_VERSION: &str = "DSH_ESBUILD_VERSION";
 pub const ENV_VERSION_LIB: &str = "DSH_VERSION_LIB";
 
 
-pub const WINDOWS_GUARD_TASK: &str = "Lobox";
 
-pub const WINDOWS_WATCHDOG_TASK: &str = "Lobox-Watchdog";
 
 pub const WINDOWS_GUI_TASK: &str = "Lobox-Shell";
 

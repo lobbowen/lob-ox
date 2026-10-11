@@ -6,8 +6,6 @@ use super::{home_dir, Capabilities, LaunchSpec, Platform};
 
 pub const NAME: &str = "windows";
 
-pub const WATCHDOG_ARGS: &[&str] = &["--watchdog"];
-
 fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
