@@ -155,3 +155,47 @@ async fn handle(
     }
 }
 
+
+fn reply(status: StatusCode, msg: &str) -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(status)
+        .body(Full::new(Bytes::from(msg.as_bytes().to_vec())))
+        .unwrap_or_else(|_| Response::new(Full::new(Bytes::from_static(b"err"))))
+}
+
+fn parse_desc(v: &serde_json::Value) -> Option<state_machine::WorkloadDesc> {
+    let id = v.get("id")?.as_str()?.to_string();
+    let spawn_cmd = v
+        .get("spawn_cmd")
+        .and_then(|a| a.as_array())
+        .map(|arr| arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+    let restart_window_ms = v.get("restart_window_ms").and_then(|x| x.as_u64()).unwrap_or(60_000);
+    let restart_burst = v.get("restart_burst").and_then(|x| x.as_u64()).unwrap_or(5) as u32;
+    Some(state_machine::WorkloadDesc {
+        id,
+        spawn_cmd,
+        restart_window_ms,
+        restart_burst,
+    })
+}
+
+fn parse_phase(s: &str) -> Option<state_machine::Phase> {
+    Some(match s {
+        "stopped" => state_machine::Phase::Stopped,
+        "starting" => state_machine::Phase::Starting,
+        "running" => state_machine::Phase::Running,
+        "draining" => state_machine::Phase::Draining,
+        "failed" => state_machine::Phase::Failed,
+        "restarting" => state_machine::Phase::Restarting,
+        _ => return None,
+    })
+}
+
+fn parse_desired(s: &str) -> Option<state_machine::Desired> {
+    Some(match s {
+        "running" => state_machine::Desired::Running,
+        "stopped" => state_machine::Desired::Stopped,
+        _ => return None,
+    })
+}
