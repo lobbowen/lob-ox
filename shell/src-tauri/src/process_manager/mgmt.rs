@@ -25,7 +25,6 @@ pub async fn run(state: Arc<ProcessManager>) {
     if let Ok(mut guard) = state.ports.lock() {
         let _ = guard.register_sole("guard-mgmt", port);
         
-        guard.persist();
     }
     eprintln!("[mgmt] guard-mgmt 监听 127.0.0.1:{port}");
     
