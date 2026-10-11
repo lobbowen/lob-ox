@@ -106,7 +106,6 @@ function composeCore(host, rawConfig, configPath) {
     host._ticking = false;
     host.intents = new IntentLedger();
     host._stopping = false;
-    host._sessionState = 'starting';
     host._crashHalted = false;
     host._shellHalted = false;
     host._upgradeHold = false;

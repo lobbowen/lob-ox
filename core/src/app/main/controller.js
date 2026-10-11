@@ -31,7 +31,7 @@ function depsOf(host) {
       upgradeHoldSince() { return host._upgradeHoldSince; }, writeUpgradeHoldSince(v) { host._upgradeHoldSince = v; },
       manualRestart() { return host.manualRestart; }, writeManualRestart(v) { host.manualRestart = v; },
       writeCrashHalted(v) { host._crashHalted = v; },
-      sessionState() { return host._sessionState; },
+      sessionState() { const p = String(host._mPhase() || '').toUpperCase(); return (p === 'STARTING' || p === 'RUNNING') ? 'running' : 'stopped'; },
       mChild() { return host._mChild(); },
       mAdoptPid() { return host._mAdoptPid(); },
       mObservedOnly() { return host._mObservedOnly(); },
@@ -217,7 +217,7 @@ module.exports = {
       d.logger().error('tick error: ' + ((e && e.stack) || e));
     } finally {
       d.writeTicking(false);
-      if (d.sessionState() === 'starting') d.session().setState('running');
+      if (d.sessionState() === 'running') d.session().setState('running');
       try { d.control().syncDshView(); } catch (e) { d.logger().warn && d.logger().warn('sync: ' + (e && e.message)); }
     }
   }
