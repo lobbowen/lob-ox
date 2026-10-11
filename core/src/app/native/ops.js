@@ -189,7 +189,7 @@ async function uninstall(host) {
     if (exitCode === 0) {
       for (const p of probe.removalTargets(host)) rm(p);
     } else {
-      host.logger.warn && host.logger.warn('npm uninstall exit ' + exitCode + '，保留 manifest 以便重试（数据路径未删）');
+      host.logger.warn && host.logger.warn('npm uninstall exit ' + exitCode + '，未执行清理（保留现场以便重试）');
     }
     const uninstallError = exitCode === 0 ? null
       : (timedOut
