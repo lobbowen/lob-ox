@@ -107,7 +107,7 @@ function installSession(host) {
     crashHalted: () => host._crashHalted,
   });
   host.session = session;
-  host.sessionState = () => session.state();
+  host.sessionState = () => { const p = String(host._mPhase ? host._mPhase() : '' || '').toUpperCase(); return (p === 'STARTING' || p === 'RUNNING') ? 'running' : 'stopped'; };
   host._setSessionState = (s) => { session.setState(s); };
   host._sessionHalting = () => session.halting();
   host._exitIntended = () => !!(host._stopping || session.halting());
