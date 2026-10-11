@@ -173,7 +173,10 @@ function _bindNativeDshCommand(host) {
       const isBare = policies.isBareCommand(cur);
       if (!isBare) return;
       const d = execPath.resolveDsh();
-      if (!d || !d.bin) return;
+      if (!d || !d.bin) {
+        try { host.logger.warn && host.logger.warn('原生 DSH 启动期绑定跳过：未解析到入口（PATH 可能尚未登记）；spawn 期会再次解析'); } catch {}
+        return;
+      }
       host.config.command = d.isJs
         ? [d.runtime || process.execPath, d.bin, ...cmd.slice(2)]
         : [d.bin, ...cmd.slice(2)];

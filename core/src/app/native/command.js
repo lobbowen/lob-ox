@@ -2,9 +2,21 @@
 
 const fs = require('node:fs');
 const dshCli = require('../../platform/contract/dsh-cli');
+const execPath = require('../../platform/os/exec-path');
+const policies = require('../native/policies');
 
+function resolveBareCommand(command) {
+  if (!Array.isArray(command) || command.length === 0) return command;
+  const idx = command.length > 1 ? 1 : 0;
+  const cur = command[idx];
+  if (!policies.isBareCommand(cur)) return command;
+  const d = execPath.resolveDsh();
+  if (!d || !d.bin) return command;
+  const rest = command.slice(idx + 1);
+  return d.isJs ? [d.runtime || process.execPath, d.bin, ...rest] : [d.bin, ...rest];
+}
 function nativeCommand(config, pluginManager) {
-  const command = config.command || [];
+  const command = resolveBareCommand(config.command || []);
   const patchFile = (pluginManager && pluginManager.overlayFile && fs.existsSync(pluginManager.overlayFile))
     ? pluginManager.overlayFile
     : null;
