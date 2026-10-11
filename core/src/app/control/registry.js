@@ -11,6 +11,14 @@ const LEGACY_PHASES = { backoff: 'failed', restarting: 'starting' };
 
 const { runHeartbeat } = require('./heartbeat');
 const pmClient = require('../../platform/contract/pm-client');
+const configDefaults = require('../../platform/service/config');
+
+const RESTART_FALLBACK = { windowMs: 60000, burst: 5 };
+const restartDefaults = () => {
+  const r = configDefaults && configDefaults.restart;
+  if (r && Number.isFinite(r.windowMs) && Number.isFinite(r.burst)) return { windowMs: r.windowMs, burst: r.burst };
+  return RESTART_FALLBACK;
+};
 
 const PM_PHASE = { installing: 'starting' };
 const pmPhase = (p) => PM_PHASE[p] || p;
@@ -137,7 +145,8 @@ class ManagedRegistry {
     this._syncPortsOwner(e, true);
     this._save();
     this._event('managed_object_registered', { kind: e.kind, id: e.id, name: e.name });
-    pmClient.register({ id: e.id, spawn_cmd: [], restart_window_ms: 60000, restart_burst: 5 });
+    const rd = restartDefaults();
+    pmClient.register({ id: e.id, spawn_cmd: [], restart_window_ms: rd.windowMs, restart_burst: rd.burst });
     return e;
   }
 
