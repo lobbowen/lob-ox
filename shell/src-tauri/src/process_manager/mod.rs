@@ -5,7 +5,7 @@
 //! 全部归底座所有，不随内核（常更新模块）变化。内核只持有易变业务编排，
 //! 并以「意图」下发给机箱执行，机箱回灌相位 / 事件。
 //!
-//! 这是结构性收口：此前这些职责分散在内核 BeatScheduler / ManagedRegistry /
+//! 这是结构性收口：此前这些职责分散在内核调度器 / ManagedRegistry /
 //! PortRegistry / guardian 等多处，并与壳监督内核的 watchdog 形成双向监督环。
 //! 本模块成为唯一真相源；内核侧对应实现一律降级为「客户端」，签名不变、零胶水。
 
@@ -46,11 +46,6 @@ impl ProcessManager {
         if let Some(st) = s.get_mut(id) { st.desired = desired; }
     }
 
-    /// 内核主动重启请求（用户意图，非崩溃复活）：转交机箱执行。
-    pub fn request_restart(&self, id: &str) {
-        let mut s = self.states.lock().unwrap();
-        if let Some(st) = s.get_mut(id) { st.pending_restart = true; }
-    }
 
     /// 机箱 → 内核回灌：相位变更事件。
     pub fn on_phase(&self, id: &str, phase: state_machine::Phase) {
