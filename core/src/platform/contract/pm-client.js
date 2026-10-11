@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
 const stateRoot = require('../service/state-root');
+const pidlookup = require('../os/pidlookup');
 
 const FILE_NAME = 'guard-mgmt.json';
 const SUPPORTED_SCHEMA = 1;
@@ -21,7 +22,7 @@ function file() {
 
 function pidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
-  try { process.kill(pid, 0); return true; } catch (e) { return false; }
+  return pidlookup.probeAlive(pid) === 'alive';
 }
 
 function endpoint() {
