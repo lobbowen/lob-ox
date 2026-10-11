@@ -54,9 +54,6 @@ function composeDomains(host) {
       });
       host._syncManagedRegistry();
       if (host.managedObjects && typeof host.managedObjects.registerAdapter === 'function') {
-        host.managedObjects.registerAdapter('router-daemon', { supervise: () => host._daemonSuperviseOnce('router'), tickEvery: 6, derivePhase: true });
-        host.managedObjects.registerAdapter('lan-daemon', { supervise: () => host._daemonSuperviseOnce('lan'), tickEvery: 6, derivePhase: true });
-        host.managedObjects.registerAdapter('dsh', { supervise: () => host._dshSuperviseOnce(), tickEvery: 1 });
         host.managedObjects.registerAdapter('sandbox-instance', { supervise: (entry) => host._sandboxSuperviseOnce(entry), tickEvery: 1 });
       }
       if (host.managedObjects) host.managedObjects.onBeatDone = () => host.instances.governSweep();
@@ -101,8 +98,6 @@ function composeDomains(host) {
       hooks: {
         isDshActive: () => ['STARTING', 'RUNNING'].includes(host._mPhase()),
         desiredRunning: () => host._mDesired() === 'running',
-        stopForUpgrade: () => host._enterUpgradeHoldAsync(),
-        resumeAfterUpgrade: () => host._exitUpgradeHold(true),
         verifyDeadlineMs: () => Math.max(2 * host.config.startsecs * 1000, 120000),
         notify: (t, b) => host.notify(t, b),
       },

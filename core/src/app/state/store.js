@@ -9,7 +9,6 @@ function createStore(deps) {
   const record = g.record;
   const fields = g.fields;
   const mainStore = g.mainStore;
-  const upgradeHold = g.upgradeHold;
   const config = () => (typeof g.getConfig === 'function' ? (g.getConfig() || {}) : {});
   const logger = () => (typeof g.getLogger === 'function' ? g.getLogger() : null);
   const events = () => (typeof g.getEvents === 'function' ? g.getEvents() : null);
@@ -57,7 +56,6 @@ function createStore(deps) {
       if (typeof raw.startupFailCount === 'number') record.fieldOf('startupFailCount', raw.startupFailCount, true);
       if (typeof raw.lastFailure === 'string' || raw.lastFailure === null) record.procFieldOf('lastFailure', raw.lastFailure, true);
       if (typeof raw.lastRestartAt === 'string' || raw.lastRestartAt === null) record.procFieldOf('lastRestartAt', raw.lastRestartAt, true);
-      if (raw.upgradeHold === true) upgradeHold.enter();
       if (raw.shellHalted === true && typeof g.setShellHalted === 'function') g.setShellHalted(true);
     } catch (e) {
       const l = logger();

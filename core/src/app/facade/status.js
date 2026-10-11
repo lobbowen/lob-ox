@@ -34,7 +34,6 @@ function statusSummary(host) {
       startupFailCount: host._mStartupFailCount(),
       lastFailure: host._mLastFailure(),
       lastRestartAt: host._mLastRestartAt(),
-      upgradeHold: host._upgradeHold,
       shellHalted: host._shellHalted === true,
       commandMissing: !!(host._mMissingNotified && host._mMissingNotified()),
       dshTokenCaptured: !!(host.tokenService && host.tokenService.get('main')),

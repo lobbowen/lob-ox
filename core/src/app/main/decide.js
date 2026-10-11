@@ -24,7 +24,6 @@ function depsOf(host) {
     d = {
       state() { return host.state; },
       session() { return host.session; },
-      upgradeHold() { return host._upgradeHold; },
       manualRestart() { return host.manualRestart; },
       crashHalted() { return host._crashHalted; },
       portUp() { return host._lastPortUp === true; },
@@ -61,7 +60,7 @@ module.exports = {
       childPresent: d.mChild() !== null,
       adopted: d.mAdopted() === true,
       observedOnly: d.mObservedOnly() === true,
-      upgradeHold: d.upgradeHold() === true,
+      
       manualRestart: d.manualRestart() === true,
       spawnBlocked: !!(d.mSpawnBlockedUntil() && now < d.mSpawnBlockedUntil()),
       startDeadlinePassed: startDeadlinePassed(startDeadline, now),

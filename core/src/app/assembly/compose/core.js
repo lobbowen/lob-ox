@@ -108,8 +108,6 @@ function composeCore(host, rawConfig, configPath) {
     host._stopping = false;
     host._crashHalted = false;
     host._shellHalted = false;
-    host._upgradeHold = false;
-    host._upgradeHoldSince = null;
     host._timer = null;
     host._beatScheduler = null;
     host._heartbeatBusy = false;
