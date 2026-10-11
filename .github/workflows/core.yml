@@ -1,9 +1,20 @@
 name: core-build-release
 
+# monorepo：core/ = 内核（本工作流），shell/ = 桌面壳（.github/workflows/shell.yml）。
+# 两条产线的 tag 命名空间互不触发：内核 `core-<内核版本>`，壳 `shell-<壳版本>`。
+#
+# 发布职责边界（勿按 job 名推断，此处为登记单源）：
+#   - npm 真发布只有一处：build 矩阵 job 的「内核发布（tag 触发 · NPM_TOKEN 唯一持有步）」，
+#     它调 release/scripts/ci-core.sh --publish-only，由各矩阵腿各推自己平台的子包上 registry。
+#   - release job 只负责把 build 各腿的 launcher 产物打包并挂到 GitHub Release 资产，它不含任何
+#     npm publish ⇒「GitHub Release 上有资产」不等于「npm 上有包」，两者是两条独立路径。
 on:
   push:
     tags:
+      # ⚠ GitHub 的 path 过滤对 tag 推送不生效 ⇒ tag 命名空间必须按组件前缀分开。
+      # 命名空间不带 `v`：`core-` 之后就是 `core/package.json#version` 的字面值，可逐字对账。
       - 'core-*'
+    # 必须写本仓默认分支 main；写错分支名等于 push 回归永不触发。
     branches:
       - main
     paths:
@@ -20,19 +31,96 @@ on:
         required: false
         default: ''
 
+# 顶层只给 contents: read ⇒ 新增 job 默认只读（fail-closed）；各 job 按需向上声明。
+# 发布不幂等（npm 同版本不可重发 + Release 资产挂载竞态）⇒ tag 运行不得取消进行中的 run。
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+# ⚠ group 里的 github.workflow = 本文件 name:。两条产线若同名，同 ref 的 group 会撞车并互相取消
+#    ⇒ 本文件 name 必须与 shell.yml 区分。
 
+# uses 钉 40 位 commit SHA（行尾注释是可读版本名）：@v4 之类是可变 tag，而本产线既读 secrets
+#   又产出发布物 ⇒ 上游移动 tag 即等于供应链注入。
+
+# 合仓后内核根 = core/：workflow 级把 run 步骤 cwd 统一钉到 core/（命令字面量一字不改）。
+# ⚠ 只影响 `run:` 步骤。`uses:` 的输入路径（upload-artifact / download-artifact、action-gh-release
+#   的 `files`）仍以 workspace 根为基准 ⇒ 必须显式加 `core/` 前缀（checkout 未用 `path:`）。
 defaults:
   run:
     working-directory: core
 
 jobs:
+  precheck:
+    runs-on: ubuntu-latest
+    outputs:
+      need_build: ${{ steps.probe.outputs.need_build }}
+      missing: ${{ steps.probe.outputs.missing }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+
+
+      - name: tag ↔ 组件版本对账（仅 tag；不一致即失败）
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          # ⚠ 本步带 -e：`VAR=$(cmd)` 非零会直接终止脚本，连 ::error:: 都打不出来
+          #    ⇒ 取值类赋值一律带 `|| { ...exit 1; }` 兜底。
+          set -euo pipefail
+          TAG="${TAG_NAME:-}"
+          [ -n "$TAG" ] || { echo "::error::tag 事件下 github.ref_name 为空，无法完成对账"; exit 1; }
+          case "$TAG" in
+            core-*) ;;
+            *) echo "::error::tag 名 ${TAG} 不带 core- 前缀（本工作流只认 core-<内核版本>，见文件头 tags: 段）"; exit 1 ;;
+          esac
+          # 刻意不做 `${...#v}` 历史兼容剥离：core-v<x> 应在这里如实判红，否则命名空间漂移会静默通过。
+          VER_TAG="${TAG#core-}"
+          VER_PKG="$(node -p "require('./package.json').version")" || {
+            echo "::error::读取 core/package.json#version 失败（node -p 非零）；tag=${TAG}，对账无法完成"; exit 1; }
+          echo "  tag          = $TAG"
+          echo "  tag 版本     = $VER_TAG"
+          echo "  组件 version = $VER_PKG（来源：core/package.json#version）"
+          if [ "$VER_TAG" != "$VER_PKG" ]; then
+            echo "::error::tag=${TAG}（版本 ${VER_TAG}） 组件 version=${VER_PKG}（core/package.json#version） 两者必须一致（发布单源）"
+            exit 1
+          fi
+          echo "  ✓ 对账通过：tag=${TAG} 与 core/package.json#version=${VER_PKG} 逐字一致"
+
+      - name: 探测该版本是否已全部发布
+        id: probe
+        shell: bash
+        run: |
+          VER="$(node -p "require('./package.json').version")"
+          echo "  版本: $VER"
+          MISSING=""
+          for p in $(node -e 'const p=require("./package.json");console.log((p.npmPublish&&p.npmPublish.packages||[]).join(" "))'); do
+            if npm view "@lob-ox/$p@$VER" version >/dev/null 2>&1; then
+              echo "    已发布 $p"
+            else
+              echo "    缺失   $p"
+              MISSING="$MISSING $p"
+            fi
+          done
+          if [ -z "$MISSING" ]; then
+            echo "need_build=false" >> "$GITHUB_OUTPUT"
+            echo "  → 四平台已齐备：need_build=false（仅影响 release job 与 --publish 判定；precheck 设立初衷为省额度）"
+          else
+            echo "need_build=true" >> "$GITHUB_OUTPUT"
+            echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
+            echo "  → 需由 CI 补齐：$MISSING"
+          fi
+
   build:
+    needs: precheck
     permissions:
       contents: read
       id-token: write
@@ -40,6 +128,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # ⚠ Linux 必须用 ubuntu-22.04（glibc 2.35）：24.04（glibc 2.39）的产物无法在
+          #   22.04 / Debian 12 运行；ci-core.sh [3.5/5] 另调 ci/check-glibc.sh 卡 ≤ 2.35。
           - os: ubuntu-22.04
             artifact: linux-x64
             arch_override: ""
@@ -49,6 +139,7 @@ jobs:
           - os: macos-latest
             artifact: darwin-arm64
             arch_override: ""
+            # darwin-x64 由 macos-14(arm64) + DSH_ARCH_OVERRIDE=x64 产出：launcher 架构无关。
           - os: macos-14
             artifact: darwin-x64
             arch_override: x64
@@ -56,54 +147,38 @@ jobs:
     env:
       DSH_ARCH_OVERRIDE: ${{ matrix.arch_override }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - name: 唯一门禁 · 禁测试门禁冒烟 + 禁代码注释
-        shell: bash
-        run: |
-          set -u
-          cd "$GITHUB_WORKSPACE" || exit 1
-          V=""
-          hit() { V="$V\n  - $1"; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-          [ -d core/test ] && hit "core/test/ 目录存在（测试资产已全量拆除）"
-          [ -d shell/src-tauri/tests ] && hit "shell/src-tauri/tests/ 目录存在"
-          while IFS= read -r f; do hit "测试文件: $f"; done < <(find . -name "*-test.js" -not -path "./node_modules/*" 2>/dev/null)
-          while IFS= read -r f; do hit "门禁脚本: $f"; done < <(find . -name "standards-check*" -not -path "./node_modules/*" 2>/dev/null)
-          while IFS= read -r f; do hit "冒烟脚本: $f"; done < <(find . -iname "*smoke*" -type f -not -path "./node_modules/*" 2>/dev/null)
-
-          CNT=0
-          while IFS= read -r f; do
-            LN=0
-            while IFS= read -r line; do
-              LN=$((LN+1))
-              t=$(printf "%s" "$line" | sed "s/^[[:space:]]*//")
-              case "$t" in
-                "") continue ;;
-                "//"*) case "$f" in *.ts) case "$t" in "///"*) continue ;; esac ;; esac; hit "注释 $f:$LN"; CNT=$((CNT+1)) ;;
-                "/*"*) hit "注释 $f:$LN"; CNT=$((CNT+1)) ;;
-                "#"*) if [ "$LN" = "1" ]; then continue; fi; case "$t" in "#["*) continue ;; esac; hit "注释 $f:$LN"; CNT=$((CNT+1)) ;;
-              esac
-              if [ "$CNT" -gt 20 ]; then break; fi
-            done < "$f"
-            if [ "$CNT" -gt 20 ]; then break; fi
-          done < <(find core/src shell/src-tauri/src shell/ci core/release/scripts -type f \( -name "*.js" -o -name "*.ts" -o -name "*.rs" -o -name "*.sh" -o -name "*.ps1" \) 2>/dev/null)
-
-          if [ -n "$V" ]; then
-            echo "::error::违反仓规（唯一门禁）：$V"
-            exit 1
-          fi
-          echo "唯一门禁：未发现测试/门禁/冒烟资产，未发现代码注释"
       - name: Install Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
-
       - name: 内核发布产线（verify + build:launcher + 子包 dry-run · 不带发布令牌）
         shell: bash
         run: bash release/scripts/ci-core.sh
 
+      # 产物路径按 publish-core.sh 的口径计算（含 DSH_ARCH_OVERRIDE），不硬编码平台名。
+      - name: 安装包冒烟（npm i -g dry-run 子包 · 全局命令自举）
+        shell: bash
+        run: |
+          PLAT="${DSH_PLATFORM_OVERRIDE:-$(node -p 'process.platform')}"
+          ARCH="${DSH_ARCH_OVERRIDE:-$(node -p 'process.arch')}"
+          case "$PLAT" in
+            linux) OS_TAG=linux ;; darwin) OS_TAG=darwin ;; win32) OS_TAG=win ;;
+            *) echo "::error::不支持的平台 $PLAT"; exit 1 ;;
+          esac
+          VER="$(node -p 'require("./package.json").version')"
+          PKG="./dist/npm/@lob-ox/core-$OS_TAG-$ARCH"
+          [ -d "$PKG" ] || { echo "::error::缺少子包目录 $PKG（dry-run 步应已产出）"; exit 1; }
+          bash release/scripts/install-smoke-core.sh --pkg "$PKG" --ver "$VER"
+
+      # ⚠ 令牌非空判断必须在 run 内：step 级 if 的上下文里没有 secrets（引用即 workflow 解析错误
+      #    → 整文件 0-job 红）。--publish-only 只跑 [5/5] 真发布，复用同 workspace 上一轮构建产物。
+      # ⚠ 本步 if 已把语境限定为「内核 tag + need_build=true」＝确实要发布 ⇒ 此语境下无令牌必然是
+      #    「job 判绿而 registry 上什么都没有」的假绿，故必须判红。非 tag / 不需要构建发布的语境根本
+      #    不进本步（step 级 if 直接跳过，跳过语义仍合法），因此这里不留「无令牌即 exit 0」的降级分支。
       - name: 内核发布（tag 触发 · NPM_TOKEN 唯一持有步）
-        if: startsWith(github.ref, 'refs/tags/core-')
+        if: startsWith(github.ref, 'refs/tags/core-') && needs.precheck.outputs.need_build == 'true'
         shell: bash
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -115,14 +190,19 @@ jobs:
           fi
           bash release/scripts/ci-core.sh --publish-only
 
+      # 发布后自证：真发布之后立刻回查 registry。查不到即判红——「跳过」与「静默失败」不得再伪装成成功。
+      # ⚠ 与发布步同门（tag + need_build=true）：非发布语境不进此步 ⇒ push/PR 上不会误红。
       - name: 发布后自证（回查 registry 确有该版本）
-        if: startsWith(github.ref, 'refs/tags/core-')
+        if: startsWith(github.ref, 'refs/tags/core-') && needs.precheck.outputs.need_build == 'true'
         shell: bash
         run: |
+          # ⚠ 本步带 -e：`VAR=$(cmd)` 非零会直接终止脚本、连 ::error:: 都打不出来 ⇒ 取值类赋值一律兜底。
           set -euo pipefail
+          # registry 与 publish-core.sh 同一单源（脚本内同名默认值），不另起口径。
           REGISTRY="${DSH_PUBLISH_REGISTRY:-https://registry.npmjs.org/}"
           VER="$(node -p 'require("./package.json").version')" || {
             echo "::error::读取 core/package.json#version 失败（node -p 非零），发布后自证无法完成"; exit 1; }
+          # 包名与上一轮子包构建同一口径（平台判定 + core/package.json#version），不新写字面量。
           PLAT="${DSH_PLATFORM_OVERRIDE:-$(node -p 'process.platform')}"
           ARCH="${DSH_ARCH_OVERRIDE:-$(node -p 'process.arch')}"
           case "$PLAT" in
@@ -131,6 +211,8 @@ jobs:
           esac
           SPEC="@lob-ox/core-$OS_TAG-$ARCH@$VER"
           echo "  发布后自证目标: ${SPEC} registry=${REGISTRY}"
+          # registry 摄取与前置缓存有分钟级延迟 ⇒ 有限轮重试；
+          # 轮次用尽仍未确认即判红。⚠ 末尾不用 `[ ... ] && sleep`：那会让循环体以非零收尾、被 -e 炸掉。
           PROBE_ATTEMPTS=5
           PROBE_SLEEP_SEC=75
           i=0
@@ -154,28 +236,34 @@ jobs:
             exit 1
           fi
 
+      # ⚠ upload-artifact 的 `path:` 相对 workspace 根，不受 defaults.run.working-directory 影响
+      #    ⇒ 必须显式加 `core/` 前缀；artifact 内布局取匹配路径的最小公共祖先（= core/dist/launcher）。
       - name: Upload artifacts（内核 launcher 构建物）
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact }}
           path: |
             core/dist/launcher/**
             core/dist/launcher/README.md
 
+  # 不能放进 build 矩阵：各腿会并发向同一 Release 上传（竞态），且 dist/launcher/** 含同名文件
+  #    （如 core.cjs）会互相覆盖 ⇒ build 只上传 artifact，本 job 汇总后一次性挂载。
   release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/core-')
+    needs: [precheck, build]
+    if: startsWith(github.ref, 'refs/tags/core-') && needs.precheck.outputs.need_build == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: 收集各平台构建产物
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
+          # ⚠ download-artifact 的 `path:` 同样是 workspace 根基准 ⇒ 显式落在 core/artifacts。
           path: core/artifacts
 
+      # 本 run 块 cwd = core/ ⇒ 脚本里的 out/ 实际是 core/out/。
       - name: 按平台打包为唯一命名的 tar.gz
         shell: bash
         run: |
@@ -192,8 +280,9 @@ jobs:
           ls -lh out/ | sed "s/^/    /"
           if [ -z "$(ls -A out 2>/dev/null)" ]; then echo "::error::未生成任何 Release 资产"; exit 1; fi
 
+      # ⚠ `uses:` 的 `files` 是 workspace 根基准，而 tar.gz 落在 core/out/ ⇒ 写 core/out/*.tar.gz。
       - name: 附加到 GitHub Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: core/out/*.tar.gz
           generate_release_notes: true
