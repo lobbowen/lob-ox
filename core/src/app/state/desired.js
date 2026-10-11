@@ -20,11 +20,11 @@ function createDesired(deps) {
   function setDesired(v) {
     if (v !== 'running' && v !== 'stopped') return { error: 'invalid desired' };
     if (v === 'running') { const it = intents(); if (it) it.register('start'); setCrashHalted(false); }
-    if (v === 'running' && fields.phase() === 'OBSERVED') {
+    if (v === 'running' && fields.observedOnly() && fields.accessors.adoptedPid.get() !== null) {
       fields.setObservedOnly(false);
       fields.setPhase('STOPPED');
     }
-    if (v === 'stopped' && fields.phase() === 'OBSERVED' && fields.observedOnly()) {
+    if (v === 'stopped' && fields.observedOnly() && fields.accessors.adoptedPid.get() !== null) {
       stopProcess('desired_stopped');
     }
     if (fields.desired() !== v) {

@@ -87,8 +87,8 @@ module.exports = {
         if (managedAlive) {
           d.main().stopProcess('desired_stopped');
         } else if (adoptedAlive && d.mObservedOnly()) {
-          if (d.state().phase() !== 'OBSERVED') {
-            d.state().setPhase('OBSERVED');
+          d.state().setObservedOnly(true);
+          if (d.state().phase() !== 'STOPPED') {
             d.state().write();
           }
         } else if (portUp) {

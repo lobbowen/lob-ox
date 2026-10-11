@@ -15,10 +15,7 @@ function createFields(deps) {
 
   function phase() {
     const e = record.storeOf();
-    const p = e.process || null;
-    const upper = entryToLegacyPhase(e.phase || 'stopped');
-    if (upper === 'STOPPED' && p && p.observedOnly && p.adopted) return 'OBSERVED';
-    return upper;
+    return entryToLegacyPhase(e.phase || 'stopped');
   }
 
   function setPhase(upper) {
