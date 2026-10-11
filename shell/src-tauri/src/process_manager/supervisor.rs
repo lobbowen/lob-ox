@@ -25,7 +25,7 @@ fn mark(st: &mut state_machine::WorkloadState, p: state_machine::Phase) {
     st.last_transition = std::time::Instant::now();
 }
 
-fn tick(state: &ProcessManager) {
+fn tick(state: &Arc<ProcessManager>) {
     let mut due: Vec<String> = Vec::new();
     {
         let mut s = match state.states.lock() {
@@ -50,11 +50,11 @@ fn tick(state: &ProcessManager) {
         }
     }
     for id in due {
-        spawn_supervised(&id, state);
+        spawn_supervised(id, Arc::clone(state));
     }
 }
 
-fn spawn_supervised(id: &str, state: &ProcessManager) {
+fn spawn_supervised(id: String, state: Arc<ProcessManager>) {
     let spec = match crate::domain::guardctl::resolve_local(None)
         .and_then(|(rt, guard)| crate::platform::LaunchSpec::from_runtime(&rt, guard).ok())
     {
@@ -62,22 +62,24 @@ fn spawn_supervised(id: &str, state: &ProcessManager) {
         None => {
             crate::update::log(&format!("[supervisor] {} 拉起失败：无法解析 node/内核守卫", id));
             if let Ok(mut s) = state.states.lock() {
-                if let Some(st) = s.get_mut(id) {
+                if let Some(st) = s.get_mut(&id) {
                     mark(st, state_machine::Phase::Failed);
                 }
             }
             return;
         }
     };
-    let id_owned = id.to_string();
-    let state_owned = Arc::new(ProcessManager::snapshot_handles(state));
     tokio::task::spawn_blocking(move || {
         let r = crate::platform::exec_guard(&spec);
         match r {
-            Ok(()) => crate::update::log(&format!("[supervisor] {} 守卫子进程正常退出", id_owned)),
-            Err(e) => crate::update::log(&format!("[supervisor] {} 守卫子进程异常: {}", id_owned, e)),
+            Ok(()) => crate::update::log(&format!("[supervisor] {} 守卫子进程正常退出", id)),
+            Err(e) => crate::update::log(&format!("[supervisor] {} 守卫子进程异常: {}", id, e)),
         }
-        let _ = state_owned;
+        if let Ok(mut s) = state.states.lock() {
+            if let Some(st) = s.get_mut(&id) {
+                mark(st, state_machine::Phase::Stopped);
+            }
+        }
     });
 }
 
