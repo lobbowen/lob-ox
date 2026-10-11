@@ -542,7 +542,7 @@ pub fn pm_status(app: tauri::AppHandle) -> serde_json::Value {
         .collect();
     serde_json::json!({
         "workloads": workloads,
-        "ports": ports.to_json(),
+        "shellPorts": ports.to_json(),
     })
 }
 
