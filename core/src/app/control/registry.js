@@ -4,10 +4,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { writeAtomic } = require('../../platform/util/fs');
 const { DESIRED, MANAGED_KINDS, kindMeta, registerKind: registerManagedKind, createEntry, normalizeOwnership } = require('./managed-object');
+const { legacyToEntryPhase } = require('../state/phase');
 
 const PHASES = ['stopped', 'installing', 'starting', 'running', 'draining', 'failed'];
 
-const LEGACY_PHASES = { backoff: 'failed', restarting: 'starting' };
 
 const { runHeartbeat } = require('./heartbeat');
 const pmClient = require('../../platform/contract/pm-client');
@@ -20,8 +20,6 @@ const restartDefaults = () => {
   return RESTART_FALLBACK;
 };
 
-const PM_PHASE = { installing: 'starting' };
-const pmPhase = (p) => PM_PHASE[p] || p;
 
 class ManagedRegistry {
   constructor(opts) {
@@ -65,7 +63,8 @@ class ManagedRegistry {
       try {
         if (!o || !kindMeta(o.kind)) continue;
         const e = createEntry({ kind: o.kind, id: o.id, name: o.name, desired: o.desired, ownership: o.ownership });
-        if (PHASES.includes(LEGACY_PHASES[o.phase] || o.phase)) e.phase = LEGACY_PHASES[o.phase] || o.phase;
+        const np = legacyToEntryPhase(o.phase);
+        if (PHASES.includes(np)) e.phase = np;
         if (Number.isInteger(o.restartCount) && o.restartCount >= 0) e.restartCount = o.restartCount;
         if (o.startupFailWindowStart === null || typeof o.startupFailWindowStart === 'number') e.startupFailWindowStart = o.startupFailWindowStart;
         if (Number.isInteger(o.startupFailCount) && o.startupFailCount >= 0) e.startupFailCount = o.startupFailCount;
@@ -240,7 +239,7 @@ class ManagedRegistry {
       e.lastTransitionAt = new Date().toISOString();
       this._event('managed_object_phase', { kind: e.kind, id: e.id, phase: p });
       this._save();
-      pmClient.onPhase(e.id, pmPhase(p));
+      pmClient.onPhase(e.id, p);
     }
     return e;
   }
