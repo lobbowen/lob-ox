@@ -33,6 +33,7 @@ const BASE_DEFAULTS = {
   
   startupFailWindowMs: 60000,
   startupFailBurst: 5,
+  restart: { windowMs: 60000, burst: 5, baseDelayMs: 2000, maxDelayMs: 60000 },
   stopGraceMs: 10000,
   portReleaseWaitMs: 10000,
   apiHost: '127.0.0.1',
