@@ -12,8 +12,8 @@ pub(crate) fn go_panel(app: &tauri::AppHandle, force: bool) {
             let (url, serving) = crate::domain::guardctl::panel_view();
             if serving {
                 let _ = h.emit("shell:goto-panel", serde_json::json!({ "url": url, "seq": i, "force": force }));
-            } else if i + 1 == PANEL_PUSH_DELAYS.len() {
-                let _ = h.emit("shell:goto-bootstrap", serde_json::json!({}));
+            } else {
+                let _ = h.emit("shell:goto-panel", serde_json::json!({ "url": url, "seq": i, "force": force }));
             }
         });
     }
