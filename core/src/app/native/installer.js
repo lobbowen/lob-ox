@@ -58,7 +58,6 @@ class NativeManager {
   checkUpdate() { return ops.checkUpdate(this); }
   checkEnvironment() { return npm.checkEnvironment(this); }
   
-  _saveManifest(m) { return manifest.save(this, m); }
   _runNpm(opts) { return npm.runNpm(this, opts); }
   _latestVersion() { return npm.latestVersion(this); }
   _selectRegistry() { return npm.selectRegistry(this); }
