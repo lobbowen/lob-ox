@@ -152,3 +152,6 @@ async fn handle(
             }
             Ok(reply(StatusCode::OK, "ok"))
         }
+    }
+}
+
