@@ -15,6 +15,11 @@ const ENV_FORM_STARTUP_DELAY_MS = 3000;
 
 function _bootstrap(host) {
     try {
+      require('../../platform/contract/pm-client').setUnavailableHook((route) => {
+        try { host.events.append('pm_endpoint_unavailable', { route }); } catch {}
+      });
+    } catch {}
+    try {
       host.events.append('guard_started', {
         pid: process.pid,
         version: host.guardVersion,
