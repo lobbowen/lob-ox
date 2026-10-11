@@ -332,46 +332,43 @@ fn regex_meta() -> [char; 14] {
     ['.', '\\', '+', '?', '[', ']', '^', '$', '(', ')', '{', '}', '|', '/']
 }
 
-#[cfg(unix)]
 pub fn exec_guard(spec: &LaunchSpec) -> Result<(), String> {
-    use std::os::unix::process::CommandExt;
-    let mut cmd = std::process::Command::new(&spec.node);
-    cmd.arg(&spec.guard)
-        .arg("daemon")
-        .env("PATH", &spec.env_path)
-        .env("DSH_SUPERVISOR_HOME", &spec.state_root);
-    guard_stdio(&mut cmd);
-    Err(format!("exec 守卫失败: {}", cmd.exec()))
-}
-
-#[cfg(windows)]
-pub fn exec_guard(spec: &LaunchSpec) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    let is_shim = spec
-        .guard
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| {
-            let e = e.to_ascii_lowercase();
-            e == "cmd" || e == "bat"
-        })
-        .unwrap_or(false);
-    let mut cmd = if is_shim {
-        let mut c = std::process::Command::new("cmd");
-        c.arg("/C").arg(&spec.guard).arg("daemon");
+    #[cfg(windows)]
+    let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        let is_shim = spec
+            .guard
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| {
+                let e = e.to_ascii_lowercase();
+                e == "cmd" || e == "bat"
+            })
+            .unwrap_or(false);
+        let mut c = if is_shim {
+            let mut c = std::process::Command::new("cmd");
+            c.arg("/C").arg(&spec.guard).arg("daemon");
+            c
+        } else {
+            let mut c = std::process::Command::new(&spec.node);
+            c.arg(&spec.guard).arg("daemon");
+            c
+        };
+        c.creation_flags(0x0000_0008 | 0x0800_0000);
         c
-    } else {
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
         let mut c = std::process::Command::new(&spec.node);
         c.arg(&spec.guard).arg("daemon");
         c
     };
     cmd.env("PATH", &spec.env_path)
         .env("DSH_SUPERVISOR_HOME", &spec.state_root);
-        
     guard_stdio(&mut cmd);
-    cmd.creation_flags(0x0000_0008 | 0x0800_0000);
-    cmd.spawn().map_err(|e| format!("启动守卫失败: {}", e))?;
-    Ok(())
+    let mut child = cmd.spawn().map_err(|e| format!("启动守卫失败: {}", e))?;
+    let st = child.wait().map_err(|e| format!("等待守卫退出失败: {}", e))?;
+    if st.success() { Ok(()) } else { Err(format!("守卫退出码: {:?}", st.code())) }
 }
 
 pub trait Platform: Send + Sync {
