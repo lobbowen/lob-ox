@@ -176,7 +176,6 @@ fn main() {
             }
             {
                 let pm = app.state::<std::sync::Arc<crate::process_manager::ProcessManager>>();
-                tauri::async_runtime::spawn(crate::process_manager::supervisor::drive(pm.inner().clone()));
             }
             env::migrate_legacy();
                         

@@ -556,7 +556,6 @@ pub fn pm_status(app: tauri::AppHandle) -> serde_json::Value {
                 "id": id,
                 "phase": format!("{:?}", st.phase),
                 "desired": format!("{:?}", st.desired),
-                "restart_backoff": format!("{:?}", st.restart_backoff),
                 "last_will": st.last_will.as_ref().map(|w| serde_json::json!({"code": w.code, "signal": w.signal})),
             })
         })
