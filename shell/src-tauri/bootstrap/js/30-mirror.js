@@ -13,7 +13,7 @@
         NS.warmMirror = m;
         if (!NS.lastMirror) NS.lastMirror = { mirror: m.nodeBest, latencyMs: m.nodeLatencyMs, probes: m.npmProbes };
         clearInterval(NS.warmTimer); NS.warmTimer = null;
-        var host = String(m.nodeBest || '').replace(/^https?:\/\
+        var host = String(m.nodeBest || '').replace(/^https?:\/\//, '').split('/')[0];
         if (host) NS.status('镜像已就绪：' + host + '（' + m.nodeLatencyMs + 'ms）');
       }).catch(function () {});
     }, 600);
@@ -21,11 +21,11 @@
 
   function mirrorText() {
     if (NS.warmMirror && NS.warmMirror.npmBest) {
-      var h = String(NS.warmMirror.npmBest).replace(/^https?:\/\
+      var h = String(NS.warmMirror.npmBest).replace(/^https?:\/\//, '').split('/')[0];
       return h + '（' + NS.warmMirror.npmLatencyMs + 'ms）';
     }
     if (NS.lastMirror && NS.lastMirror.mirror) {
-      return String(NS.lastMirror.mirror).replace(/^https?:\/\
+      return String(NS.lastMirror.mirror).replace(/^https?:\/\//, '').split('/')[0];
     }
     return null;
   }
@@ -35,7 +35,7 @@
     return NS.withTimeout(NS.core.invoke('node_latest'), 45000, '镜像测速超时').then(function (m) {
       if (m && !m.__timeout && !m.__error && m.ok) {
         NS.lastMirror = m;
-        var host = String(m.mirror || '').replace(/^https?:\/\
+        var host = String(m.mirror || '').replace(/^https?:\/\//, '').split('/')[0];
         NS.status('镜像已选：' + host + '（' + m.latencyMs + 'ms）· 目标 Node ' + m.version);
       } else {
         NS.lastMirror = m || null;
@@ -58,7 +58,7 @@
       NS.$('mirrorNpm').value = (r.npm || []).join(', ');
       var lines = [];
       (r.nodeProbes || []).forEach(function (p) {
-        lines.push('Node ' + p.source.replace(/^https?:\/\
+        lines.push('Node ' + p.source.replace(/^https?:\/\//, '') + ' ' + (p.ok ? p.latencyMs + 'ms' : '不可达'));
       });
       var okNode = (r.nodeProbes || []).filter(function (p) { return p.ok; }).length;
       var okNpm = (r.npmProbes || []).filter(function (p) { return p.ok; }).length;
