@@ -119,7 +119,6 @@ module.exports = {
       if (d.mChild() !== child) return;
       d.events().append(BRAND.EVENT_HARNESS_EXITED, { code, signal, phase: d.state().phase() });
       
-      pmClient.recordExit('main', code, signal, d.state().phase() === 'STARTING');
       d.mSetChild(null);
       if (d.stopping()) return;
       if (d.state().desired() !== 'running') return;
