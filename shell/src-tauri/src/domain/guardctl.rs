@@ -217,24 +217,16 @@ pub(crate) fn ensure_guard(app: &tauri::AppHandle) -> Result<(), LaunchError> {
     })?;
 
     step("正在校验内核与线上版本对齐…");
-    let (guard, version) = match resolve_aligned(app) {
-        AlignOutcome::Aligned { bin, version } => (bin, version),
-        AlignOutcome::ResolveFailed(e) => {
-            return Err(LaunchError::new("ALIGN_RESOLVE_FAILED", format!("内核版本对齐失败（线上不可达）：{}", e)));
-        }
-        AlignOutcome::NotAligned { latest, searched } => {
-            let l = latest.unwrap_or_else(|| "?".into());
+    let (guard, version) = match resolve_local_kernel(app) {
+        Ok(v) => v,
+        Err(e) => {
             return Err(LaunchError::new(
-                "KERNEL_NOT_ALIGNED",
-                format!(
-                    "磁盘内核与线上最新（v{}）不一致，已拒绝启动旧内核；请先安装/更新内核。已搜索：{}",
-                    l,
-                    if searched.is_empty() { "（无候选）".into() } else { searched.join("、") }
-                ),
+                "KERNEL_MISSING",
+                format!("未找到已安装的内核（请先在引导页完成内核安装/更新）：{}", e),
             ));
         }
     };
-    step(&format!("内核已对齐 v{}", version));
+    step(&format!("内核已定位 v{}", version));
     let spec = crate::platform::LaunchSpec::from_runtime(&rt, guard)
         .map_err(|e| LaunchError::new("LAUNCH_SPEC_FAILED", e))?;
     ensure_started(&spec, &step)
