@@ -148,6 +148,33 @@ impl ServiceLaunch {
     }
 }
 
+/// 内核进程登记表项：把「内核」作为最高优先级负载收进机箱进程表。
+/// 这是进程所有权归壳的体现 —— 表里没有内核，自愈就无从谈起。
+fn core_desc() -> crate::process_manager::state_machine::WorkloadDesc {
+    crate::process_manager::state_machine::WorkloadDesc {
+        id: "core".to_string(),
+        spawn_cmd: Vec::new(),
+        priority: crate::process_manager::state_machine::Priority::Core,
+    }
+}
+
+/// 内核已在服役（壳未持有其句柄，例如 exec 替换或已存在实例）：登记为 running，pid 未知。
+fn register_core(app: &tauri::AppHandle) {
+    if let Some(pm) = app.try_state::<std::sync::Arc<crate::process_manager::ProcessManager>>() {
+        pm.register_workload(core_desc());
+        pm.on_phase("core", crate::process_manager::state_machine::Phase::Running);
+        pm.set_desired("core", crate::process_manager::state_machine::Desired::Running);
+    }
+}
+
+/// 壳自持路径：壳 spawn 出内核进程，把 pid 一并登记（进程所有权归壳）。
+fn register_core_spawned(app: &tauri::AppHandle, pid: u32) {
+    if let Some(pm) = app.try_state::<std::sync::Arc<crate::process_manager::ProcessManager>>() {
+        pm.adopt_spawned(core_desc(), pid);
+        pm.set_desired("core", crate::process_manager::state_machine::Desired::Running);
+    }
+}
+
 pub(crate) fn ensure_guard(app: &tauri::AppHandle) -> Result<(), LaunchError> {
     let port = crate::env::current_api_port();
     let step = |s: &str| {
@@ -170,6 +197,7 @@ pub(crate) fn ensure_guard(app: &tauri::AppHandle) -> Result<(), LaunchError> {
                     Err(e) => crate::update::log(&format!("守卫已在运行，但启动规格组装失败: {}", e)),
                 }
             }
+            register_core(app);
             return Ok(());
         }
                 // 唯一的例外：进程活着但服务链已拆（走过 /session/stop）。由所有者先把它停干净，再落回下面的正常启动序列 —— 监控通道刚被 stop() 摘掉，没有第二条恢复路径。
@@ -221,8 +249,9 @@ pub(crate) fn ensure_started(
     let launch = ServiceLaunch::define_and_start(spec, step);
 
     if launch.start_requested() {
-        step("等待守卫就绪（服务管理器路径）…");
+        step("等待守卫就绪…");
         if await_ready(SERVICE_READY_BUDGET) == Readiness::Ready {
+            register_core(app);
             return Ok(());
         }
     }
@@ -238,6 +267,7 @@ pub(crate) fn ensure_started(
             crate::update::log(&format!("兜底 spawn 守卫 pid={}", pid));
             let (verdict, exited) = await_daemon(DAEMON_READY_BUDGET, &mut child);
             if verdict == Readiness::Ready {
+                register_core_spawned(app, pid);
                 return Ok(());
             }
             Err(LaunchError::new(

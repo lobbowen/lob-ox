@@ -174,7 +174,19 @@ fn parse_desc(v: &serde_json::Value) -> Option<state_machine::WorkloadDesc> {
     Some(state_machine::WorkloadDesc {
         id,
         spawn_cmd,
+        priority: parse_priority(v.get("priority").and_then(|x| x.as_str())),
     })
+}
+
+/// 内核自报时未带 priority 的，一律按最低优先级入表（内核自己报的对象都不是存活前提）。
+fn parse_priority(s: Option<&str>) -> state_machine::Priority {
+    match s {
+        Some("core") => state_machine::Priority::Core,
+        Some("router") => state_machine::Priority::Router,
+        Some("lan") => state_machine::Priority::Lan,
+        Some("sandbox") => state_machine::Priority::Sandbox,
+        _ => state_machine::Priority::Plugin,
+    }
 }
 
 fn parse_phase(s: &str) -> Option<state_machine::Phase> {
