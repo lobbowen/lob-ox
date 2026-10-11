@@ -174,6 +174,34 @@ fn register_core_spawned(app: &tauri::AppHandle, pid: u32) {
     }
 }
 
+/// 启动路径的内核定位（不触网）：版本校对已前移到引导页的 stepCorePlan，
+/// 启动只负责把「本地已装内核」定位出来并拉起 —— 联网比对版本属业务判定，壳不在此越界。
+fn resolve_local_kernel(
+    app: &tauri::AppHandle,
+) -> Result<(std::path::PathBuf, String), String> {
+    let resource_dir = app.path().resource_dir().ok();
+    if let Some(c) = crate::core_contract::read() {
+        let bin = crate::domain::coreloc::normalize_guard(c.bin, None);
+        if bin.is_file() {
+            return Ok((bin, c.version));
+        }
+    }
+    let guard = crate::domain::coreloc::pick_highest(
+        crate::domain::coreloc::locate_core_candidates(resource_dir),
+    )
+    .ok_or_else(|| "本地未找到任何已安装内核".to_string())?;
+    let version = crate::core::installed_version(&guard)
+        .unwrap_or_else(|| "unknown".to_string());
+    let prefix = crate::core::global_prefix_for(&guard);
+    crate::core_contract::write(&crate::core_contract::InstalledCore {
+        bin: guard.clone(),
+        prefix,
+        version: version.clone(),
+        source: "local-adopted".into(),
+    });
+    Ok((guard, version))
+}
+
 pub(crate) fn ensure_guard(app: &tauri::AppHandle) -> Result<(), LaunchError> {
     let port = crate::env::current_api_port();
     let step = |s: &str| {
