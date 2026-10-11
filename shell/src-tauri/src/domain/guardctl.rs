@@ -210,10 +210,11 @@ pub(crate) fn ensure_guard(app: &tauri::AppHandle) -> Result<(), LaunchError> {
     step(&format!("内核已定位 v{}", version));
     let spec = crate::platform::LaunchSpec::from_runtime(&rt, guard)
         .map_err(|e| LaunchError::new("LAUNCH_SPEC_FAILED", e))?;
-    ensure_started(&spec, &step)
+    ensure_started(app, &spec, &step)
 }
 
 pub(crate) fn ensure_started(
+    app: &tauri::AppHandle,
     spec: &crate::platform::LaunchSpec,
     step: &dyn Fn(&str),
 ) -> Result<(), LaunchError> {
