@@ -16,9 +16,6 @@ const LEGACY_TO_ENTRY = {
   RUNNING: 'running',
   STOPPING: 'draining',
   FAILED: 'failed',
-  OBSERVED: 'stopped',
-  RESTARTING: 'starting',
-  BACKOFF: 'failed',
 };
 
 function entryToLegacyPhase(ph) {

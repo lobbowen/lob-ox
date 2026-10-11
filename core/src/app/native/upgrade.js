@@ -66,6 +66,7 @@ async function installTarget(host, oldV, target, origin, task) {
   if (!res.ok) throw new Error(res.error || 'install failed');
   const newV = host.installedVersion();
   if (newV !== target) throw new Error('安装后版本校验失败：期望 ' + target + '，实际 ' + newV);
+  await host._recordManifest(newV || target);
   if (host.events) host.events.append('upgrade_installed', { from: oldV, to: target });
   log(host, '安装完成，磁盘版本 ' + newV);
   if (task) { host.tasks.log(task.id, '安装完成，磁盘版本 ' + newV); doneLastStep(host, task); }
@@ -120,7 +121,7 @@ async function verifyAndFinalize(host, oldV, target, task) {
     return { ok: false, error: msg, state: host.upgradeState };
   }
   const deadline = host.hooks.verifyDeadlineMs ? host.hooks.verifyDeadlineMs() : 120000;
-  const healthy = await host._waitNativeHealthy(port, null, deadline);
+  const healthy = await host._waitNativeHealthy(port, host._mainUnit(), deadline);
   if (healthy.ok) return finishVerified(host, oldV, target, task);
   return rollbackAfterFailedVerify(host, oldV, task, healthy);
 }
@@ -153,10 +154,11 @@ async function rollbackNative(host, oldVersion, task) {
     return { ok: false, error: res.error || 'rollback install failed' };
   }
   tlog('回滚完成，磁盘版本 ' + oldVersion);
+  try { await host._recordManifest(oldVersion); } catch (e2) { tlog('manifest 更新失败: ' + e2.message); }
   if (host.hooks.resumeAfterUpgrade) host.hooks.resumeAfterUpgrade();
   const port = host._targetPort();
   if (port) {
-    const healthy = await host._waitNativeHealthy(port, null, 60000);
+    const healthy = await host._waitNativeHealthy(port, host._mainUnit(), 60000);
     if (healthy.ok) tlog('回滚后实例已恢复运行');
     else tlog('回滚后实例未恢复（' + healthy.reason + '）');
   }
@@ -183,6 +185,7 @@ async function rollbackAfterFailure(host) {
   }
   log(host, '回滚完成。');
   host.rolledBack = true;
+  try { await host._recordManifest(host.oldVersion); } catch (e2) { log(host, 'manifest 更新失败: ' + e2.message); }
   host.upgradeState = 'failed';
   host.upgradeFinishedAt = new Date().toISOString();
   if (host.events) host.events.append('upgrade_failed', { error: host.upgradeError || '升级失败', rolledBack: true, rolledBackTo: host.oldVersion });

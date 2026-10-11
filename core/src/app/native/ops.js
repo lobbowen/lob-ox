@@ -3,7 +3,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const policies = require('./policies');
-const probe = require('./probe');
 
 const PKG_DEFAULT = '@deepseek-ai/dsh';
 
@@ -15,9 +14,8 @@ function status(host) {
   if (host.installing || (activeTask && activeTask.action === 'install' && activeTask.state === 'running')) state = 'installing';
   else if (host.uninstalling || (activeTask && activeTask.action === 'uninstall' && activeTask.state === 'running')) state = 'uninstalling';
   else state = installed ? 'installed' : 'uninstalled';
-  const binExists = bin ? fs.existsSync(bin) : false;
   return {
-    installed: binExists && installed !== null && installed !== '',
+    installed: installed !== null && installed !== '',
     version: installed || null,
     binPath: bin,
     executable: bin ? fs.existsSync(bin) : false,
@@ -97,6 +95,8 @@ async function install(host, version) {
       if (task) host.tasks.fail(task.id, res.error);
       return { ok: false, error: res.error, output: res.output };
     }
+    const isFirstInstall = !host._manifest();
+    await host._recordManifest(target, isFirstInstall ? host._claimDataPaths() : undefined);
     try { if (typeof host._bindNativeDshCommand === 'function') host._bindNativeDshCommand(); }
     catch (e) { host.logger.warn && host.logger.warn('安装后原生绑定失败: ' + (e && e.message)); }
     const ver = host.installedVersion();
@@ -165,8 +165,9 @@ async function uninstall(host) {
       host._appendUpgradeLog('停止运行中的 DeepSeek Harness…');
       if (host.hooks.stopForUpgrade) await host.hooks.stopForUpgrade();
     }
+    const m = host._manifest();
     const removed = [];
-    const safeAncestors = probe.removableRoots(host);
+    const safeAncestors = [host.dshHome, host.npmRoot].filter(Boolean);
     const rm = (p) => {
       if (!p) return;
       
@@ -186,10 +187,15 @@ async function uninstall(host) {
     const res = await host._runNpm({ action: 'uninstall' });
     const exitCode = res.ok === true ? 0 : (Number.isFinite(res.exitCode) ? res.exitCode : -1);
     const timedOut = res.timedOut === true || res.aborted === true;
+    if (exitCode === 0 && m) {
+      if (m.packageDir) rm(m.packageDir);
+      if (m.binPath) rm(m.binPath);
+      for (const p of (m.dataPaths || [])) rm(p);
+    }
     if (exitCode === 0) {
-      for (const p of probe.removalTargets(host)) rm(p);
+      rm(host.manifestFile);
     } else {
-      host.logger.warn && host.logger.warn('npm uninstall exit ' + exitCode + '，未执行清理（保留现场以便重试）');
+      host.logger.warn && host.logger.warn('npm uninstall exit ' + exitCode + '，保留 manifest 以便重试（数据路径未删）');
     }
     const uninstallError = exitCode === 0 ? null
       : (timedOut

@@ -87,8 +87,8 @@ module.exports = {
         if (managedAlive) {
           d.main().stopProcess('desired_stopped');
         } else if (adoptedAlive && d.mObservedOnly()) {
-          if (d.state().phase() !== 'OBSERVED') {
-            d.state().setPhase('OBSERVED');
+          d.state().setObservedOnly(true);
+          if (d.state().phase() !== 'STOPPED') {
             d.state().write();
           }
         } else if (portUp) {
@@ -133,6 +133,17 @@ module.exports = {
           d.main().beginRestart('manual', { manual: true, startupFailure: false });
         } else if (ph === 'STOPPED') {
           d.intents().consume('restart'); d.intents().consume('start');
+        }
+      }
+
+      {
+        const nst = host.nativeManager ? host.nativeManager.status() : null;
+        if (nst && nst.installed === false) {
+          const ph0 = String(d.state().phase() || '').toUpperCase();
+          if (ph0 === 'STARTING' || ph0 === 'RUNNING') {
+            d.events().append('state_corrected', { from: ph0, to: 'STOPPED', reason: 'harness_not_installed' });
+            d.state().setPhase('STOPPED');
+          }
         }
       }
 

@@ -4,6 +4,7 @@ const path = require('node:path');
 const os = require('node:os');
 const policies = require('./policies');
 const probe = require('./probe');
+const manifest = require('./manifest');
 const npm = require('./npm');
 const ops = require('./ops');
 const upgradeOps = require('./upgrade');
@@ -15,8 +16,8 @@ class NativeManager {
     this.events = opts.events || null;
     this.logger = opts.logger || console;
     this.stateDir = opts.stateDir;
+    this.manifestFile = path.join(this.stateDir, 'native-manifest.json');
     this.dshHome = path.join(os.homedir(), '.dsh');
-    this.appHome = path.join(os.homedir(), '.dsh-app');
     this.npmRoot = opts.npmRoot || null;
     this._npmBin = opts.npmBin || null;
     this._npmBinArgs = opts.npmBinArgs || null;
@@ -57,12 +58,19 @@ class NativeManager {
   versionInfo() { return policies.versionInfo(this, probe.installedVersion(this)); }
   checkUpdate() { return ops.checkUpdate(this); }
   checkEnvironment() { return npm.checkEnvironment(this); }
+  _manifest() { return manifest.read(this); }
   
+  _saveManifest(m) { return manifest.save(this, m); }
+  async _recordManifest(version, dataPaths) {
+    return manifest.record(this, version, dataPaths, this.npmRoot || await npm.resolveNpmRoot(this));
+  }
+  _claimDataPaths() { return manifest.claimDataPaths(this); }
   _runNpm(opts) { return npm.runNpm(this, opts); }
   _latestVersion() { return npm.latestVersion(this); }
   _selectRegistry() { return npm.selectRegistry(this); }
   _waitNativeHealthy(port, unit, timeoutMs) { return probe.waitNativeHealthy(this, port, unit, timeoutMs); }
   _targetPort() { return probe.targetPort(this.config); }
+  _mainUnit() { return probe.mainUnit(); }
   busy() { return policies.busy(this); }
   upgradeBrief() { return policies.upgradeBrief(this); }
   upgradeStatus() { return { ...policies.upgradeBrief(this), logTail: this.upgradeLog.slice(-40) }; }

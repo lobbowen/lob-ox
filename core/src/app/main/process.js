@@ -164,7 +164,8 @@ module.exports = {
 
   _adoptObserved() {
     const d = depsOf(this);
-    d.state().setPhase('OBSERVED');
+    d.state().setObservedOnly(true);
+    d.state().setPhase('STOPPED');
     d.mSetAdopted(true);
     d.mSetObservedOnly(true);
     d.mSetChild(null);
