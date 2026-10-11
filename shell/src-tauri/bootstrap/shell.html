@@ -85,7 +85,7 @@
     var reloadPanelWhenReady = function (n) {
       if (!core) return;
       var retry = function () {
-        if (n >= 40) return backToBootstrap();
+        if (n >= 40) return;
         setTimeout(function () { reloadPanelWhenReady(n + 1); }, 500);
       };
       core.invoke('guard_ready').then(function (r) {
@@ -93,7 +93,7 @@
         return core.invoke('shell_panel_url').then(function (p) {
           var u = (p && p.url) || panelUrl;
           if (!u) return;
-          if (p.serving === false) return retry();
+          if (p.serving === false) return;
           panelUrl = u;
           retried = 0;
           var sep = u.indexOf('?') >= 0 ? '&' : '?';
@@ -156,7 +156,7 @@
         if (panelUrl === null) {
           core.invoke('shell_panel_url').then(function (r) {
             if (!r) return;
-            if (r.serving === false) return backToBootstrap();
+            if (r.url) loadPanel(r.url); return;
             if (r.url) loadPanel(r.url);
           }).catch(function () {});
         }
