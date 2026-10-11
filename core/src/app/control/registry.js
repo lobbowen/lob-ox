@@ -9,8 +9,6 @@ const { legacyToEntryPhase } = require('../state/phase');
 const PHASES = ['stopped', 'installing', 'starting', 'running', 'draining', 'failed'];
 
 
-const { runHeartbeat } = require('./heartbeat');
-const pmClient = require('../../platform/contract/pm-client');
 const configDefaults = require('../../platform/service/config');
 
 const RESTART_FALLBACK = { windowMs: 60000, burst: 5 };
@@ -145,8 +143,7 @@ class ManagedRegistry {
     this._save();
     this._event('managed_object_registered', { kind: e.kind, id: e.id, name: e.name });
     const rd = restartDefaults();
-    pmClient.register({ id: e.id, spawn_cmd: [], restart_window_ms: rd.windowMs, restart_burst: rd.burst });
-    return e;
+        return e;
   }
 
   update(id, patch) {
@@ -156,8 +153,7 @@ class ManagedRegistry {
     if (p.desired !== undefined) {
       if (!DESIRED.includes(p.desired)) return { ok: false, error: '非法 desired: ' + p.desired };
       e.desired = p.desired;
-      pmClient.setDesired(e.id, p.desired);
-    }
+          }
     if (p.name !== undefined) e.name = String(p.name || e.id);
     if (p.ownership !== undefined) {
       const old = e.ownership.ports;
@@ -181,8 +177,7 @@ class ManagedRegistry {
     this._drop(e);
     this._save();
     this._event('managed_object_removed', { kind: e.kind, id: e.id });
-    pmClient.setDesired(e.id, 'stopped');
-    return { ok: true };
+        return { ok: true };
   }
 
   _releasePort(port, ownerId) {
@@ -205,8 +200,7 @@ class ManagedRegistry {
   byKind(kind) { return this._objects.filter((o) => o.kind === kind); }
   count() { return this._objects.length; }
 
-  heartbeat(intervalMs) { return runHeartbeat(this, intervalMs); }
-
+  
   applyObservation(id, obs) {
     const e = this.get(id);
     if (!e) return null;
@@ -239,8 +233,7 @@ class ManagedRegistry {
       e.lastTransitionAt = new Date().toISOString();
       this._event('managed_object_phase', { kind: e.kind, id: e.id, phase: p });
       this._save();
-      pmClient.onPhase(e.id, p);
-    }
+          }
     return e;
   }
 }

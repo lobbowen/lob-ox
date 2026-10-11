@@ -5,7 +5,6 @@ const { createMainStore } = require('./main-store');
 const { createFields } = require('./fields');
 const { createStore } = require('./store');
 const { createDesired } = require('./desired');
-const { createUpgradeHold } = require('./upgrade-hold');
 
 function createStateStore(deps) {
   const g = deps || {};
@@ -16,12 +15,8 @@ function createStateStore(deps) {
   const fields = createFields({ record, mainStore, getManagedObjects: g.getManagedObjects, getLogger: logger });
 
   const holder = {};
-  const upgradeHold = createUpgradeHold({
-    fields, getStore: () => holder.store, getConfig: g.getConfig, getIntents: g.getIntents,
-    tick: g.tick, stopProcess: g.stopProcess, setHold: g.setHold, setSince: g.setSince,
-  });
-  const store = createStore({
-    record, fields, mainStore, upgradeHold,
+    const store = createStore({
+    record, fields, mainStore,
     getConfig: g.getConfig, getLogger: logger, getEvents: g.getEvents,
     getInstances: g.getInstances, getViews: g.getViews, getManagedObjects: g.getManagedObjects,
     getShellHalted: g.getShellHalted, setShellHalted: g.setShellHalted,
@@ -49,8 +44,6 @@ function createStateStore(deps) {
     accessors: fields.accessors,
     loadState: store.loadState, migrateMainRecord: store.migrateMainRecord,
     setDesiredPublic: desired.setDesired, requestRestart: desired.requestRestart,
-    enterUpgradeHold: upgradeHold.enter, enterUpgradeHoldAsync: upgradeHold.enterAsync,
-    exitUpgradeHold: upgradeHold.exit,
   };
 }
 

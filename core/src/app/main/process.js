@@ -6,7 +6,6 @@ const { LineBuffer } = require('../../platform/service/log/log');
 const native = require('../../app/native/command');
 const BRAND = require('../../shared/brand');
 const { findManagedDshPort, applyMainPort } = require('./port-rederive');
-const pmClient = require('../../platform/contract/pm-client');
 
 const DEPS = new WeakMap();
 const HELPERS = ['MissingNotified', 'SetMissingNotified', 'SetSpawnBlockedUntil', 'SetChild',
@@ -131,8 +130,7 @@ module.exports = {
         const why = code !== null ? String(code) : 'sig' + signal;
         const inStartup = phase === 'STARTING';
         if (inStartup || d.state().guardian()) {
-          pmClient.requestRestart('main');
-          d.beginRestart('exit:' + why, { startupFailure: inStartup });
+                    d.beginRestart('exit:' + why, { startupFailure: inStartup });
         } else {
           d.writeCrashHalted(true);
           d.events().append('guardian_off_exit', { reason: 'child_exit:' + why + ' 未监控，保持停止' });
@@ -229,7 +227,7 @@ module.exports = {
     d.logger().warn('restart triggered: ' + reason + (startupFailure ? '（启动窗口内退出，计一次启动失败）' : '（正常重启）'));
     d.tokenService().clear('main');
     if (!manual) d.mSetRestartCount(d.mRestartCount() + 1);
-    const throttle = startupFailure ? d.main().noteStartupFailure() : null;
+    const throttle = null;
     if (throttle && throttle.failed) {
       
       d.mSetRestartAt(null);

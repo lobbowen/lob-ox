@@ -27,8 +27,6 @@ function depsOf(host) {
       readLastMainPortRederive() { return host._lastMainPortRederive; },
       writeLastMainPortRederive(v) { host._lastMainPortRederive = v; },
       writeLastPortUp(v) { host._lastPortUp = v; },
-      upgradeHold() { return host._upgradeHold; }, writeUpgradeHold(v) { host._upgradeHold = v; },
-      upgradeHoldSince() { return host._upgradeHoldSince; }, writeUpgradeHoldSince(v) { host._upgradeHoldSince = v; },
       manualRestart() { return host.manualRestart; }, writeManualRestart(v) { host.manualRestart = v; },
       writeCrashHalted(v) { host._crashHalted = v; },
       sessionState() { const p = String(host._mPhase() || '').toUpperCase(); return (p === 'STARTING' || p === 'RUNNING') ? 'running' : 'stopped'; },
@@ -105,23 +103,7 @@ module.exports = {
         return;
       }
 
-      if (d.upgradeHold()) {
-        if (targetAlive) {
-          d.main().stopProcess('upgrade_hold');
-        } else {
-          if (d.state().phase() !== 'STOPPED') d.state().setPhase('STOPPED');
-          const maxHold = (d.config().upgradeTimeoutMs || 600000) + 120000;
-          if (d.upgradeHoldSince() && Date.now() - d.upgradeHoldSince() > maxHold) {
-            d.events().append('upgrade_hold_timeout', {});
-            d.ui().notify('升级流程异常', '升级 hold 超时已自动释放，请检查升级状态');
-            d.writeUpgradeHold(false);
-            d.writeUpgradeHoldSince(null);
-          }
-        }
-        d.state().write();
-        return;
-      }
-
+      
       
       
       const manual = d.manualRestart();
@@ -203,8 +185,7 @@ module.exports = {
           const wantsRetry = manual || startIntent !== undefined || restartIntent !== undefined;
           if (!wantsRetry) break;
           if (d.state().desired() === 'stopped') break;
-          d.main().retryStartupFailure();
-          d.mSetStartDeadline(null);
+                    d.mSetStartDeadline(null);
           d.mSetRestartAt(null);
           if (targetAlive) d.main().beginRestart('manual', { manual: true, startupFailure: false });
           else await d.main().startProcess();

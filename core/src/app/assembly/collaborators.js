@@ -26,7 +26,6 @@ const THIN_SPEC = {
   },
   main: {
     converge: '_dshConverge',
-    noteStartupFailure: '_noteStartupFailure', retryStartupFailure: '_retryStartupFailure',
     startWindowMs: 'startWindowMs',
     adopt: '_adopt', adoptObserved: '_adoptObserved',
     applyPort: '_applyMainPort', beginRestart: '_beginRestart', enterRunning: '_enterRunning',
@@ -73,8 +72,6 @@ function installState(host) {
     getViews: () => host.views, getIntents: () => host.intents,
     getCrashHalted: () => host._crashHalted, setCrashHalted: (v) => { host._crashHalted = v; },
     getManualRestart: () => host.manualRestart, setManualRestart: (v) => { host.manualRestart = v; },
-    getHold: () => host._upgradeHold, setHold: (v) => { host._upgradeHold = v; },
-    getSince: () => host._upgradeHoldSince, setSince: (v) => { host._upgradeHoldSince = v; },
     getShellHalted: () => host._shellHalted, setShellHalted: (v) => { host._shellHalted = v; },
     stopProcess: (why) => host.stopProcess(why), tick: () => host.tick(),
   });
@@ -93,9 +90,6 @@ function installState(host) {
   host.setDesired = (v) => state.setDesiredPublic(v);
   host.requestRestart = () => state.requestRestart();
   host.persistConfigPatch = (patch) => state.persistConfigPatch(patch);
-  host._enterUpgradeHold = () => state.enterUpgradeHold();
-  host._enterUpgradeHoldAsync = () => state.enterUpgradeHoldAsync();
-  host._exitUpgradeHold = (explicit) => state.exitUpgradeHold(explicit);
   installFieldHelpers(host, state);
   for (const name of Object.keys(state.accessors)) Object.defineProperty(host, name, state.accessors[name]);
 }
