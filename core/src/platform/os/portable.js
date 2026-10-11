@@ -25,7 +25,7 @@ function matchesAnchors(pid, anchors) {
   if (!pid || !Array.isArray(anchors) || !anchors.length) return false;
   const cmd = pidlookup.readCmdline(pid);
   if (!cmd) return false;
-  return anchors.some((a) => a && cmd.indexOf(String(a)) !== -1);
+  return anchors.every((a) => a && cmd.indexOf(String(a)) !== -1);
 }
 
 const portOf = (o) => { const p = Number(o && o.port); return Number.isInteger(p) && p > 0 ? p : 0; };
