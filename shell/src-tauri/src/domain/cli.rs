@@ -189,6 +189,20 @@ pub(crate) fn cli_run_guard() -> i32 {
         Ok(s) => s,
         Err(e) => { eprintln!("[run-guard] 启动规格组装失败：{}", e); return 1; }
     };
+    let _supervisor_core = {
+        let pm = std::sync::Arc::new(crate::process_manager::ProcessManager::new());
+        match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(runtime) => {
+                runtime.spawn(crate::process_manager::mgmt::run(pm.clone()));
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                Some(runtime)
+            }
+            Err(e) => {
+                eprintln!("[run-guard] 监督端点运行时创建失败：{}", e);
+                None
+            }
+        }
+    };
     match crate::platform::exec_guard(&spec) {
         Ok(()) => 0,
         Err(e) => {
