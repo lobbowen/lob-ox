@@ -136,7 +136,6 @@ module.exports = {
         }
       }
 
-      // 事实校正：安装事实与相位冲突时强制归位（消除「卸载后相位仍 RUNNING」的陈旧真相）
       {
         const nst = host.nativeManager ? host.nativeManager.status() : null;
         if (nst && nst.installed === false) {
