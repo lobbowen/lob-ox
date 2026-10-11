@@ -363,7 +363,7 @@ async fn core_apply_inner(app: tauri::AppHandle) -> ShellResult<serde_json::Valu
         Err(last)
     }).await.map_err(|e| ShellError::ipc(e.to_string()))?;
     Ok(match res {
-                // 安装成功后：回读**确切位置**并写 core.json —— 位置单一事实源。必须先回读再报成功：否则「装上了却定位不到」（nvm/自定义 prefix）会被静默跳过，后续 guard_start 的对齐门会以 KERNEL_NOT_ALIGNED 拒绝，用户只看到「起不来」。
+                // 安装成功后：回读**确切位置**并写 core.json —— 位置单一事实源。必须先回读再报成功：否则「装上了却定位不到」（nvm/自定义 prefix）会被静默跳过，后续启动定位不到内核，用户只看到「起不来」。
         Ok((origin, out)) => {
             let prefix_used = prefix.clone().or_else(crate::core::npm_global_prefix);
             match crate::domain::coreloc::locate_core_at_version(&app, &target, prefix_used.as_deref()) {

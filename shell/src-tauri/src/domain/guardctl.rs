@@ -21,55 +21,8 @@ impl LaunchError {
     }
 }
 
-pub(crate) enum AlignOutcome {
-    /// P1 对齐结果：只有「版本 == 线上最新」的内核才放行；线上版本查询失败（离线/源不可达）无法验证对齐 -> 不启动；磁盘上没有一致内核 -> 必须先安装（P1）。
-    Aligned { bin: std::path::PathBuf, version: String },
-    ResolveFailed(String),
-    NotAligned { latest: Option<String>, searched: Vec<String> },
-}
 
-pub(crate) fn resolve_aligned(app: &tauri::AppHandle) -> AlignOutcome {
-    resolve_aligned_with(app.path().resource_dir().ok())
-}
 
-pub(crate) fn resolve_aligned_with(resource_dir: Option<std::path::PathBuf>) -> AlignOutcome {
-    let pkg = match crate::core::package_name() {
-        Ok(p) => p,
-        Err(e) => return AlignOutcome::ResolveFailed(e),
-    };
-    let latest = match crate::core::latest_version(&pkg) {
-        Ok((v, _o)) => v,
-        Err(e) => return AlignOutcome::ResolveFailed(format!("{}：{}", pkg, e)),
-    };
-    let pkg_opt = Some(pkg.as_str());
-    // 位置契约命中且版本一致（最快路径）。契约路径可能含 `.cmd` 垫片或 `\\?\` 前缀，先规范化再判可用。版本按 semver 相等判定：两侧字符串分别来自契约与 registry 快照，文本差（build metadata 等）不该让已对齐的内核判成未对齐。
-    if let Some(c) = crate::core_contract::read() {
-        let bin = crate::domain::coreloc::normalize_guard(c.bin, pkg_opt);
-        if bin.is_file() && crate::core::semver_cmp(&c.version, &latest) == 0 {
-            return AlignOutcome::Aligned { bin, version: latest };
-        }
-    }
-    let cands = crate::domain::coreloc::locate_core_candidates(resource_dir);
-    for c in &cands {
-        let same = crate::core::installed_version(c)
-            .map(|v| crate::core::semver_cmp(&v, &latest) == 0)
-            .unwrap_or(false);
-        if same {
-            let prefix = crate::core::global_prefix_for(c);
-            crate::core_contract::write(&crate::core_contract::InstalledCore {
-                bin: c.clone(),
-                prefix,
-                version: latest.clone(),
-                source: "local-adopted".into(),
-            });
-            return AlignOutcome::Aligned { bin: c.clone(), version: latest };
-        }
-    }
-    AlignOutcome::NotAligned {
-        latest: Some(latest),
-        searched: cands.iter().map(|p| p.display().to_string()).collect(),
-    }
-}
 
 /// `--run-guard` 的本地检测（不触网）：解析可运行的 node + 守卫（取本地最高版本）。服务定义只指向稳定入口，故每次启动重新检测，node 迁移（nvm/volta/fnm）与内核升级后自动适配；线上对齐（P1）仍由壳在创建/启动服务前把关，此处只做本地解析，离线也能启动。
 pub fn resolve_local(resource_dir: Option<std::path::PathBuf>) -> Option<(crate::runtime_contract::NodeRuntime, std::path::PathBuf)> {
