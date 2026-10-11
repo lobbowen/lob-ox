@@ -47,12 +47,6 @@ function versionNearBin(bin) {
 }
 
 function installedVersion(host) {
-  if (host.config.installedPkgJsonPath) {
-    try {
-      const j = JSON.parse(fs.readFileSync(host.config.installedPkgJsonPath, 'utf8'));
-      if (j.name) return String(j.version || '');
-    } catch { return null; }
-  }
   const bin = binPath(host);
   if (!bin || !fs.existsSync(bin)) return null;
   return versionNearBin(bin);
@@ -66,11 +60,48 @@ function targetPort(config) {
   try { return Number(new URL(config.healthUrl).port) || null; } catch { return null; }
 }
 
-function mainUnit() { return null; }
-
 async function waitNativeHealthy(host, port, unit, timeoutMs) {
   if (!host.dist) return { ok: false, reason: 'dist 分发服务不可用' };
   return host.dist.waitPortHealthy({ host: '127.0.0.1', port, unit, timeoutMs });
 }
 
-module.exports = { detected, binPath, installedVersion, targetPort, mainUnit, waitNativeHealthy };
+function removableRoots(host) {
+  return [host.dshHome, host.appHome, host.npmRoot].filter(Boolean);
+}
+
+function launcherSiblings(launcher) {
+  if (!launcher) return [];
+  const dir = path.dirname(launcher);
+  const base = path.basename(launcher).replace(/\.(cmd|bat|ps1)$/i, "");
+  const out = [];
+  for (const ext of ["", ".cmd", ".bat", ".ps1"]) {
+    const f = path.join(dir, base + ext);
+    try { if (fs.existsSync(f)) out.push(f); } catch {}
+  }
+  return out;
+}
+
+function userDataPaths(host) {
+  if (!host.dshHome) return [];
+  return [
+    path.join(host.dshHome, "sessions"),
+    path.join(host.dshHome, "storages"),
+    path.join(host.dshHome, "profiles"),
+    path.join(host.dshHome, "settings.yaml"),
+    path.join(host.dshHome, ".credentials.yaml"),
+    path.join(host.dshHome, ".anonymous-user-id"),
+  ];
+}
+
+function removalTargets(host) {
+  const out = [];
+  const push = (p) => { if (p && !out.includes(p)) out.push(p); };
+  const d = detected(host);
+  if (d && d.bin) push(d.bin);
+  if (d && d.launcher) push(d.launcher);
+  for (const s of launcherSiblings(d && d.launcher)) push(s);
+  if (host.appHome) push(host.appHome);
+  for (const p of userDataPaths(host)) push(p);
+  return out;
+}
+module.exports = { detected, binPath, installedVersion, targetPort, waitNativeHealthy, removalTargets, removableRoots };

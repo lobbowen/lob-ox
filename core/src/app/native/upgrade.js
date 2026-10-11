@@ -121,7 +121,7 @@ async function verifyAndFinalize(host, oldV, target, task) {
     return { ok: false, error: msg, state: host.upgradeState };
   }
   const deadline = host.hooks.verifyDeadlineMs ? host.hooks.verifyDeadlineMs() : 120000;
-  const healthy = await host._waitNativeHealthy(port, host._mainUnit(), deadline);
+  const healthy = await host._waitNativeHealthy(port, null, deadline);
   if (healthy.ok) return finishVerified(host, oldV, target, task);
   return rollbackAfterFailedVerify(host, oldV, task, healthy);
 }
@@ -158,7 +158,7 @@ async function rollbackNative(host, oldVersion, task) {
   if (host.hooks.resumeAfterUpgrade) host.hooks.resumeAfterUpgrade();
   const port = host._targetPort();
   if (port) {
-    const healthy = await host._waitNativeHealthy(port, host._mainUnit(), 60000);
+    const healthy = await host._waitNativeHealthy(port, null, 60000);
     if (healthy.ok) tlog('回滚后实例已恢复运行');
     else tlog('回滚后实例未恢复（' + healthy.reason + '）');
   }
