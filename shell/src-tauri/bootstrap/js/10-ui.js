@@ -162,7 +162,7 @@
       'mirror_npm_best=' + ((NS.warmMirror && NS.warmMirror.npmBest) || 'none'),
       'mirror_probes=' + (
         (NS.warmMirror && NS.warmMirror.npmProbes && NS.warmMirror.npmProbes.length)
-          ? NS.warmMirror.npmProbes.map(function (p) { return p.source.replace(/^https?:\/\
+          ? NS.warmMirror.npmProbes.map(function (p) { return p.source.replace(/^https?:\/\//, '') + (p.ok ? '(' + p.latencyMs + 'ms)' : '(x)'); }).join(' > ')
           : ((NS.lastMirror && NS.lastMirror.probes && NS.lastMirror.probes.length)
               ? NS.lastMirror.probes.map(function (p) { return p.source + (p.ok ? '(' + p.latencyMs + 'ms)' : '(x)'); }).join(' > ')
               : 'none')),
