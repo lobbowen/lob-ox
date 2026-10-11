@@ -188,11 +188,11 @@ fn parse_desc(v: &serde_json::Value) -> Option<state_machine::WorkloadDesc> {
 fn parse_phase(s: &str) -> Option<state_machine::Phase> {
     Some(match s {
         "stopped" => state_machine::Phase::Stopped,
+        "installing" => state_machine::Phase::Installing,
         "starting" => state_machine::Phase::Starting,
         "running" => state_machine::Phase::Running,
         "draining" => state_machine::Phase::Draining,
         "failed" => state_machine::Phase::Failed,
-        "restarting" => state_machine::Phase::Restarting,
         _ => return None,
     })
 }
