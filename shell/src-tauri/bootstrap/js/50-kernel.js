@@ -20,7 +20,7 @@
         NS.fail('内核版本检查失败：' + p.error);
         return null;
       }
-      var mt = p.registry ? String(p.registry).replace(/^https?:\/\
+      var mt = p.registry ? String(p.registry).replace(/^https?:\/\//, '') : NS.mirrorText();
       NS.status('内核已是最新（v' + p.installed + '）' + (mt ? ' · 源 ' + mt : ''));
       NS.coreVersion = p.installed;
       return NS.wait(300).then(NS.stepCoreDone);
