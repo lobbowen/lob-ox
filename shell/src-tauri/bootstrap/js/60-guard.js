@@ -5,13 +5,13 @@
     NS.status('正在启动守卫…');
         
     return NS.withTimeout(NS.core.invoke('guard_start'), NS.GUARD_START_BUDGET_MS, '守卫启动超时').then(function (r) {
-      if (r && r.__timeout) return NS.guardFailed('守卫启动超时：' + (r.error || '服务管理器无响应'));
+      if (r && r.__timeout) return NS.guardFailed('守卫启动超时：' + (r.error || '进程未就绪'));
       if (r && r.__error) return NS.guardFailed('守卫启动异常：' + r.__error);
       if (!r || r.ok !== true) {
                 
-        if (r && r.code === 'KERNEL_NOT_ALIGNED' && !NS._alignRetried) {
+        if (r && r.code === 'KERNEL_MISSING' && !NS._alignRetried) {
           NS._alignRetried = true;
-          NS.status('内核未与线上对齐 · 正在对齐…');
+          NS.status('未检测到已安装内核 · 正在安装…');
           return NS.coreApply();
         }
         return NS.guardFailed('守卫启动失败：' + ((r && r.error) || '未知'));
