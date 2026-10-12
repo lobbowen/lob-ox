@@ -54,11 +54,6 @@ pub(crate) fn shutdown_all(port: u16) {
 }
 
 /// 服务管理器路径（P4 建立定义 -> P5 请求启动）的阶段产物。不变量由结构强制：`started` 只可能在 `defined` 为 `Ok` 时才是 `Some` —— 定义失败时那条出边是关闭的。丢掉 `ensure_defined` 的错误再无条件 `start()`，报错就只剩「/Run 失败（退出码 1）」，真实失败点可能在更早的 P4。
-pub(crate) struct ServiceLaunch {
-    defined: Result<String, String>,
-    started: Option<Result<(), String>>,
-}
-
 impl ServiceLaunch {
     fn define_and_start(spec: &crate::platform::LaunchSpec, report: &dyn Fn(&str)) -> Self {
         let defined = match crate::platform::service().ensure_defined(spec) {
