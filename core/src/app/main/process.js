@@ -30,7 +30,8 @@ const HELPERS = [
   'SetRestartCount',
   'RestartCount',
   'SetRestartAt',
-]
+];
+
 function depsOf(host) {
   let d = DEPS.get(host);
   if (!d) {
@@ -45,6 +46,13 @@ function depsOf(host) {
       beginRestart: (reason, opts) => host._beginRestart(reason, opts),
       writeMainOwner: (pid, port) => host._writeMainOwner(pid, port),
     };
+    // HELPERS 与 installFieldHelpers（state/field-tables.js）是两套独立的命名来源，
+    // 靠字符串拼接对齐。任何一侧漏改，都只会在首次调用时 TypeError。
+    // 这里在建 deps 时就地校验，把「启动无声通过、运行期炸」提前到装配期。
+    const unresolved = HELPERS.filter((n) => typeof host['_m' + n] !== 'function');
+    if (unresolved.length) {
+      throw new Error('app/main/process: HELPERS 指向不存在的方法: ' + unresolved.map((n) => '_m' + n).join(', '));
+    }
     for (const n of HELPERS) d['m' + n] = (...a) => host['_m' + n](...a);
     DEPS.set(host, d);
   }

@@ -42,6 +42,29 @@ const THIN_SPEC = {
 };
 const THIN_NAMES = Object.keys(THIN_SPEC);
 
+// 消费者驱动的接口自检。
+//
+// THIN_SPEC 原有 assertCollaboratorTargets 只证明「源函数存在」，证明不了：
+//   1. 消费者读的属性名是否真的被 installThin 生成（拼错只在首次调用时 TypeError）；
+//   2. 源方法改名后消费者是否同步（字符串间接层，无工具可发现）。
+// 这里在安装后生成每个 collaborator 的公开面快照，供启动自检与测试比对。
+function collaboratorSurface(host, name) {
+  const obj = host[name];
+  if (!obj || typeof obj !== 'object') return [];
+  return Object.keys(obj).sort();
+}
+
+// 消费者侧调用：取不到就立刻抛错，错误信息带上期望的接口面，
+// 而不是让 TypeError 在第一次真实调用时才暴露。
+function requireThin(host, name, prop) {
+  const obj = host[name];
+  if (!obj || typeof obj[prop] !== 'function') {
+    const have = collaboratorSurface(host, name);
+    throw new Error('app/assembly/collaborators: ' + name + '.' + prop
+      + ' 不存在（当前接口面: ' + (have.join(', ') || '空') + '）');
+  }
+  return obj[prop];
+}
 function assertCollaboratorTargets(host) {
   const missing = [];
   for (const name of THIN_NAMES) {
@@ -50,6 +73,10 @@ function assertCollaboratorTargets(host) {
     }
   }
   if (missing.length) throw new Error('app/assembly/collaborators: 接口表指向缺失方法: ' + missing.join(', '));
+  // 第二重：安装后的公开面必须非空。源函数都在但 installThin 没跑，
+  // 或 THIN_SPEC 某个分组被清空，都会在这里暴露。
+  const empty = THIN_NAMES.filter((n) => collaboratorSurface(host, n).length === 0);
+  if (empty.length) throw new Error('app/assembly/collaborators: 接口面为空: ' + empty.join(', '));
 }
 
 function installFieldHelpers(host, state) {
@@ -182,4 +209,4 @@ function installCollaborators(host, options) {
   return host;
 }
 
-module.exports = { THIN_SPEC, assertCollaboratorTargets, installCollaborators };
+module.exports = { THIN_SPEC, assertCollaboratorTargets, installCollaborators, collaboratorSurface, requireThin };
