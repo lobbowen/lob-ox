@@ -30,13 +30,24 @@ tmp/
 .env
 .env.*
 !.env.example
-_token.txt
 
-# 凭据文件名（绝不入库；私钥泄露=账号被接管）
+# 调用凭证（绝不入库；令牌泄露=账号被接管）
+# 这些文件由本地工具直接读取，本地存在是必要的，但一次 git add -A 就会把它们推上远端。
+# 用白名单式穷举而非 *.txt 之类的宽泛匹配，避免误伤真实源码。
+.tok
+.tok.txt
+.token.txt
+._tok
+token.txt
+_token.txt
 _npmtoken.txt
+.npmrc
 *.key
 *.key.pub
 *.pw
+*.pem
+*_token*
+*credential*
 
 # 编辑器 / 系统
 .DS_Store
