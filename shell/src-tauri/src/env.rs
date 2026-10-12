@@ -178,14 +178,28 @@ fn config_json() -> Option<serde_json::Value> {
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
 }
 
-pub const DEPRECATED_API_PORTS: &[u16] = &[crate::brand::shared_num("net.deprecatedApiPorts.0")];
+static DEPRECATED_API_PORTS_CELL: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
+
+pub fn deprecated_api_ports() -> &'static [u16] {
+    DEPRECATED_API_PORTS_CELL.get_or_init(|| {
+        let mut v: Vec<u16> = Vec::new();
+        for i in 0..8 {
+            let key = format!("net.deprecatedApiPorts.{}", i);
+            match std::panic::catch_unwind(|| crate::brand::shared_num(&key)) {
+                Ok(n) if n > 0 => v.push(n),
+                _ => break,
+            }
+        }
+        v
+    })
+}
 
 pub fn is_deprecated_api_port(port: u16) -> bool {
-    DEPRECATED_API_PORTS.contains(&port)
+    deprecated_api_ports().contains(&port)
 }
 
 pub fn api_base_url() -> String {
-    let default_port = DEFAULT_API_PORT;
+    let default_port = default_api_port();
     let from_config = || {
         config_json()
             .and_then(|v| v.get("apiPort").and_then(|x| x.as_u64()))
@@ -214,7 +228,13 @@ pub fn close_action() -> String {
         .unwrap_or_else(|| "hide".into())
 }
 
-pub const DEFAULT_API_PORT: u16 = crate::brand::shared_num("net.apiPort");
+static DEFAULT_API_PORT_CELL: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+
+// 端口真相来自 shared-constants.json（经 brand::shared_num 读取）。
+// 不能用 const：解析器依赖运行期字符串操作。OnceLock 保证只解析一次。
+pub fn default_api_port() -> u16 {
+    *DEFAULT_API_PORT_CELL.get_or_init(|| crate::brand::shared_num("net.apiPort"))
+}
 
 pub fn api_port() -> u16 {
     let u = api_base_url();
@@ -222,7 +242,7 @@ pub fn api_port() -> u16 {
         .rsplit(':')
         .next()
         .and_then(|p| p.parse().ok())
-        .unwrap_or(DEFAULT_API_PORT)
+        .unwrap_or(default_api_port())
 }
 
 pub fn discovered_api_port() -> Option<u16> {
@@ -353,7 +373,7 @@ mod tests {
     
     #[test]
     fn a4_deprecated_ports_are_migrated() {
-        for p in DEPRECATED_API_PORTS {
+        for p in deprecated_api_ports() {
             assert!(
                 is_deprecated_api_port(*p),
                 "A-4 FAIL 弃用端口 {} 未被识别（存量用户升级后会撞上老产品守卫）",
@@ -361,7 +381,7 @@ mod tests {
             );
         }
         assert!(
-            !is_deprecated_api_port(DEFAULT_API_PORT),
+            !is_deprecated_api_port(default_api_port()),
             "A-4 FAIL 默认端口自身落在弃用名单里 ⇒ 每次启动都会被迁走"
         );
         assert!(!is_deprecated_api_port(37361), "A-4 FAIL 正常端口被误判为弃用");
@@ -421,7 +441,7 @@ mod tests {
     fn a3_default_port_constant_value_and_url_derivation() {
         
         
-        assert_eq!(DEFAULT_API_PORT, 3736 * 10, "A-3 FAIL 默认端口常量值被改动");
+        assert_eq!(default_api_port(), 3736 * 10, "A-3 FAIL 默认端口常量值被改动");
         
         let _g = home_env_lock();
         let saved = std::env::var_os("HOME");
@@ -438,9 +458,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
             url,
-            format!("http://127.0.0.1:{}/", DEFAULT_API_PORT),
+            format!("http://127.0.0.1:{}/", default_api_port()),
             "A-3 FAIL api_base_url 未按默认常量生成"
         );
-        assert_eq!(port, DEFAULT_API_PORT, "A-3 FAIL api_port 与默认端口不一致");
+        assert_eq!(port, default_api_port(), "A-3 FAIL api_port 与默认端口不一致");
     }
 }

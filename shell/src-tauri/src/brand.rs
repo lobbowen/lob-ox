@@ -7,14 +7,37 @@ use std::path::{Path, PathBuf};
 const SHARED_JSON: &str = include_str!("../../../shared/shared-constants.json");
 
 
+// 路径段既可以是对象键，也可以是数组下标（如 "net.deprecatedApiPorts.0"）。
+// 数组元素没有 "key": 形态，按下标在第 N 个元素处定位。
+fn advance(cur: &str, part: &str, path: &str) -> &str {
+    if let Ok(idx) = part.parse::<usize>() {
+        // 先推进到数组值本身（上一段给出的形如 "[36360, 37000]"），
+        // 再按下标取元素。注意剥掉左括号，否则元素文本会以 "[" 开头。
+        let arr = if cur.trim_start().starts_with('[') {
+            cur.trim_start()
+        } else {
+            let at = cur.find('[').unwrap_or_else(|| panic!("brand: 共享常量非数组 {}", path));
+            &cur[at..]
+        };
+        let body = &arr[1..];
+        let mut seg = body.trim_start();
+        for _ in 0..idx {
+            let end = seg.find(',').unwrap_or_else(|| panic!("brand: 共享常量数组下标越界 {}", path));
+            seg = seg[end + 1..].trim_start();
+        }
+        return seg;
+    }
+    let key = format!("\"{}\"", part);
+    let at = cur.find(&key).unwrap_or_else(|| panic!("brand: 共享常量缺键 {}", path));
+    let rest = &cur[at + key.len()..];
+    let colon = rest.find(':').unwrap_or_else(|| panic!("brand: 共享常量格式错误 {}", path));
+    rest[colon + 1..].trim_start()
+}
+
 pub fn shared_str(path: &str) -> &'static str {
     let mut cur = SHARED_JSON;
     for part in path.split('.') {
-        let key = format!("\"{}\"", part);
-        let Some(at) = cur.find(&key) else { panic!("brand: 共享常量缺键 {}", path) };
-        let rest = &cur[at + key.len()..];
-        let Some(colon) = rest.find(':') else { panic!("brand: 共享常量格式错误 {}", path) };
-        let val = rest[colon + 1..].trim_start();
+        let val = advance(cur, part, path);
         if val.starts_with('{') {
             cur = val;
             continue;
@@ -29,22 +52,21 @@ pub fn shared_str(path: &str) -> &'static str {
 
 pub fn shared_num(path: &str) -> u16 {
     let mut cur = SHARED_JSON;
-    for (i, part) in path.split('.').enumerate() {
-        let key = format!("\"{}\"", part);
-        let Some(at) = cur.find(&key) else { panic!("brand: 共享常量缺键 {}", path) };
-        let rest = &cur[at + key.len()..];
-        let Some(colon) = rest.find(':') else { panic!("brand: 共享常量格式错误 {}", path) };
-        let val = rest[colon + 1..].trim_start();
-        if val.starts_with('{') { cur = val; continue; }
+    for part in path.split('.') {
+        let val = advance(cur, part, path);
+        // 中间段可能是对象或数组，两者都要能继续下钻。
+        if val.starts_with('{') || val.starts_with('[') {
+            cur = val;
+            continue;
+        }
         let end = val.find(|c: char| c == ',' || c == '}' || c == ']').unwrap_or(val.len());
         let raw = val[..end].trim();
-        let n: u16 = raw.parse().unwrap_or_else(|_| panic!("brand: 共享常量非数字 {} = {}", path, raw));
-        if i == path.split('.').count() - 1 { return n; }
-        return n;
+        return raw
+            .parse()
+            .unwrap_or_else(|_| panic!("brand: 共享常量非数字 {} = {}", path, raw));
     }
-    panic!("brand: 共享常量路径无效 {}", path)
+    panic!("brand: 共享常量路径指向对象 {}", path)
 }
-
 
 pub const PRODUCT_NAME: &str = "lobox";
 
