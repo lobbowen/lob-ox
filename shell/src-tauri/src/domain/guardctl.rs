@@ -54,47 +54,6 @@ pub(crate) fn shutdown_all(port: u16) {
 }
 
 /// 服务管理器路径（P4 建立定义 -> P5 请求启动）的阶段产物。不变量由结构强制：`started` 只可能在 `defined` 为 `Ok` 时才是 `Some` —— 定义失败时那条出边是关闭的。丢掉 `ensure_defined` 的错误再无条件 `start()`，报错就只剩「/Run 失败（退出码 1）」，真实失败点可能在更早的 P4。
-impl ServiceLaunch {
-    fn define_and_start(spec: &crate::platform::LaunchSpec, report: &dyn Fn(&str)) -> Self {
-        let defined = match crate::platform::service().ensure_defined(spec) {
-            Ok(desc) => {
-                crate::update::log(&format!("守卫服务定义: {}", desc));
-                Ok(desc)
-            }
-            Err(e) => {
-                crate::update::log(&format!("守卫服务定义失败（跳过启动请求，改走直接拉起）: {}", e));
-                Err(e)
-            }
-        };
-        let started = match &defined {
-            Ok(_) => {
-                report("正在请求服务管理器启动守卫…");
-                let r = crate::platform::service().start();
-                if let Err(e) = &r {
-                    crate::update::log(&format!("服务管理器启动失败: {}", e));
-                }
-                Some(r)
-            }
-            Err(_) => None,
-        };
-        ServiceLaunch { defined, started }
-    }
-
-    fn start_requested(&self) -> bool {
-        matches!(self.started, Some(Ok(())))
-    }
-
-    fn evidence(&self) -> String {
-        match (&self.defined, &self.started) {
-            (Err(d), None) => format!("服务定义未建立（因此未请求服务管理器启动）：{}", d),
-            (Err(d), Some(_)) => format!("服务定义未建立：{}", d),
-            (Ok(_), Some(Err(e))) => format!("服务管理器错误：{}", e),
-            (Ok(_), Some(Ok(()))) => "服务管理器已接受启动请求，但守卫未在其间就绪".to_string(),
-            (Ok(d), None) => format!("服务定义已建立（{}），未发起启动请求", d),
-        }
-    }
-}
-
 /// 内核进程登记表项：把「内核」作为最高优先级负载收进机箱进程表。
 /// 这是进程所有权归壳的体现 —— 表里没有内核，自愈就无从谈起。
 fn core_desc() -> crate::process_manager::state_machine::WorkloadDesc {
