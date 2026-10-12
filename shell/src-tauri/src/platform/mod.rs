@@ -123,10 +123,32 @@ pub fn commit_user_node(
     if let Some(parent) = root.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let _ = std::fs::remove_dir_all(root);
+    // 旧安装先改名备份，再换上新安装；换装失败则回滚。
+    // 此前后删后 rename，rename 一失败（跨设备/权限）旧安装已毁且无回滚。
+    let backup = root.with_extension("prev");
+    let _ = std::fs::remove_dir_all(&backup);
+    let had_prev = root.is_dir();
+    if had_prev {
+        if let Err(e) = std::fs::rename(root, &backup) {
+            return Err(format!("备份旧 Node 安装失败（{}），中止换装: {}", root.display(), e));
+        }
+    }
     if let Err(e) = std::fs::rename(&base, root) {
+        if had_prev {
+            let _ = std::fs::remove_dir_all(root);
+            if let Err(re) = std::fs::rename(&backup, root) {
+                return Err(format!(
+                    "换装失败且回滚也失败：新装 {} 未就位，旧装仍在 {}（{}）",
+                    root.display(),
+                    backup.display(),
+                    re
+                ));
+            }
+            return Err(format!("落定 {} 失败（已回滚到旧安装）: {}", root.display(), e));
+        }
         return Err(format!("落定 {} 失败: {}", root.display(), e));
     }
+    let _ = std::fs::remove_dir_all(&backup);
     let _ = std::fs::remove_dir_all(staging);
     let installed = probe(root);
     if !installed.is_file() {
@@ -273,7 +295,7 @@ pub fn kill_managed_processes() -> Result<(), String> {
     {
         let ps = format!(
             "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object {{ $_.CommandLine -like '{}' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}",
-            crate::brand::PROC_MATCH_GUARD
+            crate::brand::proc_match_guard()
         );
         let out = crate::bounded::run(
             std::process::Command::new("powershell").args([
@@ -316,7 +338,7 @@ pub fn managed_stop_script() -> String {
 }
 
 pub fn unix_proc_match_pattern() -> String {
-    let raw = crate::brand::PROC_MATCH_GUARD;
+    let raw = crate::brand::proc_match_guard();
     let core = raw.trim_matches('*');
     let mut out = String::new();
     for c in core.chars() {
@@ -405,7 +427,7 @@ pub trait Platform: Send + Sync {
 
     fn state_root_default(&self) -> std::path::PathBuf {
         crate::brand::state_root_linux(
-            std::env::var_os(crate::brand::STATE_ROOT_LINUX_XDG_ENV),
+            std::env::var_os(crate::brand::state_root_linux_xdg_env()),
             &home_dir(),
         )
     }

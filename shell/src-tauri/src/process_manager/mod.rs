@@ -38,7 +38,7 @@ impl ProcessManager {
     /// 内核向机箱注册一个工作负载（描述子只含「机制」：spawn 命令与自愈优先级）。
     /// 业务判定（令牌捕获 / 就绪 / adopt / 端口重定向）仍在内核，机箱不越界。
     pub fn register_workload(&self, desc: state_machine::WorkloadDesc) {
-        let mut s = self.states.lock().unwrap();
+        let mut s = self.states.lock().unwrap_or_else(|e| e.into_inner());
         s.entry(desc.id.clone())
             .or_insert_with(|| state_machine::WorkloadState::from_desc(&desc));
     }
@@ -46,7 +46,7 @@ impl ProcessManager {
     /// 壳自持路径：壳自己拉起内核并把句柄与 pid 登记进表（进程所有权归壳）。
     /// 与 register_workload 的区别：后者是内核自报（壳不持有句柄），本方法是壳持有。
     pub fn adopt_spawned(&self, desc: state_machine::WorkloadDesc, pid: u32) {
-        let mut s = self.states.lock().unwrap();
+        let mut s = self.states.lock().unwrap_or_else(|e| e.into_inner());
         let st = s
             .entry(desc.id.clone())
             .or_insert_with(|| state_machine::WorkloadState::from_desc(&desc));
@@ -59,7 +59,7 @@ impl ProcessManager {
 
     /// 内核下发意图：设定期望相位（running/stopped）。
     pub fn set_desired(&self, id: &str, desired: state_machine::Desired) {
-        let mut s = self.states.lock().unwrap();
+        let mut s = self.states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(st) = s.get_mut(id) {
             st.desired = desired;
         }
@@ -67,7 +67,7 @@ impl ProcessManager {
 
     /// 机箱 → 内核回灌：相位变更事件。
     pub fn on_phase(&self, id: &str, phase: state_machine::Phase) {
-        let mut s = self.states.lock().unwrap();
+        let mut s = self.states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(st) = s.get_mut(id) {
             st.phase = phase;
             st.last_transition = Instant::now();
@@ -79,7 +79,7 @@ impl ProcessManager {
 
     /// 崩溃 last-will：子进程退出时记录退出码 / 信号，供引导页「为何崩」展示。
     pub fn record_exit(&self, id: &str, last_will: state_machine::LastWill) {
-        let mut s = self.states.lock().unwrap();
+        let mut s = self.states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(st) = s.get_mut(id) {
             st.last_will = Some(last_will);
         }
@@ -88,7 +88,7 @@ impl ProcessManager {
     /// 自愈选路：按优先级升序（内核最优先）挑出「期望 running 但当前 failed 且未耗尽重试」的对象。
     /// 返回供调用方执行重新拉起；本方法只做选择，不自行 spawn（保持机箱可测）。
     pub fn heal_candidates(&self) -> Vec<state_machine::WorkloadDesc> {
-        let s = self.states.lock().unwrap();
+        let s = self.states.lock().unwrap_or_else(|e| e.into_inner());
         let mut v: Vec<&state_machine::WorkloadState> = s
             .values()
             .filter(|st| {
@@ -109,7 +109,7 @@ impl ProcessManager {
 
     /// 自愈记一次失败：达到预算则停手（等人工），否则计数 +1。
     pub fn note_heal_failure(&self, id: &str) {
-        let mut s = self.states.lock().unwrap();
+        let mut s = self.states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(st) = s.get_mut(id) {
             st.heal_failures += 1;
             st.last_transition = Instant::now();

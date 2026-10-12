@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod error;
+mod atomic_write;
 mod bounded;
 mod brand;
 mod core;

@@ -57,6 +57,19 @@ pub async fn run(state: Arc<ProcessManager>) {
 
 /// 把 guard-mgmt 端口回灌给内核（所有权在壳、方向单向：壳写内核读）。
 /// 范式同 `mirror::export_to_kernel`：tmp → rename 原子提交，内核侧读不到就当端点不存在（客户端静默降级）。
+const MGMT_TOKEN_HEADER: &str = "x-lobox-mgmt-token";
+const MGMT_BODY_CAP: usize = 64 * 1024;
+
+// 机箱管理端点的 peer 凭据：由端口派生，随端口契约一并落盘。
+// 目的不是防远程攻击（端点只绑回环），而是防止本机任意进程注入相位真相
+// 或伪造 spawn_cmd 供 healer 执行。
+fn mgmt_token(port: u16) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    port.hash(&mut h);
+    crate::brand::CLI_NAME.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
 fn export_port(port: u16) {
     let path = crate::env::supervisor_dir().join("guard-mgmt.json");
     let body = match serde_json::to_string_pretty(&serde_json::json!({
@@ -64,6 +77,7 @@ fn export_port(port: u16) {
         "role": "guard-mgmt",
         "host": "127.0.0.1",
         "port": port,
+        "token": mgmt_token(port),
         "pid": std::process::id(),
         "at": std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -73,19 +87,9 @@ fn export_port(port: u16) {
         Ok(b) => b,
         Err(e) => { eprintln!("[mgmt] 端口契约序列化失败: {e}"); return; }
     };
-    if let Some(dir) = path.parent() {
-        if let Err(e) = std::fs::create_dir_all(dir) {
-            eprintln!("[mgmt] 端口契约目录创建失败: {e}");
-            return;
-        }
-    }
-    let tmp = path.with_extension("json.tmp");
-    if let Err(e) = std::fs::write(&tmp, body + "\n") {
-        eprintln!("[mgmt] 端口契约写入失败: {e}");
-        return;
-    }
-    if let Err(e) = std::fs::rename(&tmp, &path) {
-        eprintln!("[mgmt] 端口契约提交失败: {e}");
+    // 原子提交收口到 atomic_write（失败即清理 tmp）。
+    if let Err(e) = crate::atomic_write::write(&path, &(body + "\n")) {
+        eprintln!("[mgmt] 端口契约落盘失败: {e}");
     }
 }
 
@@ -98,10 +102,28 @@ async fn handle(
     let method = req.method().clone();
     let path = req.uri().path().to_string();
     // body 收集失败（连接异常）兜底为空字节，交由后续解析分支返回 400。
+    let port = state
+        .ports
+        .lock()
+        .ok()
+        .and_then(|g| g.get("guard-mgmt"))
+        .unwrap_or(0);
+    let want_token = mgmt_token(port);
+    let got_token = req
+        .headers()
+        .get(MGMT_TOKEN_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if port == 0 || got_token != want_token {
+        return Ok(reply(StatusCode::UNAUTHORIZED, "mgmt token mismatch"));
+    }
     let body = match req.into_body().collect().await {
         Ok(c) => c.to_bytes(),
         Err(_) => Bytes::new(),
     };
+    if body.len() > MGMT_BODY_CAP {
+        return Ok(reply(StatusCode::PAYLOAD_TOO_LARGE, "body too large"));
+    }
     let json: serde_json::Value = if body.is_empty() {
         serde_json::Value::Null
     } else {

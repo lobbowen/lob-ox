@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const pidlookup = require('./pidlookup');
+const { judge: judgeIdentity } = require('./liveness');
 const spawner = require('./spawn');
 const procOS = require('./process');
 const OUTCOME = require('../../shared/outcome');
@@ -22,10 +23,7 @@ function readPidFile(pidFile) {
 }
 
 function matchesAnchors(pid, anchors) {
-  if (!pid || !Array.isArray(anchors) || !anchors.length) return false;
-  const cmd = pidlookup.readCmdline(pid);
-  if (!cmd) return false;
-  return anchors.some((a) => a && cmd.indexOf(String(a)) !== -1);
+  return judgeIdentity({ pid, anchors }).state === 'ours';
 }
 
 const portOf = (o) => { const p = Number(o && o.port); return Number.isInteger(p) && p > 0 ? p : 0; };

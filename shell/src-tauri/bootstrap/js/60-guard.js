@@ -12,7 +12,12 @@
         if (r && r.code === 'KERNEL_MISSING' && !NS._alignRetried) {
           NS._alignRetried = true;
           NS.status('未检测到已安装内核 · 正在安装…');
-          return NS.coreApply();
+          return Promise.resolve(NS.coreApply()).then(function (applied) {
+            if (applied === false) {
+              return NS.guardFailed('内核安装未完成（被并发引导抑制或安装失败），守卫无法启动');
+            }
+            return NS.stepGuardStart();
+          });
         }
         return NS.guardFailed('守卫启动失败：' + ((r && r.error) || '未知'));
       }

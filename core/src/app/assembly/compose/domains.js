@@ -100,6 +100,24 @@ function composeDomains(host) {
         desiredRunning: () => host._mDesired() === 'running',
         verifyDeadlineMs: () => Math.max(2 * host.config.startsecs * 1000, 120000),
         notify: (t, b) => host.notify(t, b),
+        stopForUpgrade: async () => {
+          const want = host._mDesired();
+          if (want !== 'stopped') host.setDesired('stopped');
+          host.stopProcess('upgrade-stop');
+          const deadline = Date.now() + Math.max(2 * host.config.startsecs * 1000, 120000);
+          while (Date.now() < deadline) {
+            const child = host._mChild();
+            const alive = !!child && child.exitCode === null;
+            if (!alive) return { ok: true, stopped: true };
+            await new Promise((r) => setTimeout(r, 250));
+          }
+          return { ok: false, error: 'upgrade-stop-timeout' };
+        },
+        resumeAfterUpgrade: async () => {
+          if (host._mDesired() !== 'running') host.setDesired('running');
+          await host.startProcess();
+          return { ok: true };
+        },
       },
     });
     host._registerFixedPorts();

@@ -21,6 +21,13 @@ function safeFail(res, err, where) {
   try { console.error('[api] handler error (' + (where || '?') + '):', (err && err.stack) || err); } catch {}
 }
 
+// 跨域拒绝的唯一出口。此前 45 处复制这段逻辑，payload 有三种不同形态
+//（{ok:false,error:...} / {} / 缺失），导致前端无法统一解析。
+function rejectCrossOrigin(ctx) {
+  const { req, send } = ctx;
+  try { req.resume(); } catch {}
+  return send(403, { ok: false, error: 'cross-origin request rejected' });
+}
 function createServer(sup, deps) {
   const browser = (deps && deps.browser) || browserExit;
   const environment = (deps && deps.environment) || environmentExit;
@@ -92,7 +99,7 @@ function createServer(sup, deps) {
       return send(400, { error: 'bad request encoding' });
     }
 
-    const ctx = { sup, req, res, pathname: decodedPathname, identity, send, collectBody, originAllowed: originAllowedLive, tokOf, browser, environment, server };
+    const ctx = { sup, req, res, pathname: decodedPathname, identity, send, collectBody, originAllowed: originAllowedLive, rejectCrossOrigin, tokOf, browser, environment, server };
 
     for (const d of API_DOMAINS) {
       if (d.owns(pathname)) {

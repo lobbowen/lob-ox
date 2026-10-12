@@ -40,6 +40,7 @@ const ROOT = findPackageRoot(__dirname);
 const stateRoot = require('../src/platform/service/state-root');
 // 品牌单源：CLI 入口名（与 shell/src-tauri/src/brand.rs 逐字一致，见 core/test/brand-single-source-test.js）。
 const BRAND = require('../src/shared/brand');
+const SHARED = require('../src/shared/shared-constants');
 const SUPERVISOR_DIR = stateRoot.supervisorDir();
 const USER_CONFIG = path.join(SUPERVISOR_DIR, 'config.json');
 
@@ -101,9 +102,9 @@ function readApiAddress() {
     let host = cfg.apiHost || '127.0.0.1';
     // apiHost 可能是 0.0.0.0（面板对局域网开放）；CLI/本地连接统一走回环
     if (host === '0.0.0.0' || host === '::') host = '127.0.0.1';
-    return { host, port: cfg.apiPort || 36360 }; // 与内核默认 apiPort 一致（3100 是历史坑位）
+    return { host, port: cfg.apiPort || SHARED.net.apiPort };
   } catch {
-    return { host: '127.0.0.1', port: 36360 }; // 与内核默认一致
+    return { host: '127.0.0.1', port: SHARED.net.apiPort };
   }
 }
 

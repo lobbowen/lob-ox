@@ -42,7 +42,9 @@ function endpoint() {
   const port = Number(j.port);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) return null;
   if (!pidAlive(Number(j.pid))) return null;
-  return { port, host: typeof j.host === 'string' && j.host ? j.host : HOST };
+  const token = typeof j.token === 'string' ? j.token : '';
+  if (!token) return null;
+  return { port, host: typeof j.host === 'string' && j.host ? j.host : HOST, token };
 }
 
 function post(route, payload) {
@@ -59,7 +61,7 @@ function post(route, payload) {
   }
   const req = http.request(
     { host: ep.host, port: ep.port, path: route, method: 'POST',
-      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), 'x-lobox-mgmt-token': ep.token },
       timeout: TIMEOUT_MS },
     (res) => { res.resume(); },
   );

@@ -7,14 +7,37 @@ use std::path::{Path, PathBuf};
 const SHARED_JSON: &str = include_str!("../../../shared/shared-constants.json");
 
 
-fn shared_str(path: &str) -> &'static str {
+// 路径段既可以是对象键，也可以是数组下标（如 "net.deprecatedApiPorts.0"）。
+// 数组元素没有 "key": 形态，按下标在第 N 个元素处定位。
+fn advance<'a>(cur: &'a str, part: &str, path: &str) -> &'a str {
+    if let Ok(idx) = part.parse::<usize>() {
+        // 先推进到数组值本身（上一段给出的形如 "[36360, 37000]"），
+        // 再按下标取元素。注意剥掉左括号，否则元素文本会以 "[" 开头。
+        let arr = if cur.trim_start().starts_with('[') {
+            cur.trim_start()
+        } else {
+            let at = cur.find('[').unwrap_or_else(|| panic!("brand: 共享常量非数组 {}", path));
+            &cur[at..]
+        };
+        let body = &arr[1..];
+        let mut seg = body.trim_start();
+        for _ in 0..idx {
+            let end = seg.find(',').unwrap_or_else(|| panic!("brand: 共享常量数组下标越界 {}", path));
+            seg = seg[end + 1..].trim_start();
+        }
+        return seg;
+    }
+    let key = format!("\"{}\"", part);
+    let at = cur.find(&key).unwrap_or_else(|| panic!("brand: 共享常量缺键 {}", path));
+    let rest = &cur[at + key.len()..];
+    let colon = rest.find(':').unwrap_or_else(|| panic!("brand: 共享常量格式错误 {}", path));
+    rest[colon + 1..].trim_start()
+}
+
+pub fn shared_str(path: &str) -> &'static str {
     let mut cur = SHARED_JSON;
     for part in path.split('.') {
-        let key = format!("\"{}\"", part);
-        let Some(at) = cur.find(&key) else { panic!("brand: 共享常量缺键 {}", path) };
-        let rest = &cur[at + key.len()..];
-        let Some(colon) = rest.find(':') else { panic!("brand: 共享常量格式错误 {}", path) };
-        let val = rest[colon + 1..].trim_start();
+        let val = advance(cur, part, path);
         if val.starts_with('{') {
             cur = val;
             continue;
@@ -27,24 +50,23 @@ fn shared_str(path: &str) -> &'static str {
     panic!("brand: 共享常量路径指向对象 {}", path)
 }
 
-fn shared_num(path: &str) -> u16 {
+pub fn shared_num(path: &str) -> u16 {
     let mut cur = SHARED_JSON;
-    for (i, part) in path.split('.').enumerate() {
-        let key = format!("\"{}\"", part);
-        let Some(at) = cur.find(&key) else { panic!("brand: 共享常量缺键 {}", path) };
-        let rest = &cur[at + key.len()..];
-        let Some(colon) = rest.find(':') else { panic!("brand: 共享常量格式错误 {}", path) };
-        let val = rest[colon + 1..].trim_start();
-        if val.starts_with('{') { cur = val; continue; }
+    for part in path.split('.') {
+        let val = advance(cur, part, path);
+        // 中间段可能是对象或数组，两者都要能继续下钻。
+        if val.starts_with('{') || val.starts_with('[') {
+            cur = val;
+            continue;
+        }
         let end = val.find(|c: char| c == ',' || c == '}' || c == ']').unwrap_or(val.len());
         let raw = val[..end].trim();
-        let n: u16 = raw.parse().unwrap_or_else(|_| panic!("brand: 共享常量非数字 {} = {}", path, raw));
-        if i == path.split('.').count() - 1 { return n; }
-        return n;
+        return raw
+            .parse()
+            .unwrap_or_else(|_| panic!("brand: 共享常量非数字 {} = {}", path, raw));
     }
-    panic!("brand: 共享常量路径无效 {}", path)
+    panic!("brand: 共享常量路径指向对象 {}", path)
 }
-
 
 pub const PRODUCT_NAME: &str = "lobox";
 
@@ -69,7 +91,12 @@ pub const TAURI_IDENTIFIER: &str = "dev.bowen.lobox";
 pub const TAURI_PRODUCT_NAME: &str = "lobox";
 
 
-pub const STATE_DIR_NAME: &str = "lobox";
+static STATE_DIR_NAME_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+// 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
+pub fn state_dir_name() -> &'static str {
+    STATE_DIR_NAME_CELL.get_or_init(|| shared_str("state.dirName"))
+}
 
 pub const STATE_SUPERVISOR_SUBDIR: &str = "supervisor";
 
@@ -77,20 +104,40 @@ pub const STATE_SHELL_SUBDIR: &str = "shell";
 
 pub const LEGACY_PRODUCT_NAME: &str = "dsh-supervisor";
 
-pub const STATE_ROOT_WIN_BASE_ENV: &str = "LOCALAPPDATA";
+static STATE_ROOT_WIN_BASE_ENV_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+// 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
+pub fn state_root_win_base_env() -> &'static str {
+    STATE_ROOT_WIN_BASE_ENV_CELL.get_or_init(|| shared_str("state.winBaseEnv"))
+}
 
 pub const STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS: &[&str] = &["AppData", "Local"];
 
 pub const STATE_ROOT_MACOS_SEGMENTS: &[&str] = &["Library", "Application Support"];
 
-pub const STATE_ROOT_LINUX_XDG_ENV: &str = "XDG_STATE_HOME";
+static STATE_ROOT_LINUX_XDG_ENV_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+// 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
+pub fn state_root_linux_xdg_env() -> &'static str {
+    STATE_ROOT_LINUX_XDG_ENV_CELL.get_or_init(|| shared_str("state.linuxXdgEnv"))
+}
 
 pub const STATE_ROOT_LINUX_FALLBACK_SEGMENTS: &[&str] = &[".local", "state"];
 
-pub const LEGACY_HARNESS_DIR: &str = ".dsh";
+static LEGACY_HARNESS_DIR_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+// 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
+pub fn legacy_harness_dir() -> &'static str {
+    LEGACY_HARNESS_DIR_CELL.get_or_init(|| shared_str("state.legacyHarnessDir"))
+}
 
 
-pub const ENV_STATE_ROOT: &str = "DSH_SUPERVISOR_HOME";
+static ENV_STATE_ROOT_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+// 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
+pub fn env_state_root() -> &'static str {
+    ENV_STATE_ROOT_CELL.get_or_init(|| shared_str("env.stateRoot"))
+}
 
 pub const ENV_CONFIG: &str = "DSH_SUPERVISOR_CONFIG";
 
@@ -205,7 +252,12 @@ pub const CLI_SHIM_NAMES: &[&str] = &["lobox", "lobox.cmd", "lobox.ps1"];
 pub const GUI_BIN_NAMES: &[&str] = &["lobox-shell", "lobox-shell.exe"];
 
 
-pub const PROC_MATCH_GUARD: &str = "*lobox*";
+static PROC_MATCH_GUARD_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+// 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
+pub fn proc_match_guard() -> &'static str {
+    PROC_MATCH_GUARD_CELL.get_or_init(|| shared_str("proc.matchGuard"))
+}
 
 pub const PROC_MATCH_GUI: &str = "lobox-shell";
 
@@ -286,12 +338,12 @@ pub fn state_root_windows(local_appdata: Option<String>, home: &Path) -> PathBuf
     let base = env_base(local_appdata)
         .map(PathBuf::from)
         .unwrap_or_else(|| home_join(home, STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS));
-    base.join(STATE_DIR_NAME)
+    base.join(state_dir_name())
 }
 
 
 pub fn state_root_macos(home: &Path) -> PathBuf {
-    home_join(home, STATE_ROOT_MACOS_SEGMENTS).join(STATE_DIR_NAME)
+    home_join(home, STATE_ROOT_MACOS_SEGMENTS).join(state_dir_name())
 }
 
 
@@ -299,5 +351,5 @@ pub fn state_root_linux(xdg_state_home: Option<std::ffi::OsString>, home: &Path)
     let base = env_base_os(xdg_state_home)
         .map(PathBuf::from)
         .unwrap_or_else(|| home_join(home, STATE_ROOT_LINUX_FALLBACK_SEGMENTS));
-    base.join(STATE_DIR_NAME)
+    base.join(state_dir_name())
 }

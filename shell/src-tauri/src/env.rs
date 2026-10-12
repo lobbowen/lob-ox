@@ -126,7 +126,7 @@ pub fn known_install_node_path() -> Option<PathBuf> {
 pub const STATE_ROOT_SCHEMA: u32 = 1;
 
 pub fn state_root() -> PathBuf {
-    if let Ok(v) = std::env::var(crate::brand::ENV_STATE_ROOT) {
+    if let Ok(v) = std::env::var(crate::brand::env_state_root()) {
         if !v.trim().is_empty() {
             return PathBuf::from(v.trim());
         }
@@ -147,11 +147,11 @@ pub fn migrate_legacy() {
     let root = state_root();
     for (from, to) in [
         (
-            home.join(crate::brand::LEGACY_HARNESS_DIR).join(crate::brand::STATE_SUPERVISOR_SUBDIR),
+            home.join(crate::brand::legacy_harness_dir()).join(crate::brand::STATE_SUPERVISOR_SUBDIR),
             root.join(crate::brand::STATE_SUPERVISOR_SUBDIR),
         ),
         (
-            home.join(crate::brand::LEGACY_HARNESS_DIR).join(crate::brand::STATE_SHELL_SUBDIR),
+            home.join(crate::brand::legacy_harness_dir()).join(crate::brand::STATE_SHELL_SUBDIR),
             root.join(crate::brand::STATE_SHELL_SUBDIR),
         ),
     ] {
@@ -178,14 +178,28 @@ fn config_json() -> Option<serde_json::Value> {
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
 }
 
-pub const DEPRECATED_API_PORTS: &[u16] = &[36360];
+static DEPRECATED_API_PORTS_CELL: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
+
+pub fn deprecated_api_ports() -> &'static [u16] {
+    DEPRECATED_API_PORTS_CELL.get_or_init(|| {
+        let mut v: Vec<u16> = Vec::new();
+        for i in 0..8 {
+            let key = format!("net.deprecatedApiPorts.{}", i);
+            match std::panic::catch_unwind(|| crate::brand::shared_num(&key)) {
+                Ok(n) if n > 0 => v.push(n),
+                _ => break,
+            }
+        }
+        v
+    })
+}
 
 pub fn is_deprecated_api_port(port: u16) -> bool {
-    DEPRECATED_API_PORTS.contains(&port)
+    deprecated_api_ports().contains(&port)
 }
 
 pub fn api_base_url() -> String {
-    let default_port = DEFAULT_API_PORT;
+    let default_port = default_api_port();
     let from_config = || {
         config_json()
             .and_then(|v| v.get("apiPort").and_then(|x| x.as_u64()))
@@ -214,7 +228,13 @@ pub fn close_action() -> String {
         .unwrap_or_else(|| "hide".into())
 }
 
-pub const DEFAULT_API_PORT: u16 = 37360;
+static DEFAULT_API_PORT_CELL: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+
+// 端口真相来自 shared-constants.json（经 brand::shared_num 读取）。
+// 不能用 const：解析器依赖运行期字符串操作。OnceLock 保证只解析一次。
+pub fn default_api_port() -> u16 {
+    *DEFAULT_API_PORT_CELL.get_or_init(|| crate::brand::shared_num("net.apiPort"))
+}
 
 pub fn api_port() -> u16 {
     let u = api_base_url();
@@ -222,7 +242,7 @@ pub fn api_port() -> u16 {
         .rsplit(':')
         .next()
         .and_then(|p| p.parse().ok())
-        .unwrap_or(DEFAULT_API_PORT)
+        .unwrap_or(default_api_port())
 }
 
 pub fn discovered_api_port() -> Option<u16> {
@@ -275,6 +295,10 @@ fn windows_path_add(dir: &str) -> Result<String, String> {
         return Ok("PATH 已含全局目录".to_string());
     }
     let next = if cur.is_empty() { dir.to_string() } else { format!("{};{}", cur, dir) };
+    // 防呆：新 PATH 不得比读到的旧 PATH 更短（更短意味着续行没拼全，写回即丢数据）。
+    if !cur.is_empty() && next.len() < cur.len() {
+        return Err(format!("拒绝写入：新 PATH({}) 短于现值({})，疑似续行未拼全", next.len(), cur.len()));
+    }
     let r = crate::bounded::run(Command::new("reg").args(["add", "HKCU\\Environment", "/v", "PATH", "/t", "REG_EXPAND_SZ", "/d", &next, "/f"]), std::time::Duration::from_secs(8));
     match r {
         Ok(o) if o.success => Ok("已登记用户 PATH（并广播环境变更）".to_string()),
@@ -289,12 +313,38 @@ fn windows_user_path() -> Option<String> {
     let r = crate::bounded::run(Command::new("reg").args(["query", "HKCU\\Environment", "/v", "PATH"]), std::time::Duration::from_secs(8));
     let o = r.ok()?;
     if !o.success { return None; }
-    for line in o.stdout.lines() {
-        if let Some(rest) = line.split_once("REG_EXPAND_SZ").or_else(|| line.split_once("REG_SZ")) {
-            return Some(rest.1.trim().to_string());
+    // reg query 对长值按物理行折行，续行不带类型标记。只取含标记那一行会静默
+    // 截断用户 PATH 尾部；必须把其后所有续行一并拼回。
+    let mut lines = o.stdout.lines();
+    let mut acc: Option<String> = None;
+    while let Some(line) = lines.next() {
+        let marked = line
+            .split_once("REG_EXPAND_SZ")
+            .or_else(|| line.split_once("REG_SZ"));
+        if let Some((_, rest)) = marked {
+            let mut val = rest.trim().to_string();
+            for cont in lines.by_ref() {
+                if cont.contains("REG_EXPAND_SZ") || cont.contains("REG_SZ") {
+                    break;
+                }
+                let t = cont.trim();
+                if t.is_empty() {
+                    continue;
+                }
+                // reg 按固定列宽折行，断点可能落在 token 中间，不能一律补 ';'。
+                // 仅当续行自身像一个新条目（盘符或 UNC 开头）时才补分隔。
+                let looks_new_entry = t.starts_with("\\\\")
+                    || (t.len() >= 2 && t.as_bytes()[1] == b':' && (t.as_bytes()[0] as char).is_ascii_alphabetic());
+                if looks_new_entry && !val.ends_with(';') {
+                    val.push(';');
+                }
+                val.push_str(t);
+            }
+            acc = Some(val);
+            break;
         }
     }
-    None
+    acc
 }
 
 #[cfg(not(windows))]
@@ -323,7 +373,7 @@ mod tests {
     
     #[test]
     fn a4_deprecated_ports_are_migrated() {
-        for p in DEPRECATED_API_PORTS {
+        for p in deprecated_api_ports() {
             assert!(
                 is_deprecated_api_port(*p),
                 "A-4 FAIL 弃用端口 {} 未被识别（存量用户升级后会撞上老产品守卫）",
@@ -331,7 +381,7 @@ mod tests {
             );
         }
         assert!(
-            !is_deprecated_api_port(DEFAULT_API_PORT),
+            !is_deprecated_api_port(default_api_port()),
             "A-4 FAIL 默认端口自身落在弃用名单里 ⇒ 每次启动都会被迁走"
         );
         assert!(!is_deprecated_api_port(37361), "A-4 FAIL 正常端口被误判为弃用");
@@ -391,7 +441,7 @@ mod tests {
     fn a3_default_port_constant_value_and_url_derivation() {
         
         
-        assert_eq!(DEFAULT_API_PORT, 3736 * 10, "A-3 FAIL 默认端口常量值被改动");
+        assert_eq!(default_api_port(), 3736 * 10, "A-3 FAIL 默认端口常量值被改动");
         
         let _g = home_env_lock();
         let saved = std::env::var_os("HOME");
@@ -408,9 +458,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
             url,
-            format!("http://127.0.0.1:{}/", DEFAULT_API_PORT),
+            format!("http://127.0.0.1:{}/", default_api_port()),
             "A-3 FAIL api_base_url 未按默认常量生成"
         );
-        assert_eq!(port, DEFAULT_API_PORT, "A-3 FAIL api_port 与默认端口不一致");
+        assert_eq!(port, default_api_port(), "A-3 FAIL api_port 与默认端口不一致");
     }
 }

@@ -13,4 +13,19 @@ const API_DOMAINS = [
   require('./domains/shell'),
 ];
 
-module.exports = { API_DOMAINS };
+const { SURFACE } = require('./contract');
+
+function assertSurfaceOwned(domains) {
+  const orphans = [];
+  for (const entry of SURFACE || []) {
+    const path = typeof entry === 'string' ? entry : entry && entry.path;
+    if (!path) continue;
+    const owned = domains.some((d) => typeof d.owns === 'function' && d.owns(path));
+    if (!owned) orphans.push(path);
+  }
+  return orphans;
+}
+
+const API_DOMAINS_ORPHANS = assertSurfaceOwned(API_DOMAINS);
+
+module.exports = { API_DOMAINS, API_DOMAINS_ORPHANS };

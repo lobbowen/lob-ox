@@ -212,9 +212,8 @@ pub fn save(m: &Mirrors) -> Result<(), String> {
         "npmMeasurements": m.npm_measurements.iter().map(|x| x.json()).collect::<Vec<_>>(),
     });
     let body = serde_json::to_string_pretty(&v).unwrap_or_default();
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, body + "\n").map_err(|e| format!("写入镜像配置失败: {}", e))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("提交镜像配置失败: {}", e))?;
+    // 收口到 atomic_write：此前 rename 失败会泄漏 .tmp。
+    crate::atomic_write::write(&path, &(body + "\n"))?;
     Ok(())
 }
 
@@ -247,9 +246,8 @@ pub fn export_to_kernel(m: &Mirrors) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| format!("创建内核状态目录失败: {}", e))?;
     }
     let body = serde_json::to_string_pretty(&contract_doc(m)).unwrap_or_default();
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, body + "\n").map_err(|e| format!("写入内核 registry.json 失败: {}", e))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("提交内核 registry.json 失败: {}", e))?;
+    // 收口到 atomic_write：此前 rename 失败会泄漏 .tmp。
+    crate::atomic_write::write(&path, &(body + "\n"))?;
     Ok(())
 }
 

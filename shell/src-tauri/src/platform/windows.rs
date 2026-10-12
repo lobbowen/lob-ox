@@ -226,7 +226,7 @@ impl Platform for Impl {
 
     fn state_root_default(&self) -> PathBuf {
         crate::brand::state_root_windows(
-            std::env::var(crate::brand::STATE_ROOT_WIN_BASE_ENV).ok(),
+            std::env::var(crate::brand::state_root_win_base_env()).ok(),
             &home_dir(),
         )
     }

@@ -93,12 +93,10 @@ fn read_json(p: &Path) -> serde_json::Value {
 }
 
 fn write_json(p: &Path, v: &serde_json::Value) {
-    let dir = p.parent().unwrap_or(Path::new("."));
-    let _ = fs::create_dir_all(dir);
-    let tmp = p.with_extension("json.tmp");
     let body = serde_json::to_string_pretty(v).unwrap_or_default();
-    if fs::write(&tmp, body).is_ok() {
-        let _ = fs::rename(&tmp, p);
+    // 收口到 atomic_write：此前 rename 失败会泄漏 .tmp。
+    if let Err(e) = crate::atomic_write::write(p, &body) {
+        eprintln!("[update] 落盘 {} 失败: {e}", p.display());
     }
 }
 

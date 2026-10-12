@@ -264,7 +264,6 @@ static ORPHANS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new
 
 fn abandon_current_worker() {
     GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    ORPHANS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 }
 
 pub fn orphan_count() -> u64 {
@@ -273,6 +272,7 @@ pub fn orphan_count() -> u64 {
 
 fn spawn_worker(tx: Sender<Outcome>) {
     let gen = GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    ORPHANS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let _ = std::thread::Builder::new()
         .name("node-probe".to_string())
         .spawn(move || {

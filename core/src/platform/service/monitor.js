@@ -1,6 +1,7 @@
 'use strict';
 
 const pidlook = require('../os/pidlookup');
+const { judge: judgeIdentity } = require('../os/liveness');
 const probeModule = require('../util/probe');
 
 function isPortListening(host, port, timeoutMs) {
@@ -24,10 +25,7 @@ async function probe(host, port, opts) {
 }
 
 function matchesAnchors(pid, anchors) {
-  if (!pid || !Array.isArray(anchors) || !anchors.length) return false;
-  const cmd = pidlook.readCmdline(pid);
-  if (!cmd) return false;
-  return anchors.every((a) => a && cmd.indexOf(String(a)) !== -1);
+  return judgeIdentity({ pid, anchors }).state === 'ours';
 }
 
 function probeInstance(inst, opts) {

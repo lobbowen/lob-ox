@@ -32,6 +32,21 @@ tmp/
 !.env.example
 _token.txt
 
+# 调用凭证（绝不入库；本地工具读取所必需，但一次 git add -A 就会推上远端）
+# 白名单式穷举而非 *.txt 宽泛匹配，避免误伤真实源码。
+.tok
+.tok.txt
+.token.txt
+._tok
+token.txt
+_token.txt
+_npmtoken.txt
+.npmrc
+*.key
+*.key.pub
+*.pw
+*.pem
+
 # 凭据文件名（绝不入库；私钥泄露=账号被接管）
 _npmtoken.txt
 *.key
