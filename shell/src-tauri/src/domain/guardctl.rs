@@ -218,26 +218,19 @@ pub(crate) fn ensure_started(
     spec: &crate::platform::LaunchSpec,
     step: &dyn Fn(&str),
 ) -> Result<(), LaunchError> {
-    step("正在建立守卫服务定义…");
-    let launch = ServiceLaunch::define_and_start(spec, step);
-
-    if launch.start_requested() {
-        step("等待守卫就绪…");
-        if await_ready(SERVICE_READY_BUDGET) == Readiness::Ready {
-            register_core(app);
-            return Ok(());
-        }
+        // 开机自启登记（唯一用途）：让 OS 在登录时把壳拉起来，拉起内核本身不借 OS 通道。
+    if let Err(e) = crate::platform::service().ensure_defined(spec) {
+        crate::update::log(&format!("开机自启登记失败（不阻断启动）: {}", e));
+    } else {
+        crate::update::log("开机自启登记已就位");
     }
 
-        // Run 键通道（定义写在 HKCU 自启项）下 start() 明确返回 Err —— 它确实不支持即时启动。
-        // 但**不能因此跳过就绪确认**：直接拉起后若不等 /healthz，就把「拉起了但没确认就绪」当成成功路径，
-        // 面板随后连不上守卫会表现为「127.0.0.1 拒绝连接」。故直接启动后一律走同一段就绪等待。
-    step("服务管理器未能拉起守卫 · 改用直接启动…");
-    let evidence = launch.evidence();
+        // 正式路径：壳自己拉起内核并持有进程（进程所有权归壳，自愈由机箱进程表按优先级驱动）。
+    step("正在拉起内核…");
     match crate::platform::service().spawn_daemon(spec) {
         Ok(mut child) => {
             let pid = child.id();
-            crate::update::log(&format!("兜底 spawn 守卫 pid={}", pid));
+            crate::update::log(&format!("已拉起内核 pid={}", pid));
             let (verdict, exited) = await_daemon(DAEMON_READY_BUDGET, &mut child);
             if verdict == Readiness::Ready {
                 register_core_spawned(app, pid);
@@ -246,9 +239,8 @@ pub(crate) fn ensure_started(
             Err(LaunchError::new(
                 "READY_TIMEOUT",
                 format!(
-                    "守卫启动失败（{}）。{}；直接拉起进程 pid={}{}，其输出见 {}\n守卫输出末段：{}",
+                    "内核启动失败（{}）；进程 pid={}{}，其输出见 {}\n内核输出末段：{}",
                     verdict.describe(),
-                    evidence,
                     pid,
                     match exited {
                         Some(code) => format!("已退出（{}）", crate::bounded::exit_code_label(Some(code))),
@@ -260,8 +252,8 @@ pub(crate) fn ensure_started(
             ))
         }
         Err(e) => Err(LaunchError::new(
-            "SERVICE_START_FAILED",
-            format!("守卫启动失败：{}；直接拉起也失败：{}", evidence, e),
+            "KERNEL_SPAWN_FAILED",
+            format!("内核拉起失败：{}", e),
         )),
     }
 }
