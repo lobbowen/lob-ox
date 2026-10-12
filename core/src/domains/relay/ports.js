@@ -23,21 +23,25 @@ function _reservedByOtherLedger(owner) {
 async function claim(segment, owner, opts) {
   const o = opts || {};
   const reservedPorts = o.reservedPorts || _reservedByOtherLedger(owner);
-  return registry.claimSlot(segment, owner, {
-    preferred: o.preferred,
-    bindingPreferred: !!o.bindingPreferred,
-    
-    
-    reservedPorts: reservedPorts || undefined,
-    onBindingLost: o.onBindingLost,
-    
-    
-    
-    
-    reclaimCmdMark: 'domains/relay/daemon.js',
-    reclaimCfg: o.configPath || '',
-    waitMs: 8000,
-  });
+  try {
+    return await registry.claimSlot(segment, owner, {
+      preferred: o.preferred,
+      bindingPreferred: !!o.bindingPreferred,
+      
+      
+      reservedPorts: reservedPorts || undefined,
+      onBindingLost: o.onBindingLost,
+      
+      
+      
+      
+      reclaimCmdMark: 'domains/relay/daemon.js',
+      reclaimCfg: o.configPath || '',
+      waitMs: 8000,
+    });
+  } catch (e) {
+    return { conflict: true, reason: 'alloc-lock-unavailable', error: (e && e.message) || String(e) };
+  }
 }
 
 function releaseOwner(owner) {

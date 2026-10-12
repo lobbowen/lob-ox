@@ -18,7 +18,12 @@ const SHELL_DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 
 /// 环境状态查询（**纯本地、有界、可轮询**）。不变量：必须快速返回（探测在分离线程，未完成即返回 probing=true）、不含网络 I/O（网络侧信息由 node_latest 提供；registry 维度只读镜像预热的**缓存**结果）；npm 的结论只有一个来源 `domain::probes`。
 #[tauri::command]
-pub async fn node_status(app: tauri::AppHandle) -> serde_json::Value {
+pub async fn node_status(app: tauri::AppHandle, retry: Option<bool>) -> serde_json::Value {
+    // 用户可触发的恢复：上一次探测线程卡死在系统调用中时，ORPHANS>0 会永久拒绝重启。
+    // 这里提供一个显式的重试入口，让排障不需要重启应用。
+    if retry == Some(true) {
+        crate::nodeprobe::invalidate();
+    }
     let budget = std::time::Duration::from_millis(900);
     let out = match tauri::async_runtime::spawn_blocking(move || crate::nodeprobe::status(budget)).await {
         Ok(o) => o,
@@ -547,8 +552,8 @@ pub fn shell_set_phase(phase: String) {
 #[tauri::command]
 pub fn pm_status(app: tauri::AppHandle) -> serde_json::Value {
     let pm = app.state::<std::sync::Arc<crate::process_manager::ProcessManager>>();
-    let states = pm.states.lock().unwrap();
-    let ports = pm.ports.lock().unwrap();
+    let states = pm.states.lock().unwrap_or_else(|e| e.into_inner());
+    let ports = pm.ports.lock().unwrap_or_else(|e| e.into_inner());
     let workloads: serde_json::Value = states
         .iter()
         .map(|(id, st)| {

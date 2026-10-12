@@ -12,6 +12,7 @@
     NS.lastEnv = null; NS.envStuck = null;
         
     NS._alignRetried = false;
+    NS.coreApplyPending = false;
     NS.core.invoke('shell_bridge_contract').then(function (c) {
       NS.bridge = c || null;
     }).catch(function () {});

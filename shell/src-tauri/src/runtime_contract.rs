@@ -250,11 +250,8 @@ pub fn write(rt: &NodeRuntime) {
     let _ = std::fs::create_dir_all(&dir);
     let p = path();
     let body = serde_json::to_string_pretty(&meta(rt)).unwrap_or_default();
-    let tmp = p.with_extension("json.tmp");
-    if std::fs::write(&tmp, body + "\n").is_ok() {
-        let _ = std::fs::rename(&tmp, &p);
-    } else {
-        let _ = std::fs::remove_file(&tmp);
+    if let Err(e) = crate::atomic_write::write(&p, &(body + "\n")) {
+        eprintln!("[runtime_contract] 落盘失败: {e}");
     }
 }
 

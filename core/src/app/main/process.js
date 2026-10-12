@@ -5,13 +5,32 @@ const pidlook = require('../../platform/os/pidlookup');
 const { LineBuffer } = require('../../platform/service/log/log');
 const native = require('../../app/native/command');
 const BRAND = require('../../shared/brand');
+const guardian = require('../../shared/guardian');
 const { findManagedDshPort, applyMainPort } = require('./port-rederive');
 
 const DEPS = new WeakMap();
-const HELPERS = ['MissingNotified', 'SetMissingNotified', 'SetSpawnBlockedUntil', 'SetChild',
-  'Child', 'SetAdopted', 'SetAdoptPid', 'AdoptPid', 'SetObservedOnly', 'StartDeadline', 'SetStartDeadline',
-  'SetStartupFailWindowStart', 'SetStartupFailCount', 'SetLastFailure', 'SetLastRestartAt',
-  'SetRestartCount', 'RestartCount', 'SetRestartAt'];
+const HELPERS = [
+  'MissingNotified',
+  'SetMissingNotified',
+  'SetSpawnBlockedUntil',
+  'SetChild',
+  'Child',
+  'SetAdopted',
+  'SetAdoptPid',
+  'AdoptPid',
+  'SetObservedOnly',
+  'StartDeadline',
+  'SetStartDeadline',
+  'StartupFailWindowStart',
+  'SetStartupFailWindowStart',
+  'StartupFailCount',
+  'SetStartupFailCount',
+  'SetLastFailure',
+  'SetLastRestartAt',
+  'SetRestartCount',
+  'RestartCount',
+  'SetRestartAt',
+]
 function depsOf(host) {
   let d = DEPS.get(host);
   if (!d) {
@@ -226,14 +245,31 @@ module.exports = {
     d.logger().warn('restart triggered: ' + reason + (startupFailure ? '（启动窗口内退出，计一次启动失败）' : '（正常重启）'));
     d.tokenService().clear('main');
     if (!manual) d.mSetRestartCount(d.mRestartCount() + 1);
-    const throttle = null;
-    if (throttle && throttle.failed) {
-      
-      d.mSetRestartAt(null);
-    } else {
-      d.state().setPhase('STARTING');
-      d.mSetRestartAt(Date.now() + d.config().portReleaseWaitMs);
+    let throttle = null;
+    if (startupFailure) {
+      throttle = guardian.bumpStartupFailure(
+        { start: d.mStartupFailWindowStart(), count: d.mStartupFailCount() },
+        Date.now(),
+        {
+          windowMs: d.config().startupFailWindowMs || 60000,
+          burst: d.config().startupFailBurst || 5,
+        },
+      );
+      d.mSetStartupFailWindowStart(throttle.start);
+      d.mSetStartupFailCount(throttle.count);
     }
+    if (throttle && throttle.tripped) {
+      d.state().setPhase('FAILED');
+      d.mSetStartDeadline(null);
+      d.mSetRestartAt(null);
+      d.writeCrashHalted(true);
+      d.events().append('main_startup_failed', { reason, count: throttle.count });
+      d.logger().error('主进程启动反复失败（' + throttle.count + ' 次），已停止自动重启');
+      d.state().write();
+      return;
+    }
+    d.state().setPhase('STARTING');
+    d.mSetRestartAt(Date.now() + d.config().portReleaseWaitMs);
     d.mSetStartDeadline(null);
     const child = d.mChild();
     if (child && child.exitCode === null) d.main().killSequence(child);

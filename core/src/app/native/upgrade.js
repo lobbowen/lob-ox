@@ -83,14 +83,14 @@ function finishUpToDate(host, oldV, target, task) {
   return { ok: true, result: 'up-to-date', from: oldV, to: target };
 }
 
-function finishStopped(host, oldV, target, task) {
+async function finishStopped(host, oldV, target, task) {
   host.upgradeState = 'done';
   host.upgradeFinishedAt = new Date().toISOString();
   log(host, 'DSH 期望状态为 stopped；下次 start 将使用新版本。');
   if (host.events) host.events.append('upgrade_done', { from: oldV, to: target, note: 'desired=stopped' });
   if (task) { host.tasks.log(task.id, 'DSH 期望状态为 stopped；下次 start 将使用新版本'); host.tasks.succeed(task.id); }
   host._activeTaskId = null;
-  if (host.hooks.resumeAfterUpgrade) host.hooks.resumeAfterUpgrade();
+  if (host.hooks.resumeAfterUpgrade) await host.hooks.resumeAfterUpgrade();
   return { ok: true, result: 'installed', from: oldV, to: target };
 }
 
@@ -110,7 +110,7 @@ async function verifyAndFinalize(host, oldV, target, task) {
   markStep(host, task, '拉起并验证');
   log(host, '重新拉起 DSH，等待健康验证…');
   taskLog(host, task, '重新拉起 DSH，等待健康验证…');
-  if (host.hooks.resumeAfterUpgrade) host.hooks.resumeAfterUpgrade();
+  if (host.hooks.resumeAfterUpgrade) await host.hooks.resumeAfterUpgrade();
   const port = host._targetPort();
   if (!port) {
     const msg = '无法确定原生 DSH 端口（healthUrl 缺失）';
@@ -155,7 +155,7 @@ async function rollbackNative(host, oldVersion, task) {
   }
   tlog('回滚完成，磁盘版本 ' + oldVersion);
   try { await host._recordManifest(oldVersion); } catch (e2) { tlog('manifest 更新失败: ' + e2.message); }
-  if (host.hooks.resumeAfterUpgrade) host.hooks.resumeAfterUpgrade();
+  if (host.hooks.resumeAfterUpgrade) await host.hooks.resumeAfterUpgrade();
   const port = host._targetPort();
   if (port) {
     const healthy = await host._waitNativeHealthy(port, host._mainUnit(), 60000);
@@ -215,7 +215,7 @@ async function handleUpgradeFailure(host, err) {
     if (taskId && host.tasks) host.tasks.fail(taskId, err.message, { meta: { rolledBack: false } });
   }
   if (host.hooks.desiredRunning && host.hooks.desiredRunning()) log(host, '恢复启动 DSH（当前磁盘版本）。');
-  if (host.hooks.resumeAfterUpgrade) host.hooks.resumeAfterUpgrade();
+  if (host.hooks.resumeAfterUpgrade) await host.hooks.resumeAfterUpgrade();
   host._activeTaskId = null;
 }
 

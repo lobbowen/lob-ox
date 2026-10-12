@@ -142,7 +142,7 @@ function handle(ctx) {
       return render();
     }
     if (req.method === 'POST' && pathname.startsWith('/instances/')) {
-      if (!originAllowed(req)) { req.resume(); return send(403, {}); }
+      if (!originAllowed(req)) return ctx.rejectCrossOrigin(ctx);
       const act = pathname.slice('/instances/'.length);
       collectBody(req, res, 65536, (body) => {
         try {

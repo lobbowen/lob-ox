@@ -53,9 +53,8 @@ pub fn write_stamp(shell_version: &str) -> Result<(), String> {
     });
     let text = serde_json::to_string_pretty(&v).map_err(|e| format!("序列化版本戳失败: {}", e))?;
     
-    let tmp = p.with_extension("json.tmp");
-    std::fs::write(&tmp, text).map_err(|e| format!("写版本戳失败: {}", e))?;
-    std::fs::rename(&tmp, &p).map_err(|e| format!("版本戳落盘失败: {}", e))?;
+    // 收口到 atomic_write：此前 rename 失败会泄漏 .tmp。
+    crate::atomic_write::write(&p, &text)?;
     Ok(())
 }
 

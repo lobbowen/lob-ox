@@ -33,7 +33,7 @@ class PortAllocator {
       await new Promise((res) => setTimeout(res, 10));
       waited += 10;
       
-      if (waited >= XLOCK_TIMEOUT_MS) { r._allocLock = true; break; }
+      if (waited >= XLOCK_TIMEOUT_MS) { throw new Error('ports.claimSlot: 进程内分配锁等待超时（' + XLOCK_TIMEOUT_MS + 'ms），拒绝在无锁状态下分配'); }
     }
     this._xrel = await this._acquireXLock();
     r._syncFromDisk();
@@ -67,9 +67,9 @@ class PortAllocator {
           try { recyclable = lease.lockRecyclable(f, XLOCK_STALE_MS); } catch { recyclable = false; }
           if (recyclable) { try { fs.unlinkSync(f); } catch {  } }
           if (Date.now() < deadline) { await new Promise((res) => setTimeout(res, 25)); continue; }
-          return null;
+          throw new Error('ports.claimSlot: 跨进程分配锁等待超时（' + XLOCK_TIMEOUT_MS + 'ms），拒绝在无锁状态下分配');
         }
-        return null;
+        throw new Error('ports.claimSlot: 跨进程分配锁获取失败（' + (e && e.code ? e.code : e) + '），拒绝在无锁状态下分配');
       }
     }
   }

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 const SHARED_JSON: &str = include_str!("../../../shared/shared-constants.json");
 
 
-fn shared_str(path: &str) -> &'static str {
+pub fn shared_str(path: &str) -> &'static str {
     let mut cur = SHARED_JSON;
     for part in path.split('.') {
         let key = format!("\"{}\"", part);
@@ -27,7 +27,7 @@ fn shared_str(path: &str) -> &'static str {
     panic!("brand: 共享常量路径指向对象 {}", path)
 }
 
-fn shared_num(path: &str) -> u16 {
+pub fn shared_num(path: &str) -> u16 {
     let mut cur = SHARED_JSON;
     for (i, part) in path.split('.').enumerate() {
         let key = format!("\"{}\"", part);
@@ -69,7 +69,7 @@ pub const TAURI_IDENTIFIER: &str = "dev.bowen.lobox";
 pub const TAURI_PRODUCT_NAME: &str = "lobox";
 
 
-pub const STATE_DIR_NAME: &str = "lobox";
+pub const STATE_DIR_NAME: &str = crate::brand::shared_str("state.dirName");
 
 pub const STATE_SUPERVISOR_SUBDIR: &str = "supervisor";
 
@@ -77,20 +77,20 @@ pub const STATE_SHELL_SUBDIR: &str = "shell";
 
 pub const LEGACY_PRODUCT_NAME: &str = "dsh-supervisor";
 
-pub const STATE_ROOT_WIN_BASE_ENV: &str = "LOCALAPPDATA";
+pub const STATE_ROOT_WIN_BASE_ENV: &str = crate::brand::shared_str("state.winBaseEnv");
 
 pub const STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS: &[&str] = &["AppData", "Local"];
 
 pub const STATE_ROOT_MACOS_SEGMENTS: &[&str] = &["Library", "Application Support"];
 
-pub const STATE_ROOT_LINUX_XDG_ENV: &str = "XDG_STATE_HOME";
+pub const STATE_ROOT_LINUX_XDG_ENV: &str = crate::brand::shared_str("state.linuxXdgEnv");
 
 pub const STATE_ROOT_LINUX_FALLBACK_SEGMENTS: &[&str] = &[".local", "state"];
 
-pub const LEGACY_HARNESS_DIR: &str = ".dsh";
+pub const LEGACY_HARNESS_DIR: &str = crate::brand::shared_str("state.legacyHarnessDir");
 
 
-pub const ENV_STATE_ROOT: &str = "DSH_SUPERVISOR_HOME";
+pub const ENV_STATE_ROOT: &str = crate::brand::shared_str("env.stateRoot");
 
 pub const ENV_CONFIG: &str = "DSH_SUPERVISOR_CONFIG";
 
@@ -205,7 +205,7 @@ pub const CLI_SHIM_NAMES: &[&str] = &["lobox", "lobox.cmd", "lobox.ps1"];
 pub const GUI_BIN_NAMES: &[&str] = &["lobox-shell", "lobox-shell.exe"];
 
 
-pub const PROC_MATCH_GUARD: &str = "*lobox*";
+pub const PROC_MATCH_GUARD: &str = crate::brand::shared_str("proc.matchGuard");
 
 pub const PROC_MATCH_GUI: &str = "lobox-shell";
 

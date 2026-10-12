@@ -224,7 +224,7 @@ pub fn outdated(installed: Option<&str>, latest: &str) -> bool {
     }
 }
 
-pub const MIN_NODE: &str = "v22.12.0";
+pub const MIN_NODE: &str = crate::brand::shared_str("runtime.minNode");
 
 pub fn meets_minimum(installed: Option<&str>) -> bool {
     match installed {

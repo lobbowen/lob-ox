@@ -17,7 +17,7 @@ function handle(ctx) {
   }
 
   if (req.method === 'POST' && pathname === '/shell/health') {
-    if (!originAllowed(req)) { req.resume(); return send(403, {}); }
+    if (!originAllowed(req)) return ctx.rejectCrossOrigin(ctx);
     return collectBody(req, res, 8192, (body) => {
       let j = {};
       try { j = body ? JSON.parse(body) : {}; } catch {}
@@ -27,7 +27,7 @@ function handle(ctx) {
   }
 
   if (req.method === 'POST' && pathname === '/shell/check-update') {
-    if (!originAllowed(req)) { req.resume(); return send(403, {}); }
+    if (!originAllowed(req)) return ctx.rejectCrossOrigin(ctx);
     req.resume();
     return Promise.resolve(shell.checkUpdate(sup.dist, { authoritative: true }))
       .then((r) => {

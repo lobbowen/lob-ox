@@ -178,7 +178,7 @@ fn config_json() -> Option<serde_json::Value> {
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
 }
 
-pub const DEPRECATED_API_PORTS: &[u16] = &[36360];
+pub const DEPRECATED_API_PORTS: &[u16] = &[crate::brand::shared_num("net.deprecatedApiPorts.0")];
 
 pub fn is_deprecated_api_port(port: u16) -> bool {
     DEPRECATED_API_PORTS.contains(&port)
@@ -214,7 +214,7 @@ pub fn close_action() -> String {
         .unwrap_or_else(|| "hide".into())
 }
 
-pub const DEFAULT_API_PORT: u16 = 37360;
+pub const DEFAULT_API_PORT: u16 = crate::brand::shared_num("net.apiPort");
 
 pub fn api_port() -> u16 {
     let u = api_base_url();
@@ -275,6 +275,10 @@ fn windows_path_add(dir: &str) -> Result<String, String> {
         return Ok("PATH 已含全局目录".to_string());
     }
     let next = if cur.is_empty() { dir.to_string() } else { format!("{};{}", cur, dir) };
+    // 防呆：新 PATH 不得比读到的旧 PATH 更短（更短意味着续行没拼全，写回即丢数据）。
+    if !cur.is_empty() && next.len() < cur.len() {
+        return Err(format!("拒绝写入：新 PATH({}) 短于现值({})，疑似续行未拼全", next.len(), cur.len()));
+    }
     let r = crate::bounded::run(Command::new("reg").args(["add", "HKCU\\Environment", "/v", "PATH", "/t", "REG_EXPAND_SZ", "/d", &next, "/f"]), std::time::Duration::from_secs(8));
     match r {
         Ok(o) if o.success => Ok("已登记用户 PATH（并广播环境变更）".to_string()),
@@ -289,12 +293,38 @@ fn windows_user_path() -> Option<String> {
     let r = crate::bounded::run(Command::new("reg").args(["query", "HKCU\\Environment", "/v", "PATH"]), std::time::Duration::from_secs(8));
     let o = r.ok()?;
     if !o.success { return None; }
-    for line in o.stdout.lines() {
-        if let Some(rest) = line.split_once("REG_EXPAND_SZ").or_else(|| line.split_once("REG_SZ")) {
-            return Some(rest.1.trim().to_string());
+    // reg query 对长值按物理行折行，续行不带类型标记。只取含标记那一行会静默
+    // 截断用户 PATH 尾部；必须把其后所有续行一并拼回。
+    let mut lines = o.stdout.lines();
+    let mut acc: Option<String> = None;
+    while let Some(line) = lines.next() {
+        let marked = line
+            .split_once("REG_EXPAND_SZ")
+            .or_else(|| line.split_once("REG_SZ"));
+        if let Some((_, rest)) = marked {
+            let mut val = rest.trim().to_string();
+            for cont in lines.by_ref() {
+                if cont.contains("REG_EXPAND_SZ") || cont.contains("REG_SZ") {
+                    break;
+                }
+                let t = cont.trim();
+                if t.is_empty() {
+                    continue;
+                }
+                // reg 按固定列宽折行，断点可能落在 token 中间，不能一律补 ';'。
+                // 仅当续行自身像一个新条目（盘符或 UNC 开头）时才补分隔。
+                let looks_new_entry = t.starts_with("\\\\")
+                    || (t.len() >= 2 && t.as_bytes()[1] == b':' && (t.as_bytes()[0] as char).is_ascii_alphabetic());
+                if looks_new_entry && !val.ends_with(';') {
+                    val.push(';');
+                }
+                val.push_str(t);
+            }
+            acc = Some(val);
+            break;
         }
     }
-    None
+    acc
 }
 
 #[cfg(not(windows))]

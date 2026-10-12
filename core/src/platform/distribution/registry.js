@@ -168,6 +168,37 @@ async function setRegistryConfig(state, cfg) {
   return info;
 }
 
+const http = require('node:http');
+const https = require('node:https');
+
+function probeOriginHttp(origin, timeoutMs) {
+  return new Promise((resolve) => {
+    let u;
+    try { u = new URL(origin); } catch { return resolve({ ok: false, latencyMs: null, error: 'origin 非法' }); }
+    const mod = u.protocol === 'https:' ? https : http;
+    const t0 = Date.now();
+    const req = mod.get(u, (res) => {
+      res.resume();
+      resolve({ ok: res.statusCode < 500, latencyMs: Date.now() - t0, status: res.statusCode });
+    });
+    req.setTimeout(Math.max(200, Number(timeoutMs) || 5000), () => {
+      try { req.destroy(); } catch {}
+      resolve({ ok: false, latencyMs: null, error: '超时' });
+    });
+    req.on('error', (e) => resolve({ ok: false, latencyMs: null, error: e.message }));
+  });
+}
+
+
+function probeRegistry(state, origin, opts) {
+  const o = opts || {};
+  return probeOriginHttp(origin, o.timeoutMs);
+}
+
+function probeOrigin(state, origin, opts) {
+  return probeRegistry(state, origin, opts);
+}
+
 module.exports = {
   platformTag,
   registryOrigins,
@@ -175,5 +206,5 @@ module.exports = {
   selectRegistry,
   registryOrigin,
   registryInfo,
-  setRegistryConfig,
+  setRegistryConfig, probeOrigin, probeRegistry,
 };

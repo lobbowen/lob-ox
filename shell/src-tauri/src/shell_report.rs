@@ -109,12 +109,7 @@ fn post(payload: &serde_json::Value) -> Result<(), String> {
     let body = serde_json::to_string_pretty(&serde_json::Value::Object(doc))
         .map_err(|e| format!("序列化报告失败：{}", e))?;
     let p = file();
-    let tmp = p.with_extension("json.tmp");
-    std::fs::write(&tmp, body + "\n").map_err(|e| format!("写入临时文件失败：{}", e))?;
-    std::fs::rename(&tmp, &p).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        format!("提交报告失败：{}", e)
-    })
+    crate::atomic_write::write(&p, &(body + "\n"))
 }
 
 pub fn publish(out: &Outcome, deps: &Snapshot) {
