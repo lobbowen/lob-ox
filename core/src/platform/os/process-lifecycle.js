@@ -1,7 +1,7 @@
 'use strict';
 
-const procOS = require('../../platform/os/process');
-const pidlook = require('../../platform/os/pidlookup');
+const procOS = require('./process');
+const pidlook = require('./pidlookup');
 
 const DEFAULTS = {
   stopGraceMs: 9000,        
