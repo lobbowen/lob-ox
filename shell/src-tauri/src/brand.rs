@@ -9,7 +9,7 @@ const SHARED_JSON: &str = include_str!("../../../shared/shared-constants.json");
 
 // 路径段既可以是对象键，也可以是数组下标（如 "net.deprecatedApiPorts.0"）。
 // 数组元素没有 "key": 形态，按下标在第 N 个元素处定位。
-fn advance(cur: &str, part: &str, path: &str) -> &str {
+fn advance<'a>(cur: &'a str, part: &str, path: &str) -> &'a str {
     if let Ok(idx) = part.parse::<usize>() {
         // 先推进到数组值本身（上一段给出的形如 "[36360, 37000]"），
         // 再按下标取元素。注意剥掉左括号，否则元素文本会以 "[" 开头。
@@ -91,7 +91,12 @@ pub const TAURI_IDENTIFIER: &str = "dev.bowen.lobox";
 pub const TAURI_PRODUCT_NAME: &str = "lobox";
 
 
-pub const STATE_DIR_NAME: &str = crate::brand::shared_str("state.dirName");
+static STATE_DIR_NAME_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+// 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
+pub fn state_dir_name() -> &'static str {
+    STATE_DIR_NAME_CELL.get_or_init(|| shared_str("state.dirName"))
+}
 
 pub const STATE_SUPERVISOR_SUBDIR: &str = "supervisor";
 
@@ -99,20 +104,40 @@ pub const STATE_SHELL_SUBDIR: &str = "shell";
 
 pub const LEGACY_PRODUCT_NAME: &str = "dsh-supervisor";
 
-pub const STATE_ROOT_WIN_BASE_ENV: &str = crate::brand::shared_str("state.winBaseEnv");
+static STATE_ROOT_WIN_BASE_ENV_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+// 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
+pub fn state_root_win_base_env() -> &'static str {
+    STATE_ROOT_WIN_BASE_ENV_CELL.get_or_init(|| shared_str("state.winBaseEnv"))
+}
 
 pub const STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS: &[&str] = &["AppData", "Local"];
 
 pub const STATE_ROOT_MACOS_SEGMENTS: &[&str] = &["Library", "Application Support"];
 
-pub const STATE_ROOT_LINUX_XDG_ENV: &str = crate::brand::shared_str("state.linuxXdgEnv");
+static STATE_ROOT_LINUX_XDG_ENV_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+// 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
+pub fn state_root_linux_xdg_env() -> &'static str {
+    STATE_ROOT_LINUX_XDG_ENV_CELL.get_or_init(|| shared_str("state.linuxXdgEnv"))
+}
 
 pub const STATE_ROOT_LINUX_FALLBACK_SEGMENTS: &[&str] = &[".local", "state"];
 
-pub const LEGACY_HARNESS_DIR: &str = crate::brand::shared_str("state.legacyHarnessDir");
+static LEGACY_HARNESS_DIR_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+// 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
+pub fn legacy_harness_dir() -> &'static str {
+    LEGACY_HARNESS_DIR_CELL.get_or_init(|| shared_str("state.legacyHarnessDir"))
+}
 
 
-pub const ENV_STATE_ROOT: &str = crate::brand::shared_str("env.stateRoot");
+static ENV_STATE_ROOT_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+// 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
+pub fn env_state_root() -> &'static str {
+    ENV_STATE_ROOT_CELL.get_or_init(|| shared_str("env.stateRoot"))
+}
 
 pub const ENV_CONFIG: &str = "DSH_SUPERVISOR_CONFIG";
 
@@ -227,7 +252,12 @@ pub const CLI_SHIM_NAMES: &[&str] = &["lobox", "lobox.cmd", "lobox.ps1"];
 pub const GUI_BIN_NAMES: &[&str] = &["lobox-shell", "lobox-shell.exe"];
 
 
-pub const PROC_MATCH_GUARD: &str = crate::brand::shared_str("proc.matchGuard");
+static PROC_MATCH_GUARD_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+// 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
+pub fn proc_match_guard() -> &'static str {
+    PROC_MATCH_GUARD_CELL.get_or_init(|| shared_str("proc.matchGuard"))
+}
 
 pub const PROC_MATCH_GUI: &str = "lobox-shell";
 

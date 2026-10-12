@@ -126,7 +126,7 @@ pub fn known_install_node_path() -> Option<PathBuf> {
 pub const STATE_ROOT_SCHEMA: u32 = 1;
 
 pub fn state_root() -> PathBuf {
-    if let Ok(v) = std::env::var(crate::brand::ENV_STATE_ROOT) {
+    if let Ok(v) = std::env::var(crate::brand::env_state_root()) {
         if !v.trim().is_empty() {
             return PathBuf::from(v.trim());
         }
@@ -147,11 +147,11 @@ pub fn migrate_legacy() {
     let root = state_root();
     for (from, to) in [
         (
-            home.join(crate::brand::LEGACY_HARNESS_DIR).join(crate::brand::STATE_SUPERVISOR_SUBDIR),
+            home.join(crate::brand::legacy_harness_dir()).join(crate::brand::STATE_SUPERVISOR_SUBDIR),
             root.join(crate::brand::STATE_SUPERVISOR_SUBDIR),
         ),
         (
-            home.join(crate::brand::LEGACY_HARNESS_DIR).join(crate::brand::STATE_SHELL_SUBDIR),
+            home.join(crate::brand::legacy_harness_dir()).join(crate::brand::STATE_SHELL_SUBDIR),
             root.join(crate::brand::STATE_SHELL_SUBDIR),
         ),
     ] {

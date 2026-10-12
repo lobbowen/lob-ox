@@ -70,7 +70,7 @@ impl Platform for Impl {
 
     fn state_root_default(&self) -> PathBuf {
         crate::brand::state_root_linux(
-            std::env::var_os(crate::brand::STATE_ROOT_LINUX_XDG_ENV),
+            std::env::var_os(crate::brand::state_root_linux_xdg_env()),
             &super::home_dir(),
         )
     }
