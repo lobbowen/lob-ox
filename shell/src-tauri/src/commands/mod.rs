@@ -44,7 +44,7 @@ pub async fn node_status(app: tauri::AppHandle, retry: Option<bool>) -> serde_js
         let mut o = crate::log(&st);
         o["installed"] = serde_json::json!(installed);
         o["minOk"] = serde_json::json!(crate::node::meets_minimum(installed.as_deref()));
-        o["minRequired"] = serde_json::json!(crate::node::MIN_NODE);
+        o["minRequired"] = serde_json::json!(crate::node::min_node());
         if let Some(latest) = &st.latest {
             o["outdated"] = serde_json::json!(crate::node::outdated(installed.as_deref(), latest));
         }
@@ -153,7 +153,7 @@ pub async fn system_node_ready() -> serde_json::Value {
         return serde_json::json!({
             "installed": serde_json::Value::Null,
             "minOk": false,
-            "minRequired": crate::node::MIN_NODE,
+            "minRequired": crate::node::min_node(),
             "npmOk": serde_json::Value::Null,
             "nodePath": serde_json::Value::Null,
         });
@@ -177,7 +177,7 @@ pub async fn system_node_ready() -> serde_json::Value {
     serde_json::json!({
         "installed": version,
         "minOk": min_ok,
-        "minRequired": crate::node::MIN_NODE,
+        "minRequired": crate::node::min_node(),
         "npmOk": npm_ok,
         "npmWhy": npm_why,
         "nodePath": path.display().to_string(),

@@ -338,12 +338,12 @@ pub fn state_root_windows(local_appdata: Option<String>, home: &Path) -> PathBuf
     let base = env_base(local_appdata)
         .map(PathBuf::from)
         .unwrap_or_else(|| home_join(home, STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS));
-    base.join(STATE_DIR_NAME)
+    base.join(state_dir_name())
 }
 
 
 pub fn state_root_macos(home: &Path) -> PathBuf {
-    home_join(home, STATE_ROOT_MACOS_SEGMENTS).join(STATE_DIR_NAME)
+    home_join(home, STATE_ROOT_MACOS_SEGMENTS).join(state_dir_name())
 }
 
 
@@ -351,5 +351,5 @@ pub fn state_root_linux(xdg_state_home: Option<std::ffi::OsString>, home: &Path)
     let base = env_base_os(xdg_state_home)
         .map(PathBuf::from)
         .unwrap_or_else(|| home_join(home, STATE_ROOT_LINUX_FALLBACK_SEGMENTS));
-    base.join(STATE_DIR_NAME)
+    base.join(state_dir_name())
 }

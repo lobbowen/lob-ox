@@ -168,7 +168,7 @@ fn meta(rt: &NodeRuntime) -> serde_json::Value {
                 
         "nodePath": node_s,
         "nodeVersion": rt.version,
-        "minNode": crate::node::MIN_NODE,
+        "minNode": crate::node::min_node(),
         "source": "official-lts",
         "installedAt": crate::node::now_iso(),
         "updatedAt": crate::node::now_iso(),

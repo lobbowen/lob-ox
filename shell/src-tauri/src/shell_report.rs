@@ -28,7 +28,7 @@ fn node_view(out: &Outcome) -> Option<serde_json::Value> {
         "path": out.path.as_ref().map(|p| p.display().to_string()),
         "binDir": out.path.as_ref().and_then(|p| p.parent()).map(|d| d.display().to_string()),
         "version": version,
-        "min": crate::node::MIN_NODE,
+        "min": crate::node::min_node(),
         "ok": crate::node::meets_minimum(Some(version.as_str())),
     }))
 }
@@ -164,7 +164,7 @@ mod tests {
             assert!(j.get(k).is_some(), "载荷缺契约键 {}", k);
         }
         assert_eq!(j["node"]["version"], "v22.12.0");
-        assert_eq!(j["node"]["min"], crate::node::MIN_NODE);
+        assert_eq!(j["node"]["min"], crate::node::min_node());
         assert_eq!(j["npm"]["path"], "/opt/node/bin/npm");
         assert_eq!(j["npm"]["args"], serde_json::json!([]));
         assert_eq!(j["prefix"]["dir"], "/usr/local");

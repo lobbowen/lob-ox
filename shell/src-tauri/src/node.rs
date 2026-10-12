@@ -224,12 +224,17 @@ pub fn outdated(installed: Option<&str>, latest: &str) -> bool {
     }
 }
 
-pub const MIN_NODE: &str = crate::brand::shared_str("runtime.minNode");
+static MIN_NODE_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+// 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
+pub fn min_node() -> &'static str {
+    MIN_NODE_CELL.get_or_init(|| crate::brand::shared_str("runtime.minNode"))
+}
 
 pub fn meets_minimum(installed: Option<&str>) -> bool {
     match installed {
         None => false,
-        Some(v) => !version_gt(MIN_NODE, v),
+        Some(v) => !version_gt(min_node(), v),
     }
 }
 
@@ -292,7 +297,7 @@ pub fn finalize_install(
         return Err((false, format!("安装后版本 {} 与目标 {} 不一致", v, target)));
     }
     if !meets_minimum(Some(&v)) {
-        return Err((false, format!("安装到的 Node.js {} 低于最低要求 {}", v, MIN_NODE)));
+        return Err((false, format!("安装到的 Node.js {} 低于最低要求 {}", v, min_node())));
   }
     if let Some(rt) = crate::runtime_contract::derive_usable(node_bin, &v) {
         crate::runtime_contract::write(&rt);
