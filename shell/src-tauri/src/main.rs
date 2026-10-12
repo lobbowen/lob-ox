@@ -173,6 +173,7 @@ fn main() {
             }
             {
                 let pm = app.state::<std::sync::Arc<crate::process_manager::ProcessManager>>();
+                crate::process_manager::spawn_healer(pm.inner().clone());
             }
             env::migrate_legacy();
                         

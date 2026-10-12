@@ -17,6 +17,9 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 /// 单一进程管理器实例（全局单例，由 main 在启动时持有）。
+/// 自愈节拍间隔（秒）：内核 120s 预算下 5s 一拍足够密集，又不至于空转。
+const HEAL_TICK_SECS: u64 = 5;
+
 pub struct ProcessManager {
     /// 全产品唯一相位真相（内核 + 内核子负载）。
     pub states: Mutex<HashMap<String, state_machine::WorkloadState>>,
@@ -112,6 +115,43 @@ impl ProcessManager {
             st.last_transition = Instant::now();
         }
     }
+}
+
+
+/// 自愈节拍：壳侧唯一时钟，按优先级驱动所有已登记负载的重新拉起。
+/// 这是「自愈」真正生效的位置 —— heal_candidates 只做选择，本函数负责周期执行。
+/// 只重拉「壳持有 spawn_cmd 且期望 running」的对象（内核由壳 spawn 时已写入）。
+pub fn spawn_healer(pm: std::sync::Arc<ProcessManager>) {
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(HEAL_TICK_SECS));
+            let cands = pm.heal_candidates();
+            for desc in cands {
+                if desc.spawn_cmd.is_empty() {
+                    continue;
+                }
+                let mut cmd = std::process::Command::new(&desc.spawn_cmd[0]);
+                for a in desc.spawn_cmd.iter().skip(1) {
+                    cmd.arg(a);
+                }
+                match cmd.spawn() {
+                    Ok(child) => {
+                        crate::update::log(&format!(
+                            "[heal] 重拉 {} (pid={}, 优先级={:?})",
+                            desc.id,
+                            child.id(),
+                            desc.priority
+                        ));
+                        pm.adopt_spawned(desc, child.id());
+                    }
+                    Err(e) => {
+                        crate::update::log(&format!("[heal] 重拉 {} 失败: {}", desc.id, e));
+                        pm.note_heal_failure(&desc.id);
+                    }
+                }
+            }
+        }
+    });
 }
 
 impl Default for ProcessManager {
