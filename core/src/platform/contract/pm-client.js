@@ -86,6 +86,4 @@ module.exports = {
   setDesired(id, desired) { return post('/pm/set-desired', { id, desired }); },
   onPhase(id, phase) { return post('/pm/on-phase', { id, phase }); },
   recordExit(id, code, signal, startupFailure) { return post('/pm/record-exit', { id, code, signal, startup_failure: startupFailure === true }); },
-  requestRestart(id) { return post('/pm/request-restart', { id }); },
-  resetBackoff(id) { return post('/pm/reset-backoff', { id }); },
 };

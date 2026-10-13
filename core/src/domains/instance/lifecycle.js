@@ -8,6 +8,10 @@ const sandbox = require('./sandbox');
 const governor = require('./governor');
 const stateMachine = require('./state-machine');
 const execPath = require('../../platform/os/exec-path');
+// 进程所有权归壳：沙箱实例拉起后必须上报到壳的进程表，否则壳的 heal 看不到它、
+// 停机时也不知道要停它。此前只有 ManagedRegistry（守卫遗物）会上报，
+// 而那张表全仓零 register 调用——沙箱实例实际从不在任何进程表里。
+const pmClient = require('../../platform/contract/pm-client');
 function createLifecycle(deps) {
   const { store, service, logger, events, tokens, tasks, systemdDir, systemdTemplatePath, hooks, instancesRoot, resstats, machineFacts } = deps;
   const isSandboxSupported = deps.isSandboxSupported;
@@ -108,6 +112,14 @@ function createLifecycle(deps) {
         }
       }
       store.save();
+      // 向壳的进程表注册：spawn_cmd 必须是壳能独立执行的完整命令（含 node 与入口），
+      // 否则壳的 heal_candidates 会因 spawn_cmd 为空而跳过（process_manager/mod.rs）。
+      pmClient.register({
+        id: 'sandbox:' + inst.id,
+        spawn_cmd: cmdArr,
+        priority: 3,   // Sandbox：见 shell/src-tauri/src/process_manager/state_machine.rs
+      });
+      pmClient.setDesired('sandbox:' + inst.id, 'running');
       if (inst.port && hooks.onInstanceStart) hooks.onInstanceStart(inst);
       if (events) events.append('inst_started', { id: inst.id, port: inst.port });
       logger.info && logger.info('started instance ' + inst.name + ' (dsh-web@' + inst.id + ')');
@@ -161,7 +173,9 @@ function createLifecycle(deps) {
       return { ok: false, error: msg };
     }
     inst.state.phase = 'STOPPED';
-    
+    // 相位同步给壳：壳据此不再 heal 这个实例（desired=stopped）。
+    pmClient.setDesired('sandbox:' + inst.id, 'stopped');
+    pmClient.onPhase('sandbox:' + inst.id, 'stopped');
     stateMachine.clearStartupFailures(inst);
     inst.state.usage = null;
     runtime.delete(inst.id);
@@ -293,6 +307,9 @@ function createLifecycle(deps) {
   function supervise(id) {
     const inst = store.instances.find((i) => i.id === id);
     if (!inst || inst.domain === 'native') return { ok: true, skipped: !inst ? 'not-found' : 'native' };
+    // 每次 supervise 都把真实相位报给壳：壳的 heal_candidates 只捞
+    // 「desired=running 且 phase=failed」的对象，相位不报它就不会自愈。
+    pmClient.onPhase('sandbox:' + inst.id, inst.state && inst.state.phase ? inst.state.phase.toLowerCase() : 'stopped');
     const now = Date.now();
     try {
       const st = probe(inst);
