@@ -383,34 +383,6 @@ mod tests {
         assert_eq!(uniq.len(), 4, "四种判定文案不得撞车: {:?}", all);
     }
 
-    const HEALTHZ_OK: &[u8] = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nok";
-    const HEALTHZ_503: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n";
-    const SESSION_ACTIVE: &[u8] =
-        b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{\"sessionState\":\"active\"}";
-    const SESSION_STOPPED: &[u8] =
-        b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{\"sessionState\":\"stopped\"}";
-    const SESSION_UNKNOWN: &[u8] = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nnot json";
-
-    fn fake_serving(healthz: &'static [u8], session: &'static [u8]) -> u16 {
-        let l = TcpListener::bind("127.0.0.1:0").expect("假守卫应能绑定回环端口");
-        let port = l.local_addr().expect("回环监听必有地址").port();
-        std::thread::spawn(move || {
-            for stream in l.incoming().flatten() {
-                std::thread::spawn(move || {
-                    let mut stream = stream;
-                    let mut buf = [0u8; 256];
-                    let n = stream.read(&mut buf).unwrap_or(0);
-                    let req = String::from_utf8_lossy(&buf[..n]).into_owned();
-                    let reply = if req.contains("GET /healthz") { healthz } else { session };
-                    let _ = stream.write_all(reply);
-                    let _ = stream.flush();
-                });
-            }
-        });
-        port
-    }
-
-    #[test]
 
 }
 
