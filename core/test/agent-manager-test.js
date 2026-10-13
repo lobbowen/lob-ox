@@ -28,7 +28,7 @@ check('inventory 带能力矩阵与落点', () => {
   assert.ok(inv[0].installDir.includes('a1'));
 });
 check('未实现的 ops 明确抛错（不静默返回 undefined）', () => {
-  for (const fn of ['start', 'stop']) {
+  for (const fn of []) {
     assert.throws(() => m[fn]({ id: 'x' }), /待 .* 实现/, fn + ' 应明确抛错');
   }
 });
@@ -126,6 +126,32 @@ check('status 已实现：组合 versionInfo 与 phase', () => {
   assert.strictEqual(s.updateAvailable, true);
   assert.strictEqual(s.phase, 'RUNNING');
   assert.strictEqual(s.busy, false);
+});
+
+check('start 已实现：入口未定位时明确报错', async () => {
+  const r = await m.start({ id: 'zz', kind: 'sandbox', product: '@lob-ox/dsh' }, { npmRoot: null });
+  assert.strictEqual(r.ok, false);
+  assert.ok(/未安装|入口未定位/.test(r.error), r.error);
+});
+
+check('start 已实现：缺 service 明确报错', async () => {
+  const os = require('node:os');
+  const fsx = require('node:fs');
+  const path = require('node:path');
+  // 用一个真实存在的入口：否则会先被「未安装」挡住，测不到 service 缺失
+  const realBin = process.execPath;
+  const r = await m.start({ id: 'a1', kind: 'sandbox' }, {
+    entry: ['node', realBin],
+    service: null,
+  });
+  assert.strictEqual(r.ok, false);
+  assert.ok(/startTransient/.test(r.error), r.error);
+});
+
+check('stop 已实现：缺 stopUnit 明确报错', async () => {
+  const r = await m.stop({ id: 'a1' }, { service: {} });
+  assert.strictEqual(r.ok, false);
+  assert.ok(/stopUnit/.test(r.error));
 });
 
 check('dataDirOf/installDirOf 委托 model', () => {

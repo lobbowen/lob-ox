@@ -135,11 +135,57 @@ class AgentManager {
     });
     return upgradeOps.upgrade(wrapped, o.version || null, o.cfg || {});
   }
-  start(agent) {
-    throw new Error('agent.start: 待 ops/lifecycle 实现');
+  // 启动：入口由 ops/entry 定位，env 由形态决定，拉起交给 service 层。
+  // 本方法不碰进程——进程所有权归壳的进程管理（Y 模式）。
+  async start(agent, opts) {
+    const o = opts || {};
+    const lc = require('./ops/lifecycle');
+    const entryOps = require('./ops/entry');
+    const isSandbox = agent && agent.kind === 'sandbox';
+    const installDir = isSandbox ? path.join(this.root, agent.id, 'install') : (o.npmRoot || null);
+    const entry = o.entry || entryOps.entryOf(agent, {
+      root: this.root,
+      npmRoot: o.npmRoot || null,
+      installDir,
+      dshBin: o.dshBin || null,
+      env: o.env || null,
+    });
+    if (!entry || !entry.length) return { ok: false, error: 'agent 入口未定位（请先完成安装）' };
+    // 入口定位 ≠ 入口存在：sandboxEntry 只拼路径，不验证文件在不在。
+    // 不检查的话，未安装的沙箱 agent 会一路走到 service 才报错，
+    // 用户看到的是「拉起器不可用」而不是「还没安装」——错误信息指错方向。
+    const fs = require('node:fs');
+    const bin = entry.length > 1 ? entry[1] : entry[0];
+    if (isSandbox && bin && !fs.existsSync(bin)) {
+      return { ok: false, error: 'agent 未安装（入口不存在: ' + bin + '）' };
+    }
+    return lc.start({
+      agent,
+      entry,
+      dirs: o.dirs || (isSandbox ? {
+        data: path.join(this.root, agent.id, 'data'),
+        install: installDir,
+        nodeModules: path.join(installDir, 'lib', 'node_modules'),
+        tmp: path.join(this.root, agent.id, 'tmp'),
+      } : null),
+      port: o.port || (agent && agent.port) || null,
+      unit: o.unit || null,
+      pidFile: o.pidFile || null,
+      anchors: o.anchors || null,
+      ports: o.ports || null,
+      service: o.service || this.service,
+    });
   }
-  stop(agent) {
-    throw new Error('agent.stop: 待 ops/lifecycle 实现');
+  async stop(agent, opts) {
+    const o = opts || {};
+    const lc = require('./ops/lifecycle');
+    return lc.stop({
+      agent,
+      unit: o.unit || null,
+      launchCtx: o.launchCtx || null,
+      timeoutMs: o.timeoutMs || null,
+      service: o.service || this.service,
+    });
   }
   // 状态投影：组合 versionInfo（版本面）+ 调用方给的 phase（进程面）。
   // 原实现的 status() 混装两者，此处分开传、在此处合，便于两种形态各自提供。
