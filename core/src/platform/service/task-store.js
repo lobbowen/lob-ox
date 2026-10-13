@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeAtomic } = require('../util/fs');
+const { writeDurable } = require('../util/fs');
 
 function loadTasks(file, onRecover) {
   if (!file) return null;
@@ -31,7 +31,7 @@ function readDiskTasks(file) {
 
 function writeTasks(file, tasks) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  writeAtomic(file, JSON.stringify({ tasks }, null, 2), { mode: 0o600 });
+  writeDurable(file, JSON.stringify({ tasks }, null, 2), { mode: 0o600 });
 }
 
 function saveTasks(file, tasks, maxTasks) {

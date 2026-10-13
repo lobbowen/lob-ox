@@ -190,9 +190,18 @@ function probeOriginHttp(origin, timeoutMs) {
 }
 
 
+// R3 / 攻击链 D：probe 路径此前完全不走 parseRegistryBase 校验，而
+// setRegistryConfig（本文件后文）是有校验的——同一文件内两个入口强度不同。
+// 后果：POST /dist/registry/probe 可让内核向 file://、127.0.0.1、169.254.169.254
+// 发起 GET，而 probeOriginHttp 里 statusCode < 500 即判 ok，足以做内网端口扫描。
+// 修为与 setRegistryConfig 同源：探测目标必须先过同一个 URL 准入判定。
 function probeRegistry(state, origin, opts) {
   const o = opts || {};
-  return probeOriginHttp(origin, o.timeoutMs);
+  const parsed = ref.parseRegistryBase(origin);
+  if (!parsed.ok) {
+    return Promise.resolve({ ok: false, latencyMs: null, error: '非法镜像源（' + parsed.violation + '）', rejected: true });
+  }
+  return probeOriginHttp(parsed.base, o.timeoutMs);
 }
 
 function probeOrigin(state, origin, opts) {

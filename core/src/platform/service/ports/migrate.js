@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeAtomic } = require('../../util/fs');
+const { writeDurable } = require('../../util/fs');
 
 function migrateByOwnerPrefix(oldFile, newFile, prefixes) {
   const pre = (Array.isArray(prefixes) ? prefixes : [])
@@ -33,11 +33,11 @@ function migrateByOwnerPrefix(oldFile, newFile, prefixes) {
   const keep = doc.records.filter((r) => !matches(r));
   fs.mkdirSync(path.dirname(newFile), { recursive: true });
   try {
-    writeAtomic(oldFile, JSON.stringify({ records: keep }, null, 2), { mode: 0o600 });
-    writeAtomic(newFile, JSON.stringify(target, null, 2), { mode: 0o600 });
+    writeDurable(oldFile, JSON.stringify({ records: keep }, null, 2), { mode: 0o600 });
+    writeDurable(newFile, JSON.stringify(target, null, 2), { mode: 0o600 });
   } catch (e) {
     if (!targetExisted && fs.existsSync(newFile)) { try { fs.unlinkSync(newFile); } catch {  } }
-    try { writeAtomic(oldFile, JSON.stringify(doc, null, 2), { mode: 0o600 }); } catch {  }
+    try { writeDurable(oldFile, JSON.stringify(doc, null, 2), { mode: 0o600 }); } catch {  }
     throw e;
   }
   return moved;

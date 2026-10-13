@@ -60,15 +60,79 @@ pub async fn run(state: Arc<ProcessManager>) {
 const MGMT_TOKEN_HEADER: &str = "x-lobox-mgmt-token";
 const MGMT_BODY_CAP: usize = 64 * 1024;
 
-// 机箱管理端点的 peer 凭据：由端口派生，随端口契约一并落盘。
-// 目的不是防远程攻击（端点只绑回环），而是防止本机任意进程注入相位真相
-// 或伪造 spawn_cmd 供 healer 执行。
+// R3 / 攻击链 B：机箱管理端点的 peer 凭据。
+//
+// 原实现用 DefaultHasher(port + CLI_NAME) 派生。DefaultHasher 是零键 SipHash，
+// 输出确定可复现：任意本机进程读到 guard-mgmt.json（此前 0o644）拿到 port 即可
+// 本地算出 token，然后 POST 一个 spawn_cmd 为任意可执行文件的 WorkloadDesc，
+// healer 每 5 秒以壳的权限执行它。Windows 上 schtasks 用了 /RL HIGHEST，
+// 即完整的本地提权链。
+//
+// 修为：进程启动时生成 128-bit 随机根，令牌按端口 SHA256 派生。
+//   - 每个管理面一个令牌，泄漏一个不影响其他面；
+//   - 根不可复现，本机其他进程无法推算；
+//   - 比较用常量时间。
+
+use std::sync::OnceLock;
+
+static MGMT_TOKEN_ROOT: OnceLock<[u8; 32]> = OnceLock::new();
+
+fn mgmt_token_root() -> &static [u8; 32] {
+    MGMT_TOKEN_ROOT.get_or_init(|| {
+        let mut seed = [0u8; 32];
+        let mut ok = false;
+        unsafe {
+            #[cfg(target_os = "windows")]
+            {
+                extern "system" {
+                    fn RtlGenRandom(buf: *mut u8, len: u32) -> u8;
+                }
+                ok = RtlGenRandom(seed.as_mut_ptr(), seed.len() as u32) != 0;
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+                    use std::io::Read;
+                    ok = f.read_exact(&mut seed).is_ok();
+                }
+            }
+        }
+        if !ok {
+            let t = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let pid = std::process::id() as u128;
+            let ptr = seed.as_ptr() as u128;
+            let mix = t ^ (pid << 64) ^ (ptr << 16);
+            seed[..16].copy_from_slice(&mix.to_le_bytes());
+            seed[16..].copy_from_slice(&(!mix).to_le_bytes());
+        }
+        seed
+    })
+}
+
 fn mgmt_token(port: u16) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    port.hash(&mut h);
-    crate::brand::CLI_NAME.hash(&mut h);
-    format!("{:016x}", h.finish())
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(mgmt_token_root());
+    h.update(b"lobox-mgmt:");
+    h.update(port.to_string().as_bytes());
+    let digest = h.finalize();
+    hex::encode(&digest[..16])
+}
+
+fn token_eq(got: &str, want: &str) -> bool {
+    let a = got.as_bytes();
+    let b = want.as_bytes();
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for i in 0..a.len() {
+        diff |= a[i] ^ b[i];
+    }
+    diff == 0
 }
 fn export_port(port: u16) {
     let path = crate::env::supervisor_dir().join("guard-mgmt.json");
@@ -114,7 +178,7 @@ async fn handle(
         .get(MGMT_TOKEN_HEADER)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    if port == 0 || got_token != want_token {
+    if port == 0 || !token_eq(got_token, want_token) {
         return Ok(reply(StatusCode::UNAUTHORIZED, "mgmt token mismatch"));
     }
     let body = match req.into_body().collect().await {
@@ -163,12 +227,18 @@ async fn handle(
             if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
                 let code = json.get("code").and_then(|v| v.as_i64()).map(|x| x as i32);
                 let signal = json.get("signal").and_then(|v| v.as_str()).map(|s| s.to_string());
+                // R3 / D.8-P0-11：解析 startup_failure。缺省 false（未知不当失败）。
+                let startup_failure = json
+                    .get("startup_failure")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 state.record_exit(
                     id,
                     state_machine::LastWill {
                         code,
                         signal,
                         at: std::time::Instant::now(),
+                        startup_failure,
                     },
                 );
             }

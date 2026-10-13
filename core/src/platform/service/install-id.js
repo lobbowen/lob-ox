@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { writeAtomic } = require('../util/fs');
+const { writeDurable } = require('../util/fs');
 const { supervisorDir } = require('./state-root');
 
 const FILE_NAME = 'install-id';
@@ -49,7 +49,7 @@ function readInstallId() {
     const dir = path.dirname(fp);
     fs.mkdirSync(dir, { recursive: true });
     const id = crypto.randomUUID();
-    writeAtomic(fp, id + '\n', { mode: 0o600 });
+    writeDurable(fp, id + '\n', { mode: 0o600 });
     _cached = { id: id.toLowerCase(), source: 'created' };
     return _cached;
   } catch (e) {

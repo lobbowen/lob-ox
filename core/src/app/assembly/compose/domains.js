@@ -14,12 +14,19 @@ const { Health } = require('../../../app/self/health');
 const { HostService } = require('../../../app/settings/autostart');
 const { NativeManager } = require('../../../app/native/installer');
 const { LifecycleManager } = require('../../../app/control/manager');
+const { BeatScheduler } = require('../../../app/control/synchrony');
 const ports = require('../../../platform/service/ports').shared;
 
 function composeDomains(host) {
     const swDir = path.dirname(host.config.stateFile);
-    
-    try { ports.configureFile(path.join(path.dirname(host.config.stateFile), 'ports.json')); } catch (e) { host.logger.warn && host.logger.warn('ports configure: ' + e.message); }
+    // R2：BeatScheduler 提前到装配期创建。原设计 RouterService 的构造参数就要
+    // beatScheduler（第 26 行），但它此前在 assembly/bootstrap.js 的 _bootstrap 里
+    // 才创建——compose 阶段拿到的是 undefined。现在提前创建，装配期就能注册
+    // beat 与 afterTick，bootstrap 只负责 start。
+    if (!host._beatScheduler) {
+      host._beatScheduler = new BeatScheduler({ logger: host.logger, intervalMs: host.config.tickIntervalMs || 5000 });
+    }
+    try { ports.configureFile(path.join(path.dirname(host.config.stateFile), 'ports.json'), { siblingFiles: [path.join(path.dirname(host.config.stateFile), 'ports-router.json'), path.join(path.dirname(host.config.stateFile), 'ports-lan.json')] }); } catch (e) { host.logger.warn && host.logger.warn('ports configure: ' + e.message); }
     host.router = new RouterService({
       config: host.config,
       beatScheduler: host._beatScheduler, tickMs: host.config.tickIntervalMs || 5000,
@@ -56,7 +63,36 @@ function composeDomains(host) {
       if (host.managedObjects && typeof host.managedObjects.registerAdapter === 'function') {
         host.managedObjects.registerAdapter('sandbox-instance', { supervise: (entry) => host._sandboxSuperviseOnce(entry), tickEvery: 1 });
       }
-      if (host.managedObjects) host.managedObjects.onBeatDone = () => host.instances.governSweep();
+      // R2/D.11-P0-12：原先把 onBeatDone 赋给 host.managedObjects，但 ManagedRegistry
+      // 根本没有这个属性也没有读取方，而 BeatScheduler 自己持有的 onBeatDone 字段
+      // 无人赋值——结果是 governSweep 整套资源配额体系在生产中永不执行。
+      // 改为 BeatScheduler.afterTick 显式注册：注册列表是单一事实源，
+      // 「挂了但没人读」与「读了但没人挂」两种失效都不可能。
+      // 注意此处只注册，不启动 scheduler（启动在 assembly/bootstrap.js）。
+      if (host._beatScheduler && typeof host._beatScheduler.afterTick === 'function') {
+        host._beatScheduler.afterTick('govern-sweep', () => {
+          try { host.instances.governSweep(); } catch (e) {
+            host.logger && host.logger.warn && host.logger.warn('governSweep: ' + ((e && e.message) || e));
+          }
+        });
+        // 与 govern-sweep 同一根因的第三处空转：orphanAudit 全库无调用点。
+        // 节流在 scheduler.js 的 orphanAudit 内部（5 分钟）。
+        host._beatScheduler.afterTick('orphan-audit', () => host.orphanAudit());
+        // D.6-P0-10：hub.sync() 整条多源事件聚合链路此前全仓零调用点——
+        // _syncGuard/_syncDaemon/_saveWatermark 只被 sync() 调用，而 sync() 无人驱动。
+        // 装配链是完整的（enableHub/attachHub/eventHub 都在），缺的就是这一处驱动。
+        // 后果是 router-daemon 与 lan-daemon 的事件永不入聚合流、watermark 恒为初值，
+        // 而「多源事件聚合」这个特性在代码结构、注释、UI 标签里都假定存在。
+        // sync 内部自带节流（_tickSeq % 6 === 1 才同步 daemon），且由 beat 驱动有超时保护。
+        host._beatScheduler.afterTick('event-hub-sync', () => {
+          try {
+            const hub = host.eventHub;
+            if (hub && typeof hub.sync === 'function') return hub.sync();
+          } catch (e) {
+            host.logger && host.logger.warn && host.logger.warn('eventHub.sync: ' + ((e && e.message) || e));
+          }
+        });
+      }
     } catch (e) { host.logger && host.logger.warn && host.logger.warn('managed registry init: ' + (e && e.message)); }
     host._lan = null;
     host.pluginMarket = new PluginMarket({

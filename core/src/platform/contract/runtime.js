@@ -20,10 +20,16 @@ function read() {
     return null;
   }
   if (!j || typeof j !== 'object' || Array.isArray(j)) return null;
+  // D.8-P2-8：schema 必须校验。此前只记录不校验，而 registry.js 与 shell-report.js
+  // 都有严格的 schema 拒绝逻辑——runtime 是三者中唯一的缺口。schema 3 若改了字段名，
+  // 旧内核会静默误读（取不到值退化成 PATH 查找），表现为「明明装了 Node 却找不到」。
+  // 与 registry.js 的口径一致：大于 SUPPORTED_SCHEMA 一律拒绝（fail-closed）。
+  const schema = Number(j.schema);
+  if (Number.isFinite(schema) && schema > SUPPORTED_SCHEMA) return null;
   const node = (j.node && typeof j.node === 'object') ? j.node : {};
   const npm = (j.npm && typeof j.npm === 'object') ? j.npm : {};
   return {
-    schema: Number(j.schema) || 1,
+    schema: Number.isFinite(schema) ? schema : 1,
     nodePath: j.nodePath || node.path || null,
     nodeVersion: j.nodeVersion || node.version || null,
     nodeBinDir: j.nodeBinDir || node.binDir || null,

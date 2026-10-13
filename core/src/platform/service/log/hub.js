@@ -30,7 +30,12 @@ class EventHub {
     this.watermarkFile = path.join(this.aggDir, this.aggBase + '.aggregated.watermark.json');
     this.writer = new Events(this.aggFile, (opts.eventsMaxBytes) || 5 * 1024 * 1024, { process: 'guard-hub' });
     this.watermark = {};
-    for (const s of this._sources) this.watermark[s.name] = null;
+    this._generation = {};
+    // R1：已 ingest 的 (generation:srcSeq) 集合，用于 daemon seq 回退后的重放判重。
+    // 有界：每源最多记 5000 条，超出淘汰最旧（Map 保插入序）。
+    this._ingested = new Map();
+    this._ingestedCap = 5000;
+    for (const s of this._sources) { this.watermark[s.name] = null; this._generation[s.name] = 0; }
     if (this.watermark[this._localSource] === undefined) this.watermark[this._localSource] = null;
     this._loadWatermark();
     if (this.watermark[this._localSource] == null && this.guardEvents) this.watermark[this._localSource] = this.guardEvents.seq;
@@ -57,8 +62,14 @@ class EventHub {
 
   _ingest(source, list) {
     let lastOkSeq = null;
+    const gen = this._generation[source] || 0;
     for (const e of list) {
       if (!e || typeof e.seq !== 'number') continue;
+      // R1：按 (generation, srcSeq) 判重。daemon 重启导致 seq 回退后，下一拍会
+      // 重放一批已入过聚合的事件；此前它们以新聚合 seq 二次落盘，导致 /events 与
+      // /logs/export 出现重复行、metrics 计数虚高。现在同代际同 srcSeq 直接跳过。
+      const key = gen + ':' + e.seq;
+      if (this._ingested.has(key)) continue;
       try {
         const rec = {
           ts: e.ts || undefined,
@@ -71,6 +82,12 @@ class EventHub {
         if (e.producer) rec.producer = e.producer;
         this.writer.appendRaw(rec);
         if (this.writer._lastAppendOk === false) { this._log('warn', '[hub] ingest ' + source + ' seq=' + e.seq + ' 写盘失败，水位不推进'); break; }
+        this._ingested.set(key, 1);
+        // 有界：超出容量淘汰最旧一条。Map 保持插入序，第一条即最旧。
+        if (this._ingested.size > this._ingestedCap) {
+          const oldest = this._ingested.keys().next();
+          if (!oldest.done) this._ingested.delete(oldest.value);
+        }
         lastOkSeq = e.seq;
       } catch (e2) {
         this._log('warn', '[hub] ingest ' + source + ' seq=' + e.seq + ' failed: ' + ((e2 && e2.message) || e2));
@@ -112,6 +129,14 @@ class EventHub {
     }
   }
 
+  // R1/D.8-P0-6：daemon seq 回退时不再把水位压到回退值。
+  // 原实现回退时 this.watermark[which] = v.seq，下一拍用压低后的水位调
+  // eventsTail，daemon 返回 seq > after 的全部事件，已入过聚合的被二次 ingest。
+  // 聚合 writer 给每条重新分配聚合 seq，于是 /events 与 /logs/export 出现重复行，
+  // metrics() 的 events 与 byType 计数虚高。
+  // 修法：seq 回退从异常变成正常状态。水位改为「只增不减」，回退时递增代际
+  // （generation），聚合层按 (generation, seq) 二元组判重。重复摄取是被允许的，
+  // 去重是机械的——不再需要「压水位」这个危险操作。
   async _syncDaemon(which) {
     const port = this._portFor(which);
     if (!port) {
@@ -122,15 +147,19 @@ class EventHub {
       return;
     }
     try {
-      const v = await ctlCall(port, 'eventsTail', [this.watermark[which] == null ? 0 : this.watermark[which]], 2000);
+      // 注意：eventsTail 传 limit（ctl/server.js 已支持），避免 watermark 重置
+      // 那一拍把整个事件文件序列化进 HTTP 响应（D.6-P2-18）。
+      const v = await ctlCall(port, 'eventsTail', [this.watermark[which] == null ? 0 : this.watermark[which], 2000], 2000);
       if (v && typeof v.seq === 'number') {
         if (this.watermark[which] == null) {
           this.watermark[which] = v.seq;
           return;
         }
         if (v.seq < this.watermark[which]) {
-          this.logger && this.logger.warn && this.logger.warn('[hub] ' + which + ' 事件 seq 回退(' + v.seq + '<' + this.watermark[which] + ')——按文件重置重建基线');
-          this.watermark[which] = v.seq;
+          // 回退：水位不降，只记一次告警。下一拍仍用原水位取，daemon 会返回
+          // 一批重复事件，由 _ingest 的 (generation, seq) 判重消化。
+          this._generation[which] = (this._generation[which] || 0) + 1;
+          this.logger && this.logger.warn && this.logger.warn('[hub] ' + which + ' 事件 seq 回退(' + v.seq + '<' + this.watermark[which] + ')——水位不降，递增代际至 ' + this._generation[which] + '，按代际判重');
           return;
         }
         if (Array.isArray(v.events) && v.events.length) {

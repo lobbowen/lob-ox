@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeAtomic } = require('../../platform/util/fs');
+const { writeDurable } = require('../../platform/util/fs');
 
 function createMainStore(deps) {
   const g = deps || {};
@@ -78,7 +78,7 @@ function createMainStore(deps) {
         remoteMode: merged.remoteMode === 'lan' || merged.remoteMode === 'wan' ? merged.remoteMode : 'off',
         remoteToken: String(merged.remoteToken || ''),
       }, null, 2);
-      writeAtomic(f, body, { mode: 0o600 });
+      writeDurable(f, body, { mode: 0o600 });
     } catch (e) {
       const l = logger();
       if (l && l.warn) l.warn('writeDshMain: ' + ((e && e.message) || e));

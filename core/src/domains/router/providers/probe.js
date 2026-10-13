@@ -65,11 +65,20 @@ async function spawnInstance(provider, inst) {
   if (!launch.ok) return launch;
   const keyEnv = (app && app.keyEnv) || 'CC_API_KEY';
   const envVars = Object.assign({}, process.env);
+  // R7/D.12-E-2：凭据只走环境变量，禁入 argv 与 app.env 模板。
+  // env 对同 UID 可读但不会进 ps 输出；argv 对全用户可读（ps / /proc/*/cmdline）。
+  // app.env 的 {{key}} 替换若原样执行，凭据会经模板进入 argv（模板值就是参数），  // 故此处对含 {{key}} 的 app.env 项 fail-closed 拒绝启动，而不是静默替换。
   envVars[keyEnv] = inst.key;
   if (app && app.env && typeof app.env === 'object') {
     for (const [k, v] of Object.entries(app.env)) {
       if (k === keyEnv) continue;
-      envVars[k] = String(v).replace('{{key}}', inst.key).replace('{{port}}', String(port));
+      const raw = String(v);
+      if (raw.includes('{{key}}')) {
+        provider.events && provider.events.append('proxy_instance_key_in_argv_refused', { app: provider.proxyAppId, port, envKey: k });
+        provider.logger && provider.logger.error && provider.logger.error('[proxy-instance] 拒绝启动：app.env.' + k + ' 含 {{key}} 模板，会把凭据写入 argv（ps 可见）。请改用 app.keyEnv 环境变量通道。');
+        return { ok: false, error: 'app.env.' + k + ' 含 {{key}} 模板：凭据禁入 argv，请改用 keyEnv 通道' };
+      }
+      envVars[k] = raw.replace('{{port}}', String(port));
     }
   }
   const rpReg = registryRef.registryEnvPair(launch.registry);

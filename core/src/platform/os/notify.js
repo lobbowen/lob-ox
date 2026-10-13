@@ -1,6 +1,7 @@
 'use strict';
 
 const spawnOS = require('./spawn');
+const BRAND = require('../../shared/brand');
 
 function appleScriptString(s) {
   return JSON.stringify(String(s));
@@ -15,7 +16,7 @@ function notifyCommand(platform, title, body) {
   const t = String(title == null ? '' : title);
   const b = String(body == null ? '' : body);
   if (pl === 'linux') {
-    return { cmd: 'notify-send', args: ['-a', 'lobox', t, b] };
+    return { cmd: 'notify-send', args: ['-a', BRAND.PRODUCT_NAME, t, b] };
   }
   if (pl === 'darwin') {
     const script = 'display notification ' + appleScriptString(b) + ' with title ' + appleScriptString(t);

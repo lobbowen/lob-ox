@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeAtomic } = require('../../platform/util/fs');
+const { writeDurable } = require('../../platform/util/fs');
 
 class RouterStore {
   constructor(opts) {
@@ -44,7 +44,7 @@ class RouterStore {
       return false;
     }
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    writeAtomic(this.file, JSON.stringify({ providers: providers.map((p) => p.serialize()) }, null, 2), { mode: 0o600 });
+    writeDurable(this.file, JSON.stringify({ providers: providers.map((p) => p.serialize()) }, null, 2), { mode: 0o600 });
     return true;
   }
 }

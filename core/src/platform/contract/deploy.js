@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const BRAND = require('../../shared/brand');
 
 function isBinaryExecutable(file) {
   try {
@@ -20,8 +21,12 @@ function isBinaryExecutable(file) {
 function isLauncherForm(target) {
   try {
     const dir = path.dirname(target);
-    if (fs.existsSync(path.join(dir, 'core.cjs'))) return true;
-    if (fs.existsSync(path.join(dir, '..', 'core.cjs'))) return true;
+    // R8：launcher 产物的 bundle 名从 BRAND.SEA_BUNDLE_NAME 读（单一事实源），
+    // 不再硬编码。该常量此前在 brand.js 定义了但零消费方，而这里硬编码一份——
+    // 改 bundle 名时两处不会同时变。
+    const bundle = BRAND.SEA_BUNDLE_NAME || 'core.cjs';
+    if (fs.existsSync(path.join(dir, bundle))) return true;
+    if (fs.existsSync(path.join(dir, '..', bundle))) return true;
     return false;
   } catch { return false; }
 }

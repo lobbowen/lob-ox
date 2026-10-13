@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeAtomic } = require('../../platform/util/fs');
+const { writeDurable } = require('../../platform/util/fs');
 const probe = require('./probe');
 
 function read(host) {
@@ -14,7 +14,7 @@ function save(host, m) {
     fs.mkdirSync(host.stateDir, { recursive: true });
     const f = host.manifestFile;
     fs.mkdirSync(path.dirname(f), { recursive: true });
-    writeAtomic(f, JSON.stringify(m, null, 2), { mode: 0o600 });
+    writeDurable(f, JSON.stringify(m, null, 2), { mode: 0o600 });
   } catch (e) { host.logger.warn && host.logger.warn('manifest 保存失败: ' + e.message); }
 }
 

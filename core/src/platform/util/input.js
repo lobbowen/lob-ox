@@ -10,7 +10,7 @@ const UNIT_NAME_RE = /^[A-Za-z0-9:@._-]{1,128}$/;
 
 const UNSAFE_LEDGER_KEYS = ['__proto__', 'prototype', 'constructor'];
 
-const LEDGER_UNSAFE_RE = /[\s\u0000-\u001f\u007f]/;
+const LEDGER_UNSAFE_KEYS_RE = /[\s\u0000-\u001f\u007f]/;
 
 function argvViolation(arg) {
   const s = String(arg == null ? '' : arg);
@@ -58,13 +58,13 @@ function ledgerKey(raw, opts) {
   const unsafe = o.unsafe == null ? '(other)' : o.unsafe;
   if (typeof raw !== 'string' || !raw) return empty;
   const s = raw.length > max ? raw.slice(0, max) : raw;
-  if (UNSAFE_LEDGER_KEYS.indexOf(s) >= 0 || LEDGER_UNSAFE_RE.test(s)) return unsafe;
+  if (UNSAFE_LEDGER_KEYS.indexOf(s) >= 0 || LEDGER_UNSAFE_KEYS_RE.test(s)) return unsafe;
   return s;
 }
 
 module.exports = {
   PKG_NAME_RE, ARGV_UNSAFE_RE, WIN_ABS_PATH_RE, UNIT_NAME_RE,
-  UNSAFE_LEDGER_KEYS, LEDGER_UNSAFE_KEYS_RE: LEDGER_UNSAFE_RE,
+  UNSAFE_LEDGER_KEYS, LEDGER_UNSAFE_KEYS_RE,
   argvViolation, pkgNameViolation, unitNameViolation, ledgerKey,
   CONTROL_RE, isAbsoluteForm, prefixViolation,
 };

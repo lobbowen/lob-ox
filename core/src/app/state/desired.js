@@ -1,7 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
-const { writeAtomic } = require('../../platform/util/fs');
+const { writeDurable } = require('../../platform/util/fs');
 
 function createDesired(deps) {
   const g = deps || {};
@@ -82,7 +82,7 @@ function createDesired(deps) {
       for (const [from, to] of configAliases()) {
         if (cur[from] !== undefined && cur[to] !== undefined) delete cur[from];
       }
-      writeAtomic(p, JSON.stringify(cur, null, 2), { mode: 0o600 });
+      writeDurable(p, JSON.stringify(cur, null, 2), { mode: 0o600 });
       return true;
     } catch (e) {
       const l = logger();

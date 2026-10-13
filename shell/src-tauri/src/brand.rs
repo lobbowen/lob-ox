@@ -1,4 +1,4 @@
-﻿#![allow(dead_code)]
+#![allow(dead_code)]
 
 
 use std::path::{Path, PathBuf};
@@ -266,11 +266,24 @@ pub const PROC_MATCH_GUI_RE: &str = "lobox-shell(\\.exe)?";
 
 
 
-pub const BRIDGE_MSG_KERNEL_UPDATE_REQUEST: &str = "lobox:kernel-update-request";
+// R8：postMessage 消息名从 shared-constants.json 的 bridge 段读，与 Node 侧
+// kernelUpdateBridge.ts 同源。此前两侧各硬编码一份，改消息名时三处不会同时变。
+// shared_str 是运行期函数（解析器依赖字符串操作），故用 OnceLock 懒初始化。
+static BRIDGE_MSG_REQUEST_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+static BRIDGE_MSG_RESULT_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+static BRIDGE_MSG_PROGRESS_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
-pub const BRIDGE_MSG_KERNEL_UPDATE_RESULT: &str = "lobox:kernel-update-result";
+pub fn bridge_msg_kernel_update_request() -> &'static str {
+    BRIDGE_MSG_REQUEST_CELL.get_or_init(|| shared_str("bridge.msgKernelUpdateRequest"))
+}
 
-pub const BRIDGE_MSG_KERNEL_UPDATE_PROGRESS: &str = "lobox:kernel-update-progress";
+pub fn bridge_msg_kernel_update_result() -> &'static str {
+    BRIDGE_MSG_RESULT_CELL.get_or_init(|| shared_str("bridge.msgKernelUpdateResult"))
+}
+
+pub fn bridge_msg_kernel_update_progress() -> &'static str {
+    BRIDGE_MSG_PROGRESS_CELL.get_or_init(|| shared_str("bridge.msgKernelUpdateProgress"))
+}
 
 pub const STORE_KEY_API_ACCESS: &str = "lobox.apiAccessKey";
 

@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const ports = require('../../platform/service/ports').shared;
-const { writeAtomic } = require('../../platform/util/fs');
+const { writeDurable } = require('../../platform/util/fs');
 const lease = require('../../platform/util/lease');
 const fileProtect = require('../../platform/os/file-protect');
 const model = require('./model');
@@ -32,8 +32,19 @@ class InstanceStore {
     this._loadStamp = stampBefore;
     let raw = null;
     try {
+      const st = fs.statSync(this.instancesFile);
+      // R4：0 字节文件几乎总是掉电产物（writeDurable 之前 rename 已生效但内容未落盘），
+      // 不是「空状态」。静默按空状态继续会让守卫在没有实例的情况下运行，
+      // 而用户的实例记录实际还在上一次的备份里。保留现场并明确失败，交由调用方决定。
+      if (st.size === 0) {
+        const e = new Error('instances.json 为 0 字节（掉电或写入中断的产物，非空状态）');
+        e.code = 'EEMPTYFILE';
+        this._quarantineCorrupt(e, { keepOriginal: true });
+        return this.instances;
+      }
       raw = fs.readFileSync(this.instancesFile, 'utf8');
     } catch (e) {
+      if (e && e.code === 'EEMPTYFILE') return this.instances;
       if (e && e.code === 'ENOENT') this._replace([]);
       else if (lease.stampChanged(this.instancesFile, stampBefore)) {
         
@@ -71,7 +82,7 @@ class InstanceStore {
   }
 
   
-  _quarantineCorrupt(err) {
+  _quarantineCorrupt(err, opts) {
     
     let locked = false;
     try { fs.openSync(this.lockFile, 'wx'); fs.writeFileSync(this.lockFile, String(process.pid)); locked = true; }
@@ -86,12 +97,20 @@ class InstanceStore {
       return;
     }
     const bak = this.instancesFile + '.corrupt-' + Date.now();
+    const keepOriginal = !!(opts && opts.keepOriginal);
     this.logger && this.logger.warn && this.logger.warn('instances.json 读取/解析失败，备份后清空: ' + (err && err.message) + ' -> ' + bak);
     try {
-      
-      try { fs.copyFileSync(this.instancesFile, bak); }
-      catch {  fs.renameSync(this.instancesFile, bak); return; }
-      fs.renameSync(this.instancesFile, bak + '.orig');
+      if (keepOriginal) {
+        // 0 字节场景：只复制留证，不搬走原文件。搬走会让下次启动看到 ENOENT，
+        // 于是掉电事故被洗成「从来没有过实例」。
+        try { fs.copyFileSync(this.instancesFile, bak); }
+        catch (e2) { this.logger && this.logger.warn && this.logger.warn('instances.json 0 字节现场备份失败: ' + (e2 && e2.message)); }
+      } else {
+        
+        try { fs.copyFileSync(this.instancesFile, bak); }
+        catch {  fs.renameSync(this.instancesFile, bak); return; }
+        fs.renameSync(this.instancesFile, bak + '.orig');
+      }
     } catch (e2) {
       this.logger && this.logger.warn && this.logger.warn('instances.json 损坏现场备份失败: ' + (e2 && e2.message));
     }
@@ -119,7 +138,7 @@ class InstanceStore {
       if (body === this._lastBody) return;
       this._lastBody = body;
       fs.mkdirSync(this.dir, { recursive: true });
-      writeAtomic(this.instancesFile, body, { mode: 0o600 });
+      writeDurable(this.instancesFile, body, { mode: 0o600 });
     } catch (e) {
       this.logger && this.logger.error && this.logger.error('instances.json 持久化失败: ' + (e && e.message));
     } finally {

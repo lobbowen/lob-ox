@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeAtomic } = require('../../util/fs');
+const { writeDurable } = require('../../util/fs');
 
 function normRecord(r) {
   if (!r || !Number.isInteger(r.port) || !r.role) return null;
@@ -32,7 +32,7 @@ function fileStamp(file) {
 function saveRecords(file, records) {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    writeAtomic(file, JSON.stringify({ records }, null, 2), { mode: 0o600 });
+    writeDurable(file, JSON.stringify({ records }, null, 2), { mode: 0o600 });
   } catch {  }
 }
 

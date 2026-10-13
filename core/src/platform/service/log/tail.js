@@ -3,13 +3,18 @@
 const fs = require('node:fs');
 const http = require('node:http');
 
+// R3：内核作为 ctl 的合法调用方，需带机箱令牌（与壳同一份，经 DSH_CTL_TOKEN
+// 环境变量注入）。未配置时（无壳的开发态）不发该头，服务端也不校验。
 function ctlCall(port, method, args, timeoutMs, opts) {
   const o = opts || {};
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ method, args: Array.isArray(args) ? args : [] });
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) };
+    const token = process.env.DSH_CTL_TOKEN;
+    if (token) headers['x-lobox-ctl-token'] = token;
     const req = http.request({
       host: '127.0.0.1', port, path: '/ctl', method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      headers,
       timeout: timeoutMs || 3000,
     }, (res) => {
       let buf = '';

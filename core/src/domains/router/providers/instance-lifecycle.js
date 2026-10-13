@@ -80,11 +80,16 @@ async function waitHealthy(provider, inst, tries) {
   return false;
 }
 
+// R5/D.11-P2-16：原实现在此额外要求「实例存在」，与 base.js 的同名方法契约不同
+// （direct 版不要求）。后果：刚加载或实例未拉起的 proxy 供应商在 views.js 的
+// exhausted 判据（accounts.some(a => a.usable)）上报 true，UI 展示「额度全部用尽」，
+// 真实原因是实例未启动。
+// 修为与 base 一致：可用性只回答账号能不能用（status/credits/window），
+// 实例是否存在是调度问题，由 ensureServable 与 reconcile 负责。
+// 需要「实例就绪」语义的调用方应显式用 ensureServable，不滥用 isAccountUsable。
 function isAccountUsable(provider, acc, opts) {
   if (!acc || acc.status !== 'ready') return false;
   if (provider._isCreditsLow(acc)) return false;
-  const inst = acc.instance || (provider.instances || []).find((i) => i.keyId === acc.keyId);
-  if (!inst) return false;
   if (opts && opts.checkWindows === false) return true;
   return !provider._windowExhausted(acc);
 }

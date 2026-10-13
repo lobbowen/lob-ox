@@ -2,11 +2,20 @@
 
 const http = require('node:http');
 const crypto = require('node:crypto');
-const { isTrustedSource, tokenGateDecision, backoffGate, upstreamPath, redactLogPath, normalizeRemoteMode, POLYFILL_SCRIPT } = require('./core');
+const { isTrustedSource, tokenGateDecision, upstreamPath, redactLogPath, normalizeRemoteMode, POLYFILL_SCRIPT } = require('./core');
 const { createSession } = require('./session');
 const { createTunnelHandler } = require('./tunnel');
 
 const HTML_INJECT_MAX_BYTES = 2 * 1024 * 1024;
+
+// R3 / 攻击链 C + D.11-E-5：令牌爆破窗口收窄。
+// 原背压是固定 10 次失败锁 60s，60s 后可再试 10 次——每小时 600 次尝试，
+// 且按 IP 记在内存 Map 里（换 IP 即重置）。修为指数锁定：
+//   第 1 次失败起按 60s → 5min → 1h → 6h → 24h 阶梯拉长，
+//   爆破者在第二次失败后就要等 5 分钟，实际不可行。
+// 保留 60s 无失败即清空的语义（正常用户的偶发输错不该被长期锁定）。
+const GATE_BACKOFF_STEPS_MS = [60 * 1000, 5 * 60 * 1000, 60 * 60 * 1000, 6 * 60 * 60 * 1000, 24 * 60 * 60 * 1000];
+const GATE_RESET_MS = 60 * 1000;
 
 function createGateLedger() {
   const map = new Map();
@@ -14,15 +23,24 @@ function createGateLedger() {
     waitMsFor(ip) {
       const e = map.get(ip);
       if (!e) return null;
-      const w = backoffGate({ failCount: e.n, firstAt: e.first, now: Date.now() });
-      if (w.waitMs === null && Date.now() - e.first >= 60000 && e.n >= 10) map.delete(ip);
-      return w.waitMs;
+      const now = Date.now();
+      // 超过重置窗口未有新失败则清空（正常用户不被长期锁定）。
+      if (now - e.last >= GATE_RESET_MS && e.lockedUntil <= now) { map.delete(ip); return null; }
+      return e.lockedUntil > now ? (e.lockedUntil - now) : null;
     },
     recordFailure(ip) {
       const now = Date.now();
       const e = map.get(ip);
-      if (!e || now - e.first >= 60000) map.set(ip, { n: 1, first: now });
-      else e.n += 1;
+      if (!e || now - e.last >= GATE_RESET_MS) {
+        // 新窗口（或久未失败后重新开始）：从第一档起步。
+        map.set(ip, { n: 1, first: now, last: now, lockedUntil: now + GATE_BACKOFF_STEPS_MS[0] });
+        return;
+      }
+      e.n += 1;
+      e.last = now;
+      const idx = Math.min(e.n - 1, GATE_BACKOFF_STEPS_MS.length - 1);
+      const step = GATE_BACKOFF_STEPS_MS[idx];
+      e.lockedUntil = now + step;
     },
     clear(ip) { map.delete(ip); },
   };

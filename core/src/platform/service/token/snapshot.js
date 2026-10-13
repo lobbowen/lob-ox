@@ -9,7 +9,7 @@ function saveTokens(file, entries) {
   for (const e of entries) {
     tokens[e.id] = { value: e.value, gen: e.gen, source: e.source, at: e.at, kind: e.kind };
   }
-  return persist.writeAtomic(file, JSON.stringify({ schema: 1, tokens }, null, 2) + '\n');
+  return persist.writeDurable(file, JSON.stringify({ schema: 1, tokens }, null, 2) + '\n');
 }
 
 function loadTokens(file) {

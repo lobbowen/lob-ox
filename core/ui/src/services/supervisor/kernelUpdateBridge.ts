@@ -1,8 +1,13 @@
 export const BRIDGE_PROTOCOL_VERSION = 2;
 
-const REQUEST = "lobox:kernel-update-request";
-const RESULT = "lobox:kernel-update-result";
-const PROGRESS = "lobox:kernel-update-progress";
+// R8：三个 postMessage 消息名从 shared/shared-constants.json 的 bridge 段读，
+// 不再本地硬编码一份。此前 Rust 侧 brand.rs 也各存一份，两侧都不读单一来源，
+// 改消息名时三处（UI / brand.rs / shared-constants）不会同时变。
+import SHARED from "../../../../../shared/shared-constants.json";
+
+const REQUEST = SHARED.bridge.msgKernelUpdateRequest;
+const RESULT = SHARED.bridge.msgKernelUpdateResult;
+const PROGRESS = SHARED.bridge.msgKernelUpdateProgress;
 
 export type KernelUpdateResult = {
   ok: boolean;

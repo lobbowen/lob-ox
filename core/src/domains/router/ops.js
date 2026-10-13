@@ -115,6 +115,11 @@ function createOps(deps) {
     stopAllInstances();
     for (const id of Object.keys(state.providerServers)) endpoint.stopProviderServer(id);
     try { if (d.usage && typeof d.usage.flush === 'function') d.usage.flush(); } catch (e) { logger.warn && logger.warn('usage flush: ' + ((e && e.message) || e)); }
+    // R7：markInUse 改为节流持久化，停机前必须 flush，否则最后一次 activeAccount
+    // 变更丢失（重启后回到旧的选中账号）。
+    for (const p of state.providers) {
+      if (p && typeof p.flushPersist === 'function') { try { p.flushPersist(); } catch (e) { logger.warn && logger.warn('persist flush: ' + ((e && e.message) || e)); } }
+    }
     if (events) events.append('router_stopped', {});
     return { ok: true };
   }

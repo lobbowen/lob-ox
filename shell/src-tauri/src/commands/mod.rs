@@ -445,9 +445,9 @@ pub fn shell_bridge_contract() -> serde_json::Value {
         "kernelKind": InstallKind::Kernel.as_str(),
         "maxWaitMs": crate::bridge::KERNEL_UPDATE_MAX_WAIT_MS,
         "types": {
-            "request": crate::bridge::MSG_KERNEL_UPDATE_REQUEST,
-            "result": crate::bridge::MSG_KERNEL_UPDATE_RESULT,
-            "progress": crate::bridge::MSG_KERNEL_UPDATE_PROGRESS,
+            "request": crate::bridge::msg_kernel_update_request(),
+            "result": crate::bridge::msg_kernel_update_result(),
+            "progress": crate::bridge::msg_kernel_update_progress(),
         }
     })
 }

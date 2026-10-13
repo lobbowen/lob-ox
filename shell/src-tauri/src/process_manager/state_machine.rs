@@ -56,6 +56,11 @@ pub struct LastWill {
     pub code: Option<i32>,
     pub signal: Option<String>,
     pub at: Instant,
+    /// R3 / D.8-P0-11：内核经 pm-client.js 的 recordExit 一直在发这个字段，
+    /// 但机箱侧此前不解析——last-will 无法区分「启动即失败」与「运行中崩溃」，
+    /// healer 的重拉决策失去关键输入，且丢弃是静默的（仍回 200 ok）。
+    /// 语义：true 表示该次退出发生在启动窗口内（不应视为稳定性证据）。
+    pub startup_failure: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const registryContract = require('../contract/registry');
-const { writeAtomic } = require('../util/fs');
+const { writeDurable } = require('../util/fs');
 const policies = require('./policies');
 
 const CONTRACT_TTL_MS = 60 * 1000;
@@ -78,7 +78,7 @@ function saveRegistryConfig(state) {
       manualOrigin: typeof rc.manualOrigin === 'string' ? rc.manualOrigin : '',
       origins: Array.isArray(rc.origins) ? rc.origins.slice() : [],
     };
-    writeAtomic(state.choiceFile, JSON.stringify(doc, null, 2) + '\n', { mode: 0o600 });
+    writeDurable(state.choiceFile, JSON.stringify(doc, null, 2) + '\n', { mode: 0o600 });
   } catch (e) {
     state.logger.warn && state.logger.warn('dist: registry choice save failed: ' + e.message);
   }

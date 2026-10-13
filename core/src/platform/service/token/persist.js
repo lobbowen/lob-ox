@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const fsUtil = require('../../util/fs');
 
 const PERSIST_LIMITS = {
   MAX_BYTES: 256 * 1024,
@@ -33,22 +34,14 @@ function ensureDir(dir) {
   try { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); } catch {  }
 }
 
-function writeAtomic(file, data) {
-  const fp = path.resolve(file);
-  
-  
-  const tmp = fp + '.tmp.' + process.pid + '.' + Date.now();
+// R4/R8：删除本模块自带的 writeAtomic 副本（全项目曾有四份重复实现），
+// 统一委托平台层 util/fs。token 池是凭据账本，必须 durable。
+function writeDurable(file, data) {
   try {
-    ensureDir(path.dirname(fp));
-    fs.writeFileSync(tmp, data, { mode: 0o600 });
-    try { fs.chmodSync(tmp, 0o600); } catch (e) { chmodWarn(file, e); }
-    fs.renameSync(tmp, fp);
-    try { fs.chmodSync(fp, 0o600); } catch (e) { chmodWarn(file, e); }
-    return { ok: true, path: fp };
+    fsUtil.writeDurable(file, data, { mode: 0o600 });
+    return { ok: true, path: path.resolve(file) };
   } catch (e) {
-    
-    try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch {  }
-    return { ok: false, path: fp, reason: (e && e.message) || String(e) };
+    return { ok: false, path: path.resolve(file), reason: (e && e.message) || String(e) };
   }
 }
 
@@ -131,7 +124,7 @@ function readTailLines(file, opts) {
 
 module.exports = {
   PERSIST_LIMITS,
-  writeAtomic,
+  writeDurable,
   appendByRotation,
   readTailLines,
 };

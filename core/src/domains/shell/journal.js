@@ -4,7 +4,7 @@ const stateRoot = require('../../platform/service/state-root');
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeAtomic } = require('../../platform/util/fs');
+const { writeDurable } = require('../../platform/util/fs');
 const { deriveState } = require('./core');
 
 function shellDir() {
@@ -18,7 +18,7 @@ function readJson(p) {
 function writeJson(p, v) {
   const dir = path.dirname(p);
   fs.mkdirSync(dir, { recursive: true });
-  writeAtomic(p, JSON.stringify(v, null, 2) + '\n', { mode: 0o600 });
+  writeDurable(p, JSON.stringify(v, null, 2) + '\n', { mode: 0o600 });
 }
 
 function identity() {

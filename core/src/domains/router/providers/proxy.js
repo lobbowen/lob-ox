@@ -41,12 +41,24 @@ class ProxyProvider extends withProcessPool(ProviderBase) {
     const cachedBin = this._cachedPkgBin(app.pkg);
     const launch = buildCommand({ app, port, cachedBin, registry, launcher: npxLauncher(), execPath: process.execPath });
     if (!launch || !launch.ok) return launch || { ok: false, error: '命令拼装失败' };
+    // R7/D.12-E-2：原实现靠字符串级过滤剥掉 --api-key 与含 {{key}} 的 token——
+    // 这是启发式而非结构保证：模板若写成 ['npx','pkg','--token','{{key}}'] 则 key
+    // 直接进 argv。现改为显式断言：拼装结果里出现 key 原值或其常见编码即拒绝启动。
     const cmd = [];
     for (let i = 0; i < launch.cmd.length; i++) {
       const t = launch.cmd[i];
       if (t === '--api-key') { i++; continue; }
       if (String(t).includes('{{key}}')) continue;
       cmd.push(t);
+    }
+    const keyStr = String(key || '');
+    if (keyStr && keyStr.length >= 8) {
+      const leak = cmd.find((c) => String(c).includes(keyStr));
+      if (leak !== undefined) {
+        this.events && this.events.append('proxy_instance_key_in_argv_refused', { app: this.proxyAppId, port });
+        this.logger && this.logger.error && this.logger.error('[proxy-instance] 拒绝启动：拼装出的 argv 含凭据原值（ps 可见）');
+        return { ok: false, error: '拼装出的 argv 含凭据原值，已拒绝启动（凭据禁入 argv）' };
+      }
     }
     return { ok: true, cmd, registry: launch.registry };
   }

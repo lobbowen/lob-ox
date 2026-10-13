@@ -1,12 +1,32 @@
 'use strict';
 
+// R5/D.5-P1-16：原 CREDIT_KEYWORDS 末尾是裸词 'balance'，导致错误体含 balance
+// 子串（load balance、unbalanced token）即被判 credits 耗尽，账号被冻结 10 分钟
+// 轮询，而真实的 5xx 本应走 transient 重试。误冻结直接打穿可用账号数。
+// 修为短语加共现规则：credits 判定必须同时出现「余额/额度不足」语义与金额或
+// 余额语义之一，单独 balance 不足以触发。
 const QUOTA_KEYWORDS = ['insufficient_quota','quota_exceeded','quota reached','usage limit','5-hour usage limit','5 hour usage limit','monthly limit','weekly limit','gousagelimiterror','out of quota','quota has been exceeded'];
-const CREDIT_KEYWORDS = ['insufficient credit','insufficient credits','insufficient balance','credit balance','no credits','out of credit','purchase credits','purchase more credits','add credits','billing error','balance'];
+
+// 第一组：明确的「不足」表述（短语，非裸词）
+const CREDIT_EXHAUSTED = [
+  'insufficient credit','insufficient credits','insufficient balance','credit balance',
+  'no credits','out of credit','out of credits','purchase credits','purchase more credits',
+  'add credits','billing error','insufficient funds','payment required','quota exceeded for billing',
+];
+// 第二组：余额语义（单独出现不足以判定，须与第一组共现）
+const BALANCE_TERMS = ['balance','credit','credits','funds','billing'];
 
 function classifyUpstreamLimited(status, text) {
   const lower = String(text || '').toLowerCase();
   const has = (kws) => kws.some((kw) => lower.includes(kw));
-  if (status === 402 || has(CREDIT_KEYWORDS)) return 'credits';
+  // 402 是协议级的 payment required，无需文本判据。
+  if (status === 402) return 'credits';
+  // 明确的不足短语，单独即可判定。
+  if (has(CREDIT_EXHAUSTED)) return 'credits';
+  // 只有余额语义词而不足短语缺失时，要求「不足语义 + 余额语义」共现，
+  // 避免 load balance / unbalanced token 这类无关文本误触发。
+  const INSUFFICIENT_TERMS = ['insufficient','exceeded','exhausted','depleted','not enough','ran out','out of'];
+  if (has(INSUFFICIENT_TERMS) && has(BALANCE_TERMS)) return 'credits';
   if (has(QUOTA_KEYWORDS)) return 'window';
   if (status >= 500 && status <= 599) return 'transient';
   if (status === 401 || status === 403) return 'banned';

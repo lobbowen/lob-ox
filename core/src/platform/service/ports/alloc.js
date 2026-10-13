@@ -151,7 +151,10 @@ class PortAllocator {
     const reserved = o.reservedPorts instanceof Set ? o.reservedPorts : null;
     
     if (reserved && reserved.has(Number(port))) return null;
-    const rec = r._records.get(port);
+    // R6：联合避让。preferred/binding 路径同样要避开 sibling 已占用的端口，
+    // 否则「指定端口」这条路仍是跨进程双分配的口子。
+    const joint = r._foreignPorts();
+    const rec = joint.get(Number(port));
     if (probe.listeningPid(port) === process.pid) { this._register(port, rangeKey, owner); return { port, mode: 'self-listening' }; }
     if (rec && rec.owner !== owner) return null;
     const reused = !!(rec && rec.owner === owner);
@@ -165,12 +168,15 @@ class PortAllocator {
     const r = this._registry;
     const reserved = o.reservedPorts instanceof Set ? o.reservedPorts : null;
     const offset = o.range ? 0 : r._anchorOffset(rangeKey);
+    // R6：联合避让。原只查 r._records（本方文件），router-daemon 与 guard 各写各的
+    // 文件时会选中同一端口。改为查 _foreignPorts()（本方 + sibling 联合视图）。
+    const joint = r._foreignPorts();
     for (let n = 0; n < range.count; n++) {
       const p = range.base + ((offset + n) % range.count);
       
       
       if (reserved && reserved.has(p)) continue;
-      if (r._records.has(p)) continue;
+      if (joint.has(p)) continue;
       if (await r.isTaken(p)) {
         if (o.reclaimCmdMark) {
           probe.reclaimByCmdMark(o.reclaimCmdMark, o.reclaimCfg);
@@ -192,9 +198,11 @@ class PortAllocator {
     const start = (o.range ? 0 : r._anchorOffset(rangeKey)) + (o.skipFirst ? 1 : 0);
     await this._acquireAlloc();
     try {
-      for (let n = 0; n < range.count; n++) {
+      // R6：联合避让（同 _allocFreeCore）。
+    const joint = r._foreignPorts();
+    for (let n = 0; n < range.count; n++) {
         const p = range.base + ((start + n) % range.count);
-        if (r._records.has(p)) continue;
+        if (joint.has(p)) continue;
         if (await r.isTaken(p)) continue;
         if (!(await probe.bindable(p))) continue;
         const owner2 = owner || 'dynamic:' + rangeKey;

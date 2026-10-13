@@ -120,20 +120,42 @@ class ProviderBase {
   _reconcileLock() { return freeze.reconcileLock(this); }
   _nextResetAt(q) { return quota.nextResetAt(q); }
 
+  // R7/D.7-P0-7：markInUse 原先在每次切号时 this._persist()，而 _persist 走
+  // RouterStore.save 的 writeDurable（同步 fsync + rename），serializeAccount 又原样
+  // 输出所有账号的明文 key。于是多账号轮询时**每个请求一次同步全量落盘，含全部
+  // 凭据明文重写**——既阻塞事件循环，又放大凭据暴露面。
+  // activeAccount 是易变派生状态（下一秒可能就切走），不属于需要立即持久化的配置。
+  // 改为只改内存加置 dirty，由节流定时器合流落盘（参照 store/usage.js 的
+  // _scheduleWrite 范式，那是项目里已有的正确做法）。
   markInUse(keyId) {
     const acc = (this.accounts || []).find((a) => a.keyId === keyId);
     if (!acc) return;
     if (!this.activeAccount || this.activeAccount.keyId !== keyId) {
       this.activeAccount = acc;
-      this._persist();
+      this._schedulePersist();
     }
   }
 
   markNotInUse(keyId) {
     if (this.activeAccount && this.activeAccount.keyId === keyId) {
       this.activeAccount = null;
-      this._persist();
+      this._schedulePersist();
     }
+  }
+
+  // 节流持久化：1 秒合流。进程退出前由 shutdown 路径调 flushPersist 兜底。
+  _schedulePersist() {
+    if (this._persistTimer) return;
+    this._persistTimer = setTimeout(() => {
+      this._persistTimer = null;
+      this._persist();
+    }, 1000);
+    if (this._persistTimer && typeof this._persistTimer.unref === 'function') this._persistTimer.unref();
+  }
+
+  flushPersist() {
+    if (this._persistTimer) { clearTimeout(this._persistTimer); this._persistTimer = null; }
+    this._persist();
   }
 
   usageOf(acc) {

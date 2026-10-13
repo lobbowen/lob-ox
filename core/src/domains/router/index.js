@@ -1,5 +1,7 @@
 'use strict';
 
+const path = require('node:path');
+
 const { DirectProvider } = require('./providers/direct');
 const { ProxyProvider } = require('./providers/proxy');
 const { SwitchEngine } = require('./switch');
@@ -29,7 +31,7 @@ class RouterService {
     this.tasks = opts.tasks || null;
     this.providerFile = opts.providerFile;
     this.usageTotalsFile = opts.usageTotalsFile || null;
-    if (opts && opts.portsFile) ports.configureFile(opts.portsFile);
+    if (opts && opts.portsFile) ports.configureFile(opts.portsFile, { siblingFiles: [path.join(path.dirname(opts.portsFile), 'ports.json'), path.join(path.dirname(opts.portsFile), 'ports-lan.json')] });
 
     const state = ops.createState();
     this._state = state;

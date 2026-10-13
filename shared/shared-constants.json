@@ -24,7 +24,8 @@
   },
 
   "proc": {
-    "matchGuard": "*lobox*"
+    "matchGuard": "*lobox*|*lob-ox*|*dsh*",
+    "matchGuardNote": "进程归属判据。必须覆盖三种真实形态：CLI/壳可执行名 lobox、npm scope @lob-ox（连字符，不等于 lobox）、以及旧产品名 dsh 的历史安装。漏任一种都会让无锚点兜底判据对该形态返回非我方。"
   },
 
   "bridge": {

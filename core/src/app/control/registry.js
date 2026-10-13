@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeAtomic } = require('../../platform/util/fs');
+const { writeDurable } = require('../../platform/util/fs');
 const { DESIRED, MANAGED_KINDS, kindMeta, registerKind: registerManagedKind, createEntry, normalizeOwnership } = require('./managed-object');
 
 const PHASES = ['stopped', 'installing', 'starting', 'running', 'draining', 'failed'];
@@ -88,7 +88,7 @@ class ManagedRegistry {
           startedAt: o.startedAt, createdAt: o.createdAt, updatedAt: o.updatedAt,
         })),
       }, null, 2);
-      writeAtomic(this.file, body, { mode: 0o600 });
+      writeDurable(this.file, body, { mode: 0o600 });
     } catch (e) { this._log('warn', 'managed-objects 持久化失败: ' + (e && e.message)); }
   }
 

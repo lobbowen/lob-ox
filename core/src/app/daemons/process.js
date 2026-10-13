@@ -5,7 +5,7 @@ const spawnOS = require('../../platform/os/spawn');
 const fs = require('node:fs');
 const path = require('node:path');
 const pidlook = require('../../platform/os/pidlookup');
-const { writeAtomic } = require('../../platform/util/fs');
+const { writeDurable } = require('../../platform/util/fs');
 const { waitProcessExit, waitPortFree } = require('./process-wait');
 const { deriveCmdMarks } = require('./process-marks');
 
@@ -37,7 +37,7 @@ class DaemonLifecycle {
     try {
       const dir = path.dirname(this.identityFile);
       try { fs.mkdirSync(dir, { recursive: true }); } catch {}
-      writeAtomic(this.identityFile, JSON.stringify({ guardPid: process.pid, daemonPid, startedAt: Date.now() }), { mode: 0o600 });
+      writeDurable(this.identityFile, JSON.stringify({ guardPid: process.pid, daemonPid, startedAt: Date.now() }), { mode: 0o600 });
     } catch (e) {
       if (this.logger && this.logger.warn) this.logger.warn(this.name + ' identity write failed: ' + ((e && e.message) || e));
       try { if (this.events && this.events.append) this.events.append('daemon_identity_write_error', { name: this.name, pid: daemonPid, error: (e && e.message) || String(e) }); } catch {}

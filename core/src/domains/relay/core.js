@@ -179,18 +179,6 @@ function validateFrpServerSettings(settings) {
   return { ok: true };
 }
 
-function backoffGate(f, cfg) {
-  const c = cfg || {};
-  const max = c.max || 10;
-  const windowMs = c.windowMs || 60000;
-  const lockMs = c.lockMs || 60000;
-  const failCount = Number(f && f.failCount) || 0;
-  const firstAt = Number(f && f.firstAt) || 0;
-  const now = Number(f && f.now) || 0;
-  if (!failCount || !firstAt || now - firstAt >= windowMs) return { waitMs: null };
-  if (failCount < max) return { waitMs: null };
-  return { waitMs: Math.max(0, lockMs - (now - firstAt)) };
-}
 
 function validateWanAccess({ remoteToken }) {
   const strength = remoteTokenStrength(remoteToken);
@@ -240,7 +228,6 @@ module.exports = {
   lanGateCookieValue,
   redactLogPath,
   tokenGateDecision,
-  backoffGate,
   POLYFILL_SCRIPT,
   buildFrpcToml,
   normalizeFrpSettings,

@@ -118,14 +118,22 @@ class Events {
     return this.appendRaw(rec);
   }
 
+  // R1/D.8-P0-5：seq 分配与落盘结果必须绑定。
+  // 原实现先 this.seq += 1 再 appendFileSync，失败时只 console.error 不回退，
+  // 且 !wrote 时 _saveMeta() 把那个没落盘的 seq 写进 meta.json。
+  // 重启后 hub.js 用 meta 里虚高的值初始化 watermark，_syncGuard 的
+  // guardEvents.seq > watermark 恒 false，失败点之后的所有事件永久不入聚合流，
+  // 直到 seq 自然追平（每天几条日志则数天不可见）。
+  // 不变式：this.seq 恒等于「已确认落盘的最大序号」。失败时序号不前进，
+  // 下一条记录重试同一序号——seq 空洞只存在于内存，不存在于 meta。
   appendRaw(rec) {
-    this.seq += 1;
-    this._rotateIfNeeded();
     const out = Object.assign({}, rec || {});
-    out.seq = this.seq;
     if (!out.ts) out.ts = new Date().toISOString();
     if (this.process && !out.producer) out.producer = { process: this.process };
     const line = JSON.stringify(out);
+    this._rotateIfNeeded();
+    const candidate = this.seq + 1;
+    out.seq = candidate;
     let wrote = true;
     try {
       fs.appendFileSync(this.file, line + '\n');
@@ -133,14 +141,16 @@ class Events {
     } catch (e) {
       wrote = false;
       this._est = null;
-      console.error('[events] append failed:', e.message);
+      console.error('[events] append failed（seq 不前进，下一条重试同一序号）:', e.message);
     }
-    if (this.seq - this._metaSavedSeq >= META_SAVE_EVERY || !wrote) this._saveMeta();
+    if (wrote) this.seq = candidate;
+    // meta 只在成功时写。失败时序号留在内存供重试，绝不把未落盘的 seq 写进 meta。
+    if (wrote && this.seq - this._metaSavedSeq >= META_SAVE_EVERY) this._saveMeta();
     this._lastAppendOk = wrote;
-    if (this._hub && typeof this._hub.pushGuard === 'function') {
+    if (wrote && this._hub && typeof this._hub.pushGuard === 'function') {
       try { this._hub.pushGuard(out); } catch (e2) { console.error('[events] hub push failed:', e2 && e2.message); }
     }
-    return this.seq;
+    return wrote ? this.seq : null;
   }
 
   readSince(after = 0, limit = 50) {
@@ -165,8 +175,13 @@ class Events {
     return out.slice(-limit);
   }
 
-  tailSince(afterSeq) {
+  // D.6-P2-18：limit 必填。此前无上限，watermark 重置那一拍（hub.js 的首次与
+  // seq 回退两条路径）会让 ctl 的 eventsTail 把整个事件文件含 .1 备份读进内存并
+  // JSON.stringify 进 HTTP 响应，同步阻塞该 ctl server 的事件循环数百毫秒，
+  // 期间所有 ctl 方法（含健康检查）无响应。与 readSince 的钳制口径对齐。
+  tailSince(afterSeq, limit) {
     afterSeq = Number(afterSeq) || 0;
+    const cap = Math.min(Math.max(Number(limit) || 500, 1), 5000);
     const out = [];
     const scan = (file, needed) => {
       if (!needed) return;
@@ -183,7 +198,7 @@ class Events {
     };
     scan(this.file + '.1', this.rotatedSeq !== null && afterSeq < this.rotatedSeq);
     scan(this.file, true);
-    return out;
+    return out.slice(-cap);
   }
 
   readAll() {

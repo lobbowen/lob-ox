@@ -6,7 +6,7 @@ const pidlook = require('../../platform/os/pidlookup');
 const fs = require('node:fs');
 const path = require('node:path');
 const spawnOS = require('../../platform/os/spawn');
-const { writeAtomic } = require('../../platform/util/fs');
+const { writeDurable } = require('../../platform/util/fs');
 const { buildFrpcToml, validateFrpServerSettings } = require('./core');
 const { frpPlatformTag, download, installFrpc } = require('./frp-install');
 
@@ -55,7 +55,7 @@ class FrpManager {
 
   saveSettings(s) {
     fs.mkdirSync(this.dir, { recursive: true });
-    writeAtomic(this.settingsFile, JSON.stringify(s, null, 2), { mode: 0o600 });
+    writeDurable(this.settingsFile, JSON.stringify(s, null, 2), { mode: 0o600 });
   }
 
   status() {
@@ -89,7 +89,7 @@ class FrpManager {
     } catch {}
     if (!unchanged) {
       
-      writeAtomic(this.configFile, text, { mode: 0o600 });
+      writeDurable(this.configFile, text, { mode: 0o600 });
     }
     this._lastCount = count;
     if (count === 0) {

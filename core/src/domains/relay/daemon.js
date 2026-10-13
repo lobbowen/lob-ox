@@ -45,7 +45,7 @@ function main() {
   const logger = core.logger;
   try { ports.migrateByOwnerPrefix(path.join(swDir, 'ports-lan.json'), path.join(swDir, 'ports.json'), ['relay:']); }
   catch (e) { logger.warn && logger.warn('ports-lan 迁移: ' + (e && e.message)); }
-  try { ports.configureFile(path.join(swDir, 'ports.json')); } catch {}
+  try { ports.configureFile(path.join(swDir, 'ports.json'), { siblingFiles: [path.join(swDir, 'ports-router.json'), path.join(swDir, 'ports-lan.json')] }); } catch {}
 
   let snapshot = { instances: [], tokens: {}, mtime: 0, textHash: '' };
   const lanSource = {

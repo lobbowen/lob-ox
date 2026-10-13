@@ -1,11 +1,35 @@
 'use strict';
 
 const http = require('node:http');
+const crypto = require('node:crypto');
 
 const isMethodAllowed = (allowMethods, method) =>
   Array.isArray(allowMethods) && typeof method === 'string' && allowMethods.includes(method);
 
 const LOOPBACK_ORIGIN_RE = /^https?:\/\/(?:127\.0\.0\.1|\[::1\]|localhost)(?::\d{1,5})?$/i;
+
+// R3 / 攻击链 A：ctl 面原先只有 content-type 与「Origin 存在时才校验回环」两道闸，
+// 无任何身份凭据。而 router 的 ctl 白名单里有 addDirectProvider 与 activateProvider
+// ——本机任意进程（任意 UID、无 Origin 头即可）可注入一个 baseUrl 任意的供应商
+// 并让其 listen，之后内核会把请求（含 Authorization 头与请求体）转发到那个
+// baseUrl，使内核成为带真实凭据的 SSRF 放大器。
+// 修为机箱令牌鉴权：令牌由壳在 spawn daemon 时经环境变量 DSH_CTL_TOKEN 注入，
+// 内核自身与壳驱动 ctl，面板从不直连。与 mgmt 端点同一范式。
+const CTL_TOKEN_HEADER = 'x-lobox-ctl-token';
+
+function ctlTokenProblem(req) {
+  const want = process.env.DSH_CTL_TOKEN;
+  // 未配置令牌时不启用鉴权（单机无壳的开发态）。一旦配置，缺失或不匹配一律拒绝。
+  if (!want) return null;
+  const got = req.headers[CTL_TOKEN_HEADER];
+  const gotStr = typeof got === 'string' ? got : '';
+  if (!gotStr) return '缺少 ' + CTL_TOKEN_HEADER + ' 头';
+  // 常量时间比较：避免逐字节短路泄露前缀匹配信息。
+  const a = crypto.createHash('sha256').update(gotStr).digest();
+  const b = crypto.createHash('sha256').update(want).digest();
+  if (!crypto.timingSafeEqual(a, b)) return 'ctl token 不匹配';
+  return null;
+}
 
 function ctlSourceProblem(req) {
   const ct = String(req.headers['content-type'] || '');
@@ -32,6 +56,14 @@ function createCtlServer({ target, allowMethods, logger, events } = {}) {
     }
     if (req.method !== 'POST' || req.url !== '/ctl') {
       return send(404, { ok: false, error: 'not found' });
+    }
+    // R3：先鉴权后来源闸。token 是身份凭据，content-type/Origin 是请求形态检查，
+    // 二者不可互相替代——此前只做形态检查，导致无 Origin 的任意本地进程可直连。
+    const tokBad = ctlTokenProblem(req);
+    if (tokBad) {
+      if (logger && logger.warn) logger.warn('[ctl] 令牌闸拒绝: ' + tokBad);
+      try { req.resume(); } catch {}
+      return send(401, { ok: false, error: 'ctl auth: ' + tokBad });
     }
     const srcBad = ctlSourceProblem(req);
     if (srcBad) {
@@ -61,7 +93,7 @@ function createCtlServer({ target, allowMethods, logger, events } = {}) {
           && events && typeof events.tailSince === 'function') {
         const afterSeq = Number(args[0]) || 0;
         let list = [];
-        try { list = events.tailSince(afterSeq); } catch (e2) { return send(200, { ok: false, error: (e2 && e2.message) || String(e2) }); }
+        try { list = events.tailSince(afterSeq, args[1]); } catch (e2) { return send(200, { ok: false, error: (e2 && e2.message) || String(e2) }); }
         return send(200, { ok: true, value: { seq: events.seq, events: list } });
       }
       

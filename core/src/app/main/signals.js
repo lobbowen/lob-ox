@@ -2,7 +2,7 @@
 
 const pidlook = require('../../platform/os/pidlookup');
 const platform = require('../../platform/os/index');
-const { writeAtomic } = require('../../platform/util/fs');
+const { writeDurable } = require('../../platform/util/fs');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -55,7 +55,7 @@ module.exports = {
     try {
       const p = d.mainOwnerFile();
       if (!p || !dshPid) return;
-      writeAtomic(p, JSON.stringify({
+      writeDurable(p, JSON.stringify({
         guardPid: process.pid, dshPid, port: port || null, startedAt: Date.now(),
       }), { mode: 0o600 });
     } catch (e) {

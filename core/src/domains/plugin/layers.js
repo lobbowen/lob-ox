@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeAtomic } = require('../../platform/util/fs');
+const { writeDurable } = require('../../platform/util/fs');
 const { readProfile, readHomePatch } = require('./store');
 const { isProtectedName, isOwnRow, isOwnDisabled, targetHomePatchPath } = require('./model');
 
@@ -29,20 +29,20 @@ function createLayers({ overlayFile, logger }) {
     profile.dsh.profile = profile.dsh.profile || {};
     profile.dsh.profile.bundles = nextBundles;
     
-    writeAtomic(profilePath, JSON.stringify(profile, null, 2) + '\n', { mode: 0o600 });
+    writeDurable(profilePath, JSON.stringify(profile, null, 2) + '\n', { mode: 0o600 });
     return true;
   };
 
   const writeHomePatch = (target, entries) => {
     const file = targetHomePatchPath(target);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    writeAtomic(file, JSON.stringify(entries, null, 2) + '\n', { mode: 0o600 });
+    writeDurable(file, JSON.stringify(entries, null, 2) + '\n', { mode: 0o600 });
     return file;
   };
 
   const saveOverlayEntries = (entries) => {
     fs.mkdirSync(path.dirname(overlayFile), { recursive: true });
-    writeAtomic(overlayFile, JSON.stringify(entries, null, 2), { mode: 0o600 });
+    writeDurable(overlayFile, JSON.stringify(entries, null, 2), { mode: 0o600 });
   };
 
   const scrubPluginLayersInner = async (ctx, target, name, onLog) => {
@@ -94,7 +94,7 @@ function createLayers({ overlayFile, logger }) {
               });
               if (after.length !== j.length) {
                 fs.mkdirSync(path.dirname(file), { recursive: true });
-                writeAtomic(file, JSON.stringify(after, null, 2) + '\n', { mode: 0o600 });
+                writeDurable(file, JSON.stringify(after, null, 2) + '\n', { mode: 0o600 });
                 cleaned = true;
                 findings.cleaned.push('profile 补丁层');
                 log('已清理 profile 补丁层残留');

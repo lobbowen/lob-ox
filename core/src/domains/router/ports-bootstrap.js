@@ -5,7 +5,7 @@ const { OWNER_PREFIXES } = require('./port-segments');
 
 const path = require('node:path');
 const fs = require('node:fs');
-const { writeAtomic } = require('../../platform/util/fs');
+const { writeDurable } = require('../../platform/util/fs');
 
 function ensurePorts({ swDir, logger }) {
   const log = logger || console;
@@ -29,7 +29,7 @@ function ensurePorts({ swDir, logger }) {
       }
       if (changed) {
         fs.mkdirSync(path.dirname(newP), { recursive: true });
-        writeAtomic(newP, JSON.stringify(target, null, 2), { mode: 0o600 });
+        writeDurable(newP, JSON.stringify(target, null, 2), { mode: 0o600 });
       }
     }
     const cnt = JSON.parse(fs.readFileSync(newP, 'utf8')).records || [];
