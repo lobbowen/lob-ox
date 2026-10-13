@@ -162,7 +162,10 @@ impl ServiceControl for Impl {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("创建监控登记目录失败: {}", e))?;
         }
-        std::fs::write(&path, &body).map_err(|e| format!("写入监控登记失败: {}", e))?;
+        // monitor.json 是跨进程契约文件，必须走 atomic_write（tmp + rename）。
+    // 此前这里是裸 std::fs::write：rename 失败/断电会留半文件，而 is_defined()
+    // 只判 is_file()，半文件会被当成「已登记」。
+    crate::atomic_write::write(&path, &body).map_err(|e| format!("写入监控登记失败: {}", e))?;
         Ok(crate::platform::monitor_ensure_message(
             is_update,
             &path,

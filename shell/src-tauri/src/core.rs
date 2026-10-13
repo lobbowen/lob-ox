@@ -86,48 +86,14 @@ pub fn semver_cmp(a: &str, b: &str) -> i32 {
     0
 }
 
-struct KernelChoice {
-    manual: Option<String>,
-    origins: Vec<String>,
-}
-
-fn kernel_choice() -> Option<KernelChoice> {
-    let s = std::fs::read_to_string(crate::env::supervisor_dir().join("registry-choice.json")).ok()?;
-    let v = serde_json::from_str::<Value>(&s).ok()?;
-    let manual = if v.get("mode").and_then(|x| x.as_str()) == Some("manual") {
-        v.get("manualOrigin")
-            .and_then(|x| x.as_str())
-            .map(|t| t.trim().to_string())
-            .filter(|t| !t.is_empty())
-    } else {
-        None
-    };
-    let origins = v
-        .get("origins")
-        .and_then(|x| x.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|x| x.as_str())
-                .map(|t| t.trim().to_string())
-                .filter(|t| !t.is_empty())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    Some(KernelChoice { manual, origins })
-}
-
+// 镜像源列表的唯一真相是壳自己的 mirrors.json（mirror::load().npm）。
+// 此前这里还读内核写的 registry-choice.json——那是消费方复制生产方的解析：
+// 内核自己会写该文件并据它选择，壳再去读同一文件会让「内核选手动源」与
+// 「壳读 mirrors.json」在同时刻给出不同答案。壳要改源应改 mirrors.json
+// 并重新 export_to_kernel（registry.json 的 catalog），而非绕过内核的选择。
 pub fn registry_origins() -> Vec<String> {
-    if let Some(c) = kernel_choice() {
-        if let Some(m) = c.manual {
-            return vec![m];
-        }
-        if !c.origins.is_empty() {
-            return c.origins;
-        }
-    }
     crate::mirror::load().npm
 }
-
 fn encode_pkg(pkg: &str) -> String {
     pkg.chars().map(|c| if c == '/' { "%2F".to_string() } else { c.to_string() }).collect()
 }

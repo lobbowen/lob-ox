@@ -3,7 +3,7 @@
 //! 拓扑：壳（父）经 spawn_daemon 拉起内核（子）；内核无反向 invoke 壳的通道，
 //! 故底座在此暴露 127.0.0.1 的极简 HTTP 端点（端口受 PortAuthority 唯一分配，
 //! 登记为 guard-mgmt），内核经 HTTP POST 上报 register / set-desired / on-phase /
-//! record-exit / request-restart。浏览器策略天然封死跨源；底座持有唯一真相。
+//! record-exit。浏览器策略天然封死跨源；底座持有唯一真相。
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -57,7 +57,8 @@ pub async fn run(state: Arc<ProcessManager>) {
 
 /// 把 guard-mgmt 端口回灌给内核（所有权在壳、方向单向：壳写内核读）。
 /// 范式同 `mirror::export_to_kernel`：tmp → rename 原子提交，内核侧读不到就当端点不存在（客户端静默降级）。
-const MGMT_TOKEN_HEADER: &str = "x-lobox-mgmt-token";
+// 令牌头名走 shared-constants 单源（此前与内核 pm-client.js 各自硬编码，改一侧漏一侧）。
+const MGMT_TOKEN_HEADER: &str = crate::brand::shared_str("bridge.mgmtTokenHeader");
 const MGMT_BODY_CAP: usize = 64 * 1024;
 
 // R3 / 攻击链 B：机箱管理端点的 peer 凭据。

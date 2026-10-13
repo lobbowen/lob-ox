@@ -81,8 +81,6 @@ pub const NPM_SCOPE: &str = "@lob-ox";
 
 pub const CORE_PKG_PREFIX: &str = "core-";
 
-pub const CORE_PKG_TAGS: &[&str] = &["linux-x64", "darwin-arm64", "darwin-x64", "win-x64"];
-
 pub const SHELL_RELEASE_PKG: &str = "@lob-ox/shell-release";
 
 

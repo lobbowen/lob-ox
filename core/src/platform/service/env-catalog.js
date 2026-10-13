@@ -1,6 +1,7 @@
 'use strict';
 
 const runtime = require('../contract/runtime');
+const { semverCompare } = require('../../shared/version');
 const SHARED = require('../../shared/shared-constants');
 
 const ex = require('../util/exec');
@@ -59,18 +60,13 @@ function runtimeMeta() {
   return meta;
 }
 
-function parseVer(v) {
-  return String(v).replace(/^v/i, '').split('-')[0].split('.').map((x) => parseInt(x, 10) || 0);
-}
-
+// 版本比较统一走 shared/version.js 的 semverCompare（完整 semver，含 prerelease）。
+// 原实现在此内联了一份「split('-')[0] 后逐段比整数」，会丢弃 prerelease——
+// 同一 minNode 判据下，Rust 侧 semver_cmp 判定 22.12.0-rc.1 不满足 v22.12.0，
+// 而这里会判满足，两侧结论分叉。
 function verAtLeast(a, b) {
-  const A = parseVer(a); const B = parseVer(b);
-  const n = Math.max(A.length, B.length);
-  for (let i = 0; i < n; i++) {
-    const x = A[i] || 0; const y = B[i] || 0;
-    if (x !== y) return x > y;
-  }
-  return true;
+  const strip = (v) => String(v || '').replace(/^v/i, '');
+  return semverCompare(strip(a), strip(b)) >= 0;
 }
 
 function nodeVerdict(v) {

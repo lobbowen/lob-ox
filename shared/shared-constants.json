@@ -1,14 +1,12 @@
 {
   "schema": 1,
   "note": "跨语言共享常量（Node 内核 ↔ Rust 桌面壳）的单一来源。Rust 侧 include_str! 编译期嵌入，Node 侧读取；两侧不再各存一份副本，故不可能漂移。范式取自 shell/shell-release/version-vectors.json（本仓已验证的跨语言单源先例）。",
-
   "product": {
     "name": "lobox",
     "cliName": "lobox",
     "guiBinName": "lobox-shell",
     "guiCrateName": "lobox-shell"
   },
-
   "state": {
     "dirName": "lobox",
     "supervisorSubdir": "supervisor",
@@ -17,31 +15,29 @@
     "winBaseEnv": "LOCALAPPDATA",
     "linuxXdgEnv": "XDG_STATE_HOME"
   },
-
   "env": {
     "stateRoot": "DSH_SUPERVISOR_HOME",
     "config": "DSH_SUPERVISOR_CONFIG"
   },
-
   "proc": {
     "matchGuard": "*lobox*|*lob-ox*|*dsh*",
     "matchGuardNote": "进程归属判据。必须覆盖三种真实形态：CLI/壳可执行名 lobox、npm scope @lob-ox（连字符，不等于 lobox）、以及旧产品名 dsh 的历史安装。漏任一种都会让无锚点兜底判据对该形态返回非我方。"
   },
-
   "bridge": {
     "msgKernelUpdateRequest": "lobox:kernel-update-request",
     "msgKernelUpdateResult": "lobox:kernel-update-result",
-    "msgKernelUpdateProgress": "lobox:kernel-update-progress"
+    "msgKernelUpdateProgress": "lobox:kernel-update-progress",
+    "mgmtTokenHeader": "x-lobox-mgmt-token"
   },
-
   "net": {
     "apiPort": 37360,
     "routerCtlPort": 43107,
     "lanCtlPort": 43108,
-    "deprecatedApiPorts": [36360],
+    "deprecatedApiPorts": [
+      36360
+    ],
     "dshDefaultPort": 3080
   },
-
   "runtime": {
     "minNode": "v22.12.0",
     "npmDefaultRegistry": "https://registry.npmjs.org"

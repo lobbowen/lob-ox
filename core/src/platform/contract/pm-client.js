@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const SHARED = require('../../shared/shared-constants');
 const path = require('node:path');
 const http = require('node:http');
 const stateRoot = require('../service/state-root');
@@ -61,7 +62,8 @@ function post(route, payload) {
   }
   const req = http.request(
     { host: ep.host, port: ep.port, path: route, method: 'POST',
-      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), 'x-lobox-mgmt-token': ep.token },
+      // 令牌头名走 shared-constants 单源（此前与 mgmt.rs 各自硬编码，改一侧漏一侧）。
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), [SHARED.bridge.mgmtTokenHeader]: ep.token },
       timeout: TIMEOUT_MS },
     (res) => { res.resume(); },
   );

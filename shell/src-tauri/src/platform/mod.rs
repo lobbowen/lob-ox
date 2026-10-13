@@ -3,12 +3,14 @@ pub mod service;
 pub const SVC_QUICK: std::time::Duration = std::time::Duration::from_secs(8);
 pub const SVC_NORMAL: std::time::Duration = std::time::Duration::from_secs(10);
 
+// 用户主目录。单一实现在 env::home（兜底 /tmp）——
+// 此前这里另有一份，兜底值是 "."：相对路径会让 state_root 随 cwd 漂移，
+// 在 HOME/USERPROFILE 双缺的机器上属潜在缺陷。保留 env::home 的那份，
+// 此处只做转发，避免两套 home 解析给出不同答案。
 pub fn home_dir() -> std::path::PathBuf {
-    std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+    crate::env::home()
 }
+
 pub fn system_proxy() -> Option<String> {
     #[cfg(target_os = "windows")]
     let v = windows_system_proxy();

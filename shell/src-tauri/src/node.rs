@@ -79,7 +79,9 @@ fn best_from_index(raw: &str) -> Option<(String, String)> {
             .map(|a| a.iter().any(|x| x.as_str().map(|s| s == file || (s == tag)).unwrap_or(false)))
             .unwrap_or(false);
         if !has { continue; }
-        let newer = best.as_ref().map(|b| version_gt(ver, &b.0)).unwrap_or(true);
+        // 版本比较统一走 core::semver_cmp（完整 semver，含 prerelease）。
+        // 原 version_gt 只比前三段数字，会把 22.12.0-rc.1 与 22.12.0 视为相等。
+        let newer = best.as_ref().map(|b| crate::core::semver_cmp(ver, &b.0) > 0).unwrap_or(true);
         if newer { best = Some((ver.to_string(), file)); }
     }
     best
@@ -108,7 +110,7 @@ pub fn latest_lts() -> Result<LtsChoice, String> {
         let Some((ver, file)) = best_from_index(body) else { continue };
         let better = match &best {
             None => true,
-            Some((bv, _, _, _)) => version_gt(&ver, bv),
+            Some((bv, _, _, _)) => crate::core::semver_cmp(&ver, bv) > 0,
         };
         if better {
             best = Some((ver, file, p.latency_ms, p.source.clone()));
@@ -142,17 +144,6 @@ pub fn latest_lts() -> Result<LtsChoice, String> {
             Err(format!("全部 Node 镜像均不可用或无可用 LTS（{}）", detail))
         }
     }
-}
-
-fn version_gt(a: &str, b: &str) -> bool {
-    let va: Vec<u64> = a.trim_start_matches('v').split('.').filter_map(|x| x.parse().ok()).collect();
-    let vb: Vec<u64> = b.trim_start_matches('v').split('.').filter_map(|x| x.parse().ok()).collect();
-    for i in 0..3 {
-        let x = va.get(i).copied().unwrap_or(0);
-        let y = vb.get(i).copied().unwrap_or(0);
-        if x != y { return x > y; }
-    }
-    false
 }
 
 pub fn download_verified(
@@ -220,7 +211,7 @@ pub fn install(file: &Path) -> Result<PathBuf, String> {
 pub fn outdated(installed: Option<&str>, latest: &str) -> bool {
     match installed {
         None => true,
-        Some(v) => version_gt(latest, v),
+        Some(v) => crate::core::semver_cmp(latest, v) > 0,
     }
 }
 
@@ -234,7 +225,7 @@ pub fn min_node() -> &'static str {
 pub fn meets_minimum(installed: Option<&str>) -> bool {
     match installed {
         None => false,
-        Some(v) => !version_gt(min_node(), v),
+        Some(v) => crate::core::semver_cmp(min_node(), v) <= 0,
     }
 }
 
@@ -243,11 +234,20 @@ mod tests {
     use super::*;
     #[test]
     fn version_compare() {
-        assert!(version_gt("v2.0.0", "v1.9.9"));
-        assert!(version_gt("v22.25.0", "v22.24.0"));
-        assert!(!version_gt("v1.9.9", "v2.0.0"));
-        assert!(!version_gt("v22.24.0", "v22.24.0"));
+        // 版本比较统一走 core::semver_cmp（node.rs 自己的 version_gt 已删）。
+        assert!(crate::core::semver_cmp("v2.0.0", "v1.9.9") > 0);
+        assert!(crate::core::semver_cmp("v22.25.0", "v22.24.0") > 0);
+        assert!(crate::core::semver_cmp("v1.9.9", "v2.0.0") < 0);
+        assert_eq!(crate::core::semver_cmp("v22.24.0", "v22.24.0"), 0);
     }
+
+    #[test]
+    fn prerelease_is_lower_than_release() {
+        // 原 version_gt 丢 prerelease，会把 rc 与正式版视为相等；
+        // semver_cmp 正确判定 22.12.0-rc.1 < 22.12.0。
+        assert!(crate::core::semver_cmp("v22.12.0-rc.1", "v22.12.0") < 0);
+    }
+
     #[test]
     fn outdated_logic() {
         assert!(outdated(None, "v26.8.1"));
