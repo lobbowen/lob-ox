@@ -45,7 +45,7 @@ function _bootstrap(host) {
     if (host.config.updateCheckEnabled !== false) {
       const checkDelayMs = host.config.initialCheckDelayMs || 20000;
       const checkIntervalMs = Math.max(1, Math.round((host.config.updateCheckIntervalMs || 3600000) / tickMs));
-      beat.register('upgrade-check', () => { try { host.nativeManager.checkUpdate(); } catch (e) {} }, { every: checkIntervalMs, firstDelayMs: checkDelayMs, timeoutMs: 120000 });
+      beat.register('upgrade-check', () => { try { host.nativeAgent.checkUpdate(); } catch (e) {} }, { every: checkIntervalMs, firstDelayMs: checkDelayMs, timeoutMs: 120000 });
     }
     beat.tick();
     beat.start(tickMs);

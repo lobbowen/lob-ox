@@ -44,7 +44,7 @@ function composeDomains(host) {
     });
     try { if (host.config.portPools) ports.configurePools(host.config.portPools); } catch (e) { host.logger.warn && host.logger.warn('ports pools configure: ' + (e && e.message)); }
     host._bindNativeDshCommand();
-    // agent 管理域先构造：InstanceManager 与 nativeManager 都要引用它。
+    // agent 管理域先构造：InstanceManager 与 nativeAgent 都要引用它。
     host.agents = new AgentManager({
       root: path.join(path.dirname(host.config.stateFile), 'agents'),
       logger: host.logger,
@@ -142,9 +142,9 @@ function composeDomains(host) {
     host.api = null;
     host.notifyEnabled = host.config.notifyEnabled !== false;
     host.loadState();
-    // R8-agent：nativeManager 现由 agent 域适配器提供。
+    // R8-agent：nativeAgent 现由 agent 域适配器提供。
     // hooks 原样透传——停/拉/期望态判定本来就是壳的职责，agent 域不越界。
-    host.nativeManager = new NativeAgentAdapter({
+    host.nativeAgent = new NativeAgentAdapter({
       agents: host.agents,
       config: host.config,
       dist: host.dist,

@@ -1,8 +1,8 @@
 'use strict';
 
-// 原生 agent 适配器：把 AgentManager 包装成 API 层熟悉的 nativeManager 形状。
+// 原生 agent 适配器：把 AgentManager 包装成 API 层熟悉的 nativeAgent 形状。
 //
-// 为什么需要它：api/domains/native.js 与 guard.js 消费 sup.nativeManager 的 9 个方法
+// 为什么需要它：api/domains/native.js 与 guard.js 消费 sup.nativeAgent 的 9 个方法
 //（status / versionInfo / upgradeStatus / checkUpdate / startInstall / upgrade /
 // busy / startUninstall / upgradeState）。直接用 AgentManager 替换会改到 API 层，
 // 而 API 层还有大量与 agent 无关的路由——混在一起改无法分别验证。
@@ -37,7 +37,7 @@ class NativeAgentAdapter {
       port: this._targetPort() || 0,
     };
 
-    // 升级状态机：与旧 nativeManager 同形（API 直接读 upgradeState）。
+    // 升级状态机：与旧 nativeAgent 同形（API 直接读 upgradeState）。
     this.upgradeState = 'idle';
     this.oldVersion = null;
     this.targetVersion = null;

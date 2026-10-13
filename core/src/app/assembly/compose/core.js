@@ -27,7 +27,7 @@ function composeCore(host, rawConfig, configPath) {
       label: '运行时（Node/npm/git/镜像源/全局前缀）',
       probe: async () => {
         const cat = await new EnvCatalog(host.config).probeAsync();
-        const m = host.nativeManager;
+        const m = host.nativeAgent;
         const [reg, prefix] = await Promise.all([
           m && m.dist && typeof m.dist.registryInfo === 'function'
             ? Promise.resolve(m.dist.registryInfo()).catch(() => null) : Promise.resolve(null),

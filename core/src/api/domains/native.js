@@ -9,14 +9,14 @@ function handle(ctx) {
 
     if (req.method === 'GET' && pathname === '/native/status') {
       return send(200, {
-        ...(sup.nativeManager ? sup.nativeManager.status() : { installed: false }),
-        versionInfo: sup.nativeManager ? sup.nativeManager.versionInfo() : null,
-        upgrade: sup.nativeManager ? sup.nativeManager.upgradeStatus() : null,
+        ...(sup.nativeAgent ? sup.nativeAgent.status() : { installed: false }),
+        versionInfo: sup.nativeAgent ? sup.nativeAgent.versionInfo() : null,
+        upgrade: sup.nativeAgent ? sup.nativeAgent.upgradeStatus() : null,
       });
     }
     if (req.method === 'POST' && pathname === '/native/check-update') {
       if (!originAllowed(req)) return ctx.rejectCrossOrigin(ctx);
-      sup.nativeManager.checkUpdate().then((r) => send(200, { ok: true, ...r })).catch((e) => send(500, { ok: false, error: e.message }));
+      sup.nativeAgent.checkUpdate().then((r) => send(200, { ok: true, ...r })).catch((e) => send(500, { ok: false, error: e.message }));
       return;
     }
     if (req.method === 'POST' && pathname === '/native/install') {
@@ -24,7 +24,7 @@ function handle(ctx) {
       collectBody(req, res, 1024, (body) => {
         let version = null;
         try { const j = body ? JSON.parse(body) : {}; if (typeof j.version === 'string' && j.version) version = j.version; } catch {}
-        const r = sup.nativeManager.startInstall(version);
+        const r = sup.nativeAgent.startInstall(version);
         if (r && r.ok === false) return send(400, r);
         return send(202, { ok: true, accepted: true, state: 'installing' });
       });
@@ -35,17 +35,17 @@ function handle(ctx) {
       collectBody(req, res, 4096, (body) => {
         let requested = null;
         try { const j = body ? JSON.parse(body) : {}; if (j && typeof j.version === 'string' && j.version) requested = j.version; } catch {}
-        if (sup.nativeManager.busy()) {
-          return send(409, { error: 'upgrade already in progress', state: sup.nativeManager.upgradeState });
+        if (sup.nativeAgent.busy()) {
+          return send(409, { error: 'upgrade already in progress', state: sup.nativeAgent.upgradeState });
         }
-        sup.nativeManager.upgrade(requested).catch(() => {});
+        sup.nativeAgent.upgrade(requested).catch(() => {});
         send(202, { ok: true, accepted: true });
       });
       return;
     }
     if (req.method === 'POST' && pathname === '/native/uninstall') {
       if (!originAllowed(req)) return ctx.rejectCrossOrigin(ctx);
-      const r = sup.nativeManager.startUninstall();
+      const r = sup.nativeAgent.startUninstall();
       if (r && r.ok === false) return send(400, r);
       return send(202, { ok: true, accepted: true, state: 'uninstalling' });
     }

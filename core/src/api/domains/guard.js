@@ -17,7 +17,7 @@ function owns(pathname) {
 // 而本产品（lobox）的 native 层管的是内核自身版本，DSH 只是被拉起的业务进程。
 // 现改为如实呈现内核版本信息，不跨产品指路。
 function fetchNativeChangelog(res, sup) {
-  const v = (sup && sup.nativeManager) ? sup.nativeManager.versionInfo() : {};
+  const v = (sup && sup.nativeAgent) ? sup.nativeAgent.versionInfo() : {};
   const inst = v.installed || '未安装';
   const latest = v.latest || '—';
   const upd = v.updateAvailable;

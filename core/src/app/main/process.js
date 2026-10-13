@@ -38,7 +38,7 @@ function depsOf(host) {
     d = {
       config: () => host.config, main: () => host.main, events: () => host.events,
       logger: () => host.logger, ui: () => host.ui, state: () => host.state,
-      daemons: () => host.daemons, nativeManager: () => host.nativeManager,
+      daemons: () => host.daemons, nativeAgent: () => host.nativeAgent,
       tokenService: () => host.tokenService, dshWriter: () => host.dshWriter,
       pluginManager: () => host.pluginManager, stopping: () => host._stopping,
       writeCrashHalted: (v) => { host._crashHalted = v; },
@@ -76,7 +76,7 @@ module.exports = {
   async _startProcess() {
     const d = depsOf(this);
     d.writeCrashHalted(false);
-    const nst = d.nativeManager() ? d.nativeManager().status() : { installed: true };
+    const nst = d.nativeAgent() ? d.nativeAgent().status() : { installed: true };
     if (!nst.installed) {
       d.events().append(BRAND.EVENT_HARNESS_NOT_INSTALLED, { bin: nst.binPath });
       if (!d.mMissingNotified()) {

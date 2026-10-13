@@ -20,8 +20,8 @@ module.exports = {
     async envStatus() {
       const c = runtimeContract.read() || {};
       const cat = await new EnvCatalog(this.config).probeAsync();
-      const en = this.nativeManager && typeof this.nativeManager.checkEnvironment === 'function'
-        ? await this.nativeManager.checkEnvironment() : null;
+      const en = this.nativeAgent && typeof this.nativeAgent.checkEnvironment === 'function'
+        ? await this.nativeAgent.checkEnvironment() : null;
       return {
         node: { detected: cat.node.detail || null, runtime: c.nodeVersion || null, path: c.nodePath || null },
         npm: { detected: cat.npm.detail || null, runtime: c.npmVersion || null, path: c.npmPath || null },
@@ -49,7 +49,7 @@ module.exports = {
         bin = (cmd0[0] === 'node' && cmd0[1]) ? cmd0[1] : (cmd0[0] || null);
         if (bin) binOk = fs.existsSync(bin);
       } catch {}
-      try { if (this.nativeManager && typeof this.nativeManager.installedVersion === 'function') installed = this.nativeManager.installedVersion(); } catch {}
+      try { if (this.nativeAgent && typeof this.nativeAgent.installedVersion === 'function') installed = this.nativeAgent.installedVersion(); } catch {}
       return { installed, bin: bin || null, binOk, managed: cmdOk, phase: this.state.phase() || null };
     },
   },

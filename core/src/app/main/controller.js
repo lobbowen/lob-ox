@@ -119,7 +119,7 @@ module.exports = {
       }
 
       {
-        const nst = host.nativeManager ? host.nativeManager.status() : null;
+        const nst = host.nativeAgent ? host.nativeAgent.status() : null;
         if (nst && nst.installed === false) {
           const ph0 = String(d.state().phase() || '').toUpperCase();
           if (ph0 === 'STARTING' || ph0 === 'RUNNING') {
