@@ -113,7 +113,7 @@ class NativeAgentAdapter {
 
   checkEnvironment() {
     const installOps = require('./ops/install');
-    const rc = require('../../../platform/contract/runtime');
+    const rc = require('../../platform/contract/runtime');
     return installOps.checkEnvironment(rc.npmLauncher());
   }
 
@@ -214,7 +214,7 @@ class NativeAgentAdapter {
       desiredRunning: () => !!(this.hooks.desiredRunning && this.hooks.desiredRunning()),
       waitHealthy: async (port, ms) => {
         if (this.hooks.waitNativeHealthy) return this.hooks.waitNativeHealthy(port, ms);
-        const rc = require('../../../platform/contract/runtime');
+        const rc = require('../../platform/contract/runtime');
         return { ok: false, reason: 'waitNativeHealthy 未提供' };
       },
       targetPort: () => this._targetPort(),
