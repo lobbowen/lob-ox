@@ -77,7 +77,7 @@ use std::sync::OnceLock;
 
 static MGMT_TOKEN_ROOT: OnceLock<[u8; 32]> = OnceLock::new();
 
-fn mgmt_token_root() -> &static [u8; 32] {
+fn mgmt_token_root() -> &'static [u8; 32] {
     MGMT_TOKEN_ROOT.get_or_init(|| {
         let mut seed = [0u8; 32];
         let mut ok = false;
