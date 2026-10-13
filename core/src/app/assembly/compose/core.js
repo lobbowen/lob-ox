@@ -51,10 +51,10 @@ function composeCore(host, rawConfig, configPath) {
       label: 'DSH 本体与内核更新',
       probe: async () => {
         const cat = new EnvCatalog(host.config);
-        const d = typeof host.dshenvStatus === 'function' ? host.dshenvStatus() : null;
+        const d = typeof host.nativeEnvStatus === 'function' ? host.nativeEnvStatus() : null;
         if (!d) return null;
         return {
-          dsh: cat.dshEntry(d.binOk, d.installed, d.bin),
+          dsh: cat.nativeEntry(d.binOk, d.installed, d.bin),
           selfUpdate: cat.selfUpdateEntry(),
           managed: d.managed === true, phase: d.phase || null,
         };
@@ -137,7 +137,12 @@ function composeCore(host, rawConfig, configPath) {
       enableHub: true,
       stateDir: path.dirname(host.config.stateFile),
       aggBase: path.basename(host.config.stateFile || 'state.json', '.json'),
-      ctlPorts: { router: Number(host.config.routerCtlPort) || 43107, lan: Number(host.config.lanCtlPort) || 43108 },
+      // ctl 端口缺省值取 shared-constants 单源（net.routerCtlPort / net.lanCtlPort）。
+    // 此前硬编码 43107/43108，改 shared-constants 不会传导到这里，与壳侧常量漂移。
+    ctlPorts: {
+      router: Number(host.config.routerCtlPort) || SHARED.net.routerCtlPort,
+      lan: Number(host.config.lanCtlPort) || SHARED.net.lanCtlPort,
+    },
       daemonLogs: {
         router: path.join(path.dirname(host.config.stateFile), 'log', 'router-daemon.log'),
         lan: path.join(path.dirname(host.config.stateFile), 'log', 'lan-daemon.log'),

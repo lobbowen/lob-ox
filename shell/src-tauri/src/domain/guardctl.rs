@@ -4,10 +4,9 @@
 //! 阶段序列 P0 契约 -> P1 对齐 -> P3 定位 -> P4 登记 -> P5 启动 -> P6 就绪；P1 是 P5 的前置（磁盘内核必须等于线上最新，否则拒绝启动）。所有等待都有上限，退出也要能在受管对象无响应时走完。
 
 use std::net::{TcpStream, ToSocketAddrs};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use tauri::{Emitter, Manager};
 
-static EXITING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone)]
 pub(crate) struct LaunchError {
@@ -38,7 +37,6 @@ pub fn resolve_local(resource_dir: Option<std::path::PathBuf>) -> Option<(crate:
 // 进程管理时代壳直接持有进程句柄（adopt_spawned），停机就是停进程表里的每个对象，
 // 没有握手、没有让出端口的等待预算、没有 GUARD_STOP_FAILED 这条路径。
 pub(crate) fn shutdown_all(_port: u16) {
-    EXITING.store(true, Ordering::SeqCst);
     let pm = crate::process_manager::handle();
     let ids: Vec<String> = {
         let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
@@ -256,7 +254,6 @@ fn guard_log_tail() -> String {
     if s.trim().is_empty() { "(日志为空)".to_string() } else { s }
 }
 
-const SERVICE_READY_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 const DAEMON_READY_BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// 守卫就绪判据的**唯一**实现产物：`GET /healthz` 返回 2xx —— 唯一算「就绪」的形态。
@@ -300,20 +297,6 @@ pub(crate) fn ready(port: u16, http_timeout: std::time::Duration) -> Readiness {
         None => Readiness::NoHttpResponse,
     }
 }
-
-/// 等待预算内轮询就绪（每 tick 500ms），返回最后一次判定。每 tick 重读实际端口：内核可能因端口占用而顺延并持久化（见 env::current_api_port），只盯固定端口会永远等不到已健康的守卫。用时长而非 tick 数计预算：每 tick 成本不是常数（多了 /healthz 一次往返），按 tick 计数会让总上界随网络状态漂移。
-pub(crate) fn await_ready(budget: std::time::Duration) -> Readiness {
-    let started = std::time::Instant::now();
-    let mut last = Readiness::PortClosed;
-    loop {
-        last = ready(crate::env::current_api_port(), READINESS_HTTP_TIMEOUT);
-        if last == Readiness::Ready || started.elapsed() >= budget {
-            return last;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(500));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

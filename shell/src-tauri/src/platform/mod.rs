@@ -9,13 +9,6 @@ pub fn home_dir() -> std::path::PathBuf {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
 }
-
-pub fn user_name() -> String {
-    std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_else(|_| "user".into())
-}
-
 pub fn system_proxy() -> Option<String> {
     #[cfg(target_os = "windows")]
     let v = windows_system_proxy();

@@ -79,9 +79,9 @@ function composeDomains(host) {
       // 注：原 'govern-sweep' 注册已随配额逻辑整段移除（按「共享系统资源」决策）。
       // 注意此处只注册，不启动 scheduler（启动在 assembly/bootstrap.js）。
       if (host._beatScheduler && typeof host._beatScheduler.afterTick === 'function') {
-        // 与 govern-sweep 同一根因的第三处空转：orphanAudit 全库无调用点。
-        // 节流在 scheduler.js 的 orphanAudit 内部（5 分钟）。
-        host._beatScheduler.afterTick('orphan-audit', () => host.orphanAudit());
+        // 端口残留登记与异主 daemon 检测：入口是 host.audit.orphan()
+        // （app/audit/collaborator.js 的 createOrphanScan）。节流在其内部（5 分钟）。
+        host._beatScheduler.afterTick('orphan-audit', () => host.audit.orphan());
         // D.6-P0-10：hub.sync() 整条多源事件聚合链路此前全仓零调用点——
         // _syncGuard/_syncDaemon/_saveWatermark 只被 sync() 调用，而 sync() 无人驱动。
         // 装配链是完整的（enableHub/attachHub/eventHub 都在），缺的就是这一处驱动。

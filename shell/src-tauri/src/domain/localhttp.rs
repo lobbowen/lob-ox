@@ -43,19 +43,3 @@ pub(crate) fn http_get_local(port: u16, path: &str, timeout: std::time::Duration
     let code = s.split_whitespace().nth(1)?.parse::<u16>().ok()?;
     Some((code, s))
 }
-
-pub(crate) fn get_session_state(port: u16) -> Option<String> {
-    let mut stream = connect_local(port, LOCAL_CONNECT_TIMEOUT)?;
-    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(3)));
-    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(3)));
-    let req = format!("GET /session/status HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n", port);
-    std::io::Write::write_all(&mut stream, req.as_bytes()).ok()?;
-    let mut buf = Vec::new();
-    let _ = std::io::Read::read_to_end(&mut stream, &mut buf);
-    let s = String::from_utf8_lossy(&buf);
-    let key = "\"sessionState\":\"";
-    let i = s.find(key)? + key.len();
-    let rest = &s[i..];
-    let v: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
-    if v.is_empty() { None } else { Some(v) }
-}

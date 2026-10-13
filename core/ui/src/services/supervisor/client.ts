@@ -3,7 +3,7 @@ import type {
   GuardVersion, InstancesResponse, InstalledPluginsResponse, LanAccessResponse,
   LanPanelStatus, LifecycleModuleId, MarketResponse, NodeLtsStatus, OpenExternalResult, PluginUpdatesResponse,
   PortsResponse, ProvidersResponse, ProxyLoginStart, RegistryInfo, RemoteMode, RouterStatus,
-  PluginJobStatus, ProxyUpdateStatus, SelfUpdateStatus, SupervisorInstance, SupervisorStatus, TasksResponse,
+  PluginJobStatus, ProxyUpdateStatus, SelfUpdateStatus, SupervisorStatus, TasksResponse,
   ShellStatus, ShellUpdateCheck,
 } from "./types";
 
@@ -135,13 +135,9 @@ export const supervisorApi = {
   nativeUpgrade: (version?: string) => post<GenericOk>("/native/upgrade", version ? { version } : {}),
   nativeUninstall: () => post<GenericOk>("/native/uninstall"),
   
-  nativeSettings: (patch: { guardian?: boolean }) =>
-    post<GenericOk & { main?: SupervisorInstance }>("/native/settings", patch),
 
   instanceAdd: (p: { name: string; port: number; command?: string[] }) =>
     post<GenericOk>("/instances/add", p),
-  instanceUpdate: (id: string, patch: { guardian?: boolean }) =>
-    post<GenericOk>("/instances/update", { id, ...patch }),
   instanceRemove: (id: string) => post<GenericOk & { dataPreserved?: boolean; preserveReason?: string }>("/instances/remove", { id }),
   instanceStart: (id: string) => post<GenericOk>("/instances/start", { id }),
   instanceStop: (id: string) => post<GenericOk>("/instances/stop", { id }),
@@ -162,7 +158,6 @@ export const supervisorApi = {
     }>("/router/providers/keys/set", { id, ...p }),
   providerKeyUse: (id: string, fingerprint: string) =>
     post<GenericOk & { active?: string }>("/router/providers/key/use", { id, fingerprint }),
-  providerAccountDiscard: (id: string, keyId: string) => post<GenericOk>("/router/providers/account/discard", { id, keyId }),
   proxyAddKey: (id: string, key: string) => post<GenericOk>("/router/providers/proxy/key", { id, key }),
   proxyRemoveKey: (id: string, keyId: string) => post<GenericOk>("/router/providers/proxy/key/remove", { id, keyId }),
   proxySelect: (id: string, keyId: string) => post<GenericOk>("/router/providers/proxy/select", { id, keyId }),
@@ -223,7 +218,6 @@ export const supervisorApi = {
   
   environment: (force = false) => get<EnvironmentForm>(`/env/environment${force ? "?force=1" : ""}`),
   environmentLast: () => get<EnvironmentSnapshotRead>("/env/environment/last"),
-  externalBrowser: () => get<ExternalBrowserStatus>("/settings/external-browser"),
   
   setExternalBrowser: (id: string) => post<GenericOk & ExternalBrowserStatus>("/settings/external-browser", { id }),
 };

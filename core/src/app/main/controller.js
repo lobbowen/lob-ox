@@ -21,7 +21,6 @@ function depsOf(host) {
       daemons() { return host.daemons; },
       intents() { return host.intents; },
       lan() { return host.lan; },
-      control() { return host.control; },
       readTicking() { return host._ticking; }, writeTicking(v) { host._ticking = v; },
       stopping() { return host._stopping; },
       readLastMainPortRederive() { return host._lastMainPortRederive; },
@@ -200,7 +199,6 @@ module.exports = {
     } finally {
       d.writeTicking(false);
       if (d.sessionState() !== 'running') d.session().setState('running');
-      try { d.control().syncDshView(); } catch (e) { d.logger().warn && d.logger().warn('sync: ' + (e && e.message)); }
     }
   }
   },

@@ -18,7 +18,6 @@ function setKinds(map) {
   }
 }
 
-const GHOST_KEYS = ['lanToken'];
 
 function isKnownKind(kind) {
   return Object.prototype.hasOwnProperty.call(KINDS, kind);
@@ -45,7 +44,6 @@ function isUserConfigKind(kind) {
 
 module.exports = {
   KINDS,
-  GHOST_KEYS,
   registerKind,
   setKinds,
   isKnownKind,

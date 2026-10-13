@@ -41,7 +41,11 @@ function _bootstrap(host) {
     // R2：timeoutMs 必填（BeatScheduler.register 缺省会抛错）。取值按各自最坏耗时给：
     //   main 是守卫状态收敛，一轮涉及进程探测与端口判断，给 60s；
     //   upgrade-check 走网络查询 npm registry，给 120s。
-    beat.register('main', () => host.tick(), { every: 1, timeoutMs: 60000 });
+    // 主状态收敛拍：真实实现是 host.main.converge()（controller._dshConverge）。
+    // 此前写 host.tick() 而全仓无 tick 安装源，BeatScheduler 的同步 try/catch 吃掉
+    // 「host.tick is not a function」，每 5s 一条 warn 而收敛拍从不执行——
+    // 不探端口、不 adopt、不重拉、不收敛相位，api/healthz 却仍绿。
+    beat.register('main', () => host.main.converge(), { every: 1, timeoutMs: 60000 });
     if (host.config.updateCheckEnabled !== false) {
       const checkDelayMs = host.config.initialCheckDelayMs || 20000;
       const checkIntervalMs = Math.max(1, Math.round((host.config.updateCheckIntervalMs || 3600000) / tickMs));

@@ -275,11 +275,6 @@ fn live_of(out_path: &std::path::Path, err_path: &std::path::Path, elapsed: Dura
 pub fn run_checked(cmd: &mut Command, timeout: Duration, what: &str) -> Result<String, String> {
     run(cmd, timeout)?.ok_or_stderr(what)
 }
-
-pub fn run_lossy(cmd: &mut Command, timeout: Duration) {
-    let _ = run(cmd, timeout);
-}
-
 fn read_log(p: &std::path::Path) -> String {
     match std::fs::read(p) {
         Ok(bytes) => decode_console(&bytes),

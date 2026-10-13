@@ -108,7 +108,6 @@ class ProxyProvider extends withProcessPool(ProviderBase) {
   }
   isDesiredAccount(acc) { return pool.isDesired(this.desiredRunningAccounts().list, acc); }
 
-  _runReconcile(allowStop) { return restart.runReconcile(this, allowStop); }
   reconcileNow() { return restart.reconcileNow(this); }
 
   markBanned(acc, error) {

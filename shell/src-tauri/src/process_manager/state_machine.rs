@@ -27,17 +27,6 @@ pub enum Priority {
 }
 
 impl Priority {
-    /// 自愈预算（毫秒）：高优先级给更长窗口，低优先级更短 —— 同一套机制按优先级分级。
-    pub fn heal_budget_ms(self) -> u64 {
-        match self {
-            Priority::Core => 120_000,
-            Priority::Router => 60_000,
-            Priority::Lan => 60_000,
-            Priority::Sandbox => 30_000,
-            Priority::Plugin => 30_000,
-        }
-    }
-
     /// 连续失败多少次后停手等人工（避免无意义高频重启）。
     pub fn heal_burst(self) -> u32 {
         match self {

@@ -10,27 +10,19 @@ const SHARED = require('./shared-constants');
 
 const PRODUCT_NAME = SHARED.product.name;
 
+// CLI_NAME 有真实消费方（core/bin/lobox：链接名 / 版本输出 / bin 目录定位）。
 const CLI_NAME = SHARED.product.cliName;
 
 const GUI_BIN_NAME = SHARED.product.guiBinName;
 
-const GUI_CRATE_NAME = SHARED.product.guiCrateName;
 
-
+// NPM_SCOPE / CORE_PKG_PREFIX 仅由 corePackageName() 内部拼接，不导出。
 const NPM_SCOPE = '@lob-ox';
 
 const CORE_PKG_PREFIX = 'core-';
 
-const CORE_PKG_TAGS = ['linux-x64', 'darwin-arm64', 'darwin-x64', 'win-x64'];
 
-const SHELL_RELEASE_PKG = '@lob-ox/shell-release';
-
-
-const TAURI_IDENTIFIER = 'dev.bowen.lobox';
-
-const TAURI_PRODUCT_NAME = 'lobox';
-
-
+// STATE_* / LEGACY_* 仅由 stateRoot() / legacyStateRoot() 内部使用（不导出）。
 const STATE_DIR_NAME = SHARED.state.dirName;
 
 const STATE_SUPERVISOR_SUBDIR = SHARED.state.supervisorSubdir;
@@ -52,80 +44,22 @@ const STATE_ROOT_LINUX_FALLBACK_SEGMENTS = ['.local', 'state'];
 const LEGACY_HARNESS_DIR = SHARED.state.legacyHarnessDir;
 
 
+// ENV_* 只有这三个有消费方：ENV_STATE_ROOT（platform/service/state-root.js）、
+// ENV_SHELL_EXE（platform/os/autostart/index.js）、ENV_UI_DIR（api/static.js）。
+// 其余 ENV_* 常量在 core/src、core/test、core/ui/src 三处零引用，已删除；
+// shell/src-tauri/src/brand.rs 中的同名 Rust 常量是独立的一份，不受本次删除影响。
 const ENV_STATE_ROOT = SHARED.env.stateRoot;
-
-const ENV_CONFIG = SHARED.env.config;
-
-const ENV_DAEMON = 'DSH_SUPERVISOR_DAEMON';
-
-const ENV_TRAY_PORT = 'DSH_SUPERVISOR_TRAY_PORT';
 
 const ENV_SHELL_EXE = 'DSH_SHELL_EXE';
 
-const ENV_GUARD_BIN = 'DSH_GUARD_BIN';
-
-const ENV_HARNESS_BIN = 'DSH_BIN';
-
-const ENV_SMOKE_PID = 'DSH_PID';
-
-const ENV_CANARY = 'DSH_CANARY';
-
-const ENV_CANARY_ID = 'DSH_CANARY_ID';
-
-const ENV_CANARY_ALLOWLIST = 'DSH_CANARY_ALLOWLIST';
-
-const ENV_DEPLOY_FORM = 'DSH_DEPLOY_FORM';
-
 const ENV_UI_DIR = 'DSH_UI_DIR';
 
-const ENV_UI_SKIP_INSTALL = 'DSH_UI_SKIP_INSTALL';
 
-const ENV_CORE_SCOPE = 'DSH_CORE_SCOPE';
-
-const ENV_PUBLISH_REGISTRY = 'DSH_PUBLISH_REGISTRY';
-
-const ENV_NPM_PROVENANCE = 'DSH_NPM_PROVENANCE';
-
-const ENV_NPMRC = 'DSH_NPMRC';
-
-const ENV_NPM_AUTH_PREV = 'DSH_NPM_AUTH_PREV';
-
-const ENV_NPM_AUTH_PREV_SET = 'DSH_NPM_AUTH_PREV_SET';
-
-const ENV_NPM_AUTH_PREVL = 'DSH_NPM_AUTH_PREVL';
-
-const ENV_NPM_AUTH_PREVL_SET = 'DSH_NPM_AUTH_PREVL_SET';
-
-const ENV_NPM_AUTH_SOURCE = 'DSH_NPM_AUTH_SOURCE';
-
-const ENV_NPM_AUTH_TMP = 'DSH_NPM_AUTH_TMP';
-
-const ENV_CRED_DIR = 'DSH_CRED_DIR';
-
-const ENV_CRED_ALLOW_OVERWRITE = 'DSH_CRED_ALLOW_OVERWRITE';
-
-const ENV_CRED_FORCE = 'DSH_CRED_FORCE';
-
-const ENV_CRED_BACKUP_DIR = 'DSH_CRED_BACKUP_DIR';
-
-const ENV_REAL_HOME = 'DSH_REAL_HOME';
-
-const ENV_ARCH_OVERRIDE = 'DSH_ARCH_OVERRIDE';
-
-const ENV_PLATFORM_OVERRIDE = 'DSH_PLATFORM_OVERRIDE';
-
-const ENV_ESBUILD_VERSION = 'DSH_ESBUILD_VERSION';
-
-const ENV_VERSION_LIB = 'DSH_VERSION_LIB';
-
-
+// TAURI_IDENTIFIER 仅由 macosGuardLabel() / macosGuiLabel() 内部拼接，不导出。
+const TAURI_IDENTIFIER = 'dev.bowen.lobox';
 
 
 const WINDOWS_GUI_TASK = 'Lobox-Shell';
-
-const WINDOWS_RUN_VALUE = 'Lobox';
-
-const SYSTEMD_UNIT_NAME = 'lobox';
 
 const SYSTEMD_UNIT_FILE = 'lobox.service';
 
@@ -133,48 +67,16 @@ function macosGuardLabel() { return TAURI_IDENTIFIER + '.core'; }
 function macosGuiLabel() { return TAURI_IDENTIFIER + '.shell'; }
 
 
+// SEA_BUNDLE_NAME 有消费方（platform/contract/deploy.js），保留。
 const SEA_BUNDLE_NAME = 'core.cjs';
 
-const SEA_VERSION_DEFINE = '__DSH_VERSION__';
-
-const KERNEL_ARCHIVE_TEMPLATE = 'lobox-{ver}.tar.gz';
-
-const KERNEL_RELEASE_TARBALL_TEMPLATE = 'lobox-kernel-{ver}-{plat}.tar.gz';
-
-const LAUNCHER_DIR_TEMPLATE = 'lobox-{ver}-{plat}-{arch}';
-
-const INSTALLER_NSIS_WIN_X64_TEMPLATE = '{product}_{ver}_x64-setup.exe';
-
-const INSTALLER_MACOS_APP_TEMPLATE = '{product}.app.tar.gz';
-
-const INSTALLER_DEB_LINUX_X64_TEMPLATE = '{product}_{ver}_amd64.deb';
-
-const INSTALLER_DMG_ARM64_TEMPLATE = '{product}_{ver}_aarch64.dmg';
-
-const INSTALLER_DMG_X64_TEMPLATE = '{product}_{ver}_x64.dmg';
-
-const CLI_BIN_NAMES = ['lobox.exe', 'lobox.cmd', 'lobox'];
-
-const CLI_SHIM_NAMES = ['lobox', 'lobox.cmd', 'lobox.ps1'];
-
-const GUI_BIN_NAMES = ['lobox-shell', 'lobox-shell.exe'];
 
 
-const PROC_MATCH_GUARD = SHARED.proc.matchGuard;
-
-
-
-
-
-const BRIDGE_MSG_KERNEL_UPDATE_REQUEST = SHARED.bridge.msgKernelUpdateRequest;
-const BRIDGE_MSG_KERNEL_UPDATE_RESULT = SHARED.bridge.msgKernelUpdateResult;
-const BRIDGE_MSG_KERNEL_UPDATE_PROGRESS = SHARED.bridge.msgKernelUpdateProgress;
-
-const STORE_KEY_API_ACCESS = 'lobox.apiAccessKey';
 
 const COOKIE_LAN_TOKEN = 'lobox_lan_token';
 
 
+// EVENT_HARNESS_EXITED 有消费方（app/main/process.js、app/main/controller.js），保留。
 const EVENT_HARNESS_EXITED = 'harness_exited';
 const EVENT_HARNESS_TOKEN_CAPTURED = 'harness_token_captured';
 const EVENT_HARNESS_TOKEN_MISSING = 'harness_token_missing';
@@ -182,7 +84,6 @@ const EVENT_HARNESS_COMMAND_MISSING = 'harness_command_missing';
 const EVENT_HARNESS_NOT_INSTALLED = 'harness_not_installed';
 const EVENT_HARNESS_COMMAND_BOUND = 'harness_command_bound';
 const EVENT_LAN_HARNESS_TOKEN_UPDATED = 'lan_harness_token_updated';
-const EVENT_UPGRADE_STOPPING_HARNESS = 'upgrade_stopping_harness';
 
 const EVENT_SHELL_UPDATE_CHECKED = 'shell_update_checked';
 
@@ -223,83 +124,25 @@ function legacyStateRoot(platform, env, home) {
   return path.join(path.dirname(stateRoot(platform, env, home)), LEGACY_PRODUCT_NAME);
 }
 
+// 注：TAURI_IDENTIFIER / STATE_* / LEGACY_HARNESS_DIR 等是模块私有实现细节，
+// 外部一律经由 stateRoot() / legacyStateRoot() / macosGuardLabel() / macosGuiLabel()
+// 这些函数间接取得——否则单点改名要追着全仓常量改。
+// core/test/contract-assertions-test.js 会读本文件源码抽
+// `const EVENT_* = '<value>'` 建事件名映射，新增事件常量请保持这个书写形状。
 module.exports = {
   PRODUCT_NAME,
-  CLI_NAME,
-  GUI_BIN_NAME,
-  GUI_CRATE_NAME,
-  NPM_SCOPE,
-  CORE_PKG_PREFIX,
-  CORE_PKG_TAGS,
-  SHELL_RELEASE_PKG,
-  TAURI_IDENTIFIER,
-  TAURI_PRODUCT_NAME,
-  STATE_DIR_NAME,
   STATE_SUPERVISOR_SUBDIR,
   STATE_SHELL_SUBDIR,
-  LEGACY_PRODUCT_NAME,
-  STATE_ROOT_WIN_BASE_ENV,
-  STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS,
-  STATE_ROOT_MACOS_SEGMENTS,
-  STATE_ROOT_LINUX_XDG_ENV,
-  STATE_ROOT_LINUX_FALLBACK_SEGMENTS,
-  LEGACY_HARNESS_DIR,
+  CLI_NAME,
+  GUI_BIN_NAME,
   ENV_STATE_ROOT,
-  ENV_CONFIG,  ENV_DAEMON,
-  ENV_TRAY_PORT,
   ENV_SHELL_EXE,
-  ENV_GUARD_BIN,
-  ENV_HARNESS_BIN,
-  ENV_SMOKE_PID,
-  ENV_CANARY,
-  ENV_CANARY_ID,
-  ENV_CANARY_ALLOWLIST,
-  ENV_DEPLOY_FORM,
   ENV_UI_DIR,
-  ENV_UI_SKIP_INSTALL,
-  ENV_CORE_SCOPE,
-  ENV_PUBLISH_REGISTRY,
-  ENV_NPM_PROVENANCE,
-  ENV_NPMRC,
-  ENV_NPM_AUTH_PREV,
-  ENV_NPM_AUTH_PREV_SET,
-  ENV_NPM_AUTH_PREVL,
-  ENV_NPM_AUTH_PREVL_SET,
-  ENV_NPM_AUTH_SOURCE,
-  ENV_NPM_AUTH_TMP,
-  ENV_CRED_DIR,
-  ENV_CRED_ALLOW_OVERWRITE,
-  ENV_CRED_FORCE,
-  ENV_CRED_BACKUP_DIR,
-  ENV_REAL_HOME,
-  ENV_ARCH_OVERRIDE,
-  ENV_PLATFORM_OVERRIDE,
-  ENV_ESBUILD_VERSION,
-  ENV_VERSION_LIB,
   WINDOWS_GUI_TASK,
-  WINDOWS_RUN_VALUE,
-  SYSTEMD_UNIT_NAME,
   SYSTEMD_UNIT_FILE,
   macosGuardLabel,
   macosGuiLabel,
   SEA_BUNDLE_NAME,
-  SEA_VERSION_DEFINE,
-  KERNEL_ARCHIVE_TEMPLATE,
-  KERNEL_RELEASE_TARBALL_TEMPLATE,
-  LAUNCHER_DIR_TEMPLATE,
-  INSTALLER_NSIS_WIN_X64_TEMPLATE,
-  INSTALLER_MACOS_APP_TEMPLATE,
-  INSTALLER_DEB_LINUX_X64_TEMPLATE,
-  INSTALLER_DMG_ARM64_TEMPLATE,
-  INSTALLER_DMG_X64_TEMPLATE,
-  CLI_BIN_NAMES,
-  CLI_SHIM_NAMES,
-  GUI_BIN_NAMES,
-  PROC_MATCH_GUARD,
-  BRIDGE_MSG_KERNEL_UPDATE_REQUEST,
-  BRIDGE_MSG_KERNEL_UPDATE_RESULT,
-  BRIDGE_MSG_KERNEL_UPDATE_PROGRESS,
-  STORE_KEY_API_ACCESS,
   COOKIE_LAN_TOKEN,
   EVENT_HARNESS_EXITED,
   EVENT_HARNESS_TOKEN_CAPTURED,
@@ -308,7 +151,6 @@ module.exports = {
   EVENT_HARNESS_NOT_INSTALLED,
   EVENT_HARNESS_COMMAND_BOUND,
   EVENT_LAN_HARNESS_TOKEN_UPDATED,
-  EVENT_UPGRADE_STOPPING_HARNESS,
   EVENT_SHELL_UPDATE_CHECKED,
   SYSTEMD_TEMPLATE_ASIDE_SUFFIX,
   corePackageName,

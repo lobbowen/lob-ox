@@ -2,7 +2,11 @@
 
 const { validateWanAccess, generateRemoteToken } = require('../../domains/relay/core');
 const { remoteTokenStrength } = require('../../shared/credential');
-const BRAND = require('../../shared/brand');
+// 事件名沿用 domains/instance/ops.js 的字面量形态（该文件无 BRAND 事件常量）：
+//   inst_remote_changed       { id, name, mode }
+//   inst_remote_token_changed { id, name, tokenSet }
+// 原 BRAND.EVENT_HARNESS_REMOTE_* 常量已在 shared/brand.js 删除，取值为 undefined，
+// events.append(undefined, ...) 会静默失效，远程变更事件从不入账。
 
 function lanModule(deps) {
   const lm = typeof deps.getLifecycleManager === 'function' ? deps.getLifecycleManager() : null;
@@ -44,7 +48,7 @@ function createLanActions(deps) {
     }
     if (modeEventPayload) {
       const events = g.getEvents();
-      if (events) { try { events.append(BRAND.EVENT_HARNESS_REMOTE_CHANGED, modeEventPayload); } catch {} }
+      if (events) { try { events.append('inst_remote_changed', modeEventPayload); } catch {} }
     }
   }
 
@@ -69,7 +73,7 @@ function createLanActions(deps) {
           applyMainIntent(patch, { id: 'main', name: '原生 DSH', mode });
           if (allocate) {
             const events = g.getEvents();
-            if (events) { try { events.append(BRAND.EVENT_HARNESS_REMOTE_TOKEN_CHANGED, { id: 'main', tokenSet: true, autoAllocated: true }); } catch {} }
+            if (events) { try { events.append('inst_remote_token_changed', { id: 'main', name: '原生 DSH', tokenSet: true, autoAllocated: true }); } catch {} }
           }
         }
         return { ok: true, tokenAutoAllocated: allocate };
@@ -94,7 +98,7 @@ function createLanActions(deps) {
       if (target.kind === 'main') {
         applyMainIntent({ remoteToken: next }, null);
         const events = g.getEvents();
-        if (events) { try { events.append(BRAND.EVENT_HARNESS_REMOTE_TOKEN_CHANGED, { id: 'main', tokenSet: next !== '' }); } catch {} }
+        if (events) { try { events.append('inst_remote_token_changed', { id: 'main', name: '原生 DSH', tokenSet: next !== '' }); } catch {} }
         return { ok: true };
       }
       return g.getInstances().updateInstance(id, { remoteToken: next });
