@@ -115,15 +115,6 @@
       "lobox.exe",
       "lobox.cmd",
       "lobox"
-    ],
-    "cliShimNames": [
-      "lobox",
-      "lobox.cmd",
-      "lobox.ps1"
-    ],
-    "guiBinNames": [
-      "lobox-shell",
-      "lobox-shell.exe"
     ]
   },
   "event": {

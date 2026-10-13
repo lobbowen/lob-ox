@@ -39,8 +39,11 @@ function legacyProductRoot(opts) {
   return BRAND.legacyStateRoot(o.platform || process.platform, o.env || process.env, o.home || os.homedir());
 }
 
+// pid 存活判据的单一实现是 pidlookup.probeAlive（三态：alive / dead / unknown，
+// 正确区分 EPERM=活着 与 ESRCH=已死）。此前此处另有一份只判 EPERM 的简化版，
+// 不认 ESRCH 也无整数守卫——同一判据两套结论，unknown 会漏成 dead。
 function pidAlive(pid) {
-  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+  return require('../os/pidlookup').probeAlive(pid) === 'alive';
 }
 
 function detectLegacyInstall(opts) {

@@ -100,11 +100,11 @@ class ProviderBase {
   _creditsResetDue(acc) { return quota.creditsResetDue(acc); }
   _creditsRefilled(acc) { return quota.creditsRefilled(acc); }
 
+  // isAccountUsable 的唯一实现在 instance-lifecycle.js（proxy.js:80 委托过去，
+  // 首参从 this 换成 provider，逻辑逐字等价）。此处曾有一份副本，对 ProxyProvider
+  // 是死代码——两份各自演化必然分叉，故只留一份。
   isAccountUsable(acc, opts) {
-    if (!acc || acc.status !== 'ready') return false;
-    if (this._isCreditsLow(acc)) return false;
-    if (opts && opts.checkWindows === false) return true;
-    return !this._windowExhausted(acc);
+    return require('./instance-lifecycle').isAccountUsable(this, acc, opts);
   }
 
   _setStatus(acc, status, nextResetAt, error, autoRecover) { return freeze.setStatus(acc, status, nextResetAt, error, autoRecover, this); }

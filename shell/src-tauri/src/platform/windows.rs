@@ -250,7 +250,7 @@ impl Platform for Impl {
     fn node_exe_name(&self) -> &'static str { "node.exe" }
     fn npm_exe_name(&self) -> &'static str { "npm.cmd" }
     fn core_exe_names(&self) -> &'static [&'static str] {
-        &["lobox.exe", "lobox.cmd", "lobox"]
+        crate::brand::core_bin_names()
     }
 
     fn is_directly_spawnable(&self, prog: &Path) -> bool {

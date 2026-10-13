@@ -13,11 +13,6 @@ impl PortAuthority {
         PortAuthority { records: HashMap::new() }
     }
 
-    pub fn register(&mut self, role: &str, port: u16) -> Result<(), String> {
-        if port == 0 { return Err(format!("非法端口 {}", port)); }
-        self.records.insert(port, Record { port, role: role.into(), owner: format!("system:{}", role) });
-        Ok(())
-    }
 
     pub fn register_sole(&mut self, role: &str, port: u16) -> Result<(), String> {
         let old: Vec<u16> = self.records.iter()

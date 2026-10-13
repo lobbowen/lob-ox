@@ -67,6 +67,17 @@ pub fn shared_num(path: &str) -> u16 {
     }
     panic!("brand: 共享常量路径指向对象 {}", path)
 }
+/// 读 shared-constants 里的字符串数组（逗号分隔），返回静态切片。
+/// 用于 core_bin_names / state.*Segments 这类「一段列表」常量——
+/// shared_str 只能取标量，这些此前在 brand.rs 与 brand.js 各存一份副本。
+pub fn shared_str_arr(path: &str) -> &'static [&'static str] {
+    static CELL: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| {
+        let raw = shared_str(path);
+        raw.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect()
+    })
+    .as_slice()
+}
 
 
 // R9 跨层常量收口：下列字符串常量改为读取 shared-constants.json。
@@ -77,6 +88,19 @@ pub fn shared_num(path: &str) -> u16 {
 // static 必须放在**函数体内**而非宏顶层：宏展开不创建新作用域，若 static 在顶层，
 // 本文件 70 次展开会在同一模块产生 70 个同名 CELL → E0428 duplicate definitions。
 // 放进函数体后每次展开生成独立函数，各自持有自己的 CELL，互不冲突。
+/// 数组版 shared_str_cell：展开成返回 &'static [&'static str] 的无参函数。
+// static 同样放在函数体内——宏展开不创建作用域，放顶层会与 shared_str_cell!
+/// 的同名 CELL 冲突（且本文件多次展开自身也会冲突）。
+// core 可执行名候选（四平台 core_exe_names 的唯一来源）。
+shared_str_arr_cell!(core_bin_names, "platform.cliBinNames");
+
+macro_rules! shared_str_arr_cell {
+    ($fn_name:ident, $path:expr) => {
+        pub fn $fn_name() -> &'static [&'static str] {
+            shared_str_arr($path)
+        }
+    };
+}
 macro_rules! shared_str_cell {
     ($fn_name:ident, $path:expr) => {
         pub fn $fn_name() -> &'static str {
@@ -122,9 +146,9 @@ pub fn state_root_win_base_env() -> &'static str {
     STATE_ROOT_WIN_BASE_ENV_CELL.get_or_init(|| shared_str("state.winBaseEnv"))
 }
 
-pub const STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS: &[&str] = &["AppData", "Local"];
+shared_str_arr_cell!(state_root_win_base_fallback_segments, "state.winFallbackSegments");
 
-pub const STATE_ROOT_MACOS_SEGMENTS: &[&str] = &["Library", "Application Support"];
+shared_str_arr_cell!(state_root_macos_segments, "state.macosSegments");
 
 static STATE_ROOT_LINUX_XDG_ENV_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
@@ -133,7 +157,7 @@ pub fn state_root_linux_xdg_env() -> &'static str {
     STATE_ROOT_LINUX_XDG_ENV_CELL.get_or_init(|| shared_str("state.linuxXdgEnv"))
 }
 
-pub const STATE_ROOT_LINUX_FALLBACK_SEGMENTS: &[&str] = &[".local", "state"];
+shared_str_arr_cell!(state_root_linux_fallback_segments, "state.linuxFallbackSegments");
 
 static LEGACY_HARNESS_DIR_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
@@ -208,11 +232,6 @@ shared_str_cell!(installer_macos_app_template, "packaging.installerMacosAppTempl
 shared_str_cell!(installer_deb_linux_x64_template, "packaging.installerDebLinuxX64Template");
 shared_str_cell!(installer_dmg_arm64_template, "packaging.installerDmgArm64Template");
 shared_str_cell!(installer_dmg_x64_template, "packaging.installerDmgX64Template");
-pub const CLI_BIN_NAMES: &[&str] = &["lobox.exe", "lobox.cmd", "lobox"];
-
-pub const CLI_SHIM_NAMES: &[&str] = &["lobox", "lobox.cmd", "lobox.ps1"];
-
-pub const GUI_BIN_NAMES: &[&str] = &["lobox-shell", "lobox-shell.exe"];
 
 
 static PROC_MATCH_GUARD_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
@@ -294,19 +313,19 @@ fn env_base_os(value: Option<std::ffi::OsString>) -> Option<std::ffi::OsString> 
 pub fn state_root_windows(local_appdata: Option<String>, home: &Path) -> PathBuf {
     let base = env_base(local_appdata)
         .map(PathBuf::from)
-        .unwrap_or_else(|| home_join(home, STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS));
+        .unwrap_or_else(|| home_join(home, state_root_win_base_fallback_segments()));
     base.join(state_dir_name())
 }
 
 
 pub fn state_root_macos(home: &Path) -> PathBuf {
-    home_join(home, STATE_ROOT_MACOS_SEGMENTS).join(state_dir_name())
+    home_join(home, state_root_macos_segments()).join(state_dir_name())
 }
 
 
 pub fn state_root_linux(xdg_state_home: Option<std::ffi::OsString>, home: &Path) -> PathBuf {
     let base = env_base_os(xdg_state_home)
         .map(PathBuf::from)
-        .unwrap_or_else(|| home_join(home, STATE_ROOT_LINUX_FALLBACK_SEGMENTS));
+        .unwrap_or_else(|| home_join(home, state_root_linux_fallback_segments()));
     base.join(state_dir_name())
 }
