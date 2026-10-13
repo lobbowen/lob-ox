@@ -20,7 +20,7 @@ check('inventory 带能力矩阵与落点', () => {
   assert.ok(inv[0].installDir.includes('a1'));
 });
 check('未实现的 ops 明确抛错（不静默返回 undefined）', () => {
-  for (const fn of ['install', 'uninstall', 'upgrade', 'start', 'stop', 'status', 'checkUpdate', 'upgradeStatus']) {
+  for (const fn of ['uninstall', 'upgrade', 'start', 'stop', 'status', 'upgradeStatus']) {
     assert.throws(() => m[fn]({ id: 'x' }), /待 .* 实现/, fn + ' 应明确抛错');
   }
 });
@@ -29,6 +29,32 @@ check('entryOf 已实现（ops/entry 接入）且不抛错', () => {
   const got = m.entryOf(a);
   assert.ok(Array.isArray(got), 'entryOf 应返回数组');
   assert.strictEqual(got.length, 1);
+});
+
+check('install 已实现：沙箱形态用每实例 prefix 且不猜包名', async () => {
+  const calls = [];
+  const dist = { async runNpmInstall(o) { calls.push(o); return { ok: true }; } };
+  const r = await m.install({ id: 'a1', kind: 'sandbox', product: '@lob-ox/dsh' }, { dist });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(calls[0].pkg, '@lob-ox/dsh', '包名应来自 agent.product');
+  assert.ok(calls[0].prefix.includes('a1'), 'prefix 应是 a1 的 installDir');
+});
+
+check('install 原生形态缺 npmRoot 时明确报错', async () => {
+  const r = await m.install({ id: 'a2', kind: 'native', product: '@lob-ox/dsh' }, {});
+  assert.strictEqual(r.ok, false);
+  assert.ok(/npmRoot/.test(r.error), '错误应指出需 npmRoot: ' + r.error);
+});
+
+check('checkUpdate 已实现并报告 updateAvailable', async () => {
+  const dist = { async fetchNpmLatest() { return { ok: true, version: '2.0.0', origin: 'r' }; } };
+  const r = await m.checkUpdate({ id: 'a1', kind: 'sandbox', product: '@lob-ox/dsh' }, { dist, installed: '1.0.0' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.installed, '1.0.0');
+  assert.strictEqual(r.latest, '2.0.0');
+  assert.strictEqual(r.updateAvailable, true);
+  const r2 = await m.checkUpdate({ id: 'a1', kind: 'sandbox', product: '@lob-ox/dsh' }, { dist, installed: '2.0.0' });
+  assert.strictEqual(r2.updateAvailable, false, '已是最新不应报可更新');
 });
 
 check('dataDirOf/installDirOf 委托 model', () => {

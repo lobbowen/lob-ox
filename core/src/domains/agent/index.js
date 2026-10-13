@@ -51,8 +51,27 @@ class AgentManager {
   installDirOf(agent) { return model.installDirOf(this.root, agent); }
 
   // ---- 生命周期五件套（待 ops 实现）----
-  install(agent, version) {
-    throw new Error('agent.install: 待 ops/install 实现');
+  // 安装：prefix 由形态决定（model.installDirOf 已回答），本方法只负责选 prefix。
+  // 没有 if(kind) 分支——沙箱用每实例 installDir，原生用 opts.npmRoot。
+  async install(agent, opts) {
+    const o = opts || {};
+    const installOps = require('./ops/install');
+    const prefix = o.prefix || (agent && agent.kind === 'sandbox'
+      ? path.join(this.root, agent.id, 'install')
+      : (o.npmRoot || null));
+    if (!prefix) return { ok: false, error: '原生形态需显式提供 npmRoot（或 opts.prefix）' };
+    return installOps.installToPrefix({
+      product: o.product || { pkg: agent && agent.product },
+      prefix,
+      version: o.version || null,
+      registry: o.registry || null,
+      dist: o.dist || this.dist,
+      launcher: o.launcher || null,
+      commandTemplate: o.commandTemplate || null,
+      log: o.log || null,
+      onLine: o.onLine || null,
+      timeoutMs: o.timeoutMs || null,
+    });
   }
   uninstall(agent) {
     throw new Error('agent.uninstall: 待 ops/uninstall 实现');
@@ -71,8 +90,24 @@ class AgentManager {
   }
 
   // ---- 更新检查 ----
-  checkUpdate(agent) {
-    throw new Error('agent.checkUpdate: 待 ops/upgrade 实现');
+  async checkUpdate(agent, opts) {
+    const o = opts || {};
+    const installOps = require('./ops/install');
+    const status = require('./status');
+    const pkg = (o.product && o.product.pkg) || (agent && agent.product);
+    if (!pkg) return { ok: false, error: '未指定 agent 包名' };
+    const latest = o.latest || installOps.createLatestResolver(o.dist || this.dist, o);
+    const r = await latest(pkg);
+    if (!r || r.ok !== true) return { ok: false, error: (r && r.error) || '查询失败', installed: o.installed || null, latest: null, updateAvailable: false };
+    const installed = o.installed || installOps.installedVersionAt(
+      agent && agent.kind === 'sandbox' ? path.join(this.root, agent.id, 'install') : (o.npmRoot || null), pkg);
+    return {
+      ok: true,
+      installed: installed || null,
+      latest: r.version,
+      updateAvailable: !!(installed && status.isNewer(r.version, installed)),
+      origin: r.origin || null,
+    };
   }
   upgradeStatus(agent) {
     throw new Error('agent.upgradeStatus: 待 ops/upgrade 实现');
