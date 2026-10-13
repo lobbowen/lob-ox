@@ -24,9 +24,15 @@ const BUSY_LABEL = {
 
 // state 形如 { upgradeState, installing, uninstalling, taskBusy }。
 // taskBusy 由调用方从任务注册表取（本模块不依赖 tasks 服务，保持纯化）。
+// 缺省（upgradeState 缺失）按「空闲」处理，不是「忙」。
+// 原实现读 host.upgradeState，而 NativeManager 构造时初始化为 'idle'，
+// 所以不会触发；纯函数版没有那个构造器，若把 undefined 当忙，
+// 任何没初始化 state 的调用方都会被永久拒绝（卸载/安装/升级全走不动）。
 function busy(state) {
   const s = state || {};
-  return !TERMINAL_STATES.includes(s.upgradeState);
+  const phase = s.upgradeState;
+  if (phase === undefined || phase === null) return false;
+  return !TERMINAL_STATES.includes(phase);
 }
 
 function assertNotBusy(state, action) {

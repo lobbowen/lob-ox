@@ -8,7 +8,7 @@ check('busy 只看 upgradeState 是否终态', () => {
   assert.strictEqual(st.busy({ upgradeState: 'done' }), false);
   assert.strictEqual(st.busy({ upgradeState: 'failed' }), false);
   assert.strictEqual(st.busy({ upgradeState: 'installing' }), true);
-  assert.strictEqual(st.busy({}), true, '缺省按忙处理（保守）');
+  assert.strictEqual(st.busy({}), false, '缺省（无 upgradeState）按空闲——原实现靠构造器初始化为 idle，纯函数版无构造器');
 });
 check('assertNotBusy 覆盖四种互斥', () => {
   assert.ok(st.assertNotBusy({ upgradeState: 'idle', taskBusy: true }, 'install'), 'taskBusy 应拒');

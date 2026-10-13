@@ -73,8 +73,32 @@ class AgentManager {
       timeoutMs: o.timeoutMs || null,
     });
   }
-  uninstall(agent) {
-    throw new Error('agent.uninstall: 待 ops/uninstall 实现');
+  // 卸载：safeAncestors 是安全边界，必填且由调用方给（壳知道产品数据根在哪）。
+  // 缺它就不许删——这是本方法唯一不容妥协的规则。
+  async uninstall(agent, opts) {
+    const o = opts || {};
+    const uninstallOps = require('./ops/uninstall');
+    const isSandbox = agent && agent.kind === 'sandbox';
+    const prefix = o.prefix || (isSandbox ? path.join(this.root, agent.id, 'install') : (o.npmRoot || null));
+    // 安全边界：显式传入优先；否则按形态推（沙箱=root/<id>，原生=npmRoot）。
+    // 显式传空数组 = 调用方明确表示「不给边界」，必须尊重为拒绝，
+    // 不能回退到自动推断（那会把「我想禁止删除」变成「按默认边界删」）。
+    const ancestors = Array.isArray(o.safeAncestors)
+      ? o.safeAncestors.filter(Boolean)
+      : [isSandbox ? path.join(this.root, agent.id) : (o.npmRoot || null)].filter(Boolean);
+    return uninstallOps.uninstall(Object.assign({}, o.env || {}, {
+      safeAncestors: ancestors,
+      extraPaths: o.extraPaths || [],
+      pkg: (o.product && o.product.pkg) || (agent && agent.product) || null,
+      prefix,
+      isActive: o.isActive || (o.env && o.env.isActive) || null,
+      stop: o.stop || (o.env && o.env.stop) || null,
+      runNpm: o.runNpm || (o.env && o.env.runNpm) || null,
+      events: o.events || this.events,
+      log: o.log || ((m) => this.logger && this.logger.warn && this.logger.warn(m)),
+      state: o.state || (o.env && o.env.state) || {},
+      tasks: o.tasks || this.tasks,
+    }), o.cfg || {});
   }
   // 升级：env 由调用方（装配层）提供——壳持有进程句柄与 hooks，
   // 内核只提供业务判据。本方法只负责把 agent 形态相关的 prefix/包名填进去。
@@ -117,8 +141,15 @@ class AgentManager {
   stop(agent) {
     throw new Error('agent.stop: 待 ops/lifecycle 实现');
   }
-  status(agent) {
-    throw new Error('agent.status: 待 ops/status 实现');
+  // 状态投影：组合 versionInfo（版本面）+ 调用方给的 phase（进程面）。
+  // 原实现的 status() 混装两者，此处分开传、在此处合，便于两种形态各自提供。
+  status(agent, state) {
+    const st = require('./status');
+    const s = state || {};
+    return Object.assign({}, st.versionInfo(s, s.installedFallback || null), {
+      phase: s.phase || null,
+      busy: st.busy(s),
+    });
   }
 
   // ---- 更新检查 ----

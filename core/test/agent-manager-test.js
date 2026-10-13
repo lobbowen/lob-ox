@@ -28,7 +28,7 @@ check('inventory 带能力矩阵与落点', () => {
   assert.ok(inv[0].installDir.includes('a1'));
 });
 check('未实现的 ops 明确抛错（不静默返回 undefined）', () => {
-  for (const fn of ['uninstall', 'start', 'stop', 'status']) {
+  for (const fn of ['start', 'stop']) {
     assert.throws(() => m[fn]({ id: 'x' }), /待 .* 实现/, fn + ' 应明确抛错');
   }
 });
@@ -100,6 +100,32 @@ check('upgradeStatus 委托 status.upgradeBrief（字段名兼容）', () => {
   const b = m.upgradeStatus({ id: 'a1' }, { upgradeState: 'done', targetVersion: '2.0.0' });
   assert.strictEqual(b.state, 'done');
   assert.strictEqual(b.targetVersion, '2.0.0');
+});
+
+check('uninstall 已实现：缺 safeAncestors 拒绝删', async () => {
+  const r = await m.uninstall({ id: 'a1', kind: 'sandbox', product: '@lob-ox/dsh' }, { safeAncestors: [] });
+  assert.strictEqual(r.ok, false);
+  assert.ok(/safeAncestors/.test(r.error));
+});
+
+check('uninstall 沙箱形态自动推安全边界', async () => {
+  const os = require('node:os');
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const m2 = new AgentManager({ root: fs.mkdtempSync(path.join(os.tmpdir(), 'agent-facade-')), logger: { warn() {} } });
+  m2._register({ id: 'x1', kind: 'sandbox' });
+  const r = await m2.uninstall(m2.find('x1'), {});
+  assert.strictEqual(r.ok, true, '空目录也应成功: ' + r.error);
+  assert.ok(Array.isArray(r.removed));
+  fs.rmSync(m2.root, { recursive: true, force: true });
+});
+
+check('status 已实现：组合 versionInfo 与 phase', () => {
+  const s = m.status({ id: 'a1' }, { lastCheck: { installed: '1.0.0', latest: '1.1.0', updateAvailable: true }, phase: 'RUNNING', upgradeState: 'idle' });
+  assert.strictEqual(s.installed, '1.0.0');
+  assert.strictEqual(s.updateAvailable, true);
+  assert.strictEqual(s.phase, 'RUNNING');
+  assert.strictEqual(s.busy, false);
 });
 
 check('dataDirOf/installDirOf 委托 model', () => {
