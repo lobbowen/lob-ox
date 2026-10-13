@@ -57,8 +57,14 @@ pub async fn run(state: Arc<ProcessManager>) {
 
 /// 把 guard-mgmt 端口回灌给内核（所有权在壳、方向单向：壳写内核读）。
 /// 范式同 `mirror::export_to_kernel`：tmp → rename 原子提交，内核侧读不到就当端点不存在（客户端静默降级）。
-// 令牌头名走 shared-constants 单源（此前与内核 pm-client.js 各自硬编码，改一侧漏一侧）。
-const MGMT_TOKEN_HEADER: &str = crate::brand::shared_str("bridge.mgmtTokenHeader");
+// 令牌头名真相来自 shared-constants.json（经 brand::shared_str 读取）。
+// 不能用 const：解析器依赖运行期字符串操作（const 初始化里调用非 const fn 会 E0015）。
+// OnceLock 保证只解析一次——范式同 env.rs 的 DEFAULT_API_PORT_CELL。
+static MGMT_TOKEN_HEADER_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+fn mgmt_token_header() -> &'static str {
+    MGMT_TOKEN_HEADER_CELL.get_or_init(|| crate::brand::shared_str("bridge.mgmtTokenHeader"))
+}
+
 const MGMT_BODY_CAP: usize = 64 * 1024;
 
 // R3 / 攻击链 B：机箱管理端点的 peer 凭据。
@@ -188,7 +194,7 @@ async fn handle(
     let want_token = mgmt_token(port);
     let got_token = req
         .headers()
-        .get(MGMT_TOKEN_HEADER)
+        .get(mgmt_token_header())
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     if port == 0 || !token_eq(got_token, want_token.as_str()) {
