@@ -198,8 +198,9 @@ function probeOriginHttp(origin, timeoutMs) {
 function probeRegistry(state, origin, opts) {
   const o = opts || {};
   const parsed = ref.parseRegistryBase(origin);
-  if (!parsed.ok) {
-    return Promise.resolve({ ok: false, latencyMs: null, error: '非法镜像源（' + parsed.violation + '）', rejected: true });
+  const hv = parsed.ok ? ref.hostViolation(parsed.host) : null;
+  if (!parsed.ok || hv) {
+    return Promise.resolve({ ok: false, latencyMs: null, error: '非法镜像源（' + (hv || parsed.violation) + '）', rejected: true });
   }
   return probeOriginHttp(parsed.base, o.timeoutMs);
 }

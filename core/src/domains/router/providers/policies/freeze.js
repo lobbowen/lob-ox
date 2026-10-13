@@ -152,9 +152,9 @@ function setStatus(acc, status, nextResetAt, error, autoRecover, provider) {
   if (provider.logger && provider.logger.info) provider.logger.info('account ' + acc.maskedKey + ': ' + prev + ' → ' + status);
 }
 
-function ensureLimit(acc) {
-  if (!acc) return null;
-  if (acc.limit && acc.limit.kind) return acc.limit;
+// M6：从「当前状态 + 上次探测错误」纯推导 limit 描述，不读 acc.limit、不写回。
+// 无可推导的 limit（ready 等状态）时返回 null。
+function deriveLimit(acc) {
   const st = acc.status;
   let kind = null, recovery = null, reason = null;
   if (st === 'banned') { kind = 'banned'; recovery = { type: 'manual' }; reason = acc.detectError || acc.lastProbeError || '账号被封禁'; }
@@ -163,23 +163,21 @@ function ensureLimit(acc) {
     if (err.includes('credits') || err.includes('余额不足')) { kind = 'credits'; recovery = { type: 'poll', periodMs: CREDITS_RECHECK_MS }; reason = 'credits 余额不足（充值后自动恢复）'; }
     else { kind = 'window'; recovery = { type: 'at', at: acc.nextResetAt || null }; reason = '时间窗额度用尽'; }
   }
-  if (kind) acc.limit = { kind, since: Date.now(), reason, recovery };
+  if (!kind) return null;
+  return { kind, since: Date.now(), reason, recovery };
+}
+
+function ensureLimit(acc) {
+  if (!acc) return null;
+  if (acc.limit && acc.limit.kind) return acc.limit;
+  acc.limit = deriveLimit(acc) || acc.limit;
   return acc.limit;
 }
 
 function previewLimit(acc) {
   if (!acc) return null;
   if (acc.limit && acc.limit.kind) return acc.limit;
-  const st = acc.status;
-  let kind = null, recovery = null, reason = null;
-  if (st === 'banned') { kind = 'banned'; recovery = { type: 'manual' }; reason = acc.detectError || acc.lastProbeError || '账号被封禁'; }
-  else if (st === 'frozen') {
-    const err = String(acc.detectError || acc.lastProbeError || '').toLowerCase();
-    if (err.includes('credits') || err.includes('余额不足')) { kind = 'credits'; recovery = { type: 'poll', periodMs: CREDITS_RECHECK_MS }; reason = 'credits 余额不足（充值后自动恢复）'; }
-    else { kind = 'window'; recovery = { type: 'at', at: acc.nextResetAt || null }; reason = '时间窗额度用尽'; }
-  }
-  if (kind) return { kind, since: Date.now(), reason, recovery };
-  return acc.limit;
+  return deriveLimit(acc) || acc.limit;
 }
 
 // R5/D.9-1：原 creditsAt 保留要求「传入 kind 与现有 limit.kind 相同」，

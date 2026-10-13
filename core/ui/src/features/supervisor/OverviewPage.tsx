@@ -14,11 +14,9 @@ import { Card, CardTitle, Metric, Pill, ToneDot } from "./widgets";
 import { cn } from "../../framework/utils";
 import { PortPanel } from "./PortPanel";
 import { EnvironmentCard } from "./settings/EnvironmentCard";
-import { EVENT_LABELS, SUP_PHASE_META, friendlyFailure } from "./nav";
+import { EVENT_META, SUP_PHASE_META, friendlyFailure } from "./nav";
 import { useSupervisorAction } from "./useSupervisorAction";
 import { runOpenExternal } from "./openExternal";
-
-const NOISE = new Set(["dist_registry_selected", "gui_autostart_changed", "autostart_changed", "lan_panel_changed", "lan_harness_token_updated"]);
 
 export function OverviewPage() {
   const { snap } = useSupervisorData();
@@ -39,7 +37,7 @@ export function OverviewPage() {
   const running = Boolean(s?.dshPid);
   const upgradeRunning = upg?.state === "running";
 
-  const events = useMemo(() => snap.events.filter((e) => !NOISE.has(e.type)), [snap.events]);
+  const events = useMemo(() => snap.events.filter((e) => !EVENT_META[e.type]?.noise), [snap.events]);
 
   async function toggleDsh() {
     await run("dsh", () => (running ? supervisorApi.lifecycleStop("dsh") : supervisorApi.lifecycleStart("dsh")), { success: running ? "正在停止 DSH…" : "正在启动 DSH…" });
@@ -330,8 +328,9 @@ function EventLogPanel({ events }: { events: SupervisorEvent[] }) {
 }
 
 function EventRow({ e }: { e: SupervisorEvent }) {
-  const tone = EVENT_TONE[e.type] ?? "boot";
-  const label = EVENT_LABELS[e.type] ?? e.type;
+  const meta = EVENT_META[e.type];
+  const tone = meta?.tone ?? "boot";
+  const label = meta?.label ?? e.type;
   const msg = eventDetail(e);
   return (
     <div className="grid min-w-0 grid-cols-[64px_auto_minmax(0,1fr)] items-center gap-2.5 border-b border-border/60 px-5 py-2 last:border-b-0 max-[640px]:grid-cols-[56px_auto_minmax(0,1fr)] max-[640px]:gap-2">
@@ -374,31 +373,3 @@ function eventDetail(e: SupervisorEvent): string {
   if (d.ms !== undefined) parts.push(fmt(d.ms) + "ms");
   return parts.join(" · ");
 }
-
-const EVENT_TONE: Record<string, "ok" | "err" | "warn" | "boot" | "off"> = {
-  running: "ok", adopted: "ok", spawned: "ok", main_instance_registered: "ok",
-  upgrade_installed: "ok", upgrade_done: "ok", api_listening: "ok",
-  account_ready: "ok", account_confirmed: "ok", account_recovered: "ok",
-  proxy_instance_started: "ok", proxy_update_applied: "ok",
-  router_provider_activated: "ok", router_provider_endpoint: "ok",
-  inst_running: "ok", inst_added: "ok", inst_started: "ok", lan_instance_started: "ok",
-  frpc_installed: "ok", frpc_started: "ok", plugin_install_done: "ok",
-  native_installed: "ok", inst_upgraded: "ok", plugin_update_done: "ok",
-  account_frozen: "err", account_banned: "err", harness_exited: "err", unhealthy: "err",
-  spawn_failed: "err", spawn_error: "err", upgrade_failed: "err", api_error: "err", api_offline: "err",
-  proxy_instance_failed: "err", inst_failed: "err", inst_start_failed: "err",
-  native_install_failed: "err", native_uninstall_failed: "err",
-  plugin_install_job_failed: "err", plugin_update_job_failed: "err",
-  plugin_uninstall_job_failed: "err", frpc_install_failed: "err", router_stream_aborted: "err",
-  sigkill_sent: "err", start_timeout: "err", crash_loop_entered: "err",
-  guard_exit: "warn", version_check_failed: "warn", restart_triggered: "warn",
-  harness_not_installed: "warn", sigterm_sent: "warn", account_review: "warn",
-  harness_remote_changed: "warn", inst_remote_changed: "warn",
-  harness_remote_token_changed: "warn", inst_remote_token_changed: "warn", lan_frp_blocked: "warn",
-  proxy_update_available: "warn", upgrade_started: "warn", upgrade_stopping_harness: "warn",
-  inst_restarted: "warn", native_uninstall_started: "warn",
-  account_discarded: "off", router_stopped: "off", proxy_instance_stopped: "off",
-  inst_stopped: "off", inst_removed: "off", lan_instance_removed: "off",
-  frpc_stopped: "off", plugin_uninstall_done: "off", native_uninstalled: "off",
-  upgrade_skipped: "off", router_provider_deactivated: "off", stop: "off",
-};

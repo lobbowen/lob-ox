@@ -28,7 +28,6 @@ class Supervisor {
           m.id = 'main';
           m.name = '主实例';
           m.port = Number(this.config.targetPort || 3080);
-          m.domain = 'native';
           m.kind = 'native';
           return m;
         },

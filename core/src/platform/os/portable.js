@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const pidlookup = require('./pidlookup');
-const { judge: judgeIdentity } = require('./liveness');
+const { judge: judgeIdentity, readPidFile } = require('./liveness');
 const spawner = require('./spawn');
 const procOS = require('./process');
 const OUTCOME = require('../../shared/outcome');
@@ -14,14 +14,8 @@ function nap(ms) {
   try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch {  }
 }
 
-function readPidFile(pidFile) {
-  if (!pidFile) return null;
-  try {
-    const n = parseInt(String(fs.readFileSync(pidFile, 'utf8')).trim(), 10);
-    return Number.isInteger(n) && n > 0 ? n : null;
-  } catch { return null; }
-}
-
+// M5：readPidFile 与 platform/os/liveness.js 的同名函数行为逐字相同，
+// 统一从 liveness 引入（单一判据源），本地不再保留副本。
 function matchesAnchors(pid, anchors) {
   return judgeIdentity({ pid, anchors }).state === 'ours';
 }

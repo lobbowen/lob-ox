@@ -1,9 +1,17 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { isLoopbackAddress, isPrivateIpv4 } = require('../../shared/ip');
+const { normalizeRemoteAddress, isLoopbackAddress, isPrivateIpv4 } = require('../../shared/ip');
 const { remoteTokenStrength } = require('../../shared/credential');
 const BRAND = require('../../shared/brand');
+
+// 环回或 RFC1918 私网地址视为可信来源（LAN 模式的判定入口）。
+// 归一化走 ip.js 的 normalizeRemoteAddress 单源（已含 ::ffff: 剥离 + toLowerCase）。
+function isTrustedAddress(addr) {
+  const norm = normalizeRemoteAddress(addr);
+  if (!norm) return false;
+  return isLoopbackAddress(norm) || isPrivateIpv4(norm);
+}
 
 const LAN_COOKIE_RE = new RegExp('(?:^|;\\s*)' + BRAND.COOKIE_LAN_TOKEN + '=([^;]+)');
 
@@ -12,10 +20,8 @@ function isTrustedSource(req, sock) {
     || (sock && sock.remoteAddress)
     || '';
   if (!addr) return false;
-  const norm = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(addr)
-    ? addr.replace(/^::ffff:/i, '')
-    : addr.toLowerCase();
-  return isLoopbackAddress(norm) || isPrivateIpv4(norm);
+  // normalizeRemoteAddress 已含 ::ffff: 剥离 + toLowerCase，与 ip.js 其余判定共用单源。
+  return isTrustedAddress(addr);
 }
 
 function safeEqual(a, b) {

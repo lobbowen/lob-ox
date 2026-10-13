@@ -93,7 +93,14 @@ check('core emit 的事件类型都被 UI EVENT_LABELS 覆盖', () => {
   const emitted = new Set();
   const brandSrc = fs.readFileSync(path.join(SRC, 'shared', 'brand.js'), 'utf8');
   const brandMap = {};
+  // 两种书写形状都要认：旧的字面量 `const EVENT_X = 'x'`，以及收口后的
+  // `const EVENT_X = SHARED.event.x`（值经 shared-constants 单源，不在本文件）。
+  const ev = require(path.join(SRC, 'shared', 'shared-constants')).event;
   for (const m of brandSrc.matchAll(/const (EVENT_\w+)\s*=\s*['"]([a-z_0-9]+)['"]/g)) brandMap[m[1]] = m[2];
+  for (const m of brandSrc.matchAll(/const (EVENT_\w+)\s*=\s*SHARED\.event\.(\w+)\s*;/g)) {
+    if (!ev[m[2]]) throw new Error('brand.js 引用了 shared.event 不存在的键: ' + m[2]);
+    brandMap[m[1]] = ev[m[2]];
+  }
   for (const f of all) {
     if (!f.endsWith('.js')) continue;
     const c = fs.readFileSync(f, 'utf8');

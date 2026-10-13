@@ -17,9 +17,9 @@ const GUI_BIN_NAME = SHARED.product.guiBinName;
 
 
 // NPM_SCOPE / CORE_PKG_PREFIX 仅由 corePackageName() 内部拼接，不导出。
-const NPM_SCOPE = '@lob-ox';
+const NPM_SCOPE = SHARED.product.npmScope;
 
-const CORE_PKG_PREFIX = 'core-';
+const CORE_PKG_PREFIX = SHARED.product.corePkgPrefix;
 
 
 // STATE_* / LEGACY_* 仅由 stateRoot() / legacyStateRoot() 内部使用（不导出）。
@@ -29,17 +29,17 @@ const STATE_SUPERVISOR_SUBDIR = SHARED.state.supervisorSubdir;
 
 const STATE_SHELL_SUBDIR = SHARED.state.shellSubdir;
 
-const LEGACY_PRODUCT_NAME = 'dsh-supervisor';
+const LEGACY_PRODUCT_NAME = SHARED.state.legacyProductName;
 
 const STATE_ROOT_WIN_BASE_ENV = SHARED.state.winBaseEnv;
 
-const STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS = ['AppData', 'Local'];
+const STATE_ROOT_WIN_BASE_FALLBACK_SEGMENTS = SHARED.state.winFallbackSegments;
 
-const STATE_ROOT_MACOS_SEGMENTS = ['Library', 'Application Support'];
+const STATE_ROOT_MACOS_SEGMENTS = SHARED.state.macosSegments;
 
 const STATE_ROOT_LINUX_XDG_ENV = SHARED.state.linuxXdgEnv;
 
-const STATE_ROOT_LINUX_FALLBACK_SEGMENTS = ['.local', 'state'];
+const STATE_ROOT_LINUX_FALLBACK_SEGMENTS = SHARED.state.linuxFallbackSegments;
 
 const LEGACY_HARNESS_DIR = SHARED.state.legacyHarnessDir;
 
@@ -50,45 +50,45 @@ const LEGACY_HARNESS_DIR = SHARED.state.legacyHarnessDir;
 // shell/src-tauri/src/brand.rs 中的同名 Rust 常量是独立的一份，不受本次删除影响。
 const ENV_STATE_ROOT = SHARED.env.stateRoot;
 
-const ENV_SHELL_EXE = 'DSH_SHELL_EXE';
+const ENV_SHELL_EXE = SHARED.env.shell_exe;
 
-const ENV_UI_DIR = 'DSH_UI_DIR';
+const ENV_UI_DIR = SHARED.env.ui_dir;
 
 
 // TAURI_IDENTIFIER 仅由 macosGuardLabel() / macosGuiLabel() 内部拼接，不导出。
-const TAURI_IDENTIFIER = 'dev.bowen.lobox';
+const TAURI_IDENTIFIER = SHARED.product.tauriIdentifier;
 
 
-const WINDOWS_GUI_TASK = 'Lobox-Shell';
+const WINDOWS_GUI_TASK = SHARED.platform.windowsGuiTask;
 
-const SYSTEMD_UNIT_FILE = 'lobox.service';
+const SYSTEMD_UNIT_FILE = SHARED.platform.systemdUnitFile;
 
 function macosGuardLabel() { return TAURI_IDENTIFIER + '.core'; }
 function macosGuiLabel() { return TAURI_IDENTIFIER + '.shell'; }
 
 
 // SEA_BUNDLE_NAME 有消费方（platform/contract/deploy.js），保留。
-const SEA_BUNDLE_NAME = 'core.cjs';
+const SEA_BUNDLE_NAME = SHARED.packaging.seaBundleName;
 
 
 
 
-const COOKIE_LAN_TOKEN = 'lobox_lan_token';
+const COOKIE_LAN_TOKEN = SHARED.store.cookieLanToken;
 
 
 // EVENT_HARNESS_EXITED 有消费方（app/main/process.js、app/main/controller.js），保留。
-const EVENT_HARNESS_EXITED = 'harness_exited';
-const EVENT_HARNESS_TOKEN_CAPTURED = 'harness_token_captured';
-const EVENT_HARNESS_TOKEN_MISSING = 'harness_token_missing';
-const EVENT_HARNESS_COMMAND_MISSING = 'harness_command_missing';
-const EVENT_HARNESS_NOT_INSTALLED = 'harness_not_installed';
-const EVENT_HARNESS_COMMAND_BOUND = 'harness_command_bound';
-const EVENT_LAN_HARNESS_TOKEN_UPDATED = 'lan_harness_token_updated';
+const EVENT_HARNESS_EXITED = SHARED.event.harness_exited;
+const EVENT_HARNESS_TOKEN_CAPTURED = SHARED.event.harness_token_captured;
+const EVENT_HARNESS_TOKEN_MISSING = SHARED.event.harness_token_missing;
+const EVENT_HARNESS_COMMAND_MISSING = SHARED.event.harness_command_missing;
+const EVENT_HARNESS_NOT_INSTALLED = SHARED.event.harness_not_installed;
+const EVENT_HARNESS_COMMAND_BOUND = SHARED.event.harness_command_bound;
+const EVENT_LAN_HARNESS_TOKEN_UPDATED = SHARED.event.lan_harness_token_updated;
 
-const EVENT_SHELL_UPDATE_CHECKED = 'shell_update_checked';
+const EVENT_SHELL_UPDATE_CHECKED = SHARED.event.shell_update_checked;
 
 
-const SYSTEMD_TEMPLATE_ASIDE_SUFFIX = '.disabled-by-lobox-';
+const SYSTEMD_TEMPLATE_ASIDE_SUFFIX = SHARED.platform.systemdTemplateAsideSuffix;
 
 
 function corePackageName(tag) {
@@ -128,7 +128,8 @@ function legacyStateRoot(platform, env, home) {
 // 外部一律经由 stateRoot() / legacyStateRoot() / macosGuardLabel() / macosGuiLabel()
 // 这些函数间接取得——否则单点改名要追着全仓常量改。
 // core/test/contract-assertions-test.js 会读本文件源码抽
-// `const EVENT_* = '<value>'` 建事件名映射，新增事件常量请保持这个书写形状。
+// `const EVENT_* = SHARED.event.<key>`（含旧的字面量形状）建事件名映射，
+// 新增事件常量请保持这个书写形状。
 module.exports = {
   PRODUCT_NAME,
   STATE_SUPERVISOR_SUBDIR,

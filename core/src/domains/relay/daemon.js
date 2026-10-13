@@ -5,14 +5,17 @@ const { normalize } = require('../../platform/service/config');
 const SHARED = require('../../shared/shared-constants');
 const { LanManager } = require('./ops');
 const ports = require('../../platform/service/ports').shared;
-const { createCtlServer } = require('../../platform/ctl/server');
-const logcore = require('../../platform/service/log/logcore');
+// 与 router 共用一份引导骨架（状态目录/logcore.init/ctl server/信号与异常记账），
+// 见 app/daemons/bootstrap.js。停机流程本体现留在下方——relay 要等 frpc 退出，
+// 顺序敏感，骨架不接管。
+const bootstrap = require('../../app/daemons/bootstrap');
 
 const path = require('node:path');
 const fs = require('node:fs');
 
 const DEFAULT_CTL_PORT = SHARED.net.lanCtlPort;
 const POLL_MS = 2000;
+const LABEL = 'lan-daemon';
 
 const LAN_CTL_METHODS = Object.freeze([
   'list', 'frpStatus', 'frpAction', 'syncFrpc',
@@ -29,17 +32,18 @@ function loadConfig() {
 
 function main() {
   const config = loadConfig();
-  const swDir = config.stateFile ? path.dirname(path.resolve(config.stateFile)) : stateRoot.supervisorDir();
+  const swDir = bootstrap.resolveStateDir(config);
   const stateFile = path.join(swDir, 'lan-state.json');
   
   
-  const core = logcore.init({
+  const core = bootstrap.initLog({
+    config,
     process: 'lan-daemon',
-    logFile: config.lanLogFile || path.join(swDir, 'log', 'lan-daemon.log'),
-    eventFile: config.lanEventsFile || path.join(swDir, 'events', 'lan.events.log'),
-    logLevel: config.logLevel || 'info',
-    logMaxBytes: config.logMaxBytes,
-    eventsMaxBytes: config.eventsMaxBytes,
+    logFileKey: 'lanLogFile',
+    eventFileKey: 'lanEventsFile',
+    logFileName: 'lan-daemon.log',
+    eventFileName: 'lan.events.log',
+    stateDir: swDir,
   });
   const events = core.events;
   const logger = core.logger;
@@ -117,10 +121,17 @@ function main() {
   tick();
   const timer = setInterval(tick, POLL_MS);
 
-  const ctl = createCtlServer({ target: lan, allowMethods: LAN_CTL_METHODS, logger, events });
   const ctlPort = Number(config.lanCtlPort) || DEFAULT_CTL_PORT;
-  ctl.listen(ctlPort, '127.0.0.1', () => logger.info('[lan-daemon] ctl listening on 127.0.0.1:' + ctlPort));
-  ctl.on('error', (e) => logger.error('[lan-daemon] ctl 监听失败(' + ctlPort + '): ' + e.message));
+  const ctl = bootstrap.startCtl({
+    target: lan,
+    allowMethods: LAN_CTL_METHODS,
+    port: ctlPort,
+    label: LABEL,
+    logger,
+    events,
+    onListening: () => logger.info('[lan-daemon] ctl listening on 127.0.0.1:' + ctlPort),
+    onListenError: (e) => logger.error('[lan-daemon] ctl 监听失败(' + ctlPort + '): ' + e.message),
+  });
 
   events.append('lan_daemon_started', { pid: process.pid });
   logger.info('[lan-daemon] started pid=' + process.pid + ' state=' + stateFile);
@@ -150,10 +161,7 @@ function main() {
       process.exit(code || 0);
     });
   };
-  process.on('SIGTERM', () => shutdown(0));
-  process.on('SIGINT', () => shutdown(0));
-  process.on('uncaughtException', (e) => logger.error('[lan-daemon] uncaughtException: ' + ((e && e.stack) || e)));
-  process.on('unhandledRejection', (e) => logger.error('[lan-daemon] unhandledRejection: ' + ((e && (e.stack || e.message)) || e)));
+  bootstrap.installProcessHandlers({ label: LABEL, logger, shutdown });
 }
 
 if (require.main === module) main();

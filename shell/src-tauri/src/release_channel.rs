@@ -9,9 +9,8 @@ pub const CANARY_ALLOWLIST_PKG: &str = "@lob-ox/canary-allowlist";
 
 const CFG_CANARY: &str = "canary";
 const CFG_ALLOWLIST: &str = "canaryAllowlist";
-const ENV_CANARY: &str = "DSH_CANARY";
-const ENV_ALLOWLIST: &str = "DSH_CANARY_ALLOWLIST";
-const ENV_INSTALL_ID: &str = "DSH_CANARY_ID";
+// canary 相关环境变量名走 brand（shared-constants 单源）——
+// 此前此处三份本地副本，与 brand.rs 各自硬编码，改一侧漏一侧。
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Selected {
@@ -87,7 +86,7 @@ pub fn canary_in_config() -> bool {
 }
 
 pub fn canary_in_env() -> bool {
-    std::env::var(ENV_CANARY).map(|v| v.trim() == "1").unwrap_or(false)
+    std::env::var(crate::brand::env_canary()).map(|v| v.trim() == "1").unwrap_or(false)
 }
 
 pub fn local_canary_hit() -> bool {
@@ -96,7 +95,7 @@ pub fn local_canary_hit() -> bool {
 
 pub fn allowlist_opt_in() -> bool {
     crate::env::config_flag(CFG_ALLOWLIST)
-        || std::env::var(ENV_ALLOWLIST).map(|v| v.trim() == "1").unwrap_or(false)
+        || std::env::var(crate::brand::env_canary_allowlist()).map(|v| v.trim() == "1").unwrap_or(false)
 }
 
 const INSTALL_ID_FILE: &str = "install-id";
@@ -115,7 +114,7 @@ pub struct AllowlistHit {
 }
 
 pub fn install_id() -> Option<String> {
-    if let Ok(s) = std::env::var(ENV_INSTALL_ID) {
+    if let Ok(s) = std::env::var(crate::brand::env_canary_id()) {
         let t = s.trim();
         if !t.is_empty() {
             return Some(t.to_string());
@@ -541,19 +540,19 @@ mod tests {
     #[test]
     fn install_id_env_override_wins_and_is_trimmed() {
   let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::set_var(ENV_INSTALL_ID, format!("  {}  ", ID));
+        std::env::set_var(crate::brand::env_canary_id(), format!("  {}  ", ID));
         assert_eq!(install_id().as_deref(), Some(ID));
-        std::env::remove_var(ENV_INSTALL_ID);
+        std::env::remove_var(crate::brand::env_canary_id());
     }
 
     #[test]
     fn canary_machine_production_entry_swallows_package_errors() {
   let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::set_var(ENV_ALLOWLIST, "1");
-        std::env::set_var(ENV_INSTALL_ID, "unit-box");
+        std::env::set_var(crate::brand::env_canary_allowlist(), "1");
+        std::env::set_var(crate::brand::env_canary_id(), "unit-box");
         let hit = canary_machine(false, true, |_| Err("404".to_string()));
-        std::env::remove_var(ENV_ALLOWLIST);
-        std::env::remove_var(ENV_INSTALL_ID);
+        std::env::remove_var(crate::brand::env_canary_allowlist());
+        std::env::remove_var(crate::brand::env_canary_id());
         assert!(!hit);
     }
 }

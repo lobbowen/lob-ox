@@ -68,6 +68,24 @@ pub fn shared_num(path: &str) -> u16 {
     panic!("brand: 共享常量路径指向对象 {}", path)
 }
 
+
+// R9 跨层常量收口：下列字符串常量改为读取 shared-constants.json。
+// shared_str 是运行期函数（解析器依赖字符串操作），不能用于 const 初始化（E0015），
+// 因此统一用 OnceLock + 访问器函数；宏为每个常量生成独立 static 与访问器。
+// 单源常量访问器：把 shared_str_cell!(name, "段.键") 展开成同名无参函数。
+//
+// static 必须放在**函数体内**而非宏顶层：宏展开不创建新作用域，若 static 在顶层，
+// 本文件 70 次展开会在同一模块产生 70 个同名 CELL → E0428 duplicate definitions。
+// 放进函数体后每次展开生成独立函数，各自持有自己的 CELL，互不冲突。
+macro_rules! shared_str_cell {
+    ($fn_name:ident, $path:expr) => {
+        pub fn $fn_name() -> &'static str {
+            static CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+            CELL.get_or_init(|| shared_str($path))
+        }
+    };
+}
+
 pub const PRODUCT_NAME: &str = "lobox";
 
 pub const CLI_NAME: &str = "lobox";
@@ -77,17 +95,12 @@ pub const GUI_BIN_NAME: &str = "lobox-shell";
 pub const GUI_CRATE_NAME: &str = "lobox-shell";
 
 
-pub const NPM_SCOPE: &str = "@lob-ox";
+shared_str_cell!(npm_scope, "product.npmScope");
+shared_str_cell!(core_pkg_prefix, "product.corePkgPrefix");
+shared_str_cell!(shell_release_pkg, "product.shellReleasePkg");
 
-pub const CORE_PKG_PREFIX: &str = "core-";
-
-pub const SHELL_RELEASE_PKG: &str = "@lob-ox/shell-release";
-
-
-pub const TAURI_IDENTIFIER: &str = "dev.bowen.lobox";
-
-pub const TAURI_PRODUCT_NAME: &str = "lobox";
-
+shared_str_cell!(tauri_identifier, "product.tauriIdentifier");
+shared_str_cell!(tauri_product_name, "product.tauriProductName");
 
 static STATE_DIR_NAME_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
@@ -137,110 +150,64 @@ pub fn env_state_root() -> &'static str {
     ENV_STATE_ROOT_CELL.get_or_init(|| shared_str("env.stateRoot"))
 }
 
-pub const ENV_CONFIG: &str = "DSH_SUPERVISOR_CONFIG";
-
-pub const ENV_DAEMON: &str = "DSH_SUPERVISOR_DAEMON";
-
-pub const ENV_TRAY_PORT: &str = "DSH_SUPERVISOR_TRAY_PORT";
-
-pub const ENV_SHELL_EXE: &str = "DSH_SHELL_EXE";
-
-pub const ENV_GUARD_BIN: &str = "DSH_GUARD_BIN";
-
-pub const ENV_HARNESS_BIN: &str = "DSH_BIN";
-
-pub const ENV_SMOKE_PID: &str = "DSH_PID";
-
-pub const ENV_CANARY: &str = "DSH_CANARY";
-
-pub const ENV_CANARY_ID: &str = "DSH_CANARY_ID";
-
-pub const ENV_CANARY_ALLOWLIST: &str = "DSH_CANARY_ALLOWLIST";
-
-pub const ENV_DEPLOY_FORM: &str = "DSH_DEPLOY_FORM";
-
-pub const ENV_UI_DIR: &str = "DSH_UI_DIR";
-
-pub const ENV_UI_SKIP_INSTALL: &str = "DSH_UI_SKIP_INSTALL";
-
-pub const ENV_CORE_SCOPE: &str = "DSH_CORE_SCOPE";
-
-pub const ENV_PUBLISH_REGISTRY: &str = "DSH_PUBLISH_REGISTRY";
-
-pub const ENV_NPM_PROVENANCE: &str = "DSH_NPM_PROVENANCE";
-
-pub const ENV_NPMRC: &str = "DSH_NPMRC";
-
-pub const ENV_NPM_AUTH_PREV: &str = "DSH_NPM_AUTH_PREV";
-
-pub const ENV_NPM_AUTH_PREV_SET: &str = "DSH_NPM_AUTH_PREV_SET";
-
-pub const ENV_NPM_AUTH_PREVL: &str = "DSH_NPM_AUTH_PREVL";
-
-pub const ENV_NPM_AUTH_PREVL_SET: &str = "DSH_NPM_AUTH_PREVL_SET";
-
-pub const ENV_NPM_AUTH_SOURCE: &str = "DSH_NPM_AUTH_SOURCE";
-
-pub const ENV_NPM_AUTH_TMP: &str = "DSH_NPM_AUTH_TMP";
-
-pub const ENV_CRED_DIR: &str = "DSH_CRED_DIR";
-
-pub const ENV_CRED_ALLOW_OVERWRITE: &str = "DSH_CRED_ALLOW_OVERWRITE";
-
-pub const ENV_CRED_FORCE: &str = "DSH_CRED_FORCE";
-
-pub const ENV_CRED_BACKUP_DIR: &str = "DSH_CRED_BACKUP_DIR";
-
-pub const ENV_REAL_HOME: &str = "DSH_REAL_HOME";
-
-pub const ENV_ARCH_OVERRIDE: &str = "DSH_ARCH_OVERRIDE";
-
-pub const ENV_PLATFORM_OVERRIDE: &str = "DSH_PLATFORM_OVERRIDE";
-
-pub const ENV_ESBUILD_VERSION: &str = "DSH_ESBUILD_VERSION";
-
-pub const ENV_VERSION_LIB: &str = "DSH_VERSION_LIB";
+shared_str_cell!(env_config, "env.config");
+shared_str_cell!(env_daemon, "env.daemon");
+shared_str_cell!(env_tray_port, "env.tray_port");
+shared_str_cell!(env_shell_exe, "env.shell_exe");
+shared_str_cell!(env_guard_bin, "env.guard_bin");
+shared_str_cell!(env_harness_bin, "env.harness_bin");
+shared_str_cell!(env_smoke_pid, "env.smoke_pid");
+shared_str_cell!(env_canary, "env.canary");
+shared_str_cell!(env_canary_id, "env.canary_id");
+shared_str_cell!(env_canary_allowlist, "env.canary_allowlist");
+shared_str_cell!(env_deploy_form, "env.deploy_form");
+shared_str_cell!(env_ui_dir, "env.ui_dir");
+shared_str_cell!(env_ui_skip_install, "env.ui_skip_install");
+shared_str_cell!(env_core_scope, "env.core_scope");
+shared_str_cell!(env_publish_registry, "env.publish_registry");
+shared_str_cell!(env_npm_provenance, "env.npm_provenance");
+shared_str_cell!(env_npmrc, "env.npmrc");
+shared_str_cell!(env_npm_auth_prev, "env.npm_auth_prev");
+shared_str_cell!(env_npm_auth_prev_set, "env.npm_auth_prev_set");
+shared_str_cell!(env_npm_auth_prevl, "env.npm_auth_prevl");
+shared_str_cell!(env_npm_auth_prevl_set, "env.npm_auth_prevl_set");
+shared_str_cell!(env_npm_auth_source, "env.npm_auth_source");
+shared_str_cell!(env_npm_auth_tmp, "env.npm_auth_tmp");
+shared_str_cell!(env_cred_dir, "env.cred_dir");
+shared_str_cell!(env_cred_allow_overwrite, "env.cred_allow_overwrite");
+shared_str_cell!(env_cred_force, "env.cred_force");
+shared_str_cell!(env_cred_backup_dir, "env.cred_backup_dir");
+shared_str_cell!(env_real_home, "env.real_home");
+shared_str_cell!(env_arch_override, "env.arch_override");
+shared_str_cell!(env_platform_override, "env.platform_override");
+shared_str_cell!(env_esbuild_version, "env.esbuild_version");
+shared_str_cell!(env_version_lib, "env.version_lib");
 
 
 
-
-pub const WINDOWS_GUI_TASK: &str = "Lobox-Shell";
-
-pub const WINDOWS_RUN_VALUE: &str = "Lobox";
-
-pub const SYSTEMD_UNIT_NAME: &str = "lobox";
-
-pub const SYSTEMD_UNIT_FILE: &str = "lobox.service";
-
+shared_str_cell!(windows_gui_task, "platform.windowsGuiTask");
+shared_str_cell!(windows_run_value, "platform.windowsRunValue");
+shared_str_cell!(systemd_unit_name, "platform.systemdUnitName");
+shared_str_cell!(systemd_unit_file, "platform.systemdUnitFile");
 pub fn macos_guard_label() -> String {
-    format!("{}.core", TAURI_IDENTIFIER)
+    format!("{}.core", tauri_identifier())
 }
 
 pub fn macos_gui_label() -> String {
-    format!("{}.shell", TAURI_IDENTIFIER)
+    format!("{}.shell", tauri_identifier())
 }
 
 
-pub const SEA_BUNDLE_NAME: &str = "core.cjs";
-
-pub const SEA_VERSION_DEFINE: &str = "__DSH_VERSION__";
-
-pub const KERNEL_ARCHIVE_TEMPLATE: &str = "lobox-{ver}.tar.gz";
-
-pub const KERNEL_RELEASE_TARBALL_TEMPLATE: &str = "lobox-kernel-{ver}-{plat}.tar.gz";
-
-pub const LAUNCHER_DIR_TEMPLATE: &str = "lobox-{ver}-{plat}-{arch}";
-
-pub const INSTALLER_NSIS_WIN_X64_TEMPLATE: &str = "{product}_{ver}_x64-setup.exe";
-
-pub const INSTALLER_MACOS_APP_TEMPLATE: &str = "{product}.app.tar.gz";
-
-pub const INSTALLER_DEB_LINUX_X64_TEMPLATE: &str = "{product}_{ver}_amd64.deb";
-
-pub const INSTALLER_DMG_ARM64_TEMPLATE: &str = "{product}_{ver}_aarch64.dmg";
-
-pub const INSTALLER_DMG_X64_TEMPLATE: &str = "{product}_{ver}_x64.dmg";
-
+shared_str_cell!(sea_bundle_name, "packaging.seaBundleName");
+shared_str_cell!(sea_version_define, "packaging.seaVersionDefine");
+shared_str_cell!(kernel_archive_template, "packaging.kernelArchiveTemplate");
+shared_str_cell!(kernel_release_tarball_template, "packaging.kernelReleaseTarballTemplate");
+shared_str_cell!(launcher_dir_template, "packaging.launcherDirTemplate");
+shared_str_cell!(installer_nsis_win_x64_template, "packaging.installerNsisWinX64Template");
+shared_str_cell!(installer_macos_app_template, "packaging.installerMacosAppTemplate");
+shared_str_cell!(installer_deb_linux_x64_template, "packaging.installerDebLinuxX64Template");
+shared_str_cell!(installer_dmg_arm64_template, "packaging.installerDmgArm64Template");
+shared_str_cell!(installer_dmg_x64_template, "packaging.installerDmgX64Template");
 pub const CLI_BIN_NAMES: &[&str] = &["lobox.exe", "lobox.cmd", "lobox"];
 
 pub const CLI_SHIM_NAMES: &[&str] = &["lobox", "lobox.cmd", "lobox.ps1"];
@@ -255,10 +222,8 @@ pub fn proc_match_guard() -> &'static str {
     PROC_MATCH_GUARD_CELL.get_or_init(|| shared_str("proc.matchGuard"))
 }
 
-pub const PROC_MATCH_GUI: &str = "lobox-shell";
-
-pub const PROC_MATCH_GUI_RE: &str = "lobox-shell(\\.exe)?";
-
+shared_str_cell!(proc_match_gui, "proc.matchGui");
+shared_str_cell!(proc_match_gui_re, "proc.matchGuiRe");
 
 
 
@@ -281,42 +246,25 @@ pub fn bridge_msg_kernel_update_progress() -> &'static str {
     BRIDGE_MSG_PROGRESS_CELL.get_or_init(|| shared_str("bridge.msgKernelUpdateProgress"))
 }
 
-pub const STORE_KEY_API_ACCESS: &str = "lobox.apiAccessKey";
+shared_str_cell!(store_key_api_access, "store.keyApiAccess");
+shared_str_cell!(cookie_lan_token, "store.cookieLanToken");
 
-pub const COOKIE_LAN_TOKEN: &str = "lobox_lan_token";
+shared_str_cell!(event_harness_exited, "event.harness_exited");
+shared_str_cell!(event_harness_token_captured, "event.harness_token_captured");
+shared_str_cell!(event_harness_token_missing, "event.harness_token_missing");
+shared_str_cell!(event_harness_command_missing, "event.harness_command_missing");
+shared_str_cell!(event_harness_not_installed, "event.harness_not_installed");
+shared_str_cell!(event_harness_command_bound, "event.harness_command_bound");
+shared_str_cell!(event_harness_guardian_changed, "event.harness_guardian_changed");
+shared_str_cell!(event_harness_remote_changed, "event.harness_remote_changed");
+shared_str_cell!(event_harness_remote_token_changed, "event.harness_remote_token_changed");
+shared_str_cell!(event_lan_harness_token_updated, "event.lan_harness_token_updated");
+shared_str_cell!(event_upgrade_stopping_harness, "event.upgrade_stopping_harness");
+shared_str_cell!(event_shell_update_pending, "event.shell_update_pending");
+shared_str_cell!(event_shell_update_checked, "event.shell_update_checked");
+shared_str_cell!(event_shell_restart_requested, "event.shell_restart_requested");
 
-
-pub const EVENT_HARNESS_EXITED: &str = "harness_exited";
-
-pub const EVENT_HARNESS_TOKEN_CAPTURED: &str = "harness_token_captured";
-
-pub const EVENT_HARNESS_TOKEN_MISSING: &str = "harness_token_missing";
-
-pub const EVENT_HARNESS_COMMAND_MISSING: &str = "harness_command_missing";
-
-pub const EVENT_HARNESS_NOT_INSTALLED: &str = "harness_not_installed";
-
-pub const EVENT_HARNESS_COMMAND_BOUND: &str = "harness_command_bound";
-
-pub const EVENT_HARNESS_GUARDIAN_CHANGED: &str = "harness_guardian_changed";
-
-pub const EVENT_HARNESS_REMOTE_CHANGED: &str = "harness_remote_changed";
-
-pub const EVENT_HARNESS_REMOTE_TOKEN_CHANGED: &str = "harness_remote_token_changed";
-
-pub const EVENT_LAN_HARNESS_TOKEN_UPDATED: &str = "lan_harness_token_updated";
-
-pub const EVENT_UPGRADE_STOPPING_HARNESS: &str = "upgrade_stopping_harness";
-
-pub const EVENT_SHELL_UPDATE_PENDING: &str = "shell_update_pending";
-
-pub const EVENT_SHELL_UPDATE_CHECKED: &str = "shell_update_checked";
-
-pub const EVENT_SHELL_RESTART_REQUESTED: &str = "shell_restart_requested";
-
-
-pub const SYSTEMD_TEMPLATE_ASIDE_SUFFIX: &str = ".disabled-by-lobox-";
-
+shared_str_cell!(systemd_template_aside_suffix, "platform.systemdTemplateAsideSuffix");
 
 fn home_join(home: &Path, segments: &[&str]) -> PathBuf {
     segments.iter().fold(home.to_path_buf(), |p, s| p.join(*s))

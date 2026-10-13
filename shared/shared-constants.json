@@ -5,7 +5,12 @@
     "name": "lobox",
     "cliName": "lobox",
     "guiBinName": "lobox-shell",
-    "guiCrateName": "lobox-shell"
+    "guiCrateName": "lobox-shell",
+    "npmScope": "@lob-ox",
+    "corePkgPrefix": "core-",
+    "shellReleasePkg": "@lob-ox/shell-release",
+    "tauriIdentifier": "dev.bowen.lobox",
+    "tauriProductName": "lobox"
   },
   "state": {
     "dirName": "lobox",
@@ -13,15 +18,61 @@
     "shellSubdir": "shell",
     "legacyHarnessDir": ".dsh",
     "winBaseEnv": "LOCALAPPDATA",
-    "linuxXdgEnv": "XDG_STATE_HOME"
+    "linuxXdgEnv": "XDG_STATE_HOME",
+    "legacyProductName": "dsh-supervisor",
+    "winFallbackSegments": [
+      "AppData",
+      "Local"
+    ],
+    "macosSegments": [
+      "Library",
+      "Application Support"
+    ],
+    "linuxFallbackSegments": [
+      ".local",
+      "state"
+    ]
   },
   "env": {
     "stateRoot": "DSH_SUPERVISOR_HOME",
-    "config": "DSH_SUPERVISOR_CONFIG"
+    "config": "DSH_SUPERVISOR_CONFIG",
+    "daemon": "DSH_SUPERVISOR_DAEMON",
+    "tray_port": "DSH_SUPERVISOR_TRAY_PORT",
+    "shell_exe": "DSH_SHELL_EXE",
+    "guard_bin": "DSH_GUARD_BIN",
+    "harness_bin": "DSH_BIN",
+    "smoke_pid": "DSH_PID",
+    "canary": "DSH_CANARY",
+    "canary_id": "DSH_CANARY_ID",
+    "canary_allowlist": "DSH_CANARY_ALLOWLIST",
+    "deploy_form": "DSH_DEPLOY_FORM",
+    "ui_dir": "DSH_UI_DIR",
+    "ui_skip_install": "DSH_UI_SKIP_INSTALL",
+    "core_scope": "DSH_CORE_SCOPE",
+    "publish_registry": "DSH_PUBLISH_REGISTRY",
+    "npm_provenance": "DSH_NPM_PROVENANCE",
+    "npmrc": "DSH_NPMRC",
+    "npm_auth_prev": "DSH_NPM_AUTH_PREV",
+    "npm_auth_prev_set": "DSH_NPM_AUTH_PREV_SET",
+    "npm_auth_prevl": "DSH_NPM_AUTH_PREVL",
+    "npm_auth_prevl_set": "DSH_NPM_AUTH_PREVL_SET",
+    "npm_auth_source": "DSH_NPM_AUTH_SOURCE",
+    "npm_auth_tmp": "DSH_NPM_AUTH_TMP",
+    "cred_dir": "DSH_CRED_DIR",
+    "cred_allow_overwrite": "DSH_CRED_ALLOW_OVERWRITE",
+    "cred_force": "DSH_CRED_FORCE",
+    "cred_backup_dir": "DSH_CRED_BACKUP_DIR",
+    "real_home": "DSH_REAL_HOME",
+    "arch_override": "DSH_ARCH_OVERRIDE",
+    "platform_override": "DSH_PLATFORM_OVERRIDE",
+    "esbuild_version": "DSH_ESBUILD_VERSION",
+    "version_lib": "DSH_VERSION_LIB"
   },
   "proc": {
     "matchGuard": "*lobox*|*lob-ox*|*dsh*",
-    "matchGuardNote": "进程归属判据。必须覆盖三种真实形态：CLI/壳可执行名 lobox、npm scope @lob-ox（连字符，不等于 lobox）、以及旧产品名 dsh 的历史安装。漏任一种都会让无锚点兜底判据对该形态返回非我方。"
+    "matchGuardNote": "进程归属判据。必须覆盖三种真实形态：CLI/壳可执行名 lobox、npm scope @lob-ox（连字符，不等于 lobox）、以及旧产品名 dsh 的历史安装。漏任一种都会让无锚点兜底判据对该形态返回非我方。",
+    "matchGui": "lobox-shell",
+    "matchGuiRe": "lobox-shell(\\\\.exe)?"
   },
   "bridge": {
     "msgKernelUpdateRequest": "lobox:kernel-update-request",
@@ -41,5 +92,58 @@
   "runtime": {
     "minNode": "v22.12.0",
     "npmDefaultRegistry": "https://registry.npmjs.org"
+  },
+  "packaging": {
+    "seaBundleName": "core.cjs",
+    "seaVersionDefine": "__DSH_VERSION__",
+    "kernelArchiveTemplate": "lobox-{ver}.tar.gz",
+    "kernelReleaseTarballTemplate": "lobox-kernel-{ver}-{plat}.tar.gz",
+    "launcherDirTemplate": "lobox-{ver}-{plat}-{arch}",
+    "installerNsisWinX64Template": "{product}_{ver}_x64-setup.exe",
+    "installerMacosAppTemplate": "{product}.app.tar.gz",
+    "installerDebLinuxX64Template": "{product}_{ver}_amd64.deb",
+    "installerDmgArm64Template": "{product}_{ver}_aarch64.dmg",
+    "installerDmgX64Template": "{product}_{ver}_x64.dmg"
+  },
+  "platform": {
+    "windowsGuiTask": "Lobox-Shell",
+    "windowsRunValue": "Lobox",
+    "systemdUnitName": "lobox",
+    "systemdUnitFile": "lobox.service",
+    "systemdTemplateAsideSuffix": ".disabled-by-lobox-",
+    "cliBinNames": [
+      "lobox.exe",
+      "lobox.cmd",
+      "lobox"
+    ],
+    "cliShimNames": [
+      "lobox",
+      "lobox.cmd",
+      "lobox.ps1"
+    ],
+    "guiBinNames": [
+      "lobox-shell",
+      "lobox-shell.exe"
+    ]
+  },
+  "event": {
+    "harness_exited": "harness_exited",
+    "harness_token_captured": "harness_token_captured",
+    "harness_token_missing": "harness_token_missing",
+    "harness_command_missing": "harness_command_missing",
+    "harness_not_installed": "harness_not_installed",
+    "harness_command_bound": "harness_command_bound",
+    "harness_guardian_changed": "harness_guardian_changed",
+    "harness_remote_changed": "harness_remote_changed",
+    "harness_remote_token_changed": "harness_remote_token_changed",
+    "lan_harness_token_updated": "lan_harness_token_updated",
+    "upgrade_stopping_harness": "upgrade_stopping_harness",
+    "shell_update_pending": "shell_update_pending",
+    "shell_update_checked": "shell_update_checked",
+    "shell_restart_requested": "shell_restart_requested"
+  },
+  "store": {
+    "keyApiAccess": "lobox.apiAccessKey",
+    "cookieLanToken": "lobox_lan_token"
   }
 }

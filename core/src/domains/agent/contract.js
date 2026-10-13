@@ -42,7 +42,7 @@ module.exports = {
     logger: '日志器',
     service: 'OS 服务控制（systemd / 服务管理器）',
     tokens: '令牌服务（会话捕获）',
-    resstats: '资源统计（配额判定）',
+    resstats: '进程树资源采样（platform/os/resstats；配额判定已按「共享系统资源」决策移除，此处只用于资源用量展示）',
   },
 
   pure: [

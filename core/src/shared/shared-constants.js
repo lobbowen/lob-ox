@@ -21,4 +21,15 @@ module.exports = Object.freeze({
     dshDefaultPort: RAW.net.dshDefaultPort,
   }),
   runtime: Object.freeze(RAW.runtime),
+  // R8 跨层收口：以下四段原先在 shell/src-tauri/src/brand.rs 与 core/src/shared/brand.js
+  // 各自硬编码一份副本，改一侧漏一侧。现统一走本文件（Rust 侧 include_str! 编译期嵌入）。
+  packaging: Object.freeze(RAW.packaging),
+  platform: Object.freeze({
+    ...RAW.platform,
+    cliBinNames: Object.freeze(RAW.platform.cliBinNames.slice()),
+    cliShimNames: Object.freeze(RAW.platform.cliShimNames.slice()),
+    guiBinNames: Object.freeze(RAW.platform.guiBinNames.slice()),
+  }),
+  event: Object.freeze(RAW.event),
+  store: Object.freeze(RAW.store),
 });

@@ -8,20 +8,14 @@ export type NativeInstallState =
 export interface NativeDshStatus {
   installed: boolean;
   version?: string | null;
-  binPath?: string | null;
-  executable?: boolean;
   state?: NativeInstallState;
   installLog?: string[];
-  lastInstall?: { version?: string; error?: string } | null;
-  lastUninstall?: unknown;
-  task?: unknown;
 }
 
 export interface DshVersionInfo {
   installed?: string;
   latest?: string;
   updateAvailable?: boolean;
-  lastCheckAt?: string | null;
   checking?: boolean;
   error?: string | null;
 }
@@ -49,21 +43,12 @@ export interface SupervisorStatus {
   dshPid?: number | null;
   dshPort?: number | null;
   adopted?: boolean;
-  guardPid?: number;
-  lastProbeAt?: string | null;
-  lastProbeOk?: boolean;
   restartCount?: number;
   lastFailure?: string | null;
-  upgradeHold?: boolean;
-  
-  shellHalted?: boolean;
-  commandMissing?: boolean;
-  dshTokenCaptured?: boolean;
   native?: NativeDshStatus;
   version?: DshVersionInfo;
   upgrade?: UpgradeState;
   tasks?: unknown[];
-  updatedAt?: string;
 }
 
 export interface SupervisorEvent {
@@ -85,7 +70,6 @@ export interface SupervisorEvent {
   } | null;
 }
 export interface EventsPage { seq: number; events: SupervisorEvent[]; }
-
 export interface PortRecord {
   port: number;
   role: string;
@@ -94,15 +78,11 @@ export interface PortRecord {
   active?: boolean;
 }
 export interface PortsResponse { records?: PortRecord[]; }
-
 export type InstanceDomain = "native" | "sandbox";
 export interface InstanceSandbox { privateTmp?: boolean; protectHome?: boolean; }
 export interface InstanceState {
   pid?: number | null;
   running: boolean;
-  isDsh?: boolean;
-  portTaken?: boolean;
-  identityUnknown?: boolean;
   phase?: string;
   lifecyclePhase?: "STARTING" | "RUNNING" | "INSTALLING" | "FAILED" | "STOPPED" | string;
   lastError?: string | null;
@@ -110,7 +90,6 @@ export interface InstanceState {
   lastFailure?: string | null;
   usage?: { memMb: number | null; cpuPct: number | null; at: number } | null;
   installing?: boolean;
-  installOk?: boolean;
   installError?: string | null;
   installLog?: string[];
 }
@@ -125,20 +104,14 @@ export interface SupervisorInstance {
   name: string;
   port: number;
   kind?: InstanceDomain;
-  
   remoteMode?: RemoteMode;
-  unitName?: string;
-  sandbox?: InstanceSandbox;
   version?: string | null;
   latest?: string | null;
   updateAvailable?: boolean;
   updateJob?: InstanceUpdateJob | null;
   state?: InstanceState;
   authUrl?: string;
-  
-  tokenPresent?: boolean;
   tokenSet?: boolean;
-  
   remoteToken?: string;
 }
 
@@ -163,17 +136,8 @@ export interface LanItem {
   running: boolean;
   tokenSet?: boolean;
   remote?: RemoteView | null;
-  
-  inject?: {
-    tokenSet?: boolean;
-    cookieReady?: boolean;
-    lastOkAt?: number | null;
-    lastError?: string | null;
-    lastErrorAt?: number | null;
-  } | null;
 }
 export interface LanAccessResponse { items: LanItem[]; addresses: string[]; }
-
 export interface FrpSettings { serverAddr: string; serverPort: number; authToken?: string; authTokenSet?: boolean; user?: string; }
 export interface FrpStatus {
   installed: boolean;
@@ -181,7 +145,6 @@ export interface FrpStatus {
   pid?: number | null;
   settings: FrpSettings;
   logTail?: string[];
-  
   instancesExposed?: Array<{ id?: string; name?: string; port?: number | null }>;
 }
 
@@ -213,18 +176,13 @@ export interface ProviderAccount {
   status: AccountStatus;
   instanceStatus?: string;
   quota?: AccountQuota;
-  quotaStatus?: string;
   usable?: boolean;
   selected?: boolean;
   locked?: boolean;
-  healthy?: boolean;
   requests?: number;
   totalTokens?: number;
   version?: string | null;
   updateAvailable?: boolean;
-  registeredAt?: number;
-  detectError?: string | null;
-  nextResetAt?: number | null;
   limit?: {
     kind?: "window" | "credits" | "banned";
     since?: number;
@@ -239,21 +197,14 @@ export interface RouterProvider {
   proxyAppId?: string | null;
   activated?: boolean;
   active?: boolean;
-  exhausted?: boolean;
   apiPort?: number;
   apiBase?: string;
   accounts?: ProviderAccount[];
-  selectedAccountKeyId?: string | null;
   locked?: boolean;
-  activeKeyId?: string | null;
 }
 export interface ProviderPreset {
   id: string;
   name: string;
-  baseUrl?: string;
-  plan?: { per5hUsd?: number; weeklyUsd?: number; monthlyUsd?: number } | null;
-  adapter?: unknown;
-  pricing?: unknown;
   note?: string;
 }
 export interface ProxyAppInfo {
@@ -267,7 +218,6 @@ export interface ProxyAppInfo {
 export interface RouterStatus {
   running: boolean;
   autostart?: boolean;
-  activatedProviders?: number;
   usage: {
     requests: number;
     errors: number;
@@ -300,11 +250,9 @@ export interface TaskRecord {
   logTail?: string[];
   startedAt?: number;
   finishedAt?: number | null;
-  createdBy?: string;
   meta?: Record<string, unknown>;
 }
 export interface TasksResponse { tasks: TaskRecord[]; current?: unknown; }
-
 export type PluginSource = "npm" | "github" | "community" | "official";
 export interface MarketPlugin {
   name: string;
@@ -319,7 +267,6 @@ export interface MarketResponse {
   plugins: MarketPlugin[];
   indexedAt?: number;
   sources?: { npm?: number; github?: number; community?: number; official?: number };
-  
   building?: boolean;
   error?: string | null;
 }
@@ -340,10 +287,7 @@ export interface InstalledPluginsResponse {
   inventoryReachable?: boolean;
   profile?: string;
   targets?: PluginTargetInfo[];
-  rows?: unknown[];
   thirdParty?: InstalledPlugin[];
-  builtinBundles?: Array<{ name: string; readonly?: boolean }>;
-  installationOwned?: string[];
 }
 export interface PluginUpdatesResponse {
   plugins?: Array<{ name: string; updateAvailable?: boolean; error?: string | null; targets?: Array<{ name: string; updateAvailable?: boolean; latest?: string }> }>;
@@ -362,7 +306,6 @@ export interface PluginJobStatus {
   finishedAt?: number | null;
   error?: string | null;
   targets?: Array<{ name?: string; ok?: boolean; error?: string | null }>;
-  error_?: never;
 }
 export interface ProxyUpdateStatus {
   state?: JobState;
@@ -371,7 +314,6 @@ export interface ProxyUpdateStatus {
   startedAt?: number | null;
   finishedAt?: number | null;
   steps?: Array<{ name: string; state: string }>;
-  taskId?: string;
   error?: string;
 }
 export interface AutostartStatus { on: boolean; unit?: string; gui?: boolean; }
@@ -391,14 +333,11 @@ export interface RegistryInfo {
   latencyMs?: number;
   checkedAt?: number;
   probes?: Array<{ origin: string; ok: boolean; latencyMs: number | null; error?: string | null }>;
-  ordered?: string[];
   source?: string;
   registries?: Array<{
     base: string; usable: boolean; violation: string | null;
     reachable: boolean | null; latencyMs: number | null; error: string | null;
   }>;
-  rejectedOrigins?: string[];
-  contractSchema?: number | null;
   error?: string;
 }
 export interface SelfUpdateStatus {
@@ -407,7 +346,6 @@ export interface SelfUpdateStatus {
   latest?: string;
   updateAvailable?: boolean;
   error?: string | null;
-  restartRequired?: boolean;
 }
 export interface GuardVersion { version?: string; commit?: string; latest?: string; updateAvailable?: boolean; upstream?: string; }
 export interface ShellIdentity {
@@ -416,17 +354,13 @@ export interface ShellIdentity {
   arch?: string;
   installKind?: string;
   selfUpdateCapable?: boolean;
-  attempt?: number;
   phase?: string;
-  pinned?: string[];
 }
 export interface ShellStatus {
   ok?: boolean;
   identity?: ShellIdentity | null;
-  journal?: { to?: string | null; confirmed?: boolean; rolledBack?: boolean; pinnedVersions?: string[] } | null;
   state?: string;
   reason?: string | null;
-  pinned?: string[];
   dir?: string;
 }
 export interface ShellUpdateCheck {
@@ -441,14 +375,8 @@ export interface PlatformCapabilities {
   arch?: string;
   sandboxLaunch?: boolean;
   sandboxEnforcement?: "cgroup" | "supervise" | "none";
-  pidAdoption?: boolean;
-  
-  processTreeKill?: boolean;
-  desktopNotify?: boolean;
   
   autostart?: boolean;
-  frpExpose?: boolean;
-  hostService?: string;
 }
 
 export interface EnvCatalogItem {
@@ -465,8 +393,6 @@ export interface EnvStatus {
   npm?: { detected?: string; runtime?: string | null; path?: string | null };
   git?: { detected?: string };
   ok?: boolean;
-  npmRoot?: string | null;
-  installedAt?: string | null;
   source?: string | null;
   catalog?: { ready?: boolean; items?: Record<string, EnvCatalogItem> };
   capabilities?: PlatformCapabilities | null;
@@ -487,16 +413,13 @@ export interface EnvStatus {
 export interface NodeLtsStatus {
   ok: boolean;
   current?: string | null;
-  major?: number | null;
   ltsLine?: boolean | null;
   suggested?: string | null;
-  fetchedAt?: number | null;
   cached?: boolean;
   error?: string | null;
 }
 
 export interface GenericOk { ok?: boolean; error?: string | null; [k: string]: unknown; }
-
 export interface OpenExternalResult {
   ok?: boolean;
   confirmed?: boolean;
@@ -517,23 +440,19 @@ export interface OpenExternalResult {
     exitSignal?: string | null;
     error?: string | null;
     diagnostics?: BrowserDiagnostics | null;
-    
     egress?: EgressVerdict | null;
   } | null;
 }
 
 export interface EgressVerdict {
   host?: string | null;
-  viable?: boolean | null;
   basis?: string;
   detail?: string | null;
-  
   proxy?: string;
   at?: number | null;
 }
 
 export interface BrowserDiagnostics {
-  
   pick?: string | null;
   default?: { id: string; source?: string | null } | null;
   preference?: { id?: string | null; matched?: boolean } | null;
@@ -622,14 +541,12 @@ export interface EnvironmentForm {
   cached?: boolean;
   platform?: string | null;
   identity?: { platform?: string; arch?: string; hostname?: string; user?: string | null; node?: string };
-  paths?: { root?: string; supervisor?: string; shell?: string };
   session?: { platform?: string; available?: boolean; reason?: string | null; display?: string | null };
   capabilities?: Record<string, unknown> | null;
   preference?: { id?: string | null; configured?: boolean; matched?: boolean; browser?: { id: string; name: string; engine: string } | null; reason?: string };
   default?: { id: string; source?: string | null } | null;
   browsers?: Array<{ id: string; name?: string; bin?: string; engine?: string; sources?: string[]; isDefault?: boolean }>;
   pick?: { how?: string; id?: string | null; name?: string | null; wanted?: string | null; stale?: boolean };
-  
   sections?: EnvironmentSections | undefined;
   probed?: Array<{ section?: string; source: string; detail?: string | number | null }>;
   snapshot?: { path?: string; written?: boolean; error?: string | null };
@@ -650,7 +567,6 @@ export interface ExternalBrowserStatus {
   configured?: boolean;
   value?: string | null;
   stale?: boolean;
-  browser?: { id: string; name?: string; engine?: string; isDefault?: boolean } | null;
   candidates?: Array<{ id: string; name?: string; engine?: string; isDefault?: boolean }>;
   pick?: { how?: string; id?: string | null; name?: string | null; wanted?: string | null; stale?: boolean } | null;
   platform?: string | null;
@@ -674,11 +590,8 @@ export interface LifecycleModuleState {
   name?: string;
   phase: string;
   desired: string;
-  healthy?: boolean;
-  monitoring?: boolean;
   error?: string | null;
   startedAt?: string | null;
-  
   detail?: unknown;
 }
 

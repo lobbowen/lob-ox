@@ -41,7 +41,8 @@ const SURFACE = [
   { path: '/native/install',      methods: ['POST'], domain: 'native', category: 'public', consumers: ['UI(OverviewPage)', 'CLI'], note: '异步安装（202）' },
   { path: '/native/uninstall',    methods: ['POST'], domain: 'native', category: 'public', consumers: ['UI(OverviewPage)'], note: '异步卸载（202）' },
   { path: '/native/upgrade',      methods: ['POST'], domain: 'native', category: 'public', consumers: ['UI(OverviewPage)', 'CLI(upgrade)'], note: '一键升级（失败回滚）' },
-  { path: '/native/settings',     methods: ['POST'], domain: 'native', category: 'public', consumers: ['UI(OverviewPage)'], note: 'main 元数据补丁（仅 guardian；远程意图唯一入口在 /remote/*）' },
+  // /native/settings 已删：后端 api/domains/native.js 无此路由（main 元数据补丁已并入
+  // /settings/* 与 /remote/*，远程意图唯一入口在 /remote/*），前端调用同步移除。
 
   { path: '/instances',           methods: ['GET'],  domain: 'instances', category: 'public', consumers: ['UI(InstancesPage)'], note: '实例列表（+ POST /instances/{action}）；远程访问令牌明文仅回环来源下发（其余只见 tokenSet 布尔），authUrl 的 ?token= 同判据' },
   { path: '/open',                methods: ['GET'],  domain: 'instances', category: 'public', consumers: ['UI(open-web → 本机系统浏览器一次性码跳转)'], note: '一次性码换取 dsh-auth cookie 并回跳实例 DSH 页面（令牌不进 URL/argv）' },
