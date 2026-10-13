@@ -44,8 +44,8 @@ class AgentManager {
   }
 
   // ---- 落点（UI 与清理逻辑都问这里，不各自拼路径）----
-  entryOf(agent) {
-    throw new Error('agent.entryOf: 待 ops/entry 实现');
+  entryOf(agent, opts) {
+    return require('./ops/entry').entryOf(agent, Object.assign({ root: this.root }, opts || {}));
   }
   dataDirOf(agent) { return model.dataDirOf(this.root, agent); }
   installDirOf(agent) { return model.installDirOf(this.root, agent); }

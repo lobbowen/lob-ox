@@ -20,10 +20,17 @@ check('inventory 带能力矩阵与落点', () => {
   assert.ok(inv[0].installDir.includes('a1'));
 });
 check('未实现的 ops 明确抛错（不静默返回 undefined）', () => {
-  for (const fn of ['entryOf', 'install', 'uninstall', 'upgrade', 'start', 'stop', 'status', 'checkUpdate', 'upgradeStatus']) {
+  for (const fn of ['install', 'uninstall', 'upgrade', 'start', 'stop', 'status', 'checkUpdate', 'upgradeStatus']) {
     assert.throws(() => m[fn]({ id: 'x' }), /待 .* 实现/, fn + ' 应明确抛错');
   }
 });
+check('entryOf 已实现（ops/entry 接入）且不抛错', () => {
+  const a = m.find('a1');
+  const got = m.entryOf(a);
+  assert.ok(Array.isArray(got), 'entryOf 应返回数组');
+  assert.strictEqual(got.length, 1);
+});
+
 check('dataDirOf/installDirOf 委托 model', () => {
   const a = m.find('a1');
   assert.ok(m.dataDirOf(a).includes('a1'));
