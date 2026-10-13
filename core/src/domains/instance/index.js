@@ -3,7 +3,6 @@
 const path = require('node:path');
 const os = require('node:os');
 const sandbox = require('./sandbox');
-const governor = require('./governor');
 const { InstanceStore } = require('./store');
 const { createLifecycle } = require('./lifecycle');
 const { createUpgrade } = require('./upgrade');
@@ -24,7 +23,6 @@ class InstanceManager {
     this.systemdDir = opts.systemdDir || path.join(os.homedir(), '.config', 'systemd', 'user');
     this.systemdTemplatePath = opts.systemdTemplatePath || path.join(this.systemdDir, 'dsh-web@.service');
     this.resstats = opts.resstats || defaultResstats;
-    this.machineFacts = opts.machineFacts || null;
     
     this.throttle = opts.throttle || null;
     // agent 管理域：沙箱实例的 DSH 安装/升级委托它，不维护第二套实现。
@@ -38,7 +36,7 @@ class InstanceManager {
       service: this.service, tokens: this.tokens, tasks: this.tasks,
       systemdDir: this.systemdDir, systemdTemplatePath: this.systemdTemplatePath,
       instancesRoot: this.instancesRoot, hooks: this._hooks, store: this._store,
-      resstats: this.resstats, machineFacts: this.machineFacts,
+      resstats: this.resstats,
       throttle: this.throttle,
       agents: this.agents,
       isSandboxSupported: () => this.sandboxSupported,
@@ -58,7 +56,15 @@ class InstanceManager {
   map(fn) { return this._store.instances.map(fn); }
 
   
-  get sandboxSupported() { return governor.sandboxSupported(this._sandboxSupportedOverride); }
+  // 平台能力判定（与配额无关）：当前平台能否以独立 unit 形式拉起沙箱实例。
+  // 原在 governor.js，随配额逻辑删除时一并内联到这里。
+  get sandboxSupported() {
+    if (this._sandboxSupportedOverride !== undefined && this._sandboxSupportedOverride !== null) return this._sandboxSupportedOverride === true;
+    try {
+      const caps = require('../../platform/os/index').capabilities();
+      return !!(caps && caps.sandboxLaunch === true);
+    } catch { return false; }
+  }
   _setSandboxSupportedForTest(v) { this._sandboxSupportedOverride = (v === null ? null : v === true); }
 
   get onRemoteChange() { return this._hooks.onRemoteChange || null; }
@@ -83,9 +89,7 @@ class InstanceManager {
   startInstance(id, opts) { return this._lifecycle.start(id, opts); }
   stopInstance(id) { return this._lifecycle.stop(id); }
   supervise(id) { return this._lifecycle.supervise(id); }
-  governSweep() { return this._lifecycle.governSweep(); }
   probeInstance(id) { return this._lifecycle.probeInstance(id); }
-  budgetSnapshot() { return governor.budgetSnapshot(this._store.instances, this.machineFacts || undefined); }
   checkUpdate(id) { return this._upgrade.checkUpdate(id); }
   upgradeInstance(id) { return this._upgrade.upgradeInstance(id); }
   upgradeStatus(id) { return this._upgrade.upgradeStatus(id); }

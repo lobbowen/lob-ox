@@ -79,7 +79,6 @@ function viewRow(inst, resolved) {
     state: Object.assign({}, resolved.probe, {
       lifecyclePhase: inst.state ? inst.state.phase : 'STOPPED',
       lastError: inst.state ? inst.state.lastError : null,
-      allocation: inst.state ? (inst.state.allocation || null) : null,
       usage: inst.state ? (inst.state.usage || null) : null,
       restartCount: inst.state ? (inst.state.restartCount || 0) : 0,
       

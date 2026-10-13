@@ -32,12 +32,6 @@ module.exports = {
         npmRoot: en ? en.npmRoot : null,
         catalog: (await envCatalogSummary(this)),
         capabilities: (() => { try { return platform.capabilities(); } catch { return null; } })(),
-        sandboxBudget: (() => {
-          try {
-            return this.instances && typeof this.instances.budgetSnapshot === 'function'
-              ? this.instances.budgetSnapshot() : null;
-          } catch { return null; }
-        })(),
       };
     },
 

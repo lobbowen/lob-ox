@@ -38,20 +38,6 @@ function effectiveCommand(rootDir, dshBin, inst) {
   if (inst.command && inst.command.length) return dshCli.withoutAutoOpen(inst.command);
   return dshCli.withoutAutoOpen(defaultCommand(dshBin, inst));
 }
-function unitProps(inst, alloc) {
-  const props = [
-    'KillMode=process',
-    'MemoryMax=' + alloc.memoryMax,
-  ];
-  if (alloc.memoryHigh) props.push('MemoryHigh=' + alloc.memoryHigh);
-  props.push(
-    'CPUQuota=' + alloc.cpuQuota,
-    'PrivateTmp=' + ((inst.sandbox && inst.sandbox.privateTmp) ? 'yes' : 'no'),
-    'ProtectHome=' + ((inst.sandbox && inst.sandbox.protectHome) ? 'yes' : 'no'),
-    'Restart=no',
-  );
-  return props;
-}
 
 // R8-数据隔离：沙箱实例的「各自独立数据目录」必须覆盖 DSH 实际会写的**全部**位置。
 // 原实现只重定向 HOME / XDG_CONFIG_HOME / XDG_DATA_HOME / TMPDIR，留下三个真实漏口：
@@ -97,5 +83,5 @@ function sandboxEnv(rootDir, inst) {
 
 module.exports = {
   root, dataDir, installDir, nodeModulesDir, dshEntry, tmpDir, runPidFile, launchCtx,
-  effectiveCommand, unitProps, sandboxEnv,
+  effectiveCommand, sandboxEnv,
 };

@@ -66,17 +66,15 @@ const portable = {
   supportsTransient: true,
 
   /**
-   * 能力协商（根因 B 修法；与 router 域 `supports(cap)` 同一范式，下沉到平台层）。
+   * 能力协商（与 router 域 `supports(cap)` 同一范式，下沉到平台层）。
    *
    * 判据来源：capability-profile.js 的 sandboxEnforcement —— 三平台均为 'supervise'
    * （= 产品自身监控，**无 cgroup 级强制**）。此前该字段全仓 0 处查询，
-   * 于是 governor 在"限额根本无法生效"的前提下仍判违规并重启 ⇒ 永动机（P0）。
    *
-   * 调用方（governor）必须先问后处置：不支持限额 ⇒ 只观测，绝不重启。
    */
   supports(cap) {
     if (cap === 'treeKill') return true;              // detached spawn ⇒ 可整树终止
-    if (cap === 'limits') return false;               // 无 OS 通道 ⇒ 不强制内存/CPU
+    if (cap === 'limits') return false;               // 无 OS 通道；配额已按「共享系统资源」决策移除
     if (cap === 'unit') return false;                 // 无 systemd / launchd / 任务计划
     return false;
   },
@@ -171,7 +169,6 @@ const portable = {
     return { ok: errors.length === 0, errors };
   },
 
-  setLimits() { return false; },
 };
 
 module.exports = { portable, findOurs, matchesAnchors, _test: { readPidFile, matchesAnchors, findOurs } };

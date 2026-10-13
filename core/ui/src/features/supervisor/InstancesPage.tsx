@@ -36,11 +36,6 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
     return () => { alive = false; };
   }, []);
   const sandboxUnsupported = caps !== null && caps.sandboxLaunch === false;
-  const softTier = caps?.sandboxEnforcement === "supervise";
-  const tierLabel = caps == null ? null
-    : caps.sandboxEnforcement === "cgroup" ? "cgroup 内核硬限"
-      : softTier ? "采样式软限（超限由守卫按拍数收割重启，非内核级强制）"
-        : "无内核级限额";
 
   useEffect(() => {
     onRegisterActions?.({ onAdd: () => setAddOpen(true) });
@@ -111,9 +106,7 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
     const pm = instancePhaseMeta(lp, running);
     const upd = it.updateJob;
     const updating = upd?.state === "running";
-    const mem = it.state?.allocation?.memoryMax || "—";
-    const cpu = it.state?.allocation?.cpuQuota || "—";
-    // 未采到为 null（与配额成对展示），不以 0 充数
+    // 未采到为 null（监督拍实测值），不以 0 充数。配额已按「共享系统资源」决策移除。
     const usage = it.state?.usage;
     const uMem = usage && typeof usage.memMb === "number" ? usage.memMb : null;
     const uCpu = usage && typeof usage.cpuPct === "number" ? usage.cpuPct : null;
@@ -178,9 +171,7 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
           <span className="hidden min-w-0 items-center lg:inline-flex gap-2 text-xs text-muted-foreground">
             <DomainBadge domain="sandbox" />
             <Pill tone={it.remoteMode && it.remoteMode !== "off" ? "boot" : "off"}>{it.remoteMode === "wan" ? "远程·公网" : it.remoteMode === "lan" ? "远程·局域网" : "远程关闭"}</Pill>
-            <span className="whitespace-nowrap" title={"配额由守卫按机器预算与活跃实例数动态推导" + (tierLabel ? "；执行档位：" + tierLabel : "")}>
-              配额 内存 {mem} · CPU {cpu}{softTier ? "（软限）" : ""}
-            </span>
+
             {uMem === null && uCpu === null ? null : (
               <span className="whitespace-nowrap" title="监督拍实测值（最近一次采样；停止或未采到不显示）">
                 占用 {uMem === null ? "—" : `${uMem}MB`}{uCpu === null ? "" : ` · CPU ${Math.round(uCpu)}%`}
@@ -255,8 +246,7 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              内存/CPU 配额无需填写：启动时由守卫按机器预算与活跃实例数自动推导，实例增减后动态重分配。
-              {tierLabel ? ` 执行档位：${tierLabel}。` : ""}
+              留空则使用默认启动命令；各实例共享系统资源，不做内存/CPU 限制。
             </p>
           </div>
           <DialogFooter>

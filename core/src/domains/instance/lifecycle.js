@@ -5,7 +5,6 @@ const BRAND = require('../../shared/brand');
 const ports = require('../../platform/service/ports').shared;
 const guardian = require('../../shared/guardian');
 const sandbox = require('./sandbox');
-const governor = require('./governor');
 const stateMachine = require('./state-machine');
 const execPath = require('../../platform/os/exec-path');
 // 进程所有权归壳：沙箱实例拉起后必须上报到壳的进程表，否则壳的 heal 看不到它、
@@ -13,13 +12,12 @@ const execPath = require('../../platform/os/exec-path');
 // 而那张表全仓零 register 调用——沙箱实例实际从不在任何进程表里。
 const pmClient = require('../../platform/contract/pm-client');
 function createLifecycle(deps) {
-  const { store, service, logger, events, tokens, tasks, systemdDir, systemdTemplatePath, hooks, instancesRoot, resstats, machineFacts } = deps;
+  const { store, service, logger, events, tokens, tasks, systemdDir, systemdTemplatePath, hooks, instancesRoot, resstats } = deps;
   const isSandboxSupported = deps.isSandboxSupported;
   
   
   const stateDeps = () => ({ events, logger, save: () => store.save(), tokens, throttle: deps.throttle });
   const runtime = new Map();
-  const machineFactsNow = () => (typeof machineFacts === 'function' ? machineFacts() : governor.machineFacts());
   function _prepareSystemd() {
     if (!service.supportsUnits) return true;
     try {
@@ -82,14 +80,11 @@ function createLifecycle(deps) {
       
       
       if (probe(inst).portTaken) return { ok: false, error: '端口 ' + inst.port + ' 已被占用' };
-      const alloc = governor.currentAllocation(store.instances, inst.id, machineFactsNow());
-      inst.state.allocation = alloc;
-      const props = sandbox.unitProps(inst, alloc);
       const { env, workingDir } = sandbox.sandboxEnv(instancesRoot, inst);
       const ctx = sandbox.launchCtx(instancesRoot, deps.dshBin, inst);
       _cleanStaleUnit('dsh-web@' + inst.id, ctx);
       try {
-        service.startTransient({ unit: 'dsh-web@' + inst.id, cmd: cmdArr, env, props, workingDir, port: ctx.port, pidFile: ctx.pidFile, anchors: ctx.anchors });
+        service.startTransient({ unit: 'dsh-web@' + inst.id, cmd: cmdArr, env, workingDir, port: ctx.port, pidFile: ctx.pidFile, anchors: ctx.anchors });
       } catch (e) {
         const msg = 'systemd 启动失败: ' + (e.message || e);
         inst.state.lastError = msg;
@@ -143,11 +138,6 @@ function createLifecycle(deps) {
       const fromUpgrade = !!(opts && opts.fromUpgrade);
       if (!fromUpgrade && tasks && tasks.isBusy('instance', id)) return { ok: true, installing: true, already: true };
       if (!fromUpgrade) {
-        const adm = governor.admission(store.instances, inst.id, machineFactsNow().totalMemBytes);
-        if (!adm.ok) {
-          logger.warn && logger.warn('[' + inst.id + '] ' + adm.error);
-          return { ok: false, error: adm.error };
-        }
       }
       store.ensureDirs(inst);
       const dshEntry = sandbox.dshEntry(instancesRoot, inst);
@@ -199,23 +189,9 @@ function createLifecycle(deps) {
     if (!inst) return { pid: null, running: false, isDsh: false, portTaken: false, identityUnknown: false, phase: 'STOPPED' };
     return probe(inst);
   }
-  function _sandboxRoster() {
-    const roster = [];
-    for (const i of store.instances) {
-      if (i.domain !== 'sandbox' || !i.state || i.state.phase !== 'RUNNING') continue;
-      const rec = runtime.get(i.id) || {};
-      roster.push({
-        id: i.id,
-        usageMb: typeof rec.rssMb === 'number' ? rec.rssMb : null,
-        cpuPct: typeof rec.cpuPct === 'number' ? rec.cpuPct : null,
-        since: i.state.startAt || 0,
-        prevAlloc: i.state.allocation || null,
-        prevTicks: { mem: rec.memTicks || 0, cpu: rec.cpuTicks || 0 },
-      });
-    }
-    return roster;
-  }
-  function _governTick(inst, st) {
+  // 资源使用率采样。配额逻辑已按「共享系统资源」决策整段移除——
+  // 这里只保留采样供 UI 展示实际用量，不做任何限制。
+  function _sampleUsage(inst, st) {
     for (const key of Array.from(runtime.keys())) {
       if (!store.instances.some((i) => i.id === key)) runtime.delete(key);
     }
@@ -234,8 +210,6 @@ function createLifecycle(deps) {
           last: { t, cpuMs: s.cpuMs },
           rssMb: Math.round((s.rssBytes / (1024 * 1024)) * 10) / 10,
           cpuPct,
-          memTicks: prev.memTicks || 0,
-          cpuTicks: prev.cpuTicks || 0,
         });
       }).catch(() => {});
     }
@@ -244,71 +218,6 @@ function createLifecycle(deps) {
   
   
   
-  function governSweep() {
-    const roster = _sandboxRoster();
-    if (!roster.length) return { ok: true, entries: 0 };
-    let plan;
-    try {
-      const f = machineFactsNow();
-      plan = governor.decide({ totalMemBytes: f.totalMemBytes, cpuCount: f.cpuCount, roster });
-    } catch (e) {
-      logger.warn && logger.warn('govern decide 失败: ' + (e && e.message));
-      return { ok: false, error: (e && e.message) || String(e) };
-    }
-    const now = Date.now();
-    for (const entry of plan.entries) {
-      const target = store.instances.find((i) => i.id === entry.id);
-      if (!target) continue;
-      const rec = runtime.get(entry.id) || {};
-      rec.memTicks = entry.ticks.mem;
-      rec.cpuTicks = entry.ticks.cpu;
-      runtime.set(entry.id, rec);
-      target.state.usage = {
-        memMb: typeof rec.rssMb === 'number' ? rec.rssMb : null,
-        cpuPct: typeof rec.cpuPct === 'number' ? rec.cpuPct : null,
-        at: now,
-      };
-      if (entry.changed) {
-        target.state.allocation = entry.alloc;
-        if (typeof service.setLimits === 'function' && target.state && target.state.phase === 'RUNNING') {
-          try { service.setLimits('dsh-web@' + entry.id, entry.alloc); }
-          catch (e) { logger.warn && logger.warn('[' + entry.id + '] setLimits 下发异常: ' + (e && e.message)); }
-        }
-      }
-      if (!entry.violation) continue;
-      const v = entry.violation;
-      const kindLabel = v.kind === 'memory' ? '内存' : 'CPU';
-      const reason = '资源违规:' + kindLabel + '持续超限(实际 ' + v.actual + '/限额 ' + v.target + ')';
-      if (events) events.append('inst_resource_violation', { id: target.id, name: target.name, kind: v.kind, actual: v.actual, target: v.target });
-      logger.warn && logger.warn('[' + target.id + '] ' + reason);
-
-      
-      
-      
-      
-      const canLimit = typeof service.supports === 'function' ? service.supports('limits') === true : false;
-      if (!canLimit) {
-        if (events) events.append('inst_resource_violation_observed', {
-          id: target.id, name: target.name, kind: v.kind, actual: v.actual, target: v.target,
-          note: '平台无 OS 级限额能力，仅观测不重启（防无限重启循环）',
-        });
-        logger.warn && logger.warn('[' + target.id + '] 平台不支持限额强制，仅观测不重启（' + reason + '）');
-        continue;
-      }
-
-      try {
-        
-        
-        const p = service.stopUnit('dsh-web@' + target.id, Object.assign({ timeoutMs: 20000 }, sandbox.launchCtx(instancesRoot, deps.dshBin, target)));
-        if (p && typeof p.catch === 'function') p.catch(() => {});
-      } catch (e) {
-        logger.warn && logger.warn('[' + target.id + '] 违规停单元异常: ' + (e && e.message));
-      }
-      stateMachine.restart(stateDeps(), target, reason, { startupFailure: false });
-    }
-    store.save();
-    return { ok: true, entries: plan.entries.length };
-  }
   function supervise(id) {
     const inst = store.instances.find((i) => i.id === id);
     if (!inst || inst.domain === 'native') return { ok: true, skipped: !inst ? 'not-found' : 'native' };
@@ -382,7 +291,7 @@ function createLifecycle(deps) {
             else stateMachine.setStopped(stateDeps(), inst);
           } else if (inst.domain === 'sandbox') {
             if (tokens) tokens.ensureCaptured(inst.id);
-            _governTick(inst, st);
+            _sampleUsage(inst, st);
           }
           break;
         }
@@ -399,6 +308,6 @@ function createLifecycle(deps) {
     }
     return { ok: true };
   }
-  return { _prepareSystemd, start, stop, probe, probeInstance, supervise, governSweep };
+  return { _prepareSystemd, start, stop, probe, probeInstance, supervise };
 }
 module.exports = { createLifecycle };

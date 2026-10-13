@@ -108,7 +108,6 @@ export interface InstanceState {
   lastError?: string | null;
   restartCount?: number;
   lastFailure?: string | null;
-  allocation?: { memoryMax: string; cpuQuota: string } | null;
   usage?: { memMb: number | null; cpuPct: number | null; at: number } | null;
   installing?: boolean;
   installOk?: boolean;
@@ -454,20 +453,6 @@ export interface PlatformCapabilities {
   hostService?: string;
 }
 
-export interface SandboxBudget {
-  headroom: number;
-  memFloorMb: number;
-  totalMemMb: number;
-  budgetMb: number;
-  usedMb: number;
-  activeCount: number;
-  reservationMb: number;
-  cpuCount: number;
-  cpuBudgetPct: number;
-  cpuUsedPct: number;
-  capacity: number;
-}
-
 export interface EnvCatalogItem {
   label: string;
   required?: boolean;
@@ -487,7 +472,6 @@ export interface EnvStatus {
   source?: string | null;
   catalog?: { ready?: boolean; items?: Record<string, EnvCatalogItem> };
   capabilities?: PlatformCapabilities | null;
-  sandboxBudget?: SandboxBudget | null;
   shellWatchdog?: {
     enabled?: boolean;
     intervalMs?: number;

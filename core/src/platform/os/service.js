@@ -29,7 +29,6 @@ function unsupported() {
     isUnitActive: () => OUTCOME.UNKNOWN,
     transientUnitFile: () => null,
     cleanTransient: fail('cleanTransient'),
-    setLimits: () => false,
   };
 }
 

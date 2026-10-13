@@ -75,18 +75,10 @@ function composeDomains(host) {
     // 那张表从来就是空的。沙箱实例改由 instance/lifecycle.js 直接
     // pmClient.register 上报到壳的进程表（带真实 spawn_cmd，壳能自愈它）。
     {
-      // R2/D.11-P0-12：原先把 onBeatDone 赋给受管对象表，但它
-      // 根本没有这个属性也没有读取方，而 BeatScheduler 自己持有的 onBeatDone 字段
-      // 无人赋值——结果是 governSweep 整套资源配额体系在生产中永不执行。
-      // 改为 BeatScheduler.afterTick 显式注册：注册列表是单一事实源，
-      // 「挂了但没人读」与「读了但没人挂」两种失效都不可能。
+      // R2：BeatScheduler.afterTick 显式注册（注册列表是单一事实源）。
+      // 注：原 'govern-sweep' 注册已随配额逻辑整段移除（按「共享系统资源」决策）。
       // 注意此处只注册，不启动 scheduler（启动在 assembly/bootstrap.js）。
       if (host._beatScheduler && typeof host._beatScheduler.afterTick === 'function') {
-        host._beatScheduler.afterTick('govern-sweep', () => {
-          try { host.instances.governSweep(); } catch (e) {
-            host.logger && host.logger.warn && host.logger.warn('governSweep: ' + ((e && e.message) || e));
-          }
-        });
         // 与 govern-sweep 同一根因的第三处空转：orphanAudit 全库无调用点。
         // 节流在 scheduler.js 的 orphanAudit 内部（5 分钟）。
         host._beatScheduler.afterTick('orphan-audit', () => host.orphanAudit());
