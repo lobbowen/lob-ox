@@ -25,7 +25,6 @@ class ManagedLifecycle {
     this.lastTransitionAt = null;
     this.error = null;
     this.startedAt = null;
-    this.guardian = this.guardable && opts.guardian === true;
     this._monitoring = false;
   }
 
@@ -41,7 +40,6 @@ class ManagedLifecycle {
       lastProbeAt: this.lastProbeAt,
       lastTransitionAt: this.lastTransitionAt,
       error: this.error,
-      guardian: this.guardian === true,
       startable: this.startable,
       guardable: this.guardable,
       monitoring: this._monitoring,

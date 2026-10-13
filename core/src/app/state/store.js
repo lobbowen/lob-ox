@@ -74,8 +74,7 @@ function createStore(deps) {
       const f = mainStore.dshMainFile();
       if (f && !fs.existsSync(f)) {
         mainStore.writeDshMain({
-          guardian: main.guardian === true,
-          remoteMode: main.remoteEnabled === true ? (main.frpEnabled === true ? 'wan' : 'lan') : 'off',
+                remoteMode: main.remoteEnabled === true ? (main.frpEnabled === true ? 'wan' : 'lan') : 'off',
           remoteToken: String(main.remoteToken || ''),
         });
       }

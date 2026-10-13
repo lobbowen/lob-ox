@@ -31,7 +31,7 @@ function createStateStore(deps) {
   });
 
   return {
-    phase: fields.phase, setPhase: fields.setPhase, guardian: fields.guardian,
+    phase: fields.phase, setPhase: fields.setPhase,
     desired: fields.desired, setDesired: fields.setDesired,
     field: fields.field, procField: fields.procField,
     store: record.storeOf, dshEntry: record.entryOf,
@@ -39,8 +39,7 @@ function createStateStore(deps) {
       fallbackEntry: record.fallbackEntryOf,
     writeMainMeta: mainStore.writeDshMain,
     write: store.writeState, persistConfigPatch: desired.persistConfigPatch,
-    mainGuardian: fields.mainGuardian,
-    accessors: fields.accessors,
+      accessors: fields.accessors,
     loadState: store.loadState, migrateMainRecord: store.migrateMainRecord,
     setDesiredPublic: desired.setDesired, requestRestart: desired.requestRestart,
   };

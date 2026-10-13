@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Button } from "../../framework/ui";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../framework/ui/dialog";
 import { useConfirm } from "../../framework/ui/confirm";
-import { formatClockTime } from "./format";
+import { formatCount, formatClockTime } from "./format";
 import { supervisorApi, useSupervisorData, type SupervisorEvent } from "../../services/supervisor";
 import { Card, CardTitle, Metric, Pill, ToneDot } from "./widgets";
 import { cn } from "../../framework/utils";
@@ -345,7 +345,8 @@ function EventRow({ e }: { e: SupervisorEvent }) {
 function eventDetail(e: SupervisorEvent): string {
   const d = e.data;
   if (!d) return "";
-  const fmt = (n: unknown) => Number(n ?? 0).toLocaleString("en-US");
+  // 数字千分位统一用 format.ts 的 formatCount（此前这里内联了一份逐字相同的实现）。
+  const fmt = (n: unknown) => formatCount(typeof n === "number" ? n : null);
   if (typeof d.message === "string") return d.message;
   if (typeof d.reason === "string") return friendlyFailure(d.reason);
   if (typeof d.desired === "string") return "期望 " + d.desired;

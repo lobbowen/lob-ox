@@ -21,11 +21,21 @@ const INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
 // 日志过滤：npm 的 warn/notice/deprecated 对用户无信息量，原实现即过滤，保留同一口径。
 const NOISE_RE = /unknown user config|npm warn|deprecated|^\$|npm notice/i;
 
+// 安装日志环形缓冲容量：原两份实现各自硬编码 60，收拢为一处。
+const LOG_MAX_LINES = 60;
+
 /**
  * 写一行安装日志。返回是否放行——调用方（onLine 桥）据此决定要不要
  * 把自己的回调也点亮。噪声在此单一处过滤，不漏给任何一层。
+ *
+ * sink 可为数组，也可为任何带 push() 的对象；传 null 表示只过滤不落盘。
+ * onEmit 可选：每个放行的原始行回调一次，供只想要「行」不想要「环形缓冲」
+ * 的调用方使用（instance 侧据此写 tasks.log）。
+ *
+ * 导出供 domains/instance/ops/dsh-install.js 复用——那里原本内联了同一条
+ * 正则、同一个 60 行上限与同一套时间戳前缀。
  */
-function pushLog(sink, line) {
+function pushLog(sink, line, onEmit) {
   const raw = String(line == null ? '' : line);
   let emitted = false;
   for (const ln of raw.split(/\r?\n/)) {
@@ -33,12 +43,14 @@ function pushLog(sink, line) {
     if (!l) continue;
     if (NOISE_RE.test(l)) continue;
     emitted = true;
-    if (!sink) continue;
-    const t = new Date().toISOString().slice(11, 19);
-    try {
-      sink.push('[' + t + '] ' + l);
-      if (sink.length > 60) sink.shift();
-    } catch {  }
+    if (sink) {
+      const t = new Date().toISOString().slice(11, 19);
+      try {
+        sink.push('[' + t + '] ' + l);
+        if (sink.length > LOG_MAX_LINES) sink.shift();
+      } catch {  }
+    }
+    if (onEmit) { try { onEmit(l); } catch {  } }
   }
   return emitted;
 }
@@ -149,4 +161,4 @@ async function checkEnvironment(npmLauncher) {
   return { ok: errors.length === 0, errors, npmRoot: (npmRoot || '').trim() || null };
 }
 
-module.exports = { installToPrefix, installedVersionAt, createLatestResolver, checkEnvironment, INSTALL_TIMEOUT_MS };
+module.exports = { installToPrefix, installedVersionAt, createLatestResolver, checkEnvironment, pushLog, LOG_MAX_LINES, NOISE_RE, INSTALL_TIMEOUT_MS };

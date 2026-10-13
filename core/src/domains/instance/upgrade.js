@@ -17,7 +17,7 @@ function portHealthOpts(inst, ctx) {
 }
 
 function createUpgrade(deps) {
-  const { store, lifecycle, dist, tasks, logger, events, instancesRoot } = deps;
+  const { store, lifecycle, dist, tasks, logger, events, instancesRoot, agents } = deps;
   const save = () => store.save();
   const _updCache = {};
   const _updJobs = {};
@@ -29,7 +29,8 @@ function createUpgrade(deps) {
     }, 60000);
     if (t.unref) t.unref();
   }
-  const install = dshInstall.createDshInstall({ store, dist, tasks, logger, instancesRoot });
+  // agents 传入：安装/版本查询/latest 解析全部委托 agent 域，此处只保留相位与任务编排。
+  const install = dshInstall.createDshInstall({ store, dist, tasks, logger, instancesRoot, agents });
 
   function installSandbox(inst) { return install.installSandbox(inst); }
   function readInstalledVersion(inst) { return install.readInstalledVersion(inst); }
@@ -89,6 +90,28 @@ function createUpgrade(deps) {
     const updateAvailable = !!(latest && installed && semverCompare(latest, installed) > 0);
     return { ok: true, installed, latest, updateAvailable, error: _updCache[inst.id].error };
   }
+  // 经 agent 域安装指定版本到本实例的 prefix。
+  // 保留 dist 直调作为 agents 未注入时的兜底（独立使用/测试）。
+  async function installViaAgent(inst, version, registry, task) {
+    const prefix = sandbox.installDir(instancesRoot, inst);
+    const opts = {
+      dist,
+      prefix,
+      version,
+      registry: registry || null,
+      onLine: taskLogger(task, tasks),
+    };
+    if (agents) {
+      return agents.install(
+        { id: 'sandbox:' + inst.id, kind: 'sandbox', product: '@deepseek-ai/dsh', port: inst.port },
+        opts
+      );
+    }
+    return dist.runNpmInstall({
+      pkg: '@deepseek-ai/dsh', version, prefix, registry: opts.registry,
+      onLine: taskLogger(task, tasks),
+    });
+  }
   async function upgradeInstance(id) {
     const inst = store.instances.find((i) => i.id === id);
     if (!inst) return { ok: false, error: '实例不存在' };
@@ -127,10 +150,9 @@ function createUpgrade(deps) {
       else {
         if (!dist) { nj.errors++; nj.error = 'dist 分发服务不可用'; }
         else {
-          const res = await dist.runNpmInstall({
-            pkg: '@deepseek-ai/dsh', version: targetVer, prefix: installDir, registry: reg,
-            onLine: taskLogger(task, tasks),
-          });
+          // 安装本体委托 agent 域（installToPrefix）——原实现直接调 dist.runNpmInstall，
+          // 与 agent/ops/upgrade.js 里那份是同一件事的两份实现。
+          const res = await installViaAgent(inst, targetVer, reg, task);
           if (!res.ok) { nj.errors++; nj.error = res.error || 'npm install 失败'; if (task) tasks.log(task.id, res.error || 'npm install 失败'); }
         }
       }
@@ -144,14 +166,10 @@ function createUpgrade(deps) {
         } catch (e) {
           if (task) tasks.log(task.id, '回滚前停止异常（继续回装旧版）：' + ((e && e.message) || e));
         }
-        const rbOpts = {
-          pkg: '@deepseek-ai/dsh', version: oldVersion, prefix: installDir, registry: reg,
-          onLine: taskLogger(task, tasks),
-        };
         let rbOk = false;
         if (dist) {
           try {
-            const rbRes = await dist.runNpmInstall(rbOpts);
+            const rbRes = await installViaAgent(inst, oldVersion, reg, task);
             rbOk = rbRes.ok;
           } catch { rbOk = false; }
         }

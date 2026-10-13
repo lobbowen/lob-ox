@@ -25,8 +25,9 @@ function loadRecords(file) {
   return out;
 }
 
+// 文件变更指纹统一走 util/lease.stampOf（A 的 catch 原返回 '0'，包一层保持行为不变）。
 function fileStamp(file) {
-  try { const st = fs.statSync(file); return st.mtimeMs + ':' + st.size; } catch { return '0'; }
+  return require('../../util/lease').stampOf(file) || '0';
 }
 
 function saveRecords(file, records) {

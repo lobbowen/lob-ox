@@ -169,7 +169,7 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 px-6 py-3">
           <span className="hidden min-w-0 items-center lg:inline-flex gap-2 text-xs text-muted-foreground">
-            <DomainBadge domain="sandbox" />
+            <DomainBadge kind="sandbox" />
             <Pill tone={it.remoteMode && it.remoteMode !== "off" ? "boot" : "off"}>{it.remoteMode === "wan" ? "远程·公网" : it.remoteMode === "lan" ? "远程·局域网" : "远程关闭"}</Pill>
 
             {uMem === null && uCpu === null ? null : (

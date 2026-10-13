@@ -147,7 +147,7 @@ function MarketTab({ nonce = 0 }: { nonce?: number }) {
     setTarget("native");
     try {
       const r = await supervisorApi.instances();
-      setTargets((r.instances ?? []).filter((i) => i.domain === "sandbox").map((i) => ({ id: i.id, name: i.name })));
+      setTargets((r.instances ?? []).filter((i) => i.kind === "sandbox").map((i) => ({ id: i.id, name: i.name })));
     } catch { setTargets([]); }
   }
   async function confirmInstall() {

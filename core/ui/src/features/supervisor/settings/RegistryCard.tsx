@@ -10,6 +10,11 @@ import { useSupervisorAction } from "../useSupervisorAction";
 import { Card, CardTitle, Pill } from "../widgets";
 import { cn } from "../../../framework/utils";
 
+// 镜像 URL 合法性：与 testLatency / addCandidate 同一判据（此前两处各写一遍，文案一字不差）。
+function isValidRegistryUrl(v: string): boolean {
+  return /^https?:\/\//.test(v.trim());
+}
+
 export function RegistryCard() {
   const [reg, setReg] = useState<RegistryInfo | null>(null);
   const [mode, setMode] = useState<"auto" | "manual">("auto");
@@ -43,14 +48,14 @@ export function RegistryCard() {
 
   const addCandidate = () => {
     const v = newOrigin.trim();
-    if (!/^https?:\/\//.test(v)) { toast.error("请输入合法的镜像 URL"); return; }
+    if (!isValidRegistryUrl(v)) { toast.error("请输入合法的镜像 URL"); return; }
     if (candidates.includes(v)) { toast.info("已在列表中"); return; }
     setCandidates((c) => [...c, v]); setNewOrigin("");
   };
   async function saveReg() {
     const body: { mode: "auto" | "manual"; origins: string[]; manualOrigin?: string } = { mode, origins: candidates };
     if (mode === "manual") {
-      if (!/^https?:\/\//.test(manualOrigin.trim())) { toast.error("手动模式需提供合法镜像 URL"); return; }
+      if (!isValidRegistryUrl(manualOrigin)) { toast.error("手动模式需提供合法镜像 URL"); return; }
       body.manualOrigin = manualOrigin.trim();
     }
     await run("reg", () => supervisorApi.registrySet(body), { success: "已保存镜像配置", refresh: false, onDone: () => void load() });
@@ -147,7 +152,7 @@ export function RegistryCard() {
 
 /** 走 POST /dist/registry/probe：本页 CSP connect-src 'self'，浏览器不可直连镜像。 */
 async function testLatency(url: string) {
-  if (!/^https?:\/\//.test(url)) { toast.error("请输入合法镜像 URL"); return; }
+  if (!isValidRegistryUrl(url)) { toast.error("请输入合法镜像 URL"); return; }
   toast.info("测试中…");
   try {
     const r = await supervisorApi.registryProbe(url.replace(/\/+$/, ""));

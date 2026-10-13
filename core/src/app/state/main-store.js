@@ -22,8 +22,7 @@ function createMainStore(deps) {
         const j = JSON.parse(fs.readFileSync(f, 'utf8'));
         corrupt = false;
         return {
-          guardian: j.guardian === true,
-          remoteMode: legacyRemoteMode(j),
+            remoteMode: legacyRemoteMode(j),
           remoteToken: String(j.remoteToken || ''),
         };
       }
@@ -32,7 +31,7 @@ function createMainStore(deps) {
       const l = logger();
       if (l && l.warn) l.warn('dsh-main.json 读/解析失败，写回将被拒绝直至显式重设 remoteToken: ' + ((e && e.message) || e));
     }
-    return { guardian: false, remoteMode: 'off', remoteToken: '' };
+    return { remoteMode: 'off', remoteToken: '' };
   }
 
   function legacyRemoteMode(j) {
@@ -67,8 +66,7 @@ function createMainStore(deps) {
       const dir = path.dirname(f);
       fs.mkdirSync(dir, { recursive: true });
       const body = JSON.stringify({
-        guardian: merged.guardian === true,
-        remoteMode: merged.remoteMode === 'lan' || merged.remoteMode === 'wan' ? merged.remoteMode : 'off',
+          remoteMode: merged.remoteMode === 'lan' || merged.remoteMode === 'wan' ? merged.remoteMode : 'off',
         remoteToken: String(merged.remoteToken || ''),
       }, null, 2);
       writeDurable(f, body, { mode: 0o600 });

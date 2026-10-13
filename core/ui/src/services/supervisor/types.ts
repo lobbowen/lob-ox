@@ -124,9 +124,7 @@ export interface SupervisorInstance {
   id: string;
   name: string;
   port: number;
-  domain: InstanceDomain;
-  kind?: string;
-  guardian: boolean;
+  kind?: InstanceDomain;
   
   remoteMode?: RemoteMode;
   unitName?: string;
@@ -677,7 +675,6 @@ export interface LifecycleModuleState {
   phase: string;
   desired: string;
   healthy?: boolean;
-  guardian?: boolean;
   monitoring?: boolean;
   error?: string | null;
   startedAt?: string | null;

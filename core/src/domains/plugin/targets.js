@@ -4,6 +4,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const sandbox = require('../instance/sandbox.js');
+// 沙箱 env 隔离的单一实现（11 变量）在 agent 域。此前这里只设 4 个，
+// 漏掉 USERPROFILE/XDG_*/APPDATA/LOCALAPPDATA/npm_config_*/TMPDIR——
+// plugin 经此启动沙箱 DSH 时「各自独立数据目录」在这些位置实际失效。
+const { sandboxEnv } = require('../agent/runtime/sandbox-env.js');
 
 function pathExtra() {
   return (process.env.PATH || '') + path.delimiter + path.join(os.homedir(), '.npm-global', 'bin');
@@ -38,12 +42,18 @@ function sandboxTarget(ctx, inst) {
     installDir,
     profileDir: path.join(dataDir, '.dsh', 'profiles', ctx.profileName),
     profileName: ctx.profileName,
-    env: {
-      HOME: dataDir,
+    // env 全量重定向走 agent 域单一实现（HOME/USERPROFILE/XDG 四件套/APPDATA/
+    // LOCALAPPDATA/PATH/NODE_PATH/npm_config 三件/TMPDIR，Windows 另加 TMP/TEMP）。
+    // DSH_HOME 是 DSH 自己的数据目录约定，叠加在隔离 env 之上。
+    env: Object.assign(sandboxEnv({
+      data: dataDir,
+      install: installDir,
+      nodeModules: sandbox.nodeModulesDir(sandboxRoot, inst),
+      tmp: path.join(sandboxRoot, inst.id, 'tmp'),
+    }).env, {
       DSH_HOME: path.join(dataDir, '.dsh'),
-      NODE_PATH: sandbox.nodeModulesDir(sandboxRoot, inst),
       PATH: pathExtra(),
-    },
+    }),
     storeDir: process.platform === 'win32'
       ? path.join(os.homedir(), 'AppData', 'Local', 'pnpm', 'store')
       : path.join(os.homedir(), '.local', 'share', 'pnpm', 'store'),

@@ -23,13 +23,8 @@ function isUpdateAvailable(latest, version) {
   return !!latest && !!version && semverCompare(String(latest), String(version)) > 0;
 }
 
-function cliArgv(target) {
-  const cliArgs = ['plugin', '--profile', target.profileName];
-  if (target.storeDir) cliArgs.push('--store-dir', target.storeDir);
-  return cliArgs;
-}
 
 module.exports = {
   isProtectedName, assertSafeCliArgs, specType, isUpdateAvailable,
-  isOwnRow, isOwnDisabled, ownerPackage, targetHomePatchPath, cliArgv,
+  isOwnRow, isOwnDisabled, ownerPackage, targetHomePatchPath,
 };

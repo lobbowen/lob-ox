@@ -40,8 +40,8 @@ class PortRegistry {
     const out = new Map();
     for (const r of this._records.values()) out.set(r.port, r);
     for (const f of this._foreign) {
-      let stamp;
-      try { const st = fs.statSync(f); stamp = st.mtimeMs + ':' + st.size; } catch { stamp = '0'; }
+      // 文件变更指纹统一走 util/lease.stampOf（此前这里内联了第三遍同一表达式）。
+      const stamp = require('../../util/lease').stampOf(f) || '0';
       if (this._foreignStamp.get(f) === stamp && this._foreignCache.has(f)) {
         for (const [port, rec] of this._foreignCache.get(f)) if (!out.has(port)) out.set(port, rec);
         continue;

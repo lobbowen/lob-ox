@@ -16,6 +16,8 @@ function pkgVersion(profileDir, name) {
   catch { return null; }
 }
 
+// readManifest 是 readProfile 的别名（contract.js 与 index.js 的公开面仍用前者，
+// 故保留；域内新代码请直接用 readProfile）。
 function readManifest(profileDir) { return readProfile(profileDir); }
 
 function readHomePatch(target) {

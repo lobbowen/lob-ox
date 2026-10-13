@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { InstanceDomain } from "../../services/supervisor/types";
 import { cn } from "../../framework/utils";
 import type { Tone } from "./nav";
 
@@ -87,8 +88,8 @@ export function QuotaBox({ icon, label, value, note, danger = false }: {
   );
 }
 
-export function DomainBadge({ domain }: { domain: "native" | "sandbox" }) {
-  return <Pill tone={domain === "native" ? "boot" : "off"}>{domain === "native" ? "原生" : "沙箱"}</Pill>;
+export function DomainBadge({ kind }: { kind?: InstanceDomain }) {
+  return <Pill tone={kind === "native" ? "boot" : "off"}>{kind === "native" ? "原生" : "沙箱"}</Pill>;
 }
 
 export function MonoEllipsis({ children, className }: { children: ReactNode; className?: string }) {

@@ -113,25 +113,14 @@ function tokenGateDecision(req, token, salt, mode) {
   return { ok: false, unauthorized: true };
 }
 
+// 令牌闸门的唯一判据是 tokenGateDecision。此前这里另有一份 hasValidToken，
+// 与它对同一输入的结论不一致：query token 正确时 tokenGateDecision 返回
+// {ok:false, redirect}（要种 cookie），而 hasValidToken 返回 true（直接放行）
+// ——结果是 WS 隧道放行、HTTP 面 302，同一道安全门两种答案。
+// 现在 WS 侧也走同一判据：decision.ok 为真才算通过；
+// redirect/unauthorized 都视为未通过（WS 无法跟随 302，但不该因此放宽判据）。
 function hasValidToken(req, token, salt, mode) {
-  
-  
-  
-  if (!token) return normalizeRemoteMode(mode) === 'lan';
-  const url = new URL(req.url, 'http://localhost');
-  const queryToken = url.searchParams.get('token');
-  if (queryToken && safeEqual(queryToken, token)) return true;
-  const cookies = req.headers.cookie || '';
-  const m = LAN_COOKIE_RE.exec(cookies);
-  if (m) {
-    try {
-      const want = lanGateCookieValue(token, salt);
-      return !!want && safeEqual(decodeURIComponent(m[1]), want);
-    } catch {
-      return false;
-    }
-  }
-  return false;
+  return tokenGateDecision(req, token, salt, mode).ok === true;
 }
 
 function buildFrpcToml(settings, instances) {

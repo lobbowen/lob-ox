@@ -14,7 +14,6 @@ function normalizeInstance(inst) {
   delete inst.frpRemotePort;
   delete inst.wanPort;
   if (inst.sandbox) { delete inst.sandbox.memoryMax; delete inst.sandbox.cpuQuota; }
-  if (inst.guardian === undefined) inst.guardian = false;
   if (inst.state) {
     
     
@@ -47,7 +46,6 @@ function createRecord(payload, id) {
     autoRegistered: false,
     createdBy: 'user',
     command: Array.isArray(payload.command) ? payload.command : [],
-    guardian: !!payload.guardian,
     remoteMode: payload.remoteMode === 'lan' || payload.remoteMode === 'wan' ? payload.remoteMode : 'off',
     remoteToken: String(payload.remoteToken || ''),
     unitName: 'dsh-web@' + id,
@@ -67,9 +65,7 @@ function viewRow(inst, resolved) {
     id: inst.id,
     name: inst.name,
     port: inst.port,
-    domain: inst.kind || 'native',
-    kind: inst.kind || inst.kind || 'native',
-    guardian: inst.guardian,
+    kind: inst.kind || 'native',
     remoteMode: inst.remoteMode || 'off',
     unitName: inst.unitName,
     sandbox: inst.sandbox,

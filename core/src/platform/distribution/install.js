@@ -1,6 +1,5 @@
 'use strict';
 
-const net = require('node:net');
 const spawnOS = require('../os/spawn');
 const procOS = require('../os/process');
 const execPath = require('../os/exec-path');
@@ -130,22 +129,11 @@ function runNpmInstall(opts) {
   });
 }
 
-function portListening(host, port) {
-  return new Promise((resolve) => {
-    const socket = net.connect({ host, port });
-    let done = false;
-    const finish = (ok) => {
-      if (done) return;
-      done = true;
-      try { socket.destroy(); } catch {  }
-      resolve(ok);
-    };
-    socket.setTimeout(1500);
-    socket.once('connect', () => finish(true));
-    socket.once('timeout', () => finish(false));
-    socket.once('error', () => finish(false));
-  });
-}
+// 端口探测统一走 platform/util/probe.js 的 portListening（此前这里内联了一份，
+// 硬编码 1500ms 超时）。PROBE_TIMEOUT_MS 保持 1500 以维持原有行为。
+const PROBE_TIMEOUT_MS = 1500;
+const { portListening } = require('../util/probe');
+const portListenAt = (host, port) => portListening(host, port, PROBE_TIMEOUT_MS);
 
 async function waitPortHealthy(opts) {
   const o = opts || {};
@@ -172,11 +160,11 @@ async function waitPortHealthy(opts) {
   };
   const deadline = Date.now() + (o.timeoutMs || 60000);
   while (Date.now() < deadline) {
-    if ((await portListening(host, port)) && unitActive()) {
+    if ((await portListenAt(host, port)) && unitActive()) {
       const remain = deadline - Date.now();
       const wait = Math.max(0, Math.min(stabilityMs, remain));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      if ((await portListening(host, port)) && unitActive()) return { ok: true };
+      if ((await portListenAt(host, port)) && unitActive()) return { ok: true };
     }
     const remain = deadline - Date.now();
     if (remain <= 0) break;

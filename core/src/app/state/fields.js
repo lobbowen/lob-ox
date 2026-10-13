@@ -34,12 +34,8 @@ function createFields(deps) {
     }
   }
 
-  function guardian() {
-    try { return mainStore.readDshMain().guardian === true; } catch { return false; }
-  }
-
-  function mainGuardian() { return guardian(); }
-
+  
+  
   function desired() { return record.storeOf().desired === 'stopped' ? 'stopped' : 'running'; }
 
   function setDesired(v) {
@@ -83,7 +79,7 @@ function createFields(deps) {
   };
 
   return {
-    phase, setPhase, guardian, mainGuardian, desired, setDesired,
+    phase, setPhase, desired, setDesired,
     field, procField, accessors,
     legacyToEntryPhase: toEntry, entryToLegacyPhase: toLegacy,
     child: () => getProc('child'),

@@ -139,7 +139,7 @@ export function LanPage() {
                 )}
                 <div className="flex min-w-0 flex-col">
                   <div className="pt-2.5 flex flex-wrap items-center gap-2">
-                    <DomainBadge domain={it.domain} />
+                    <DomainBadge kind={it.kind} />
                     <strong className="truncate text-sm font-semibold text-foreground">{it.name}</strong>
                     {remotePill}
                   </div>
