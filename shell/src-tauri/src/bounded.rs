@@ -93,6 +93,49 @@ pub fn kill_tree(child: &mut std::process::Child) {
     }
 }
 
+/// 按 pid 终止进程树（不持有 Child 句柄时用：壳从进程表登记项反查 pid 停机）。
+/// 与 kill_tree 的区别仅在入口：那个收 Child（壳自己 spawn 的路径），
+/// 这个收 pid（内核自报 / 上次会话遗留 / 已 detach 的进程）。
+pub fn kill_tree_pid(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        // taskkill /T /F：杀整树。退出码 128 = 进程不存在（已退出），
+        // 对「停机」这个目标而言是成功——调用方要的是「它不在了」。
+        let r = run_checked(
+            std::process::Command::new("taskkill")
+                .arg("/PID")
+                .arg(pid.to_string())
+                .arg("/T")
+                .arg("/F"),
+            std::time::Duration::from_secs(10),
+            "taskkill",
+        );
+        match r {
+            Ok(_) => true,
+            Err(e) => !e.contains("128") && !e.to_lowercase().contains("not found"),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        // 先 SIGTERM 进程组，再兜底 SIGKILL 单pid。
+        let term = std::process::Command::new("kill")
+            .arg("-TERM")
+            .arg("-")
+            .arg(pid.to_string())
+            .status();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let alive = std::path::Path::new(&format!("/proc/{}", pid)).exists();
+        if !alive { return true; }
+        std::process::Command::new("kill")
+            .arg("-KILL")
+            .arg(pid.to_string())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+            || term.map(|s| s.success()).unwrap_or(false)
+    }
+}
+
 pub struct Live {
     pub elapsed: Duration,
     pub lines: usize,

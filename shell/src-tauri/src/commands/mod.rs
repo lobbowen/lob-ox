@@ -410,16 +410,25 @@ pub async fn kernel_update_apply(app: tauri::AppHandle) -> ShellResult<serde_jso
     if install_out.get("ok").and_then(|v| v.as_bool()) != Some(true) {
         return Ok(serde_json::json!({ "ok": false, "stage": "install", "detail": install_out }));
     }
-        // 停守卫、等端口释放、重新拉起，**全部放线程池**（含阻塞 sleep，绝不占 async 运行时）。等端口释放是必须的：否则 ensure_guard 会在「端口已开」的早退分支里直接返回，重启被静默跳过。这里问的是「还在不在」，不是「就绪没就绪」—— 故用 port_open（裸 TCP），不用 ready。
+        // R7-架构：内核更新的重启不再「等端口释放」。
+        // 原逻辑 service().stop() 后轮询 port_open 最多 15 秒，再走 ensure_guard 的
+        // 「端口已开早退」分支——那正是守卫所有权语义，也是重启被静默跳过的原因。
+        // 进程管理时代：直接停进程表里的内核（壳持有 pid），停完即拉新的，无等待预算。
     let restart = tauri::async_runtime::spawn_blocking(move || -> Result<(bool, Option<String>), crate::domain::guardctl::LaunchError> {
-        let port = crate::env::current_api_port();
+        let pm = crate::process_manager::handle();
         let stop_error = crate::platform::service().stop().err();
-        let mut stopped = false;
-        for _ in 0..60 {
-            if !crate::domain::guardctl::port_open(port) { stopped = true; break; }
-            std::thread::sleep(std::time::Duration::from_millis(250));
+        // 收进程表里所有 pid 已知的负载，逐个杀树。
+        let victims: Vec<(String, u32)> = {
+            let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
+            s.iter().filter_map(|(id, st)| st.pid.map(|p| (id.clone(), p))).collect()
+        };
+        let mut stopped = victims.is_empty();
+        for (id, pid) in victims {
+            pm.set_desired(&id, crate::process_manager::state_machine::Desired::Stopped);
+            if crate::bounded::kill_tree_pid(pid) { stopped = true; }
+            else { stopped = false; }
         }
-        crate::domain::guardctl::ensure_guard(&app)?;
+        crate::domain::guardctl::ensure_core(&app)?;
         Ok((stopped, stop_error))
     }).await;
     match restart {
@@ -456,7 +465,7 @@ pub fn shell_bridge_contract() -> serde_json::Value {
 pub async fn guard_start(app: tauri::AppHandle) -> ShellResult<serde_json::Value> {
     const GUARD_TOTAL_BUDGET: std::time::Duration = std::time::Duration::from_secs(180);
     let a = app.clone();
-    let task = tauri::async_runtime::spawn_blocking(move || crate::domain::guardctl::ensure_guard(&a));
+    let task = tauri::async_runtime::spawn_blocking(move || crate::domain::guardctl::ensure_core(&a));
     let r = match tokio::time::timeout(GUARD_TOTAL_BUDGET, task).await {
         Ok(Ok(inner)) => inner,
         Ok(Err(e)) => Err(crate::domain::guardctl::LaunchError::new(
@@ -523,11 +532,19 @@ pub fn win_ctl(app: tauri::AppHandle, action: String) -> ShellResult<()> {
 }
 
 /// 返回控制面板 URL **与此刻能不能投**：由壳框架主动索取，避免 shell:goto-panel 早于 listener 注册而丢失。`serving` 必须与 URL 同出：主帧加载是唯一必然发生的面板导航，只拿 URL 不判据就会把「拒绝连接」的引擎错误页交给用户；而 iframe 被拒不触发 error 事件，前端无从重试。
+// R7-架构：serving 判据改为进程表（壳持有的内核在跑才算能投）。
+// 原 panel_view 的 serving_state 依赖 /session/status，那套会话语义已删除。
 #[tauri::command]
 pub fn shell_panel_url() -> serde_json::Value {
-    let (url, serving) = crate::domain::guardctl::panel_view();
+    let url = crate::env::api_base_url();
+    let serving = {
+        let pm = crate::process_manager::handle();
+        let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
+        s.values().any(|st| st.pid.is_some()
+            && st.phase == crate::process_manager::state_machine::Phase::Running)
+    };
     crate::update::log(&format!(
-        "壳框架就绪（主帧导航完成），面板 URL: {} · 服役判定={}",
+        "壳框架就绪（主帧导航完成），面板 URL: {} · 进程表服役判定={}",
         url, serving
     ));
     serde_json::json!({ "url": url, "serving": serving })

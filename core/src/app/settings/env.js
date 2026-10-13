@@ -9,8 +9,8 @@ const runtimeContract = require('../../platform/contract/runtime');
 async function envCatalogSummary(that) {
   const cat = new EnvCatalog(that.config);
   const extra = {};
-  const d = that.dshenvStatus();
-  extra.dsh = cat.dshEntry(d.binOk, d.installed, d.bin);
+  const d = that.nativeEnvStatus();
+  extra.native = cat.nativeEntry(d.binOk, d.installed, d.bin);
   extra.selfUpdate = cat.selfUpdateEntry();
   return cat.summary(extra, await cat.probeAsync());
 }
@@ -41,7 +41,7 @@ module.exports = {
       };
     },
 
-    dshenvStatus() {
+    nativeEnvStatus() {
       let bin = null, binOk = false, installed = null, cmdOk = false;
       try {
         const cmd0 = Array.isArray(this.config.command) ? this.config.command : [];

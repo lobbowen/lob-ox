@@ -33,24 +33,38 @@ pub fn resolve_local(resource_dir: Option<std::path::PathBuf>) -> Option<(crate:
     Some((rt, guard))
 }
 
-pub(crate) fn shutdown_all(port: u16) {
-    // 退出握手：1) 带超时请求内核停全部被管对象并等回执（守卫挂起时壳不无限阻塞）；2) 轮询 sessionState 直到 stopped（守卫已不可达同样视为完成）；3) 由所有者停止守卫进程 —— 守卫自身从不停止自己（所有权归一）。握手最长约 70s，其间「不在服役」是预期结果，监控必须闭嘴。
+// R7-架构：停机不再走「/session/stop 握手 + 轮询 sessionState + service().stop()」三段式。
+// 那套是守卫所有权语义：守卫是「唯一监管者」，要等它自己拆完服务链再让外部停。
+// 进程管理时代壳直接持有进程句柄（adopt_spawned），停机就是停进程表里的每个对象，
+// 没有握手、没有让出端口的等待预算、没有 GUARD_STOP_FAILED 这条路径。
+pub(crate) fn shutdown_all(_port: u16) {
     EXITING.store(true, Ordering::SeqCst);
-    let _ = crate::domain::localhttp::post_local_timeout(port, "/session/stop", std::time::Duration::from_secs(60));
-    for _ in 0..40 {
-        match crate::domain::localhttp::get_session_state(port) {
-  Some(s) if s == "stopped" => break,
-  None => break,
-            _ => std::thread::sleep(std::time::Duration::from_millis(250)),
+    let pm = crate::process_manager::handle();
+    let ids: Vec<String> = {
+        let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
+        s.keys().cloned().collect()
+    };
+    for id in ids {
+        // 先置期望停机（自愈节拍据此不再重拉），再按 pid 直接终止。
+        pm.set_desired(&id, crate::process_manager::state_machine::Desired::Stopped);
+        let pid = {
+            let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
+            s.get(&id).and_then(|st| st.pid)
+        };
+        match pid {
+            Some(p) => {
+                crate::update::log(&format!("[shell] 停止 {} (pid={})", id, p));
+                if !crate::bounded::kill_tree_pid(p) {
+                    crate::update::log(&format!("[shell] 停止 {} (pid={}) 失败", id, p));
+                }
+            }
+            None => {
+                // 壳不持有句柄（内核自报路径）：退回服务通道停一次。
+                let _ = crate::platform::service().stop();
+            }
         }
     }
-    match crate::platform::service().stop() {
-        Ok(()) => crate::update::log("[shell] 退出握手完成：守卫已停止，本次登录内不会自动拉起；重新打开程序即恢复"),
-        Err(e) => {
-            eprintln!("[shell] 停止守卫失败: {}", e);
-            crate::update::log(&format!("[shell] 停止守卫失败: {}", e));
-        }
-    }
+    crate::update::log("[shell] 进程表已全部停机");
 }
 
 /// 服务管理器路径（P4 建立定义 -> P5 请求启动）的阶段产物。不变量由结构强制：`started` 只可能在 `defined` 为 `Ok` 时才是 `Some` —— 定义失败时那条出边是关闭的。丢掉 `ensure_defined` 的错误再无条件 `start()`，报错就只剩「/Run 失败（退出码 1）」，真实失败点可能在更早的 P4。
@@ -109,42 +123,30 @@ fn resolve_local_kernel(
     Ok((guard, version))
 }
 
-pub(crate) fn ensure_guard(app: &tauri::AppHandle) -> Result<(), LaunchError> {
-    let port = crate::env::current_api_port();
+// R7-架构：启动判据从「端口上有没有人 + 守卫会话语义」改为「进程表里有没有我持有的内核」。
+// 原逻辑三段：port_open → serving_state（/healthz + /session/status）→ 停等让出端口。
+// 那整套是守卫所有权语义（守卫是唯一监管者，壳要等它让端口），也正是打死进程管理路径的地方：
+// 端口被外部占用时壳会先花 15 秒等它让，再报 GUARD_STOP_FAILED，而进程管理本可直接认领或重启。
+// 现在唯一判据是进程表：表里有 running 的内核 → 已在服役；否则走正常启动序列。
+pub(crate) fn ensure_core(app: &tauri::AppHandle) -> Result<(), LaunchError> {
     let step = |s: &str| {
-        let _ = app.emit("guard_progress", serde_json::json!({ "status": s }));
+        let _ = app.emit("core_progress", serde_json::json!({ "status": s }));
         crate::update::log(s);
     };
-        // 早退必须回答「这个守卫还在为本产品服役吗」，而不是「端口上有没有人」：走完 /session/stop 握手的守卫进程还占着端口，服务链却已拆光，据此早退会把面板交给一个不再干活的守卫（观感＝127.0.0.1 拒绝连接），而 P5 的即时启动只会让新守卫撞守卫锁退出。
-    if port_open(port) {
-        let verdict = serving_state(port);
-        step(&verdict.note());
-        if matches!(verdict, Serving::Alive | Serving::Sick) {
-                        // 守卫已在服役（或只是还没应答）时也确保一次服务定义：退出时 Windows stop() 会 /Delete 监控任务，而登录任务可能已先拉起守卫使本函数提前返回，那样监控任务永不重建、崩溃自愈在本会话内失效。ensure_defined 三平台幂等且自愈，也不得引入平台分支。
-            if let Some((rt_wd, guard_wd)) = resolve_local(None) {
-                match crate::platform::LaunchSpec::from_runtime(&rt_wd, guard_wd) {
-                    Ok(spec_wd) => {
-                        if let Err(e) = crate::platform::service().ensure_defined(&spec_wd) {
-                            crate::update::log(&format!("守卫已在运行，但服务定义确保失败: {}", e));
-                        }
-                    }
-                    Err(e) => crate::update::log(&format!("守卫已在运行，但启动规格组装失败: {}", e)),
-                }
-            }
-            register_core(app);
-            return Ok(());
-        }
-                // 唯一的例外：进程活着但服务链已拆（走过 /session/stop）。由所有者先把它停干净，再落回下面的正常启动序列 —— 监控通道刚被 stop() 摘掉，没有第二条恢复路径。
-        if !stop_and_await_release(port) {
-            return Err(LaunchError::new(
-                "GUARD_STOP_FAILED",
-                format!(
-                    "守卫会话已停但进程未在预算内让出端口 {}，故未重拉。守卫日志末段：{}",
-                    port,
-                    guard_log_tail()
-                ),
-            ));
-        }
+
+    // 进程表判据：壳自己 spawn 并持有句柄的内核（pid 已知）才算在服役。
+    // 不探端口——端口被别的进程占是端口层的事，归 PortAuthority + heal 处理，
+    // 不该在启动路径上阻塞 15 秒再失败。
+    let pm = crate::process_manager::handle();
+    let already = {
+        let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
+        s.values().any(|st| st.pid.is_some()
+            && st.phase == crate::process_manager::state_machine::Phase::Running)
+    };
+    if already {
+        step("内核已在服役（进程表登记）· 跳过启动");
+        register_core(app);
+        return Ok(());
     }
 
     let rt = crate::runtime_contract::ensure().ok_or_else(|| {
@@ -298,65 +300,6 @@ pub(crate) fn ready(port: u16, http_timeout: std::time::Duration) -> Readiness {
     }
 }
 
-/// 「守卫还在为本产品服役吗」——`ready()`（TCP + /healthz 2xx）**且**会话没在退出链里。裸 TCP 单独回答不了这个问题：服务链拆完的守卫照样 accept 连接，`/healthz` 也照样 2xx，只有 `/session/status` 说真话。
-#[derive(Debug)]
-pub(crate) enum Serving {
-    Alive,
-    Sick,
-    SessionHalted(String),
-}
-
-impl Serving {
-    pub(crate) fn note(&self) -> String {
-        match self {
-            Serving::Alive => "守卫在服役 · 跳过启动".to_string(),
-            Serving::Sick => "守卫端口已开但未应答 /healthz · 不重复启动，等待就绪判定".to_string(),
-            Serving::SessionHalted(state) => {
-                format!("守卫在监听但会话已停（{}）· 由所有者先停干净再重拉", state)
-            }
-        }
-    }
-}
-
-pub(crate) fn serving_state(port: u16) -> Serving {
-    if ready(port, SERVING_PROBE_TIMEOUT) != Readiness::Ready {
-        return Serving::Sick;
-    }
-    match crate::domain::localhttp::get_session_state(port) {
-        Some(s) if s == "stopping" || s == "stopped" => Serving::SessionHalted(s),
-                // 读不到会话态就按「在服役」处理：探针抖动不得升级成「停掉一个健康守卫」。
-        _ => Serving::Alive,
-    }
-}
-
-/// 面板投影的**唯一**判据：URL 与「此刻能不能投」必须同出一个答案。分两处问就会失效：`go_panel` 查了服役、`shell_panel_url` 没查，而壳框架主帧一定先按后者导航，于是被查过的那次判定永远来不及生效。
-pub(crate) fn panel_view() -> (String, bool) {
-    let port = crate::env::current_api_port();
-    let serving = matches!(serving_state(port), Serving::Alive);
-    (crate::env::api_base_url(), serving)
-}
-
-
-/// 由所有者把守卫停干净：`service().stop()` + 等端口**不再可达**（裸 TCP 在此问的是「还在不在」，是 `port_open` 的合法用途）。返回 false = 预算内端口仍被占，此时重拉只会撞守卫锁退出，调用方必须如实失败而不是假装重启过。
-fn stop_and_await_release(port: u16) -> bool {
-    if let Err(e) = crate::platform::service().stop() {
-        crate::update::log(&format!("重拉前的停止请求失败: {}", e));
-    }
-    let start = std::time::Instant::now();
-    while start.elapsed() < GUARD_RELEASE_BUDGET {
-        if !port_open(port) {
-            return true;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(250));
-    }
-    !port_open(port)
-}
-
-/// 等守卫让出端口的预算：`stop()` 是异步的（杀进程 + 内核回收），15 秒覆盖真机上观察到的退出耗时；再长就是在启动路径上干等，不如把失败如实报出去。
-const GUARD_RELEASE_BUDGET: std::time::Duration = std::time::Duration::from_secs(15);
-
-const SERVING_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1200);
-
 /// 等待预算内轮询就绪（每 tick 500ms），返回最后一次判定。每 tick 重读实际端口：内核可能因端口占用而顺延并持久化（见 env::current_api_port），只盯固定端口会永远等不到已健康的守卫。用时长而非 tick 数计预算：每 tick 成本不是常数（多了 /healthz 一次往返），按 tick 计数会让总上界随网络状态漂移。
 pub(crate) fn await_ready(budget: std::time::Duration) -> Readiness {
     let started = std::time::Instant::now();
@@ -468,16 +411,6 @@ mod tests {
     }
 
     #[test]
-    fn serving_state_separates_alive_from_halted_but_listening() {
-        assert!(matches!(serving_state(fake_serving(HEALTHZ_OK, SESSION_ACTIVE)), Serving::Alive));
-        assert!(matches!(serving_state(fake_serving(HEALTHZ_OK, SESSION_UNKNOWN)), Serving::Alive));
-        assert!(matches!(serving_state(fake_serving(HEALTHZ_503, SESSION_STOPPED)), Serving::Sick));
-        assert!(matches!(serving_state(closed_port()), Serving::Sick));
-        match serving_state(fake_serving(HEALTHZ_OK, SESSION_STOPPED)) {
-            Serving::SessionHalted(s) => assert_eq!(s, "stopped"),
-            other => panic!("停链守卫必须判为 SessionHalted，实得 {:?}", other),
-        }
-    }
 
 }
 

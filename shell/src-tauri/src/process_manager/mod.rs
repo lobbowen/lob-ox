@@ -154,6 +154,13 @@ pub fn spawn_healer(pm: std::sync::Arc<ProcessManager>) {
     });
 }
 
+// 全局单例：壳内任意位置（托盘退出、窗口关闭、进程表维护）都需拿到同一份进程真相，
+// 而 Tauri 的 app.state() 只在持有 AppHandle 时可用——退出路径上常常只剩端口号。
+static PM: std::sync::OnceLock<std::sync::Arc<ProcessManager>> = std::sync::OnceLock::new();
+
+pub fn handle() -> std::sync::Arc<ProcessManager> {
+    PM.get_or_init(|| std::sync::Arc::new(ProcessManager::new())).clone()
+}
 impl Default for ProcessManager {
     fn default() -> Self {
         Self::new()

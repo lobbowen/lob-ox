@@ -6,23 +6,26 @@ const path = require('node:path');
 function owns(pathname) {
   return pathname === '/changelog' || pathname.startsWith('/guard/') || pathname === '/autostart'
     || pathname.startsWith('/settings/') || pathname.startsWith('/self-update/')
-    || pathname === '/env/dsh' || pathname === '/env/status' || pathname === '/env/node-lts'
+    || pathname === '/env/native' || pathname === '/env/status' || pathname === '/env/node-lts'
     || pathname === '/env/open-url' || pathname === '/env/environment'
     || pathname === '/env/environment/last'
     || pathname === '/ports' || pathname === '/shutdown';
 }
 
-function fetchDshChangelog(res, sup) {
+// R7-架构：变更日志不再指向 DeepSeek Harness。
+// 原实现写死「DeepSeek Harness（DSH）更新日志」与 deepseek-ai 的 Releases 链接，
+// 而本产品（lobox）的 native 层管的是内核自身版本，DSH 只是被拉起的业务进程。
+// 现改为如实呈现内核版本信息，不跨产品指路。
+function fetchNativeChangelog(res, sup) {
   const v = (sup && sup.nativeManager) ? sup.nativeManager.versionInfo() : {};
   const inst = v.installed || '未安装';
   const latest = v.latest || '—';
   const upd = v.updateAvailable;
-  const md = 'DeepSeek Harness（DSH）更新日志\n\n'
+  const md = 'lobox 内核更新日志\n\n'
     + '当前安装：' + inst + '\n'
     + '最新版本：' + latest + '\n'
     + (upd ? ('检测到新版本，可在「概览 · 版本与升级」一键升级到 ' + latest + '。\n') : '当前已是最新版本。\n')
-    + '\n完整变更记录见 DeepSeek Harness GitHub Releases：\n'
-    + 'https://github.com/deepseek-ai/DeepSeek-Harness/releases\n';
+    + '\n完整变更记录见 lobox GitHub Releases。\n';
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
   return res.end(md);
 }
@@ -30,7 +33,7 @@ function fetchDshChangelog(res, sup) {
 function handle(ctx) {
   const { sup, req, res, pathname, identity, send, collectBody, originAllowed, browser, environment } = ctx;
     if (req.method === 'GET' && pathname === '/changelog') {
-      return fetchDshChangelog(res, sup);
+      return fetchNativeChangelog(res, sup);
     }
     if (req.method === 'GET' && pathname === '/guard/changelog') {
       try {
@@ -156,9 +159,9 @@ function handle(ctx) {
       });
     }
 
-    if (req.method === 'GET' && pathname === '/env/dsh') {
+    if (req.method === 'GET' && pathname === '/env/native') {
       if (!originAllowed(req)) return ctx.rejectCrossOrigin(ctx);
-      return send(200, sup.dshenvStatus());
+      return send(200, sup.nativeEnvStatus());
     }
     if (req.method === 'GET' && pathname === '/env/status') {
       if (!originAllowed(req)) return ctx.rejectCrossOrigin(ctx);

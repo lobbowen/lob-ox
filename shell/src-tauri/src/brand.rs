@@ -141,8 +141,6 @@ pub fn env_state_root() -> &'static str {
 
 pub const ENV_CONFIG: &str = "DSH_SUPERVISOR_CONFIG";
 
-pub const ENV_LOCK_FILE: &str = "DSH_SUPERVISOR_LOCK_FILE";
-
 pub const ENV_DAEMON: &str = "DSH_SUPERVISOR_DAEMON";
 
 pub const ENV_TRAY_PORT: &str = "DSH_SUPERVISOR_TRAY_PORT";

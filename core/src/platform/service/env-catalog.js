@@ -146,9 +146,9 @@ class EnvCatalog {
     return { label: '内核更新（桌面壳执行）', required: false, state: 'configured', detail: pkg };
   }
 
-  dshEntry(binOk, installed, bin) {
+  nativeEntry(binOk, installed, bin) {
     return {
-      label: 'DSH 本体',
+      label: '内核本体',
       required: true,
       state: binOk ? 'ok' : 'missing',
       detail: binOk ? (installed || '已装') : ('bin 不存在: ' + (bin || '?')),

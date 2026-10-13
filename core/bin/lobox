@@ -9,8 +9,6 @@ const http = require('node:http');
 //   systemctl/dbus 挂起时 CLI 有界报错而非无限阻塞（用户不会看到命令卡死）；
 //   需用户看到输出的场合传 `stdio: 'inherit'`（exec.js 支持透传）。
 const ex = require('../src/platform/util/exec');
-// 守卫锁的让位判定要看持有者的真实命令行（pid 存活在 Windows 上不足以证明它是守卫）。
-const { readCmdline } = require('../src/platform/os/pidlookup');
 // systemctl / loginctl 是用户级操作，给足时间但**有上限**（挂起时如实报错而非卡死）。
 const CLI_SVC_TIMEOUT_MS = 30000;
 
@@ -189,147 +187,6 @@ function apiRequest(method, apiPath) {
   });
 }
 
-// ---- 单实例锁：O_EXCL 原子创建 + 三证据让位 + 崩溃残留清理 ----
-// 守卫是「唯一监管者」，两守卫并存会双写状态文件、双 tick、竞态 spawn。锁文件默认 <状态根>/supervisor/guard.lock（DSH_SUPERVISOR_LOCK_FILE 可覆盖），
-//   内容 {pid,started,entry}；O_EXCL 保证并发只有一个成功，已存在时按「pid 存活 / 命令行是本产品守卫 / 锁在续约」三证据让位或接管，SIGTERM/SIGINT/exit 统一释放。
-const LOCK_FILE = process.env.DSH_SUPERVISOR_LOCK_FILE || path.join(SUPERVISOR_DIR, 'guard.lock');
-const LOCK_OWNER = { pid: process.pid, started: Date.now(), entry: process.argv[1] || '' };
-
-// 锁内容是 JSON（pid / started / entry）。旧格式只有一个 pid 数字，读侧必须兼容 ——
-// 否则一次升级就会把所有在用实例的锁看成无效，进而双守卫并存。
-function readLock() {
-  let raw;
-  try { raw = fs.readFileSync(LOCK_FILE, 'utf8'); } catch { return null; }
-  try {
-    const j = JSON.parse(raw);
-    if (j && Number.isInteger(j.pid) && j.pid > 0) return j;
-  } catch {}
-  const pid = parseInt(raw, 10);
-  return Number.isInteger(pid) && pid > 0 ? { pid } : null;
-}
-
-// 让位的前提是「那确实是本产品的守卫在跑」。只看 pid 存活在 Windows 上不成立：
-// 进程句柄未释放、或 pid 已被复用，process.kill(pid, 0) 都会成功，于是守卫锁永远
-// 挡着一个根本不存在的守卫，而用户端只剩一句「端口不可达」。
-function isOwnGuardEntry(cmdline) {
-  // 判据：命令行含内核 CLI 入口名。**刻意保持宽松**（与改名前的 includes 同口径）：
-  //   漏认真守卫 = 放行双守卫（双写状态/竞态 spawn，最严重）；误认 = 保守拒绝启动（安全侧）。
-  return typeof cmdline === 'string' && cmdline.includes(BRAND.CLI_NAME);
-}
-
-// 锁续约：只改 mtime，不重写内容。重写有撕裂读风险，而一次撕裂的读会被 readLock 看成
-// 「无锁」，正好放行它想防的双守卫。阈值给「进程挂起/系统睡眠」留余量。
-const LOCK_HEARTBEAT_MS = 2000;
-const LOCK_STALE_MS = LOCK_HEARTBEAT_MS * 15;
-
-/** 锁文件距上次续约的毫秒数；文件不可 stat 时返回 null（未知，按保守处理）。 */
-function lockSilentMs() {
-  try { return Math.max(0, Date.now() - fs.statSync(LOCK_FILE).mtimeMs); } catch { return null; }
-}
-
-/** pid 是否存活。ESRCH = 已退出；EPERM = 活着但不属于本用户（与让位判定同一口径）。 */
-function pidAlive(pid) {
-  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
-}
-
-// 前任守卫的死亡抖动窗口：壳停守卫是异步的（Windows 按命令行强杀，从发起到进程咽气可达数秒），用户随即重开就会撞锁。
-//   立刻让位会把「它还没咽气」变成「永远起不来」——锁留着、端口没人监听、面板只有拒绝连接。故有界等它退出再接管；
-//   到窗口末仍按单实例让位（并发双写状态/竞态 spawn 比晚起几秒严重得多）。healthy 的守卫不会在窗口内消失。
-const LOCK_TAKE_RETRY_MS = 8000;
-const LOCK_TAKE_NAP_MS = 250;
-
-/** 主线程有界等待（仅在启动期撞锁时用，事件循环尚未建立）。Atomics.wait 不 spawn 子进程、
- *  不忙转；win32 没有 sleep 命令可用。 */
-function napSync(ms) {
-  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch {}
-}
-
-function startLockHeartbeat() {
-  const t = setInterval(() => {
-    // 锁被他人接管后 utimes 会失败或改到别人的锁：失败即静默，让位判定已由 pid/命令行/续约
-    // 三证据兜住，不在这里加第二套状态机。
-    try { const d = new Date(); fs.utimesSync(LOCK_FILE, d, d); } catch {}
-  }, LOCK_HEARTBEAT_MS);
-  if (t.unref) t.unref(); // 续约定时器不得拖住进程退出
-}
-
-function acquireLock() {
-  fs.mkdirSync(SUPERVISOR_DIR, { recursive: true });
-  const tryCreate = () => {
-    try {
-      const fd = fs.openSync(LOCK_FILE, 'wx');
-      fs.writeSync(fd, JSON.stringify(LOCK_OWNER));
-      fs.closeSync(fd);
-      return true;
-    } catch (e) {
-      if (e.code === 'EEXIST') return false;
-      // 非 EEXIST（EACCES/EROFS 等）：fail-closed——锁写不出 = 单实例保证失效，
-      // 双守卫并存（双写状态/竞态 spawn）比不启动严重得多，明确报错交由 systemd 重试。
-      console.error('[supervisor] 守卫锁创建失败（' + (e.code || e.message) + '）：' + LOCK_FILE);
-      process.exit(1);
-    }
-  };
-  // 返回 true = 已取得锁；返回字符串 = 让位/失败的**原因**（不许裸 false：现场只剩一句
-  // 「已有守卫实例在运行」时，用户与排错者都无从区分「确有守卫」与「探针读不到 + 锁残留」，
-  // 而后者是永不自愈的死局，前者是正常的重复启动）。
-  const take = () => {
-    if (!tryCreate()) return null;
-    startLockHeartbeat();
-    return true;
-  };
-  const first = take();
-  if (first) return true;
-  const held = readLock();
-  if (held) {
-    if (!pidAlive(held.pid)) {
-      console.log('[supervisor] 清理陈旧守卫锁（持有 pid ' + held.pid + ' 已退出）');
-    } else {
-      const cmdline = readCmdline(held.pid);
-      if (cmdline && isOwnGuardEntry(cmdline)) {
-        // 持有者活着且确实是本产品的守卫：可能正是壳刚下令停止、还没咽气的前任（见上）。
-        const deadline = Date.now() + LOCK_TAKE_RETRY_MS;
-        while (pidAlive(held.pid)) {
-          if (Date.now() >= deadline) {
-            return '持有 pid ' + held.pid + ' 存活、命令行是本产品的守卫入口，有界等待 '
-              + Math.round(LOCK_TAKE_RETRY_MS / 1000) + 's 后仍未让出';
-          }
-          napSync(LOCK_TAKE_NAP_MS);
-        }
-        console.log('[supervisor] 前任守卫 pid ' + held.pid + ' 在等待中退出 -> 接管守卫锁');
-      } else if (cmdline) {
-        console.log('[supervisor] 清理陈旧守卫锁（持有 pid ' + held.pid + ' 存活但命令行不是本产品的守卫入口：' + cmdline + '）');
-      } else {
-        // 命令行读不到（Windows 上 wmic 缺位/探针超时）：pid 存活既不能确认也不能否证它是守卫。
-        // 锁的续约时间是第三个独立证据：在跑的产品守卫每 LOCK_HEARTBEAT_MS 续一次，
-        // 超阈值没续 = 原持有者已不再续约（多为被强制杀掉后残留、pid 又被复用）。
-        // 没有这一条，那种锁会让守卫永远起不来、面板永远「拒绝连接」，且无自愈路径。
-        const silent = lockSilentMs();
-        if (silent !== null && silent >= LOCK_STALE_MS) {
-          console.log('[supervisor] 清理陈旧守卫锁（持有 pid ' + held.pid
-            + ' 存活但命令行读不到，且锁已 ' + Math.round(silent / 1000) + 's 未续约 -> 判定原持有者已死）');
-        } else {
-          // 保守让位：宁可不起，不要双守卫。
-          return '持有 pid ' + held.pid + ' 存活、命令行读不到，'
-            + (silent === null ? '锁状态不可统计（保守让位）' : '锁 ' + Math.round(silent / 1000) + 's 前仍在续约（保守让位）');
-        }
-      }
-    }
-  }
-  try {
-    fs.unlinkSync(LOCK_FILE);
-  } catch {}
-  const again = take();
-  if (again) return true;
-  return '清理陈旧锁后仍创建不了（' + LOCK_FILE + ' 不可写？）';
-}
-
-function releaseLock() {
-  try {
-    const held = readLock();
-    // 只释放自己的锁：避免误删后来者重建的锁
-    if (held && held.pid === process.pid) fs.unlinkSync(LOCK_FILE);
-  } catch {}
-}
 
 // ---- 子命令 ----
 /** 旧状态搬迁（必须在读/写任何配置之前完成）。搬不动即拒绝启动：静默继续会在新根写出默认配置，
@@ -376,15 +233,15 @@ function checkLegacyInstall() {
   return legacy;
 }
 
+// R7-架构：内核是服务层进程，不再是「唯一监管者」守卫。
+// 已删除：守卫锁（guard.lock / O_EXCL 单实例 / 三证据让位 / 心跳续约 / 死亡抖动等待）。
+// 进程唯一性改由壳的进程管理保证：壳持有内核 pid 并登记进进程表，
+// 防双持与自愈由进程表驱动，内核不再自证唯一。
+// 这同时消除 GUARD_STOP_FAILED 的根因：内核不起锁，壳停它就是杀进程，
+// 不存在「会话已停但进程占着端口等外部所有者」这条中间态。
 function cmdDaemon() {
-  const legacy = checkLegacyInstall(); // 必须先于 migrateStateRoot/取锁：旧守卫活着时立刻停，绝不双守卫
+  const legacy = checkLegacyInstall();
   migrateStateRoot();
-  const lock = acquireLock();
-  if (lock !== true) {
-    console.error('[supervisor] 本进程退出：未取得守卫锁（锁 ' + LOCK_FILE + '）—— ' + lock);
-    process.exit(1);
-  }
-  process.on('exit', releaseLock); // SIGTERM/SIGINT/process.exit 统一走这里释放
   const cfgPath = resolveConfigPath({ autoCopy: true });
   let cfg;
   try {
@@ -392,7 +249,6 @@ function cmdDaemon() {
   } catch (e) {
     // 配置损坏时明确退出非零，交给 systemd 重启策略处理（unit 已配 StartLimit 防循环）
     console.error('[supervisor] 配置解析失败:', cfgPath, e.message);
-    releaseLock();
     process.exit(1);
   }
   // 静态 require（esbuild 可跟随，使内核完整打入 bundle/打包态）——不能再用 path.join 动态拼接，
