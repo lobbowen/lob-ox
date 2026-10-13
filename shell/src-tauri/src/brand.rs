@@ -80,6 +80,24 @@ pub fn shared_str_arr(path: &str) -> &'static [&'static str] {
 }
 
 
+
+macro_rules! shared_str_cell {
+    ($fn_name:ident, $path:expr) => {
+        pub fn $fn_name() -> &'static str {
+            static CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+            CELL.get_or_init(|| shared_str($path))
+        }
+    };
+}
+
+macro_rules! shared_str_arr_cell {
+    ($fn_name:ident, $path:expr) => {
+        pub fn $fn_name() -> &'static [&'static str] {
+            shared_str_arr($path)
+        }
+    };
+}
+
 // R9 跨层常量收口：下列字符串常量改为读取 shared-constants.json。
 // shared_str 是运行期函数（解析器依赖字符串操作），不能用于 const 初始化（E0015），
 // 因此统一用 OnceLock + 访问器函数；宏为每个常量生成独立 static 与访问器。
@@ -94,21 +112,6 @@ pub fn shared_str_arr(path: &str) -> &'static [&'static str] {
 // core 可执行名候选（四平台 core_exe_names 的唯一来源）。
 shared_str_arr_cell!(core_bin_names, "platform.cliBinNames");
 
-macro_rules! shared_str_arr_cell {
-    ($fn_name:ident, $path:expr) => {
-        pub fn $fn_name() -> &'static [&'static str] {
-            shared_str_arr($path)
-        }
-    };
-}
-macro_rules! shared_str_cell {
-    ($fn_name:ident, $path:expr) => {
-        pub fn $fn_name() -> &'static str {
-            static CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
-            CELL.get_or_init(|| shared_str($path))
-        }
-    };
-}
 
 pub const PRODUCT_NAME: &str = "lobox";
 

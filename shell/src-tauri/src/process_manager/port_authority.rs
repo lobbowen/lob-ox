@@ -14,6 +14,14 @@ impl PortAuthority {
     }
 
 
+    /// 登记一个端口。register_sole 的内部实现（先清同 role 旧记录再登记新端口）。
+    /// 不是对外 API：外部只有 register_sole 一个写入口（mgmt.rs:33）。
+    fn register(&mut self, role: &str, port: u16) -> Result<(), String> {
+        if port == 0 { return Err(format!("非法端口 {}", port)); }
+        self.records.insert(port, Record { port, role: role.into(), owner: format!("system:{}", role) });
+        Ok(())
+    }
+
     pub fn register_sole(&mut self, role: &str, port: u16) -> Result<(), String> {
         let old: Vec<u16> = self.records.iter()
             .filter(|(_, r)| r.role == role)
