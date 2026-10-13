@@ -4,6 +4,10 @@ const path = require('node:path');
 const os = require('node:os');
 const { RouterService } = require('../../../domains/router/index');
 const { InstanceManager } = require('../../../domains/instance/index');
+// R8-agent：agent 管理域。DSH 是第一个被它管理的产品，域不绑定 DSH。
+// 与 InstanceManager 并存是迁移期状态：前者管「沙箱实例」这一种形态的进程编排，
+// 后者管「agent 生命周期」这一等概念。二者职责不同，不是重复。
+const { AgentManager } = require('../../../domains/agent/index');
 const { THROTTLE_DEFAULTS } = require('../../../domains/instance/state-machine');
 const { PluginMarket } = require('../../../domains/plugin/market');
 const { PluginManager } = require('../../../domains/plugin');
@@ -51,6 +55,19 @@ function composeDomains(host) {
       throttle: THROTTLE_DEFAULTS,
     });
     host.instances.load();
+    // agent 管理域：与 instances 并存，先立起来不切换路由。
+    // 现有 API 仍走 InstanceManager/NativeManager——切换是独立一步，
+    // 混在同一提交里会让「域建好了」和「链路换了」无法分别验证。
+    host.agents = new AgentManager({
+      root: path.join(path.dirname(host.config.stateFile), 'agents'),
+      logger: host.logger,
+      events: host.events,
+      dist: host.dist,
+      tasks: host.tasks,
+      service: host.service || null,
+      tokens: host.tokenService,
+      resstats: host.resstats || null,
+    });
     host._migrateMainRecord();
     try {
       host.managedObjects = new ManagedRegistry({
