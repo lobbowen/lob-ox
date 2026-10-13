@@ -1,6 +1,9 @@
 'use strict';
 
-const { PHASES } = require('./registry');
+// 相位集合。原从 ./registry 导入，但 registry.js 是受管对象表（已删），
+// 而它只提供了这个六态常量——属于假耦合。内联后 entry.js 不再依赖注册表。
+// 与壳侧 process_manager/state_machine.rs 的 Phase 枚举对应。
+const PHASES = ['stopped', 'installing', 'starting', 'running', 'draining', 'failed'];
 
 class ManagedLifecycle {
   constructor(opts) {

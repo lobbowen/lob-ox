@@ -7,8 +7,6 @@ const FACETS = [
   { name: 'assembly/api-rebind', mod: require('./api-rebind'), apiRebind: true },
   { name: 'session/shutdown', mod: require('../session/shutdown'), hostFirst: true },
   { name: 'self/notify', mod: require('../self/notify'), hostFirst: true },
-  { name: 'control/scheduler', mod: require('../control/scheduler') },
-  { name: 'control/instance-adapter', mod: require('../control/instance-adapter') },
   { name: 'main/decide', mod: require('../main/decide') },
   { name: 'main/controller', mod: require('../main/controller') },
   { name: 'main/process', mod: require('../main/process') },

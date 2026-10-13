@@ -15,13 +15,6 @@ function createMainStore(deps) {
     try { return path.join(path.dirname(config().stateFile), 'dsh-main.json'); } catch { return null; }
   }
 
-  function registryFileName() {
-    try {
-      const b = path.basename(config().stateFile || 'state.json', '.json');
-      return b === 'state' ? 'managed-objects.json' : (b + '.managed-objects.json');
-    } catch { return 'managed-objects.json'; }
-  }
-
   function readDshMainFile() {
     try {
       const f = dshMainFile();
@@ -85,7 +78,7 @@ function createMainStore(deps) {
     }
   }
 
-  return { dshMainFile, registryFileName, readDshMain, readDshMainFile, writeDshMain };
+  return { dshMainFile, readDshMain, readDshMainFile, writeDshMain };
 }
 
 module.exports = { createMainStore };

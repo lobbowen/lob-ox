@@ -11,15 +11,14 @@ const { AgentManager } = require('../../../domains/agent/index');
 const { THROTTLE_DEFAULTS } = require('../../../domains/instance/state-machine');
 const { PluginMarket } = require('../../../domains/plugin/market');
 const { PluginManager } = require('../../../domains/plugin');
-const { ManagedRegistry } = require('../../../app/control/registry');
 const { guardVersion } = require('../../../platform/service/version');
 const { Lifecycle } = require('../../../app/self/lifecycle');
 const { Health } = require('../../../app/self/health');
 const { HostService } = require('../../../app/settings/autostart');
 // R8-agent：原生 DSH 管理改走 agent 域（NativeAgentAdapter 只做形状翻译）。
 const { NativeAgentAdapter } = require('../../../domains/agent/native-adapter');
-const { LifecycleManager } = require('../../../app/control/manager');
 const { BeatScheduler } = require('../../../app/control/synchrony');
+const { LifecycleManager } = require('../../../app/control/manager');
 const ports = require('../../../platform/service/ports').shared;
 
 function composeDomains(host) {
@@ -70,18 +69,13 @@ function composeDomains(host) {
     });
     host.instances.load();
     host._migrateMainRecord();
-    try {
-      host.managedObjects = new ManagedRegistry({
-        file: path.join(path.dirname(host.config.stateFile), host._registryFileName()),
-        logger: host.logger,
-        events: host.events,
-        ports: ports,
-      });
-      host._syncManagedRegistry();
-      if (host.managedObjects && typeof host.managedObjects.registerAdapter === 'function') {
-        host.managedObjects.registerAdapter('sandbox-instance', { supervise: (entry) => host._sandboxSuperviseOnce(entry), tickEvery: 1 });
-      }
-      // R2/D.11-P0-12：原先把 onBeatDone 赋给 host.managedObjects，但 ManagedRegistry
+    // R8-进程管理：ManagedRegistry（守卫的受管对象表）已删除。
+    // 它自己有 ports 管理、相位集合、持久化文件，与壳的 ProcessManager 职责完全重叠；
+    // 且全仓零 register() 调用（registerAdapter 注册了回调但从无条目），
+    // 那张表从来就是空的。沙箱实例改由 instance/lifecycle.js 直接
+    // pmClient.register 上报到壳的进程表（带真实 spawn_cmd，壳能自愈它）。
+    {
+      // R2/D.11-P0-12：原先把 onBeatDone 赋给受管对象表，但它
       // 根本没有这个属性也没有读取方，而 BeatScheduler 自己持有的 onBeatDone 字段
       // 无人赋值——结果是 governSweep 整套资源配额体系在生产中永不执行。
       // 改为 BeatScheduler.afterTick 显式注册：注册列表是单一事实源，
@@ -111,7 +105,7 @@ function composeDomains(host) {
           }
         });
       }
-    } catch (e) { host.logger && host.logger.warn && host.logger.warn('managed registry init: ' + (e && e.message)); }
+    }
     host._lan = null;
     host.pluginMarket = new PluginMarket({
       stateFile: host.config.stateFile,

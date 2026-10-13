@@ -2,7 +2,6 @@
 
 const { createStateStore } = require('../state/collaborator');
 const { createSession } = require('../session/machine');
-const { createControlPlane } = require('../control/collaborator');
 const { createCtl } = require('../ctl/collaborator');
 const { createOrphanScan } = require('../audit/collaborator');
 const { ENTRY_FIELDS, PROC_FIELDS } = require('../state/field-tables');
@@ -95,7 +94,7 @@ function installState(host) {
     getConfig: () => host.config, getConfigPath: () => host.configPath,
     getConfigAliases: () => CONFIG_ALIASES,
     getLogger: () => host.logger, getEvents: () => host.events,
-    getManagedObjects: () => host.managedObjects, getInstances: () => host.instances,
+    getInstances: () => host.instances,
     getViews: () => host.views, getIntents: () => host.intents,
     getCrashHalted: () => host._crashHalted, setCrashHalted: (v) => { host._crashHalted = v; },
     getManualRestart: () => host.manualRestart, setManualRestart: (v) => { host.manualRestart = v; },
@@ -109,7 +108,6 @@ function installState(host) {
   host.mainGuardian = () => state.mainGuardian();
   host._mDesired = () => state.desired();
   host._mSetDesired = (v) => { state.setDesired(v); return host; };
-  host._registryFileName = () => state.registryFileName();
   host._readDshMain = () => state.readMainMeta();
   host.writeState = (force) => state.write(force);
   host.loadState = () => state.loadState();
@@ -139,26 +137,6 @@ function installSession(host) {
   });
 }
 
-function installControl(host) {
-  const control = createControlPlane({
-    getLifecycleManager: () => host.lifecycleManager,
-    getState: () => host.state,
-    getManagedObjects: () => host.managedObjects,
-    getInstances: () => host.instances,
-    getConfig: () => host.config,
-    getCtl: () => host.ctl,
-    getDaemons: () => host.daemons,
-    getLogger: () => host.logger,
-  });
-  host.control = control;
-  host._syncDshLifecycleView = () => control.syncDshView();
-  host._syncRouterLifecycleView = (o) => control.syncRouterView(o);
-  host._syncInstancesLifecycleView = () => control.syncInstancesView();
-  host._managedSandboxSpec = (inst) => control.sandboxSpec(inst);
-  host._upsertManaged = (spec) => control.upsert(spec);
-  host._unregisterManaged = (id) => control.unregister(id);
-  host._syncManagedRegistry = () => control.syncManagedRegistry();
-}
 
 function installThin(host) {
   for (const name of THIN_NAMES) {
@@ -176,7 +154,6 @@ function installAuditFactory(host) {
     getLogger: () => host.logger,
     getEvents: () => host.events,
     getInstances: () => host.instances,
-    getManagedObjects: () => host.managedObjects,
     getCtl: () => host.ctl,
     getDaemons: () => host.daemons,
     getStopping: () => host._stopping,
@@ -201,7 +178,6 @@ function installCtlFactory(host) {
 function installCollaborators(host, options) {
   installState(host);
   installSession(host);
-  installControl(host);
   installThin(host);
   installCtlFactory(host);
   installAuditFactory(host);

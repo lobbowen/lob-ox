@@ -63,7 +63,7 @@ function writeAtomic(file, data, opts) {
 //                （日志、market 缓存、proxy-instance 日志等）。
 //   writeDurable  rename 前 fsync 文件、rename 后 fsync 目录，掉电后文件非空且完整。
 //                用于**不可重建**的账本数据（instances.json / registry.json / ports.json /
-//                watermark / providers.json / dsh-main.json / managed-objects.json / tasks.json）。
+//                watermark / providers.json / dsh-main.json / tasks.json）。
 // 分级依据：数据能否从其他来源重建。能重建用 atomic，不能则必须 durable。
 
 function fsyncDir(dir) {

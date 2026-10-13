@@ -9,8 +9,7 @@ function depsOf(host) {
       daemons() { return host.daemons; },
       router() { return host.router; },
       logger() { return host.logger; },
-      managedObjects() { return host.managedObjects; },
-      ctl() { return host.ctl; },
+        ctl() { return host.ctl; },
       routerDaemonActive() { return host.routerDaemonActive(); },
       routerApi() { return host.routerApi(); },
       routerStatus() { return host.routerStatus(); },
@@ -67,19 +66,12 @@ module.exports = { methods: {
     return { running: !!st.running, autostart: d.config().routerAutostart === true, ...st };
   },
 
+  // R8-进程管理：daemon 模式的域摘要原本从 ManagedRegistry 读，那张表已删
+  // （全仓零 register 调用，从来是空的，此分支从未成功过）。
+  // 现 daemon 模式明确返回「无域摘要」——进程相位由壳的进程表持有，
+  // 域摘要是业务投影，不该由进程管理层提供。
   routerDomainSummary() {
     const d = depsOf(this);
-    if (d.routerDaemonActive()) {
-      try {
-        const mo = d.managedObjects();
-        const e = mo && typeof mo.get === 'function' ? mo.get('router-daemon') : null;
-        const s = e && e.domainSummary;
-        if (s) return { ok: true, source: 'directory', summary: s };
-        return { ok: false, source: 'directory', error: '目录尚无 router 域摘要（等待首个监督拍）' };
-      } catch (e2) {
-        return { ok: false, source: 'directory', error: (e2 && e2.message) || String(e2) };
-      }
-    }
     try {
       const r = d.router();
       const s = r && typeof r.domainSummary === 'function' ? r.domainSummary() : null;
