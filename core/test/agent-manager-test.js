@@ -1,7 +1,15 @@
 const { AgentManager } = require('C:/work/lob-ox/core/src/domains/agent/index.js');
 const assert = require('node:assert');
 let pass = 0; const fails = [];
-function check(n, f) { try { f(); pass++; } catch (e) { fails.push(n + ': ' + e.message); } }
+const ASYNC = [];
+// 同步断言立即执行；async 断言收进 ASYNC 由末尾统一 await。
+// 不能让 async 断言以「fire-and-forget」方式跑——失败会变成未捕获 rejection，
+// 输出显示全 PASS 而退出码非零，是最难发现的一种测试假象。
+function check(n, f) {
+  const r = f();
+  if (r && typeof r.then === 'function') { ASYNC.push([n, r]); return; }
+  pass++;
+}
 const m = new AgentManager({ root: '/tmp/agents', logger: { warn() {} } });
 check('kinds 暴露两种形态', () => {
   assert.deepStrictEqual(m.kinds(), ['native', 'sandbox']);
@@ -20,7 +28,7 @@ check('inventory 带能力矩阵与落点', () => {
   assert.ok(inv[0].installDir.includes('a1'));
 });
 check('未实现的 ops 明确抛错（不静默返回 undefined）', () => {
-  for (const fn of ['uninstall', 'upgrade', 'start', 'stop', 'status', 'upgradeStatus']) {
+  for (const fn of ['uninstall', 'start', 'stop', 'status']) {
     assert.throws(() => m[fn]({ id: 'x' }), /待 .* 实现/, fn + ' 应明确抛错');
   }
 });
@@ -57,11 +65,53 @@ check('checkUpdate 已实现并报告 updateAvailable', async () => {
   assert.strictEqual(r2.updateAvailable, false, '已是最新不应报可更新');
 });
 
+check('upgrade 已实现：env 全缺省时用 installToPrefix 兜底', async () => {
+  const installs = [];
+  // 桩必须模拟「安装后磁盘版本真的变了」——否则 installToPrefix 是假的，
+  // installedVersion 永远返回 1.0.0，会被 upgrade 的安装后校验挡住。
+  const disk = { v: '1.0.0' };
+  const env = {
+    installedVersion: () => disk.v,
+    isActive: () => false,
+    desiredRunning: () => false,   // 期望停机 → 不做健康验证
+  };
+  const dist2 = {
+    async runNpmInstall(o) { installs.push(o); disk.v = o.version || disk.v; return { ok: true }; },
+    async fetchNpmLatest() { return { ok: true, version: '2.0.0', origin: 'r' }; },
+  };
+  const r = await m.upgrade({ id: 'a1', kind: 'sandbox', product: '@lob-ox/dsh' }, { env, dist: dist2 });
+  assert.strictEqual(r.ok, true, '应成功: ' + r.error);
+  assert.strictEqual(r.result, 'installed');
+  assert.strictEqual(installs.length, 1);
+  assert.strictEqual(installs[0].version, '2.0.0');
+  assert.ok(installs[0].prefix.includes('a1'), 'prefix 应为 a1 的 installDir');
+});
+
+check('upgrade 已是最新则跳过', async () => {
+  const installs = [];
+  const dist = { async runNpmInstall(o) { installs.push(o); return { ok: true }; } };
+  const env = { installedVersion: () => '2.0.0', latestVersion: async () => ({ ok: true, version: '2.0.0' }) };
+  const r = await m.upgrade({ id: 'a1', kind: 'sandbox', product: '@lob-ox/dsh' }, { env, dist });
+  assert.strictEqual(r.result, 'up-to-date');
+  assert.strictEqual(installs.length, 0, '不应安装');
+});
+
+check('upgradeStatus 委托 status.upgradeBrief（字段名兼容）', () => {
+  const b = m.upgradeStatus({ id: 'a1' }, { upgradeState: 'done', targetVersion: '2.0.0' });
+  assert.strictEqual(b.state, 'done');
+  assert.strictEqual(b.targetVersion, '2.0.0');
+});
+
 check('dataDirOf/installDirOf 委托 model', () => {
   const a = m.find('a1');
   assert.ok(m.dataDirOf(a).includes('a1'));
   assert.ok(m.installDirOf(a).includes('a1'));
 });
-console.log('agent 门面测试: ' + pass + ' 通过, ' + fails.length + ' 失败');
-if (fails.length) { console.log(fails.map(f => '  x ' + f).join('\n')); process.exit(1); }
-console.log('ALL AGENT MANAGER TESTS PASS');
+(async () => {
+  for (const [n, pr] of ASYNC) {
+    try { await pr; pass++; } catch (e) { fails.push(n + ': ' + e.message); }
+  }
+  console.log('agent 门面测试: ' + pass + ' 通过, ' + fails.length + ' 失败');
+  if (fails.length) { console.log(fails.map(f => '  x ' + f).join('\n')); process.exit(1); }
+  console.log('ALL AGENT MANAGER TESTS PASS');
+})();

@@ -76,8 +76,40 @@ class AgentManager {
   uninstall(agent) {
     throw new Error('agent.uninstall: 待 ops/uninstall 实现');
   }
-  upgrade(agent, version) {
-    throw new Error('agent.upgrade: 待 ops/upgrade 实现');
+  // 升级：env 由调用方（装配层）提供——壳持有进程句柄与 hooks，
+  // 内核只提供业务判据。本方法只负责把 agent 形态相关的 prefix/包名填进去。
+  async upgrade(agent, opts) {
+    const o = opts || {};
+    const upgradeOps = require('./ops/upgrade');
+    const env = o.env || {};
+    // 形态相关：沙箱用每实例 installDir，原生用 npmRoot
+    const prefix = o.prefix || (agent && agent.kind === 'sandbox'
+      ? path.join(this.root, agent.id, 'install')
+      : (o.npmRoot || null));
+    const pkg = (o.product && o.product.pkg) || (agent && agent.product);
+    // 用 ops/install 的 installToPrefix 包一层，使 env.install 按 prefix 生效
+    const installOps = require('./ops/install');
+    const wrapped = Object.assign({}, env, {
+      install: env.install || (async (v, registry) => installOps.installToPrefix({
+        product: { pkg },
+        prefix,
+        version: v,
+        registry: registry || null,
+        dist: o.dist || this.dist,
+        launcher: o.launcher || null,
+        log: o.log || null,
+        timeoutMs: o.timeoutMs || null,
+      })),
+      installedVersion: env.installedVersion || (() => (prefix && pkg ? installOps.installedVersionAt(prefix, pkg) : null)),
+      // latestVersion 兜底：env 没给就用 install 的 resolver（带 TTL 缓存）。
+      // 少了这个，调用方只提供 installedVersion 时会走到「无法获取最新版本」。
+      latestVersion: env.latestVersion || (async () => {
+        if (!pkg) return { ok: false, error: '未指定 agent 包名' };
+        const resolver = o.latest || installOps.createLatestResolver(o.dist || this.dist, o);
+        return resolver(pkg);
+      }),
+    });
+    return upgradeOps.upgrade(wrapped, o.version || null, o.cfg || {});
   }
   start(agent) {
     throw new Error('agent.start: 待 ops/lifecycle 实现');
@@ -109,8 +141,10 @@ class AgentManager {
       origin: r.origin || null,
     };
   }
-  upgradeStatus(agent) {
-    throw new Error('agent.upgradeStatus: 待 ops/upgrade 实现');
+  // 升级状态投影：字段名与 status.upgradeBrief 一致（UI 免改）。
+  upgradeStatus(agent, state) {
+    const status = require('./status');
+    return status.upgradeBrief(state || {});
   }
 
   // ---- 内部：登记（供 ops 与迁移期调用）----
