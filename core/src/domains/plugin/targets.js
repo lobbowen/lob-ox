@@ -23,7 +23,7 @@ function nativeTarget(ctx) {
 }
 
 function sandboxTarget(ctx, inst) {
-  if (!inst || inst.domain !== 'sandbox') return null;
+  if (!inst || inst.kind !== 'sandbox') return null;
   const dataDir = ctx.instances && ctx.instances.sandboxDataDir ? ctx.instances.sandboxDataDir(inst) : null;
   const installDir = ctx.instances && ctx.instances.sandboxInstallDir ? ctx.instances.sandboxInstallDir(inst) : null;
   if (!dataDir || !installDir) return null;
@@ -51,7 +51,7 @@ function sandboxTarget(ctx, inst) {
 }
 
 function allSandboxTargets(ctx) {
-  const insts = (ctx.instances ? ctx.instances.all() : []).filter((x) => x.domain === 'sandbox');
+  const insts = (ctx.instances ? ctx.instances.all() : []).filter((x) => x.kind === 'sandbox');
   const out = [];
   for (const inst of insts) { const t = sandboxTarget(ctx, inst); if (t && fs.existsSync(t.bin)) out.push(t); }
   return out;
@@ -63,7 +63,7 @@ function resolveTargets(ctx, targetStr) {
   if (str === 'native') return { ok: true, targets: [nativeTarget(ctx)] };
   if (str === 'all') return { ok: true, targets: [nativeTarget(ctx), ...allSandboxTargets(ctx)] };
   const inst = ctx.instances ? ctx.instances.find(str) : null;
-  if (!inst || inst.domain !== 'sandbox') return { ok: false, error: '指定实例不存在或非沙箱实例: ' + str };
+  if (!inst || inst.kind !== 'sandbox') return { ok: false, error: '指定实例不存在或非沙箱实例: ' + str };
   const t = sandboxTarget(ctx, inst);
   if (!t) return { ok: false, error: '实例「' + (inst.name || inst.id) + '」缺少沙箱目录' };
   if (!fs.existsSync(t.bin)) return { ok: false, error: '实例「' + (inst.name || inst.id) + '」未安装 DeepSeek Harness，请先在实例管理中安装' };

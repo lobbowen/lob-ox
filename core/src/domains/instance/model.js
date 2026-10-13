@@ -41,7 +41,8 @@ function createRecord(payload, id) {
     id,
     name: String(payload.name || ('实例:' + port)).slice(0, 40),
     port,
-    domain: 'sandbox',
+    // 形态只用一个字段：kind（agent 域的一等概念，见 domains/agent/kinds.js）。
+    // 原同时写 domain 与 kind 且同值同生——第二套分类是纯重复，已删。
     kind: 'sandbox',
     autoRegistered: false,
     createdBy: 'user',
@@ -66,8 +67,8 @@ function viewRow(inst, resolved) {
     id: inst.id,
     name: inst.name,
     port: inst.port,
-    domain: inst.domain || 'native',
-    kind: inst.kind || inst.domain || 'native',
+    domain: inst.kind || 'native',
+    kind: inst.kind || inst.kind || 'native',
     guardian: inst.guardian,
     remoteMode: inst.remoteMode || 'off',
     unitName: inst.unitName,

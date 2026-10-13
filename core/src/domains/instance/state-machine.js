@@ -40,7 +40,8 @@ function setRunning(deps, inst, st, now) {
     }
   }
   if (deps.events) deps.events.append('inst_running', { id: inst.id, name: inst.name, pid: st.pid });
-  if (inst.domain === 'sandbox' && deps.tokens) {
+  // 形态判据用 agent 域的 kind，不用 instance 自建的 domain（同值同生的重复字段）。
+  if (inst.kind === 'sandbox' && deps.tokens) {
     deps.tokens.attach(inst.id, { unit: 'dsh-web@' + inst.id });
     deps.tokens.scheduleCapture(inst.id);
   }

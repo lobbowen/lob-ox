@@ -63,6 +63,10 @@ const ARCH_TOKENS: [&str; 5] = ["x64", "amd64", "x86_64", "arm64", "aarch64"];
 
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// 周期重测间隔：取内核 SHELL_PROBE_MAX_AGE_SEC（1800s）的一半，
+/// 保证壳写出的测速记录始终在内核的采用窗口内。
+const REPROBE_INTERVAL_SEC: u64 = 900;
+
 pub fn agent() -> &'static ureq::Agent {
     static A: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
     A.get_or_init(|| {
@@ -501,6 +505,34 @@ pub fn warmup_async() {
         WARMING.store(false, std::sync::atomic::Ordering::SeqCst);
         crate::update::log(&format!("镜像预热线程未能启动（{}）：本轮 registry 维度无从判定", e));
     }
+}
+
+/// 镜像源周期重测。
+///
+/// 为什么必须有：warmup_async 是一次性的，只在壳启动时测一轮。而内核侧
+/// `policies.shellProbeResults` 有 TTL（SHELL_PROBE_MAX_AGE_SEC = 1800s），
+/// 超龄的测速记录会被整体拒绝采用，`probeOrAdopt` 随即退回 no-contract 分支——
+/// 于是壳明明生产了数据，内核却因为数据过期而拿不到，镜像源选择退化成配置顺序。
+/// 长跑的机器上这个失效是必然的（9.6 小时前的记录直接被丢）。
+///
+/// 周期取 TTL 的 1/2：既保证任何时刻壳写出的记录都在内核的采用窗口内，
+/// 也不至于把重测做得太频（每次都要对全部源发请求）。
+pub fn reprobe_forever() {
+    let interval = std::time::Duration::from_secs(REPROBE_INTERVAL_SEC);
+    std::thread::Builder::new()
+        .name("mirror-reprobe".to_string())
+        .spawn(move || {
+            loop {
+                std::thread::sleep(interval);
+                let m = load();
+                if m.npm.is_empty() {
+                    continue;
+                }
+                let npm_p = probe_all(&m.npm, "");
+                record_npm_measurements(&npm_p);
+            }
+        })
+        .ok();
 }
 
 #[cfg(test)]

@@ -71,7 +71,9 @@ class InstanceStore {
     for (const inst of this.instances) {
       model.normalizeInstance(inst);
       this._stripLegacyStateKeys(inst);
-      if (inst.domain === 'sandbox' && this.tokens) this.tokens.attach(inst.id, { unit: 'dsh-web@' + inst.id });
+      // 形态判据统一用 agent 域的 kind（domains/agent/kinds.js）。
+  // 原用 inst.domain——那是 instance 自建的第二套分类，与 kind 同值同生，纯重复。
+  if (inst.kind === 'sandbox' && this.tokens) this.tokens.attach(inst.id, { unit: 'dsh-web@' + inst.id });
     }
     this.syncPorts();
     return this.instances;

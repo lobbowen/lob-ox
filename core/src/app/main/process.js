@@ -155,13 +155,14 @@ module.exports = {
       if (phase === 'RUNNING' || phase === 'STARTING') {
         const why = code !== null ? String(code) : 'sig' + signal;
         const inStartup = phase === 'STARTING';
-        if (inStartup || d.state().guardian()) {
-                    d.beginRestart('exit:' + why, { startupFailure: inStartup });
-        } else {
-          d.writeCrashHalted(true);
-          d.events().append('guardian_off_exit', { reason: 'child_exit:' + why + ' 未监控，保持停止' });
-          d.state().setPhase('STOPPED');
-        }
+        // 进程退出只做相位投影与崩溃记录。是否重拉由壳的进程表决定
+        //（heal_candidates：desired=running 且 phase=failed）。
+        // 内核此前在这里另立一套 guardian 判据（d.state().guardian()），
+        // 与壳的 desired 是同一语义的两种表达——用户在主面板关掉监控时
+        // 只有内核知道，壳仍按 desired=running 重拉，两套进程管理互相打断。
+        // 现已改为：内核 setDesired 时同步上报壳（app/state/desired.js），
+        // 壳持有唯一判据。
+        d.beginRestart('exit:' + why, { startupFailure: inStartup });
       }
     });
     d.events().append('spawned', { pid: child.pid });

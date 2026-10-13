@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, ArrowUpRight, ExternalLink, Power, RefreshCw, Rocket,
-  ShieldCheck, TerminalSquare, Trash2, TriangleAlert,
+  TerminalSquare, Trash2, TriangleAlert,
 } from "lucide-react";
 import type { EnvCatalogItem, NodeLtsStatus } from "../../services/supervisor";
 import { toast } from "sonner";
@@ -25,7 +25,6 @@ export function OverviewPage() {
   const { busy, run } = useSupervisorAction();
   const askConfirm = useConfirm();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const [mainGuardian, setMainGuardian] = useState<boolean | null>(null);
   const s = snap.status;
   const native = s?.native;
   const installed = native?.installed ?? false;
@@ -90,35 +89,7 @@ export function OverviewPage() {
     await run("uni", () => supervisorApi.nativeUninstall(), { success: "开始卸载…" });
   }
 
-  // 读 instances.native.guardian（即时准确）；/lifecycle/dsh 由心跳约 5s 同步，立即刷新会读到旧值使开关弹回。
-  useEffect(() => {
-    if (!installed) return;
-    // alive 守卫：卸载/切页后不再 setState（防竞态覆盖）。
-    let alive = true;
-    supervisorApi.instances().then((r2) => {
-      if (!alive) return;
-      const g = r2?.native?.guardian;
-      if (typeof g === "boolean") setMainGuardian(g);
-    }).catch(() => {
-      // 拉取失败不得把 mainGuardian 停在 null —— 那会让开关被永久禁用（S7 修的 P0）。
-      // 保留上一次已知值；确无已知值时回退 false，使按钮仍可操作并由用户重试。
-      if (!alive) return;
-      setMainGuardian((prev) => (typeof prev === "boolean" ? prev : false));
-    });
-    return () => { alive = false; };
-  }, [installed, s?.dshPid]);
 
-  async function toggleMainGuardian() {
-    const v = !(mainGuardian === true);
-    await run("gu", () => supervisorApi.nativeSettings({ guardian: v }).then((r2) => {
-      const g = r2?.main?.guardian;
-      if (typeof g === "boolean") setMainGuardian(g);
-      return r2;
-    }), {
-      success: v ? "已开启 DSH 进程监控（崩溃自动拉起）" : "已关闭 DSH 进程监控（崩溃后不再自动拉起）",
-      refresh: false,
-    });
-  }
 
   const installedVer = installed ? (native?.version || v?.installed || "—") : "—";
 
@@ -209,10 +180,6 @@ export function OverviewPage() {
                   {running ? <><Power className="size-4 text-status-error" />停止 DSH</> : <><Rocket className="size-4 text-primary" />启动 DSH</>}
                 </Button>
                 <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
-                <Button className="h-[30px]" disabled={busy === "gu" || mainGuardian === null} onClick={() => void toggleMainGuardian()} size="sm" variant="outline">
-                  <ShieldCheck className={cn("size-4", mainGuardian === true ? "text-status-ok" : "text-muted-foreground")} />
-                  {mainGuardian === true ? "停止监控" : "启动监控"}
-                </Button>
               </>
             ) : null}
             {installed && !nBusy ? (
@@ -390,10 +357,6 @@ function eventDetail(e: SupervisorEvent): string {
   if (e.type === "provider_quota_refreshed") return (d.provider || "") + " 额度已刷新";
   if (e.type === "proxy_update_available") return [(d.pkg || ""), (d.from || ""), (d.to || "")].filter(Boolean).join(" → ");
   if (e.type === "proxy_instance_started") return "port=" + (d.port ?? "") + (d.pid ? " pid=" + d.pid : "");
-  if (e.type === "harness_guardian_changed" || e.type === "inst_guardian_changed") {
-    const who = d.name || (d.id === "main" ? "原生 DSH" : d.id || "实例");
-    return who + " · 进程监控" + (d.enabled === true ? " → 开启" : " → 关闭");
-  }
   if (e.type === "harness_remote_changed" || e.type === "inst_remote_changed") {
     const who = d.name || (d.id === "main" ? "原生 DSH" : d.id || "实例");
     return who + " · 远程控制 → " + (d.mode === "lan" ? "局域网" : d.mode === "wan" ? "公网" : "关闭");
@@ -429,7 +392,6 @@ const EVENT_TONE: Record<string, "ok" | "err" | "warn" | "boot" | "off"> = {
   sigkill_sent: "err", start_timeout: "err", crash_loop_entered: "err",
   guard_exit: "warn", version_check_failed: "warn", restart_triggered: "warn",
   harness_not_installed: "warn", sigterm_sent: "warn", account_review: "warn",
-  harness_guardian_changed: "warn", inst_guardian_changed: "warn",
   harness_remote_changed: "warn", inst_remote_changed: "warn",
   harness_remote_token_changed: "warn", inst_remote_token_changed: "warn", lan_frp_blocked: "warn",
   proxy_update_available: "warn", upgrade_started: "warn", upgrade_stopping_harness: "warn",

@@ -165,15 +165,16 @@ module.exports = {
           break;
         }
         case 'RUNNING': {
-          const guarded = d.state().guardian();
+          // 进程退出只做相位投影。是否重拉由壳的进程表决定
+          //（heal_candidates：desired=running 且 phase=failed）——与 process.js 同一判据。
+          // 内核此前在这里另立一套 guardian 判据，与壳的 desired 是同一语义的
+          // 两种表达；现内核 setDesired 已同步上报壳（app/state/desired.js）。
           if (d.mAdoptPid() !== null && adoptedAlive === false) {
             d.events().append(BRAND.EVENT_HARNESS_EXITED, { code: null, signal: null, phase: d.state().phase(), adopted: true });
             d.mSetAdoptPid(null);
-            if (guarded) d.main().beginRestart('adopted_exit', { startupFailure: false });
-            else { d.writeCrashHalted(true); d.events().append('guardian_off_exit', { reason: 'adopted_exit 未监控，保持停止' }); d.state().setPhase('STOPPED'); }
+            d.main().beginRestart('adopted_exit', { startupFailure: false });
           } else if (!childAlive && d.mChild()) {
-            if (guarded) d.main().beginRestart('child_exit', { startupFailure: false });
-            else { d.writeCrashHalted(true); d.events().append('guardian_off_exit', { reason: 'child_exit 未监控，保持停止' }); d.state().setPhase('STOPPED'); }
+            d.main().beginRestart('child_exit', { startupFailure: false });
           }
           
           break;

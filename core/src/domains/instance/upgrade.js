@@ -58,7 +58,7 @@ function createUpgrade(deps) {
   async function checkUpdate(id) {
     const inst = store.instances.find((i) => i.id === id);
     if (!inst) return { ok: false, error: '实例不存在' };
-    if (inst.domain !== 'sandbox') return { ok: false, error: '仅沙箱实例支持版本检查' };
+    if (inst.kind !== 'sandbox') return { ok: false, error: '仅沙箱实例支持版本检查' };
     if (!deps.agents) {
       // 未注入 agent 域（测试/独立使用）时退回本地实现，保证可用。
       return _checkUpdateLocal(inst);
@@ -92,7 +92,7 @@ function createUpgrade(deps) {
   async function upgradeInstance(id) {
     const inst = store.instances.find((i) => i.id === id);
     if (!inst) return { ok: false, error: '实例不存在' };
-    if (inst.domain !== 'sandbox') return { ok: false, error: '仅沙箱实例支持升级' };
+    if (inst.kind !== 'sandbox') return { ok: false, error: '仅沙箱实例支持升级' };
     const job = _updJobs[id];
     if (job && job.state === 'running') return { ok: true, jobId: id, already: true };
     if (tasks && tasks.isBusy('instance', id)) return { ok: true, jobId: id, already: true };

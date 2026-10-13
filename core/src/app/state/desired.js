@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const { writeDurable } = require('../../platform/util/fs');
+const pmClient = require('../../platform/contract/pm-client');
 
 function createDesired(deps) {
   const g = deps || {};
@@ -27,6 +28,12 @@ function createDesired(deps) {
     if (v === 'stopped' && fields.observedOnly() && fields.accessors.adoptedPid.get() !== null) {
       stopProcess('desired_stopped');
     }
+    // 进程所有权归壳：desired 变化必须同步给壳的进程表。
+    // 壳的 heal_candidates 只捞 desired=running 的——不上报的话，
+    // 用户在这里停止主 DSH，壳仍认为 desired=running，崩溃后会按自己的判据重拉，
+    // 与内核「已停止」的意图直接冲突。此前这条上报是缺的，
+    // 内核只能另立一套 guardian 判据在本地兜，于是同一语义有两处实现。
+    pmClient.setDesired('core', v);
     if (fields.desired() !== v) {
       fields.setDesired(v);
       const ev = events();

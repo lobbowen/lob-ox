@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Activity, Box, ExternalLink, Power, Rocket, RotateCw, ShieldCheck, Square, Trash2, TriangleAlert,
+  Activity, Box, ExternalLink, Power, Rocket, RotateCw, Square, Trash2, TriangleAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../../framework/ui";
@@ -184,11 +184,6 @@ export function InstancesPage({ onRegisterActions }: { onRegisterActions?: (a: {
             </Button>
             <Button disabled={updating} onClick={() => void act(it.id, () => (running ? supervisorApi.instanceStop(it.id) : supervisorApi.instanceStart(it.id)))} size="sm" variant="outline">
               {running ? <><Power className="size-4 text-status-error" />停止实例</> : <><Rocket className="size-4 text-primary" />启动实例</>}
-            </Button>
-            <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
-            <Button disabled={busy} onClick={() => void act(it.id, () => supervisorApi.instanceUpdate(it.id, { guardian: !it.guardian }))} size="sm" variant="outline">
-              <ShieldCheck className={cn("size-4", it.guardian ? "text-status-ok" : "text-muted-foreground")} />
-              {it.guardian ? "停止监控" : "启动监控"}
             </Button>
             <Button className="hidden h-[30px] md:inline-flex" disabled={busy} onClick={() => void removeInstance(it)} size="sm" variant="destructive">
               <Trash2 className="size-4" />删除

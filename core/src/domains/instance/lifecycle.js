@@ -3,7 +3,6 @@ const fs = require('node:fs');
 const monitor = require('../../platform/service/monitor');
 const BRAND = require('../../shared/brand');
 const ports = require('../../platform/service/ports').shared;
-const guardian = require('../../shared/guardian');
 const sandbox = require('./sandbox');
 const stateMachine = require('./state-machine');
 const execPath = require('../../platform/os/exec-path');
@@ -53,7 +52,7 @@ function createLifecycle(deps) {
     try {
       const cmdArr = sandbox.effectiveCommand(instancesRoot, deps.dshBin, inst);
       if (!cmdArr || !cmdArr.length) return { ok: false, error: '实例未配置启动命令' };
-      const boundary = inst.domain === 'sandbox'
+      const boundary = inst.kind === 'sandbox'
         ? execPath.commandEntryViolation(cmdArr, {
             roots: [sandbox.installDir(instancesRoot, inst)],
             files: execPath.knownDshEntries({ dshBin: deps.dshBin }),
@@ -134,7 +133,7 @@ function createLifecycle(deps) {
     if (!inst) return { ok: false, error: '实例不存在' };
     if (!isSandboxSupported()) return { ok: false, error: '当前平台不支持沙箱实例（能力矩阵见 GET /env/status 的 capabilities.sandboxLaunch；限额执行档位见 capabilities.sandboxEnforcement）' };
     _prepareSystemd();
-    if (inst.domain === 'sandbox') {
+    if (inst.kind === 'sandbox') {
       const fromUpgrade = !!(opts && opts.fromUpgrade);
       if (!fromUpgrade && tasks && tasks.isBusy('instance', id)) return { ok: true, installing: true, already: true };
       if (!fromUpgrade) {
@@ -220,16 +219,15 @@ function createLifecycle(deps) {
   
   function supervise(id) {
     const inst = store.instances.find((i) => i.id === id);
-    if (!inst || inst.domain === 'native') return { ok: true, skipped: !inst ? 'not-found' : 'native' };
+    if (!inst || inst.kind === 'native') return { ok: true, skipped: !inst ? 'not-found' : 'native' };
     // 每次 supervise 都把真实相位报给壳：壳的 heal_candidates 只捞
     // 「desired=running 且 phase=failed」的对象，相位不报它就不会自愈。
     pmClient.onPhase('sandbox:' + inst.id, inst.state && inst.state.phase ? inst.state.phase.toLowerCase() : 'stopped');
     const now = Date.now();
     try {
       const st = probe(inst);
-      if (inst.domain === 'sandbox' && tokens) { try { tokens.ensureCaptured(inst.id); } catch {} }
+      if (inst.kind === 'sandbox' && tokens) { try { tokens.ensureCaptured(inst.id); } catch {} }
       const state = inst.state;
-      const guarded = guardian.shouldGuard(inst);
       switch (state.phase) {
         case 'INSTALLING': {
           if (st.running) { stateMachine.setRunning(stateDeps(), inst, st, now); break; }
@@ -287,9 +285,13 @@ function createLifecycle(deps) {
             runtime.delete(inst.id);
             state.usage = null;
             
-            if (guarded) stateMachine.restart(stateDeps(), inst, '实例进程退出', { startupFailure: false });
-            else stateMachine.setStopped(stateDeps(), inst);
-          } else if (inst.domain === 'sandbox') {
+            // 进程退出只做相位投影。是否重拉由壳的进程表决定
+            //（heal_candidates：desired=running 且 phase=failed）——那是进程所有权的
+            // 唯一判据。此前这里还有一套 guardian.shouldGuard(inst) 判据，
+            // 与壳的 desired 是同一语义的两种表达，且会在壳已决定重拉时
+            // 把相位按成本地 stopped，造成两套进程管理互相打断。
+            stateMachine.setStopped(stateDeps(), inst);
+          } else if (inst.kind === 'sandbox') {
             if (tokens) tokens.ensureCaptured(inst.id);
             _sampleUsage(inst, st);
           }

@@ -15,6 +15,8 @@
 const path = require('node:path');
 const status = require('./status');
 const entryOps = require('./ops/entry');
+const execUtil = require('../../platform/util/exec');
+const runtimeContract = require('../../platform/contract/runtime');
 
 const NATIVE_ID = 'main';
 
@@ -28,6 +30,7 @@ class NativeAgentAdapter {
     this.tasks = opts.tasks || null;
     this.hooks = opts.hooks || {};
     this.npmRoot = opts.npmRoot || null;
+    this._npmRootCache = undefined;   // npm root -g 的惰性解析结果
 
     // 原生 agent 的记录：固定 id，包名来自配置。
     this.agent = {
@@ -57,7 +60,10 @@ class NativeAgentAdapter {
 
   // ---- 包名与 prefix ----
   _pkg() { return (this.config && this.config.packageName) || this.agent.product || null; }
-  _prefix() { return this.npmRoot || null; }
+  _prefix() {
+    if (this.npmRoot) return this.npmRoot;
+    return this._npmRootCache || null;   // install 时解析过就有值
+  }
 
   _log(m) { if (this.logger && this.logger.info) this.logger.info(m); }
   _warn(m) { if (this.logger && this.logger.warn) this.logger.warn(m); }
@@ -117,6 +123,23 @@ class NativeAgentAdapter {
     return installOps.checkEnvironment(rc.npmLauncher());
   }
 
+  // npm 全局前缀。旧实现（app/native/npm.js 的 resolveNpmRoot）在安装时惰性解析，
+  // 因为构造期壳往往还没把 node/npm 装好。适配器漏搬了这段，导致 npmRoot=null 时
+  // 直接被 agent 域拒绝——「安装 DSH」这个最基础的流程整个断掉（0.0.19 回归）。
+  // 行为对齐旧实现：显式 npmRoot 优先，否则 npm root -g 解析；解析不到才报错。
+  async _resolveNpmRoot() {
+    if (this.npmRoot) return this.npmRoot;
+    if (this._npmRootCache !== undefined) return this._npmRootCache;
+    const l = runtimeContract.npmLauncher();
+    if (!l || !l.program) { this._npmRootCache = null; return null; }
+    try {
+      const r = await execUtil.runOutAsync(l.program, l.args.concat(['root', '-g']), { timeoutMs: 15000 });
+      this._npmRootCache = (r && r.trim()) || null;
+    } catch {
+      this._npmRootCache = null;
+    }
+    return this._npmRootCache;
+  }
   _targetPort() {
     const cfg = this.config || {};
     const direct = Number(cfg.targetPort);
@@ -148,16 +171,35 @@ class NativeAgentAdapter {
   async install(version) {
     this.installing = version || null;
     try {
+      const npmRoot = await this._resolveNpmRoot();
+      // 解析成功就固化：后续 installedVersion/status 都靠它，不必再探测。
+      if (npmRoot) this.npmRoot = npmRoot;
+      // version 缺省 = 装最新。UI（OverviewPage 的安装按钮）走 /native/install 从不带
+      // version，旧实现在这条路径上直接返回「非法版本号: null」——按钮从来没通过。
+      // 这里解析出 latest 再装，而不是把 null 透传给 dist（那边会报「缺少 version」）。
+      let target = version || null;
+      if (!target) {
+        const installOps = require('./ops/install');
+        const resolver = installOps.createLatestResolver(this.dist, {});
+        const pick = await resolver(this._pkg());
+        target = pick && pick.ok ? pick.version : null;
+        if (!target) {
+          this.installing = null;
+          const why = '无法解析最新版本号（dist 不可用或 registry 查询失败）';
+          this.lastInstall = { ok: false, version: null, error: why, at: new Date().toISOString(), log: [] };
+          return { ok: false, error: why };
+        }
+      }
       const r = await this.agents.install(this.agent, {
         dist: this.dist,
-        npmRoot: this.npmRoot,
-        version: version || null,
+        npmRoot,
+        version: target,
         registry: await this._selectRegistry(),
         log: (m) => this.installLog.push(m),
       });
       this.lastInstall = {
         ok: r.ok,
-        version: r.ok ? (this.installedVersion() || version || null) : null,
+        version: r.ok ? (this.installedVersion() || target || null) : null,
         error: r.ok ? null : (r.error || null),
         at: new Date().toISOString(),
         log: this.installLog.slice(-8),
@@ -175,7 +217,8 @@ class NativeAgentAdapter {
   startInstall(version) {
     const gate = status.assertNotBusy(this, 'install');
     if (gate) return gate;
-    if (!status.isValidVersion(version)) return { ok: false, error: '非法版本号: ' + version };
+    // null = 装最新（UI 的默认路径）；给了值才校验格式。
+    if (version && !status.isValidVersion(version)) return { ok: false, error: '非法版本号: ' + version };
     this.install(version).then(() => {}).catch((e) => {
       this.installing = null;
       this._warn('native install crashed: ' + ((e && e.message) || e));
@@ -270,9 +313,50 @@ class NativeAgentAdapter {
     return { ok: true, started: true };
   }
 
+  // 镜像源选择。先试 force（实测各源可达性），拿不到再回退到非 force 的选择。
+  // 回退是必需的：契约缺失的降级模式下 force 探测无果会返回 null，
+  // 而 npm 拿到 null 就用默认官方源——国内网络下直接挂死到超时，
+  // 表现是「安装失败」但没有任何日志（output 为空，超时才被杀）。
+  // 镜像源选择。三级回退，缺一级都会让 npm 用默认官方源并挂死到超时：
+  //   1. force 探测通过的首个可达源；
+  //   2. 非 force 的探测结果（含缓存）；
+  //   3. selectRegistry().ordered 的首个候选——探测全部失败时仍要给出一个源，
+  //      因为 fetchNpmLatest 本身就是依次尝试 ordered 而不问可达性（它能成功，
+  //      说明探测判死不等于真不可用）。npm install 拿不到源就用官方源，
+  //      国内网络下表现为「安装失败」且 output 为空、无任何日志。
+  // 镜像源选择。四级回退——缺任何一级，npm 都会拿到 null 而用默认官方源，
+  // 在访问不了 npmjs.org 的网络上挂死到超时，表现为「安装失败」且无日志。
+  //   1. force 探测通过的首个可达源；
+  //   2. 非 force 探测结果（含缓存）；
+  //   3. selectRegistry().ordered 的首个候选；
+  //   4. 复用 fetchNpmLatest 刚刚成功的源——探测机制在契约缺失的降级模式下
+  //      全部返回「shell-contract 未提供测速结果」，而 fetchNpmLatest 走的是
+  //      「依次尝试、不问可达性」，它能成功说明探测判死不等于真不可用。
+  //      这是唯一在降级模式下仍然可靠的源信息，故作为最后兜底。
+  // 镜像源选择。回退顺序按「证据强度」排，不是按配置顺序——
+  // 配置顺序的首个（npmjs.org）在国内网络下不可达，而探测机制在契约缺失的
+  // 降级模式下对所有源都返回「shell-contract 未提供测速结果」，判不出真假。
+  // 唯一可靠的证据是 fetchNpmLatest 的实际尝试结果，故它排第一。
+  // 少了这一级，npm install 会拿官方源并挂死到超时：表现是「安装失败」，
+  // 且 output 为空、无任何日志（超时才被 killTree 杀掉）。
   async _selectRegistry() {
     if (!this.dist) return null;
-    try { return await this.dist.registryOrigin(true); } catch { return null; }
+    // 1. 实测成功过的源（fetchNpmLatest 依次尝试，记录真实可达性）
+    try {
+      const pick = await this.dist.fetchNpmLatest(this._pkg());
+      if (pick && pick.ok && pick.origin) return pick.origin;
+    } catch {  }
+    // 2/3. 探测结果（含缓存）
+    for (const force of [false, true]) {
+      try { const o = await this.dist.registryOrigin(force); if (o) return o; } catch {  }
+    }
+    // 4. 配置顺序兜底
+    try {
+      const sel = await this.dist.selectRegistry(false);
+      const ordered = (sel && sel.ordered) || [];
+      if (ordered.length) return ordered[0];
+    } catch {  }
+    return null;
   }
 }
 

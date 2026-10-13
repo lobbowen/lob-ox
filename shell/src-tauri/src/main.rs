@@ -188,6 +188,9 @@ fn main() {
             bt!("init_identity done");
 
             crate::mirror::export_on_boot();
+    // 镜像源周期重测：warmup_async 只测一轮，而内核采用壳侧测速记录有 30 分钟 TTL，
+    // 不持续生产的话长跑机器上内核必然拿不到、镜像源选择退化为配置顺序。
+    crate::mirror::reprobe_forever();
 
                         
             nodeprobe::start();

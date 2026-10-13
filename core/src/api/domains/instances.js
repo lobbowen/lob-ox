@@ -132,7 +132,7 @@ function handle(ctx) {
         return out;
       };
       const render = () => {
-        const sandboxes = (sup.instances.list() || []).filter((i) => i.domain === 'sandbox');
+        const sandboxes = (sup.instances.list() || []).filter((i) => i.kind === 'sandbox');
         const main = (sup.dshMainView && typeof sup.dshMainView === 'function') ? sup.dshMainView() : null;
         return send(200, {
           instances: sandboxes.map((it) => decorate(it)),
@@ -156,7 +156,7 @@ function handle(ctx) {
           }
           if (j.id) {
             const target = sup.instances.find(j.id);
-            if (target && target.domain === 'native' && act !== 'open-web') {
+            if (target && target.kind === 'native' && act !== 'open-web') {
               const hint = (act === 'start' || act === 'stop' || act === 'restart')
                 ? '原生主实例请经 /lifecycle/dsh/start|stop 启停'
                 : '原生主实例请经 /native/* 管理（安装/升级/卸载/版本检测）';

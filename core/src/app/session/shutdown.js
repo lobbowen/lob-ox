@@ -96,7 +96,7 @@ function _stopMainDsh(host) {
 
 async function _stopAllSandboxes(host) {
     const insts = host.instances ? host.instances.all() : [];
-    const sandboxes = insts.filter((i) => i.domain === 'sandbox' && i.id !== 'main');
+    const sandboxes = insts.filter((i) => i.kind === 'sandbox' && i.id !== 'main');
     for (const inst of sandboxes) {
       let stopped = false;
       try {

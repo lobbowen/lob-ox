@@ -24,7 +24,6 @@ const FACETS = [
   { name: 'facade/status', mod: require('../facade/status'), hostFirst: true },
   { name: 'domain-actions/router', mod: require('../domain-actions/router'), factory: 'createRouterActions' },
   { name: 'domain-actions/lan', mod: require('../domain-actions/lan'), factory: 'createLanActions' },
-  { name: 'domain-actions/main', mod: require('../domain-actions/main'), factory: 'createMainActions' },
   { name: 'settings/env', mod: require('../settings/env') },
   { name: 'settings/node-lts', mod: require('../settings/node-lts') },
   { name: 'settings/versions', mod: require('../settings/versions') },

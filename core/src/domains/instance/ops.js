@@ -88,7 +88,7 @@ function createOps(deps) {
     }
     const stillActive = OUTCOME.isOk(active);
     const activeUnknown = OUTCOME.isUnknown(active);
-    if (inst && inst.domain === 'sandbox' && inst.id !== 'main' && !stillActive && !activeUnknown) {
+    if (inst && inst.kind === 'sandbox' && inst.id !== 'main' && !stillActive && !activeUnknown) {
       const root = sandbox.root(instancesRoot, inst);
       setImmediate(() => {
         try { fs.rmSync(root, { recursive: true, force: true }); }
@@ -116,11 +116,6 @@ function createOps(deps) {
     if (patch.remoteToken !== undefined) {
       const next0 = String(patch.remoteToken || '');
       if (next0 && !remoteTokenStrength(next0).ok) return { ok: false, error: '远程访问令牌（remoteToken）至少 8 位' };
-    }
-    if (patch.guardian !== undefined) {
-      const gChanged = inst.guardian !== !!patch.guardian;
-      inst.guardian = !!patch.guardian;
-      if (gChanged && events) events.append('inst_guardian_changed', { id: inst.id, name: inst.name, enabled: inst.guardian === true });
     }
     let remoteChanged = false;
     if (patch.remoteMode !== undefined) {

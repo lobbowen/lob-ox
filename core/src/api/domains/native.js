@@ -49,20 +49,7 @@ function handle(ctx) {
       if (r && r.ok === false) return send(400, r);
       return send(202, { ok: true, accepted: true, state: 'uninstalling' });
     }
-    if (req.method === 'POST' && pathname === '/native/settings') {
-      if (!originAllowed(req)) return ctx.rejectCrossOrigin(ctx);
-      collectBody(req, res, 4096, (body) => {
-        try {
-          const j = body ? JSON.parse(body) : {};
-          if (sup.patchDshMain && typeof sup.patchDshMain === 'function') {
-            const r = sup.patchDshMain(j);
-            return send(r && r.ok === false ? 400 : 200, r);
-          }
-          return send(500, { ok: false, error: '守卫未实现 patchDshMain' });
-        } catch (e) { return send(400, { ok: false, error: e.message }); }
-      });
-      return;
-    }
+
   if (req.method === 'GET' || req.method === 'POST') return send(404, { error: 'not found', path: pathname });
   return send(405, { error: 'method not allowed' });
 }

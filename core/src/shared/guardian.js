@@ -1,9 +1,5 @@
 'use strict';
 
-function shouldGuard(inst) {
-  return !!(inst && inst.guardian === true);
-}
-
 function bumpStartupFailure(w, now, cfg) {
   const windowMs = cfg && Number(cfg.windowMs) > 0 ? Number(cfg.windowMs) : 60000;
   const burst = cfg && Number(cfg.burst) >= 1 ? Number(cfg.burst) : 5;
@@ -40,4 +36,6 @@ function makeBudget(cfg) {
   return self;
 }
 
-module.exports = { shouldGuard, bumpStartupFailure, makeBudget };
+// 进程是否该重拉由壳的进程表决定（desired=running），内核不再有第二套判据。
+// shouldGuard 已删——它与壳的 desired 是同一语义的两种表达。
+module.exports = { bumpStartupFailure, makeBudget };
