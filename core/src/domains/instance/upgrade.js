@@ -53,26 +53,41 @@ function createUpgrade(deps) {
     const nj = _updJobs[inst.id];
     return nj ? { state: nj.state, step: nj.step, errors: nj.errors, error: nj.error } : null;
   }
+  // R8-agent：委托 agent 域。原实现在此重复了一套「查 latest + semverCompare」，
+  // 与 domains/agent 的 checkUpdate 是同一件事——现在只保留一处。
   async function checkUpdate(id) {
     const inst = store.instances.find((i) => i.id === id);
     if (!inst) return { ok: false, error: '实例不存在' };
     if (inst.domain !== 'sandbox') return { ok: false, error: '仅沙箱实例支持版本检查' };
+    if (!deps.agents) {
+      // 未注入 agent 域（测试/独立使用）时退回本地实现，保证可用。
+      return _checkUpdateLocal(inst);
+    }
+    const r = await deps.agents.checkUpdate(
+      { id: 'sandbox:' + id, kind: 'sandbox', product: '@deepseek-ai/dsh' },
+      { dist, installed: readInstalledVersion(inst), prefix: sandbox.installDir(instancesRoot, inst) }
+    );
+    if (events) events.append('inst_update_check', { id, installed: r.installed, latest: r.latest, updateAvailable: r.updateAvailable });
+    return r;
+  }
+
+  // 本地回退实现（仅 agents 未注入时用）。
+  async function _checkUpdateLocal(inst) {
     const installed = readInstalledVersion(inst);
-    const cached = _updCache[id];
+    const cached = _updCache[inst.id];
     let latest = (cached && cached.latest) || null;
     if (!latest || !cached || (Date.now() - cached.checkedAt) > _updTTL) {
       try {
         const pick = await dist.fetchNpmLatest('@deepseek-ai/dsh');
         latest = pick.ok ? pick.version : null;
-        _updCache[id] = { latest, checkedAt: Date.now(), error: pick.ok ? null : (pick.error || '查询失败') };
+        _updCache[inst.id] = { latest, checkedAt: Date.now(), error: pick.ok ? null : (pick.error || '查询失败') };
       } catch (e) {
         latest = null;
-        _updCache[id] = { latest: null, checkedAt: Date.now(), error: e.message };
+        _updCache[inst.id] = { latest, checkedAt: Date.now(), error: e.message };
       }
     }
     const updateAvailable = !!(latest && installed && semverCompare(latest, installed) > 0);
-    if (events) events.append('inst_update_check', { id, installed, latest, updateAvailable });
-    return { ok: true, installed, latest, updateAvailable, error: _updCache[id].error };
+    return { ok: true, installed, latest, updateAvailable, error: _updCache[inst.id].error };
   }
   async function upgradeInstance(id) {
     const inst = store.instances.find((i) => i.id === id);

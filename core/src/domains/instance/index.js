@@ -27,6 +27,8 @@ class InstanceManager {
     this.machineFacts = opts.machineFacts || null;
     
     this.throttle = opts.throttle || null;
+    // agent 管理域：沙箱实例的 DSH 安装/升级委托它，不维护第二套实现。
+    this.agents = opts.agents || null;
     this.instancesRoot = path.join(this.dir, 'instances');
     this._sandboxSupportedOverride = undefined;
     this._hooks = {};
@@ -38,6 +40,7 @@ class InstanceManager {
       instancesRoot: this.instancesRoot, hooks: this._hooks, store: this._store,
       resstats: this.resstats, machineFacts: this.machineFacts,
       throttle: this.throttle,
+      agents: this.agents,
       isSandboxSupported: () => this.sandboxSupported,
     };
     ctx.lifecycle = this._lifecycle = createLifecycle(ctx);

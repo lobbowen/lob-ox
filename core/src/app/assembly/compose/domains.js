@@ -16,7 +16,8 @@ const { guardVersion } = require('../../../platform/service/version');
 const { Lifecycle } = require('../../../app/self/lifecycle');
 const { Health } = require('../../../app/self/health');
 const { HostService } = require('../../../app/settings/autostart');
-const { NativeManager } = require('../../../app/native/installer');
+// R8-agent：原生 DSH 管理改走 agent 域（NativeAgentAdapter 只做形状翻译）。
+const { NativeAgentAdapter } = require('../../../domains/agent/native-adapter');
 const { LifecycleManager } = require('../../../app/control/manager');
 const { BeatScheduler } = require('../../../app/control/synchrony');
 const ports = require('../../../platform/service/ports').shared;
@@ -43,21 +44,7 @@ function composeDomains(host) {
     });
     try { if (host.config.portPools) ports.configurePools(host.config.portPools); } catch (e) { host.logger.warn && host.logger.warn('ports pools configure: ' + (e && e.message)); }
     host._bindNativeDshCommand();
-    host.instances = new InstanceManager({
-      dir: path.dirname(host.config.stateFile),
-      logger: host.logger,
-      events: host.events,
-      dist: host.dist,
-      tasks: host.tasks,
-      tokenService: host.tokenService,
-      dshBin: host.config.command && host.config.command[1] ? host.config.command[1] : 'dsh',
-      
-      throttle: THROTTLE_DEFAULTS,
-    });
-    host.instances.load();
-    // agent 管理域：与 instances 并存，先立起来不切换路由。
-    // 现有 API 仍走 InstanceManager/NativeManager——切换是独立一步，
-    // 混在同一提交里会让「域建好了」和「链路换了」无法分别验证。
+    // agent 管理域先构造：InstanceManager 与 nativeManager 都要引用它。
     host.agents = new AgentManager({
       root: path.join(path.dirname(host.config.stateFile), 'agents'),
       logger: host.logger,
@@ -68,6 +55,20 @@ function composeDomains(host) {
       tokens: host.tokenService,
       resstats: host.resstats || null,
     });
+    host.instances = new InstanceManager({
+      dir: path.dirname(host.config.stateFile),
+      logger: host.logger,
+      events: host.events,
+      dist: host.dist,
+      tasks: host.tasks,
+      tokenService: host.tokenService,
+      dshBin: host.config.command && host.config.command[1] ? host.config.command[1] : 'dsh',
+      
+      throttle: THROTTLE_DEFAULTS,
+      // 沙箱实例的 DSH 安装/升级委托 agent 域——不为同一件事维护两套实现。
+      agents: host.agents,
+    });
+    host.instances.load();
     host._migrateMainRecord();
     try {
       host.managedObjects = new ManagedRegistry({
@@ -141,7 +142,10 @@ function composeDomains(host) {
     host.api = null;
     host.notifyEnabled = host.config.notifyEnabled !== false;
     host.loadState();
-    host.nativeManager = new NativeManager({
+    // R8-agent：nativeManager 现由 agent 域适配器提供。
+    // hooks 原样透传——停/拉/期望态判定本来就是壳的职责，agent 域不越界。
+    host.nativeManager = new NativeAgentAdapter({
+      agents: host.agents,
       config: host.config,
       dist: host.dist,
       events: host.events,

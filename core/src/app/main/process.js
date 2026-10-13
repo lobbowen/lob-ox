@@ -3,7 +3,7 @@
 const spawnOS = require('../../platform/os/spawn');
 const pidlook = require('../../platform/os/pidlookup');
 const { LineBuffer } = require('../../platform/service/log/log');
-const native = require('../../app/native/command');
+const native = require('../../platform/contract/native-command');
 const BRAND = require('../../shared/brand');
 const guardian = require('../../shared/guardian');
 const { findManagedDshPort, applyMainPort } = require('./port-rederive');

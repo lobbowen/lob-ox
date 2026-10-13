@@ -2,7 +2,8 @@
 'use strict';
 
 const execPath = require('../../platform/os/exec-path');
-const policies = require('../native/policies');
+// isBareCommand 的单一实现在 agent 域（app/native/policies.js 已删）。
+const policies = require('../../domains/agent/status');
 const BRAND = require('../../shared/brand');
 
 const path = require('node:path');

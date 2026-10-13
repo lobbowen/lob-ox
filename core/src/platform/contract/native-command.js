@@ -1,15 +1,17 @@
 'use strict';
 
 const fs = require('node:fs');
-const dshCli = require('../../platform/contract/dsh-cli');
-const execPath = require('../../platform/os/exec-path');
-const policies = require('../native/policies');
+const dshCli = require('./dsh-cli');
+const execPath = require('../os/exec-path');
 
 function resolveBareCommand(command) {
   if (!Array.isArray(command) || command.length === 0) return command;
   const idx = command.length > 1 ? 1 : 0;
   const cur = command[idx];
-  if (!policies.isBareCommand(cur)) return command;
+  // isBareCommand 从 agent 域来（那是它的单一实现，app/native 的副本已删）。
+  // 判据：不含路径分隔且不以 ~ 开头 = 裸命令（依赖 PATH 解析）。
+  const status = require('../../domains/agent/status');
+  if (!status.isBareCommand(cur)) return command;
   const d = execPath.resolveDsh();
   if (!d || !d.bin) return command;
   const rest = command.slice(idx + 1);

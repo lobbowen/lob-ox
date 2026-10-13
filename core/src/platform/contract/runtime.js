@@ -44,6 +44,18 @@ function read() {
   };
 }
 
+// 探测 npm 全局前缀（`npm root -g`）。平台能力，与 agent 管理无关。
+// 从 app/native/npm.js 收拢——那个文件随 agent 域切换已删。
+async function resolveGlobalPrefix(npmLauncher, opts) {
+  const l = npmLauncher || {};
+  if (!l.program) return null;
+  const args = Array.isArray(l.args) ? l.args : [];
+  const ex = require('../util/exec');
+  try {
+    const r = await ex.runOutAsync(l.program, args.concat(['root', '-g']), opts || undefined);
+    return r ? r.trim() : null;
+  } catch { return null; }
+}
 function npmLauncher(opts) {
   const c = read();
   if (c && c.npmPath) {
@@ -64,4 +76,4 @@ function withPath(env) {
   return e;
 }
 
-module.exports = { SUPPORTED_SCHEMA, file, read, npmLauncher, withPath };
+module.exports = { SUPPORTED_SCHEMA, file, read, npmLauncher, withPath, resolveGlobalPrefix };

@@ -8,7 +8,8 @@ const { extension: domainConfigExtension } = require('../../../app/settings/doma
 const logcore = require('../../../platform/service/log/logcore');
 const { DshTokenService } = require('../../../platform/service/token');
 const { EnvCatalog } = require('../../../platform/service/env-catalog');
-const npm = require('../../native/npm');
+// resolveNpmRoot 是平台能力（探测 npm 全局前缀），已随 app/native 删除迁到 runtime_contract。
+const npm = require('../../../platform/contract/runtime');
 
 const FORM_NPM_ROOT_TIMEOUT_MS = 4000;
 const { DistributionManager } = require('../../../platform/distribution/index');
@@ -30,7 +31,7 @@ function composeCore(host, rawConfig, configPath) {
         const [reg, prefix] = await Promise.all([
           m && m.dist && typeof m.dist.registryInfo === 'function'
             ? Promise.resolve(m.dist.registryInfo()).catch(() => null) : Promise.resolve(null),
-          m ? npm.resolveNpmRoot(m, { timeoutMs: FORM_NPM_ROOT_TIMEOUT_MS }).catch(() => null) : Promise.resolve(null),
+          m ? npm.resolveGlobalPrefix(m, { timeoutMs: FORM_NPM_ROOT_TIMEOUT_MS }).catch(() => null) : Promise.resolve(null),
         ]);
         return {
           node: cat.node, npm: cat.npm, git: cat.git,
