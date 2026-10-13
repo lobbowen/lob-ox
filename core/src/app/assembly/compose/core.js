@@ -8,7 +8,7 @@ const { extension: domainConfigExtension } = require('../../../app/settings/doma
 const logcore = require('../../../platform/service/log/logcore');
 const { DshTokenService } = require('../../../platform/service/token');
 const { EnvCatalog } = require('../../../platform/service/env-catalog');
-// resolveNpmRoot 是平台能力（探测 npm 全局前缀），已随 app/native 删除迁到 runtime_contract。
+// resolveGlobalPrefix 是平台能力（探测 npm 全局前缀），单一实现在本文件。
 const npm = require('../../../platform/contract/runtime');
 
 const FORM_NPM_ROOT_TIMEOUT_MS = 4000;

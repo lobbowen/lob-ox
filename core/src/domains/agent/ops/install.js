@@ -4,7 +4,7 @@
 //
 // 从两处并行实现收拢：
 //   domains/instance/ops/dsh-install.js  沙箱化：npm --prefix <每实例 installDir>
-//   app/native/npm.js                   原  生：npm --prefix <共享 npmRoot>
+//   原生：npm --prefix <共享 npmRoot>
 //
 // 收拢的关键：两者本质是同一件事——「把 agent 包装到某个 prefix 下」。
 // 差别只在 prefix 从哪来，而 prefix 的判据已经在 model.installDirOf 里回答过。
@@ -129,7 +129,7 @@ function createLatestResolver(dist, opts) {
 
 /**
  * 环境自检：node/npm 是否可用。
- * 从 app/native/npm.js 的 checkEnvironment 收拢，但不绑 host——
+ * 从原生实现的 checkEnvironment 收拢，但不绑 host——
  * 调用方给 npmLauncher（来自 runtimeContract），本模块只执行。
  */
 async function checkEnvironment(npmLauncher) {

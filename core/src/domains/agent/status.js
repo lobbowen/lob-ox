@@ -2,7 +2,7 @@
 
 // agent 状态判定（纯函数层）。
 //
-// 从 app/native/policies.js 收拢而来。原实现全部以 host（NativeManager 实例）
+// 从原生实现的状态判定收拢而来。原实现全部以 host（NativeManager 实例）
 // 为入参，读取 host.upgradeState / host.lastCheck 等过程式字段——那只能服务原生形态。
 // 本模块把判定**从 host 上剥离**，入参改为显式的状态对象，两种形态共用。
 //

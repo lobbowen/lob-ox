@@ -2,7 +2,7 @@
 
 // agent 卸载（五件套之四）。
 //
-// 从 app/native/ops.js 的 uninstall 收拢。核心不变量是**越界保护**：
+// 从原生实现的 uninstall 收拢。核心不变量是**越界保护**：
 // 只删产品自己的数据，绝不碰其他产品（含 DSH）的用户数据。
 // 这条在原实现里由 _withinAncestor + safeAncestors 保证，收拢时原样保留，
 // 并把「祖先集合从哪来」显式化——那是安全边界，不能隐式依赖 host 字段。

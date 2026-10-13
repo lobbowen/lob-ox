@@ -45,7 +45,7 @@ function read() {
 }
 
 // 探测 npm 全局前缀（`npm root -g`）。平台能力，与 agent 管理无关。
-// 从 app/native/npm.js 收拢——那个文件随 agent 域切换已删。
+// 从原生实现的 npm 前缀探测收拢而来。
 async function resolveGlobalPrefix(npmLauncher, opts) {
   const l = npmLauncher || {};
   if (!l.program) return null;

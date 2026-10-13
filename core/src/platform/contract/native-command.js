@@ -8,7 +8,7 @@ function resolveBareCommand(command) {
   if (!Array.isArray(command) || command.length === 0) return command;
   const idx = command.length > 1 ? 1 : 0;
   const cur = command[idx];
-  // isBareCommand 从 agent 域来（那是它的单一实现，app/native 的副本已删）。
+  // isBareCommand 从 agent 域来（那是它的单一实现）。
   // 判据：不含路径分隔且不以 ~ 开头 = 裸命令（依赖 PATH 解析）。
   const status = require('../../domains/agent/status');
   if (!status.isBareCommand(cur)) return command;
