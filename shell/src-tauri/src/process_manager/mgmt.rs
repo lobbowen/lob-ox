@@ -178,7 +178,7 @@ async fn handle(
         .get(MGMT_TOKEN_HEADER)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    if port == 0 || !token_eq(got_token, want_token) {
+    if port == 0 || !token_eq(got_token, want_token.as_str()) {
         return Ok(reply(StatusCode::UNAUTHORIZED, "mgmt token mismatch"));
     }
     let body = match req.into_body().collect().await {
