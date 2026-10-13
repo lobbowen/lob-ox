@@ -75,6 +75,7 @@ fn core_desc() -> crate::process_manager::state_machine::WorkloadDesc {
         id: "core".to_string(),
         spawn_cmd: Vec::new(),
         priority: crate::process_manager::state_machine::Priority::Core,
+        env: Vec::new(),
     }
 }
 

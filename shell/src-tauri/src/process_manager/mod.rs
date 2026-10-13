@@ -52,6 +52,7 @@ impl ProcessManager {
             .or_insert_with(|| state_machine::WorkloadState::from_desc(&desc));
         st.pid = Some(pid);
         st.spawn_cmd = desc.spawn_cmd.clone();
+        st.env = desc.env.clone();
         st.priority = desc.priority;
         st.phase = state_machine::Phase::Starting;
         st.last_transition = Instant::now();
@@ -103,6 +104,7 @@ impl ProcessManager {
                 id: st.id.clone(),
                 spawn_cmd: st.spawn_cmd.clone(),
                 priority: st.priority,
+                env: st.env.clone(),
             })
             .collect()
     }
@@ -133,6 +135,12 @@ pub fn spawn_healer(pm: std::sync::Arc<ProcessManager>) {
                 let mut cmd = std::process::Command::new(&desc.spawn_cmd[0]);
                 for a in desc.spawn_cmd.iter().skip(1) {
                     cmd.arg(a);
+                }
+                // 应用负载自带的 env 覆盖：沙箱实例靠它把 HOME/APPDATA/XDG_* 指到
+                // 自己的数据目录。缺了它，heal 拉起的进程与内核拉起的进程行为不同——
+                // 前者写真实用户目录，破坏数据隔离。
+                for (k, v) in &desc.env {
+                    cmd.env(k, v);
                 }
                 match cmd.spawn() {
                     Ok(child) => {

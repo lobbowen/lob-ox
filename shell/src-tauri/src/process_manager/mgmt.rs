@@ -275,10 +275,26 @@ fn parse_desc(v: &serde_json::Value) -> Option<state_machine::WorkloadDesc> {
         .and_then(|a| a.as_array())
         .map(|arr| arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
         .unwrap_or_default();
+    // env：负载启动时需要的环境变量覆盖。沙箱实例靠它维持数据隔离，
+    // 缺失时 heal 重拉的进程会写进真实用户目录。
+    let env = v
+        .get("env")
+        .and_then(|a| a.as_object())
+        .map(|obj| {
+            let mut pairs: Vec<(String, String)> = obj
+                .iter()
+                .filter_map(|(k, val)| val.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect();
+            // 排序保证同一次注册产生的 env 顺序稳定，便于对账与测试。
+            pairs.sort_by(|a, b| a.0.cmp(&b.0));
+            pairs
+        })
+        .unwrap_or_default();
     Some(state_machine::WorkloadDesc {
         id,
         spawn_cmd,
         priority: parse_priority(v.get("priority").and_then(|x| x.as_str())),
+        env,
     })
 }
 

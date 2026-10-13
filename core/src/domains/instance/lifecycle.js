@@ -112,12 +112,17 @@ function createLifecycle(deps) {
         }
       }
       store.save();
-      // 向壳的进程表注册：spawn_cmd 必须是壳能独立执行的完整命令（含 node 与入口），
-      // 否则壳的 heal_candidates 会因 spawn_cmd 为空而跳过（process_manager/mod.rs）。
+      // 向壳的进程表注册。两项都不可省：
+      //   spawn_cmd —— 壳能独立执行的完整命令（含 node 与入口）。传空数组会让
+      //     heal_candidates 直接跳过（process_manager/mod.rs 的 is_empty 判断），
+      //    而那正是旧 ManagedRegistry 的做法（spawn_cmd: []）——壳从来无法自愈它。
+      //   env —— sandboxEnv 的 11 个重定向变量。壳 heal 重拉时会原样应用，
+      //     否则重拉的进程写进真实用户目录，「各自独立数据目录」在自愈路径上失效。
       pmClient.register({
         id: 'sandbox:' + inst.id,
         spawn_cmd: cmdArr,
         priority: 3,   // Sandbox：见 shell/src-tauri/src/process_manager/state_machine.rs
+        env,
       });
       pmClient.setDesired('sandbox:' + inst.id, 'running');
       if (inst.port && hooks.onInstanceStart) hooks.onInstanceStart(inst);

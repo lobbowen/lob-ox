@@ -69,6 +69,10 @@ pub struct WorkloadDesc {
     /// 机箱只持有「机制」：spawn 命令与自愈优先级；业务判定由内核负责。
     pub spawn_cmd: Vec<String>,
     pub priority: Priority,
+    /// 启动环境变量覆盖。沙箱实例必须带（HOME/USERPROFILE/APPDATA/XDG_*/npm_config_*），
+    /// 否则 heal 重拉的进程会写进真实用户目录——「各自独立数据目录」在自愈路径上失效。
+    /// 缺省为空，壳沿用自身环境（原生负载适用）。
+    pub env: Vec<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -79,6 +83,7 @@ pub struct WorkloadState {
     pub priority: Priority,
     /// 壳自持路径下由壳拉起的进程；内核自报路径下为空（壳不持有其句柄）。
     pub spawn_cmd: Vec<String>,
+    pub env: Vec<(String, String)>,
     pub pid: Option<u32>,
     pub last_transition: Instant,
     pub last_will: Option<LastWill>,
@@ -94,6 +99,7 @@ impl WorkloadState {
             desired: Desired::Stopped,
             priority: d.priority,
             spawn_cmd: d.spawn_cmd.clone(),
+            env: d.env.clone(),
             pid: None,
             last_transition: Instant::now(),
             last_will: None,

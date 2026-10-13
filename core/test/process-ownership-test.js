@@ -73,6 +73,76 @@ check('Sandbox 优先级在壳侧已定义', () => {
   assert.ok(/Sandbox = 3/.test(sm), 'state_machine 应定义 Sandbox 优先级');
 });
 
+check('沙箱注册必须传 env（否则 heal 重拉写真实用户目录）', () => {
+  const lc = fs.readFileSync(CORE + '/domains/instance/lifecycle.js', 'utf8');
+  // register 调用必须含 env 字段
+  assert.ok(/pmClient\.register\(\{[\s\S]{0,300}?\benv,\s*\n\s*\}\);/.test(lc),
+    'pmClient.register 必须传 env');
+  // 且 env 必须来自 sandboxEnv（不能是空对象或 process.env）
+  const s = lc.indexOf('pmClient.register({');
+  const block = lc.slice(s, s + 400);
+  assert.ok(/env,\s*\n/.test(block), 'env 应为简写形式（来自上方 sandboxEnv 解构）');
+  assert.ok(/const \{ env, workingDir \} = sandbox\.sandboxEnv/.test(lc),
+    'env 必须来自 sandbox.sandboxEnv 的解构');
+});
+
+check('壳侧 WorkloadDesc 有 env 字段', () => {
+  const sm = fs.readFileSync(SHELL + '/process_manager/state_machine.rs', 'utf8');
+  assert.ok(/pub env: Vec<\(String, String\)>/.test(sm),
+    'WorkloadDesc 应有 env: Vec<(String, String)> 字段');
+  // WorkloadState 也要有（heal_candidates 从 state 重建 desc）
+  assert.ok(/pub struct WorkloadState[\s\S]{0,900}pub env: Vec<\(String, String\)>/.test(sm),
+    'WorkloadState 应有 env 字段，否则 heal_candidates 重建 desc 时丢失');
+});
+
+check('壳侧 spawn_healer 应用 env 覆盖', () => {
+  const pm = fs.readFileSync(SHELL + '/process_manager/mod.rs', 'utf8');
+  const h = pm.indexOf('pub fn spawn_healer');
+  const body = pm.slice(h, h + 1400);
+  assert.ok(/for \(k, v\) in &desc\.env/.test(body),
+    'spawn_healer 必须应用 desc.env，否则 heal 重拉的沙箱实例写真实用户目录');
+  assert.ok(/cmd\.env\(k, v\)/.test(body), '应有 cmd.env(k, v) 调用');
+});
+
+check('壳侧 parse_desc 读 env（JSON 对象 → Vec）', () => {
+  const mg = fs.readFileSync(SHELL + '/process_manager/mgmt.rs', 'utf8');
+  const s = mg.indexOf('fn parse_desc');
+  const body = mg.slice(s, s + 1200);
+  assert.ok(/get\("env"\)/.test(body), 'parse_desc 应读 env 字段');
+  assert.ok(/as_object\(\)/.test(body), 'env 应按 JSON 对象解析');
+  assert.ok(/pairs\.sort_by/.test(body), 'env 应排序（顺序稳定便于对账）');
+});
+
+check('壳侧 heal_candidates 重建 desc 时带 env', () => {
+  const pm = fs.readFileSync(SHELL + '/process_manager/mod.rs', 'utf8');
+  const h = pm.indexOf('pub fn heal_candidates');
+  const body = pm.slice(h, h + 900);
+  assert.ok(/env: st\.env\.clone\(\)/.test(body),
+    'heal_candidates 重建 WorkloadDesc 必须带 env，否则 spawn_healer 拿不到');
+});
+
+check('壳侧 adopt_spawned 存 env', () => {
+  const pm = fs.readFileSync(SHELL + '/process_manager/mod.rs', 'utf8');
+  const h = pm.indexOf('pub fn adopt_spawned');
+  const body = pm.slice(h, h + 700);
+  assert.ok(/st\.env = desc\.env\.clone\(\)/.test(body), 'adopt_spawned 应存 env');
+});
+
+check('壳侧 core_desc 有 env 字段（原生负载空 env）', () => {
+  const g = fs.readFileSync(SHELL + '/domain/guardctl.rs', 'utf8');
+  const s = g.indexOf('fn core_desc');
+  const body = g.slice(s, s + 400);
+  assert.ok(/env: Vec::new\(\)/.test(body), 'core_desc 应有 env: Vec::new()');
+});
+
+check('sandboxEnv 覆盖度（11 个变量，含 Windows 专有）', () => {
+  const se = fs.readFileSync(CORE + '/domains/agent/runtime/sandbox-env.js', 'utf8');
+  const need = ['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
+    'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME',
+    'TMPDIR', 'npm_config_cache', 'npm_config_userconfig'];
+  const missing = need.filter((k) => !new RegExp('env\\.' + k + '\\s*=').test(se));
+  assert.strictEqual(missing.length, 0, 'sandbox-env 缺变量: ' + missing.join(','));
+});
 check('pm-client 端到端不抛（无契约文件时静默）', () => {
   const pmc = require(CORE + '/platform/contract/pm-client.js');
   const ep = pmc.endpoint();
