@@ -84,10 +84,22 @@ fn mgmt_token_root() -> &'static [u8; 32] {
         unsafe {
             #[cfg(target_os = "windows")]
             {
+                // BCryptGenRandom（CNG）是 Windows 上无需提权的 CSPRNG 入口，且 bcrypt.lib
+                // 已在依赖图内（ring 引入，链接器命令行可见）。此前用 RtlGenRandom 声明
+                // extern "system" 导致 LNK2019——它是 advapi32 的 SystemFunction036 别名，
+                // 未经 #[link(name="advapi32")] 声明时链接器找不到符号。
                 extern "system" {
-                    fn RtlGenRandom(buf: *mut u8, len: u32) -> u8;
+                    fn BCryptGenRandom(hAlgorithm: *mut core::ffi::c_void, pbBuffer: *mut u8, cbBuffer: u32, dwFlags: u32) -> i32;
                 }
-                ok = RtlGenRandom(seed.as_mut_ptr(), seed.len() as u32) != 0;
+                const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x00000002;
+                let rc = BCryptGenRandom(
+                    core::ptr::null_mut(),
+                    seed.as_mut_ptr(),
+                    seed.len() as u32,
+                    BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+                );
+                // STATUS_SUCCESS == 0
+                ok = rc == 0;
             }
             #[cfg(not(target_os = "windows"))]
             {
