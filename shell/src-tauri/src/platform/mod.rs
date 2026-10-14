@@ -663,7 +663,7 @@ pub fn set_windows_user_env(key: &str, value: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
         let path = format!("HKCU\\Environment\\{}", key);
-        let mut cmd = Command::new("reg.exe");
+        let mut cmd = std::process::Command::new("reg.exe");
         cmd.arg("add").arg(&path).arg("/t").arg("REG_EXPAND_SZ")
             .arg("/f").arg("/d").arg(value);
         crate::bounded::prepare(&mut cmd);
