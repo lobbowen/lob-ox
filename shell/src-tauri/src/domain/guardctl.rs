@@ -25,7 +25,8 @@ impl LaunchError {
 
 /// `--run-guard` 的本地检测（不触网）：解析可运行的 node + 守卫（取本地最高版本）。服务定义只指向稳定入口，故每次启动重新检测，node 迁移（nvm/volta/fnm）与内核升级后自动适配；线上对齐（P1）仍由壳在创建/启动服务前把关，此处只做本地解析，离线也能启动。
 pub fn resolve_local(resource_dir: Option<std::path::PathBuf>) -> Option<(crate::runtime_contract::NodeRuntime, std::path::PathBuf)> {
-    let rt = crate::runtime_contract::ensure()?;
+    // --run-guard 是真正 spawn 内核的入口，走同一条启动门补齐逻辑（达标 + 升到最新 LTS）。
+    let rt = crate::runtime_contract::ensure_with_upgrade()?;
     let guard = crate::domain::coreloc::pick_best(
         crate::domain::coreloc::locate_core_candidates(resource_dir),
     )
@@ -180,7 +181,11 @@ pub(crate) fn ensure_core(app: &tauri::AppHandle) -> Result<(), LaunchError> {
         return Ok(());
     }
 
-    let rt = crate::runtime_contract::ensure().ok_or_else(|| {
+    // 启动门走 ensure_with_upgrade：开机既要保证「达标」，也要把已达标但落后于
+    // 最新 LTS 的环境升上去（min_node 只是下限，目标始终是最新 LTS）。
+    // 其余调用点（core_desc / resolve_local / CLI 诊断）仍用 ensure()：它们是查询，
+    // 不该在读取路径上触发升级。
+    let rt = crate::runtime_contract::ensure_with_upgrade().ok_or_else(|| {
         // 带上环境管理器给出的具体原因（版本过低 / 探测不到 / 自动安装失败），
         // 而不是只说「未就绪」—— 后者让用户完全无从下手。
         LaunchError::new(

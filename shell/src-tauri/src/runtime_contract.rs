@@ -345,6 +345,41 @@ pub fn ensure() -> Option<NodeRuntime> {
     crate::node::auto_install_quiet()
 }
 
+/// 开机时的环境补齐：达标但**已落后于最新 LTS** 时同样升级到最新 LTS。
+///
+/// 架构约定（此前缺失）：环境的**目标**是「当前最新 LTS」，而 `min_node` 只是
+/// 「能不能跑内核」的下限兜底。此前 `ensure()` 只在不达标时才去获取，于是一台装过
+/// v22 的机器会永远停在 v22：Node 出了新的 LTS 线（v24）也感知不到，
+/// 而 `outdated()` 的结果只被送到 UI 做提示、从��参与决策 ——
+/// 「检测到过期」与「去升级」是两件事，只做了前者。
+///
+/// 现在把检测接到决策上：达标但过期 -> 走同一条自动获取路径升到最新 LTS；
+/// 无网络或获取失败 -> 静默保留现有达标版本继续用（降级可用，而不是变砖）。
+pub fn ensure_with_upgrade() -> Option<NodeRuntime> {
+    let cur = ensure();
+    let rt = match cur.as_ref() {
+        Some(r) => r.clone(),
+        None => return cur, // ensure 内部已经尝试过自动获取且仍失败
+    };
+    // 已是最新（或查不到更新的）就不打扰：避免每次开机都去触网。
+    let choice = match crate::node::latest_lts() {
+        Ok(c) => c,
+        Err(e) => {
+            crate::update::log(&format!("[runtime] 查询最新 LTS 失败，沿用现有 Node {}: {}", rt.version, e));
+            return cur;
+        }
+    };
+    if !crate::node::outdated(Some(rt.version.as_str()), &choice.version) {
+        return cur;
+    }
+    crate::update::log(&format!(
+        "[runtime] 已装 Node {} 落后于最新 LTS {}，静默升级",
+        rt.version, choice.version
+    ));
+    // 升级失败就保留现有达标版本：它仍能跑内核，比没有环境强。
+    crate::node::auto_install_quiet().or(Some(rt))
+}
+
 pub fn env_path(node_bin_dir: &Path) -> String {
     let mut dirs: Vec<PathBuf> = vec![node_bin_dir.to_path_buf()];
     let h = crate::env::home();
