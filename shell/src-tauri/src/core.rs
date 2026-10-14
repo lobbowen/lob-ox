@@ -45,7 +45,13 @@ pub fn is_valid_version(v: &str) -> bool {
 
 pub fn semver_cmp(a: &str, b: &str) -> i32 {
     let parse = |v: &str| -> (Vec<i64>, String) {
-        let clean = v.split('+').next().unwrap_or("").to_string();
+        let clean = v.split('+').next().unwrap_or("").trim();
+        // 剥掉 `v` 前缀：min_node() 读自 shared-constants.json（形如 "v22.12.0"），
+        // 而 node -v 输出与 runtime.json 记录不带前缀（"10.24.1"）。此前两者用同一个
+        // 解析器比较时，"v22.12.0" 的首段是 "v22"，parse::<i64>() 得 NaN 后**静默归零**，
+        // 于是 22 被读成 0，「v22.12.0 < 10.24.1」成立 —— 版本门禁反而放行了低版本。
+        // 这正是真机上 Node v10.24.1 被判定为满足 minNode 的直接原因。
+        let clean = clean.strip_prefix('v').or_else(|| clean.strip_prefix('V')).unwrap_or(clean);
         let mut it = clean.splitn(2, '-');
         let core = it.next().unwrap_or("").to_string();
         let pre = it.next().unwrap_or("").to_string();

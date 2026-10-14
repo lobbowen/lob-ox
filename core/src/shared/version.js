@@ -4,7 +4,12 @@ const VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?
 
 function semverCompare(a, b) {
   const parse = (v) => {
-    const clean = String(v).split('+')[0];
+    // 剥掉 `v` 前缀：minNode 读自 shared-constants.json（形如 v22.12.0），
+    // 而 node -v 输出与 runtime.json 记录不带前缀（10.24.1）。此前两者用同一个
+    // 解析器比较时，v22.12.0 的首段是 v22，parseInt 得 NaN 后被 `|| 0` 静默归零，
+    // 于是 22 被读成 0，判定「v22.12.0 < 10.24.1」成立 —— 版本门禁反而放行低版本。
+    // Rust 侧 core.rs::semver_cmp 同一处缺陷已同步修复；两边必须一致，否则判据分叉。
+    const clean = String(v).split('+')[0].trim().replace(/^[vV]/, '');
     const dash = clean.indexOf('-');
     const core = dash === -1 ? clean : clean.slice(0, dash);
     const pre = dash === -1 ? '' : clean.slice(dash + 1);
