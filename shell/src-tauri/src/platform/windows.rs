@@ -70,10 +70,7 @@ impl Platform for Impl {
         if extract_with_expand_archive(archive, dest).is_ok() {
             return Ok(dest.to_path_buf());
         }
-        Err(format!("
-            "解包归档失败（{}）：tar.exe 与 Expand-Archive 均失败",
-            archive.display()
-        "))
+        Err(format!("解包归档失败（{}）：tar.exe 与 Expand-Archive 均失败", archive.display()))
     }
     fn name(&self) -> &'static str {
         NAME
