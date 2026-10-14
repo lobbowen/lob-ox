@@ -142,8 +142,3 @@ pub fn ensure_on_user_path(bin_dir: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
-/// 写用户级环境变量。
-///
-/// Windows 用 registry::Value（等价于 setx，不截断）；
-/// Unix 落到 shell profile——那里必须追加而不是覆盖整个 PATH，
-/// 覆盖会抹掉用户已有的全部条目。
