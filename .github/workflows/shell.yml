@@ -18,6 +18,10 @@ on:
         description: '要复核的已发布版本（如 1.2.6；也可直接粘 tag：shell-1.2.6 或已发布版本号。留空 = 用当前仓库版本）'
         required: false
         default: ''
+      from_run:
+        description: '复用该 run id 已构建的产物直接发布（不重建）。填 main 分支上已全绿的 build run id；留空 = 走普通构建路径。'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -40,7 +44,7 @@ jobs:
           node-version: '22'
 
       - name: tag 命名规范（仅 tag）
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && inputs.from_run == ''
         shell: bash
         env:
           TAG_NAME: ${{ github.ref_name }}
@@ -62,6 +66,9 @@ jobs:
 
   build:
     needs: version
+    # 复用既有 run 的产物时不再重建：from_run 指定了一个已全绿的 build run，
+    # 重新跑四平台矩阵只是把同一份源码再编译一遍，产物字节相同却多耗一轮 runner。
+    if: inputs.from_run == ''
     permissions:
       contents: write
     strategy:
@@ -174,12 +181,42 @@ jobs:
             shell/src-tauri/target/release/bundle/**/*.sig
           generate_release_notes: true
 
-  publish:
+  # gate：tag 路径下确保 build 矩阵已跑完（from_run 路径下 build 被跳过，gate 直接通过）。
+  # 用它而不是把 build 写进 publish.needs —— needs 里的 job 被 if 跳过会把下游一并 skip。
+  gate:
     needs: [version, build]
-    if: startsWith(github.ref, 'refs/tags/shell-')
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 断言所需构建已就绪
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.from_run }}" != "" ]; then
+            echo "复用 run ${{ inputs.from_run }} 的产物，跳过构建 —— 通过"
+            exit 0
+          fi
+          if [ "${{ startsWith(github.ref, 'refs/tags/shell-') && 'true' || 'false' }}" != "true" ]; then
+            echo "非 tag 且未指定 from_run —— 本次不发布"
+            exit 0
+          fi
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            echo "::error::构建矩阵未成功（${{ needs.build.result }}），拒绝在未验证产物上发布"
+            exit 1
+          fi
+          echo "构建矩阵已全绿 —— 通过"
+
+  publish:
+    needs: [version, gate]
+    # 两条发布路径：tag 推送（构建+发布一次跑完），或 workflow_dispatch + from_run（复用已绿 run 的产物）。
+    if: startsWith(github.ref, 'refs/tags/shell-') || inputs.from_run != ''
+    outputs:
+      ver: ${{ needs.version.outputs.ver }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # from_run 跨 run 下载 artifact 需要读 Actions；tag 路径用不到但一并声明（最小权限仍是只读）。
+      actions: read
     steps:
       - uses: actions/checkout@v4
 
@@ -189,10 +226,22 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: 下载全部平台产物
+      # 产物取自哪一次构建：from_run 指定时跨 run 取上一次已全绿的 build 产物（不重建）；
+      # 未指定时取本次 run 自己的产物（tag 路径）。artifact 名即 matrix.artifact（平台名）。
+      - name: 下载全部平台产物（本次 run）
+        if: inputs.from_run == ''
         uses: actions/download-artifact@v4
         with:
           path: shell/dist/artifacts
+
+      - name: 下载全部平台产物（复用 run ${{ inputs.from_run }}）
+        if: inputs.from_run != ''
+        uses: actions/download-artifact@v4
+        with:
+          path: shell/dist/artifacts
+          run-id: ${{ inputs.from_run }}
+          pattern: '*'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 归拢 npm 包目录
         shell: bash

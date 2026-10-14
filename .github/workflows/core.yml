@@ -30,6 +30,10 @@ on:
         description: '发布后冒烟目标版本（须为**裸版本**，如 0.1.6-BETA.20；不要写 tag＝不要带 core-/v 前缀。留空则取 core/package.json#version）'
         required: false
         default: ''
+      from_run:
+        description: '复用该 run id 已构建的产物直接发布（不重建）。填 main 分支上已全绿的 build run id；留空 = 走普通构建路径。'
+        required: false
+        default: ''
 
 # 顶层只给 contents: read ⇒ 新增 job 默认只读（fail-closed）；各 job 按需向上声明。
 # 发布不幂等（npm 同版本不可重发 + Release 资产挂载竞态）⇒ tag 运行不得取消进行中的 run。
@@ -54,6 +58,7 @@ defaults:
 
 jobs:
   precheck:
+    # 复用既有 run 产物时不做「要不要构建」的决策：from_run 已经指明了产物来源。
     runs-on: ubuntu-latest
     outputs:
       need_build: ${{ steps.probe.outputs.need_build }}
@@ -107,6 +112,8 @@ jobs:
           fi
 
   build:
+    # from_run 指定已全绿的 build run 时不再重建：同一份源码重编译一遍，产物字节相同却多耗一轮 runner。
+    if: inputs.from_run == ''
     needs: precheck
     permissions:
       contents: read
@@ -215,20 +222,57 @@ jobs:
 
   # 不能放进 build 矩阵：各腿会并发向同一 Release 上传（竞态），且 dist/launcher/** 含同名文件
   #    （如 core.cjs）会互相覆盖 ⇒ build 只上传 artifact，本 job 汇总后一次性挂载。
-  release:
+  # gate：tag 路径下确保构建矩阵已全绿（from_run 路径下 build 被跳过，gate 直接通过）。
+  # 不用 needs 直接串 build —— needs 里的 job 被 if 跳过会把下游一并 skip。
+  gate:
     needs: [precheck, build]
-    if: startsWith(github.ref, 'refs/tags/core-') && needs.precheck.outputs.need_build == 'true'
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 断言所需构建已就绪
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.from_run }}" != "" ]; then
+            echo "复用 run ${{ inputs.from_run }} 的产物，跳过构建 —— 通过"
+            exit 0
+          fi
+          if [ "${{ startsWith(github.ref, 'refs/tags/core-') && 'true' || 'false' }}" != "true" ]; then
+            echo "非 tag 且未指定 from_run —— 本次不发布"
+            exit 0
+          fi
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            echo "::error::构建矩阵未成功（${{ needs.build.result }}），拒绝在未验证产物上发布"
+            exit 1
+          fi
+          echo "构建矩阵已全绿 —— 通过"
+
+  release:
+    needs: [precheck, gate]
+    if: (startsWith(github.ref, 'refs/tags/core-') || inputs.from_run != '') && (inputs.from_run != '' || needs.precheck.outputs.need_build == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # from_run 跨 run 下载 artifact 需要读 Actions（tag 路径用不到，最小权限仍是只读）。
+      actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: 收集各平台构建产物
+      - name: 收集各平台构建产物（本次 run）
+        if: inputs.from_run == ''
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           # ⚠ download-artifact 的 `path:` 同样是 workspace 根基准 ⇒ 显式落在 core/artifacts。
           path: core/artifacts
+
+      - name: 收集各平台构建产物（复用 run ${{ inputs.from_run }}）
+        if: inputs.from_run != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: core/artifacts
+          run-id: ${{ inputs.from_run }}
+          pattern: '*'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       # 本 run 块 cwd = core/ ⇒ 脚本里的 out/ 实际是 core/out/。
       - name: 按平台打包为唯一命名的 tar.gz
@@ -246,6 +290,19 @@ jobs:
           echo "  产物:"
           ls -lh out/ | sed "s/^/    /"
           if [ -z "$(ls -A out 2>/dev/null)" ]; then echo "::error::未生成任何 Release 资产"; exit 1; fi
+
+      # npm 真发布：正常路径在 build 矩阵内完成（各腿推自己平台的子包）。
+      # from_run 模式下 build 被跳过（产物来自上一次已全绿的 run），npm 发布必须在这里补上，
+      # 否则会出现「GitHub Release 有资产、npm 上没有包」的分裂状态。
+      - name: npm 发布（复用 run 产物）
+        if: inputs.from_run != ''
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          bash release/scripts/ci-core.sh --publish-only
 
       # ⚠ `uses:` 的 `files` 是 workspace 根基准，而 tar.gz 落在 core/out/ ⇒ 写 core/out/*.tar.gz。
       - name: 附加到 GitHub Release
