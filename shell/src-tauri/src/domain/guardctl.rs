@@ -277,15 +277,11 @@ impl Readiness {
 }
 
 /// 裸 TCP 可达判定 —— **只**用于「不再可达 = 进程已停」这类否定问题（重启前的等待）。就绪与否**不得**用它回答（那是 [`ready`] 的活）：端口能连只说明有人在听，守卫在绑定端口与真正可服务之间还有一大段启动过程。
-pub(crate) fn port_open(port: u16) -> bool {
-    let addr = format!("127.0.0.1:{}", port);
-    if let Ok(mut it) = addr.to_socket_addrs() {
-        if let Some(sa) = it.next() {
-            return TcpStream::connect_timeout(&sa, std::time::Duration::from_millis(400)).is_ok();
-        }
+    /// 就绪判据第一步：回环端口是否可连。与 localhttp::connect_local 同源
+    /// （同一句 127.0.0.1 + to_socket_addrs + connect_timeout），此前这里另写一份，只有超时不同。
+    pub(crate) fn port_open(port: u16) -> bool {
+        super::localhttp::connect_local(port, std::time::Duration::from_millis(400)).is_some()
     }
-    false
-}
 
 pub(crate) fn ready(port: u16, http_timeout: std::time::Duration) -> Readiness {
     if !port_open(port) {
