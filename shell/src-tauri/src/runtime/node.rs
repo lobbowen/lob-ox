@@ -3,7 +3,8 @@
 //! 只描述「Node 是什么」：版本索引在哪、产物怎么选、解包后 bin 在哪。
 //! 引擎流程（下载/校验/切换/记录）在 runtime::engine 里，与本文件无关。
 
-use super::{Plan, RuntimeSpec, RuntimeVersion};
+use super::engine::Plan;
+use super::{InstalledRuntime, RuntimeSpec, RuntimeVersion};
 use crate::platform::external_path;
 use std::path::{Path, PathBuf};
 
@@ -164,8 +165,9 @@ pub fn install_latest(
     let staging = root.with_extension("staging");
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-    let extract = crate::platform::current().extract_archive;
-    extract(&local, &staging)?;
+    // extract_archive 是 Platform 的静态方法（无 self），需用 Trait:: 限定调用，
+    // 不能经实例调用 —— dyn 上取无 self 的方法会得到 E0615。
+    crate::platform::Platform::extract_archive(&local, &staging)?;
     let staged_bin = bin_dir_of(&staging, &crate::platform::current().node_exe_name());
     // 4) 切换（备份失败不毁旧装）
     let backup = root.with_extension("prev");
