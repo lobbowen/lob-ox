@@ -207,7 +207,31 @@ pub fn install_latest(progress: &Progress) -> Result<InstalledRuntime, String> {
     super::engine::swap(&staged_bin, &root, &backup)?;
     let bin_dir = bin_dir_of(&root, exe);
     // 接入用户 PATH：这是「全局可用」与「私有捆绑」的分界。
-    let path_changed = super::ensure_on_user_path(&bin_dir)?;
+    //
+    // 但它是**附加价值，不是安装成败的判据**：此刻 Node 已经解包、换装、落定完毕，
+    // 装的本体是好的。PATH 注册失败只意味着「新开的终端还看不到它」，
+    // 不该反过来报「Node 未能就绪」把一次成功的安装说成失败 ——
+    // 真机就因此卡在这一步，前面的选版/下载/解包/换装全部白做。
+    // 降级为告警 + 照常返回，用户可自行把该目录加入 PATH。
+    let path_changed = match super::ensure_on_user_path(&bin_dir) {
+        Ok(changed) => changed,
+        Err(e) => {
+            crate::update::log(&format!(
+                "[runtime] Node 已装好，但写入用户 PATH 失败（{}）。",
+                e
+            ));
+            progress.stage(
+                &format!(
+                    "Node 已就绪；未能自动加入用户 PATH（{}），可手动添加 {}",
+                    e,
+                    bin_dir.display()
+                ),
+                0,
+                None,
+            );
+            false
+        }
+    };
     progress.stage("正在校验 npm…", 0, None);
     crate::update::log(&format!(
         "[runtime] node {} 已落定 {}（用户 PATH {}）",

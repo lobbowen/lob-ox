@@ -649,46 +649,41 @@ mod launch_spec_tests {
         c.stdin(std::process::Stdio::null()).stdout(out).stderr(err).spawn().expect("spawn 标记子进程")
     }
 }
-/// 写 Windows 用户级环境变量（等价 setx，但不经命令行故不截断）。
+/// 写 Windows 用户级环境变量。
 ///
-/// HKCU\\Environment 是用户环境变量的唯一真源；改完需要广播 WM_SETTINGCHANGE，
-/// 否则已运行的程序（含本进程之外的 IDE）不会感知到。
+/// 用系统自带的 reg.exe（HKCU\Environment），不用 FFI 直调注册表 API。
+///
+/// 此前这里手写 extern "system" 声明 RegOpenKeyExW/RegSetValueExW，其中两处错：
+///   1. 子键串写成 "Environment\0" —— Rust 的 \0 是 U+0000 字符而不是 NUL 终止符，
+///      拼出的键名里带一个空字符，注册表里根本没有该子键，于是返回 2 (FILE_NOT_FOUND)。
+///      真机症状：打开 HKCU\Environment 失败: 2。
+///   2. 句柄常量按指针语义构造。
+/// 相比之下 reg.exe 是系统工具：键名与编码由它自己处理，也没有 setx 的 1024 字符截断。
 pub fn set_windows_user_env(key: &str, value: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
-        #[link(name = "advapi32")]
-        extern "system" {
-            fn RegOpenKeyExW(h: *mut core::ffi::c_void, sub: *const u16, opts: u32, sam: u32, out: *mut *mut core::ffi::c_void) -> i32;
-            fn RegSetValueExW(h: *mut core::ffi::c_void, name: *const u16, reserved: u32, ty: u32, data: *const u8, cb: u32) -> i32;
-            fn RegCloseKey(h: *mut core::ffi::c_void) -> i32;
+        let path = format!("HKCU\\Environment\\{}", key);
+        let mut cmd = Command::new("reg.exe");
+        cmd.arg("add").arg(&path).arg("/t").arg("REG_EXPAND_SZ")
+            .arg("/f").arg("/d").arg(value);
+        crate::bounded::prepare(&mut cmd);
+        let out = crate::bounded::run(&mut cmd, std::time::Duration::from_secs(15))
+            .map_err(|e| e.to_string())?;
+        if !out.success {
+            return Err(format!(
+                "写入用户环境变量 {} 失败（exit={:?}）: {}",
+                key,
+                out.code,
+                crate::bounded::exit_code_label(Some(out.code.unwrap_or(-1)))
+            ));
         }
-        const HKEY_CURRENT_USER: *mut core::ffi::c_void = 0x80000001u32 as *mut core::ffi::c_void;
-        const KEY_SET_VALUE: u32 = 0x0002;
-        const REG_EXPAND_SZ: u32 = 2;
-        unsafe {
-            let sub: Vec<u16> = "Environment\\0".encode_utf16().collect();
-            let mut hk: *mut core::ffi::c_void = core::ptr::null_mut();
-            let rc = RegOpenKeyExW(HKEY_CURRENT_USER, sub.as_ptr(), 0, KEY_SET_VALUE, &mut hk);
-            if rc != 0 {
-                return Err(format!("打开 HKCU\\Environment 失败: {}", rc));
-            }
-            let name: Vec<u16> = key.encode_utf16().chain(std::iter::once(0)).collect();
-            let wide: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
-            let bytes = (wide.len() * 2) as u32;
-            let rc = RegSetValueExW(hk, name.as_ptr(), 0, REG_EXPAND_SZ, wide.as_ptr() as *const u8, bytes);
-            RegCloseKey(hk);
-            if rc != 0 {
-                return Err(format!("写入用户环境变量 {} 失败: {}", key, rc));
-            }
-            Ok(())
-        }
+        Ok(())
     }
     #[cfg(not(windows))]
     {
         Err("set_windows_user_env 只在 Windows 可用".to_string())
     }
 }
-
 /// Unix：把 bin 目录以 export PATH 追加到 shell profile。
 ///
 /// 必须**追加**而非覆盖 —— 直接写 PATH= 会抹掉用户已有的全部条目。
