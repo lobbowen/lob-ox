@@ -8,7 +8,7 @@ pub(crate) fn spawn_local_post(port: u16, path: &'static str) {
     std::thread::spawn(move || post_local(port, path));
 }
 
-pub(crate) /// 连本机回环端口，超时由调用方给。
+/// 连本机回环端口，超时由调用方给。
     /// pub(crate)：guardctl::port_open 的就绪判据与这里同源——
     /// 此前两边各写一遍 127.0.0.1 + to_socket_addrs + connect_timeout，只有超时不同。
     pub(crate) fn connect_local(port: u16, timeout: std::time::Duration) -> Option<TcpStream> {
