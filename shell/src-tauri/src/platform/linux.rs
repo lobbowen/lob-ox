@@ -38,8 +38,14 @@ impl Platform for Impl {
         cmd.args(["-xzf"]).arg(archive).arg("-C").arg(dest);
         let out = crate::bounded::run(&mut cmd, std::time::Duration::from_secs(300))
             .map_err(|e| e.to_string())?;
-        if out.code != 0 {
-            return Err(format!("tar 解压失败({}): {}", out.code, out.stderr.trim()));
+        // bounded::run 的 code 是 Option<i32>：None 表示被信号终止或超时，
+        // 直接与 0 比较会因类型不符编译失败；success 字段已是「退出码为 0」的判定。
+        if !out.success {
+            return Err(format!(
+                "tar 解压失败（exit={:?}）: {}",
+                out.code,
+                crate::bounded::exit_code_label(Some(out.code.unwrap_or(-1)))
+            ));
         }
         Ok(dest.to_path_buf())
     }

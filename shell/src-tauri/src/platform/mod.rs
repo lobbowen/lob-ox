@@ -762,7 +762,7 @@ pub fn set_windows_user_env(key: &str, value: &str) -> Result<(), String> {
 ///
 /// 必须**追加**而非覆盖 —— 直接写 PATH= 会抹掉用户已有的全部条目。
 /// 幂等：已存在则跳过，重复安装不会把 profile 撑大。
-pub fn append_unix_path_export(bin_dir: &Path) -> Result<(), String> {
+pub fn append_unix_path_export(bin_dir: &std::path::Path) -> Result<(), String> {
     #[cfg(not(windows))]
     {
         let home = crate::env::home();

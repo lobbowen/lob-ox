@@ -98,7 +98,8 @@ pub fn normalize(v: &str) -> String {
 }
 
 /// 选择策略：从上游索引挑「最新 LTS」。
-/// 非 LTS（奇数线）不取 —— 生产环境不装非稳定版。/// 从上游索引 JSON 中挑最新 LTS：只收 lts 非 null，取 semver 最大。
+/// 非 LTS（奇数线）不取 —— 生产环境不装非稳定版。
+/// 从上游索引 JSON 中挑最新 LTS：只收 lts 非 null，取 semver 最大。
 pub fn pick_latest_lts(raw: &str) -> Option<(String, String)> {
     let idx: serde_json::Value = serde_json::from_str(raw).ok()?;
     let arr = idx.as_array()?;
