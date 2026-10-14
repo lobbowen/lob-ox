@@ -188,6 +188,10 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
+      # gate 用 run 步骤（受全局 working-directory: shell 约束），故必须先 checkout，
+      # 否则工作目录不存在，bash 进程起不来（报 no such file or directory）。
+      - uses: actions/checkout@v4
+
       - name: 断言所需构建已就绪
         shell: bash
         run: |
