@@ -184,7 +184,11 @@ pub fn select_latest() -> Result<Selection, String> {
         .into_iter()
         .find(|p| p.ok)
         .ok_or_else(|| "无法获取 Node 版本索引（全部镜像不可达）".to_string())?;
-    let (version, file) = pick_latest_lts(&hit.body)
+    // body 是 Option<String>：探到镜像可达不等于拿到了内容，空的要说清是哪一步空的。
+    let body = hit
+        .body
+        .ok_or_else(|| format!("镜像 {} 可达但未返回索引内容", hit.source))?;
+    let (version, file) = pick_latest_lts(&body)
         .ok_or_else(|| "版本索引中没有可用的 LTS 产物".to_string())?;
     Ok(Selection {
         version,
