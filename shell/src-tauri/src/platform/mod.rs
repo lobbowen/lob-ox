@@ -83,74 +83,7 @@ fn macos_system_proxy() -> Option<String> {
     None
 }
 
-pub fn commit_user_node(
-    staging: &std::path::Path,
-    root: &std::path::Path,
-    node_rel: &[&str],
-) -> Result<std::path::PathBuf, String> {
-    let probe = |b: &std::path::Path| -> std::path::PathBuf {
-        node_rel.iter().fold(b.to_path_buf(), |p, s| p.join(*s))
-    };
-    let mut base = staging.to_path_buf();
-    if !probe(&base).is_file() {
-        if let Ok(entries) = std::fs::read_dir(&base) {
-            let dirs: Vec<std::path::PathBuf> = entries
-                .filter_map(|e| e.ok().map(|e| e.path()))
-                .filter(|p| p.is_dir())
-                .collect();
-            if dirs.len() == 1 {
-                base = dirs[0].clone();
-            }
-        }
-    }
-    let found = probe(&base);
-    if !found.is_file() {
-        return Err(format!("解包后未找到 Node 可执行（{}）", found.display()));
-    }
-    let bin_dir = found.parent().unwrap_or(base.as_path()).to_path_buf();
-        
-    if crate::runtime_contract::probe_npm(&found, &bin_dir).is_none() {
-        return Err(format!(
-            "解包后的归档不含可用 npm（{}）。拒绝落定半成品。",
-            crate::runtime_contract::npm_search_summary(&bin_dir)
-        ));
-    }
-    if let Some(parent) = root.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    // 旧安装先改名备份，再换上新安装；换装失败则回滚。
-    // 此前后删后 rename，rename 一失败（跨设备/权限）旧安装已毁且无回滚。
-    let backup = root.with_extension("prev");
-    let _ = std::fs::remove_dir_all(&backup);
-    let had_prev = root.is_dir();
-    if had_prev {
-        if let Err(e) = std::fs::rename(root, &backup) {
-            return Err(format!("备份旧 Node 安装失败（{}），中止换装: {}", root.display(), e));
-        }
-    }
-    if let Err(e) = std::fs::rename(&base, root) {
-        if had_prev {
-            let _ = std::fs::remove_dir_all(root);
-            if let Err(re) = std::fs::rename(&backup, root) {
-                return Err(format!(
-                    "换装失败且回滚也失败：新装 {} 未就位，旧装仍在 {}（{}）",
-                    root.display(),
-                    backup.display(),
-                    re
-                ));
-            }
-            return Err(format!("落定 {} 失败（已回滚到旧安装）: {}", root.display(), e));
-        }
-        return Err(format!("落定 {} 失败: {}", root.display(), e));
-    }
-    let _ = std::fs::remove_dir_all(&backup);
-    let _ = std::fs::remove_dir_all(staging);
-    let installed = probe(root);
-    if !installed.is_file() {
-        return Err(format!("{} 未就位", installed.display()));
-    }
-    Ok(installed)
-}
+
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Capabilities {
@@ -434,8 +367,6 @@ pub trait Platform: Send + Sync {
         )
     }
 
-        
-    fn install_node(&self, file: &std::path::Path) -> Result<std::path::PathBuf, String>;
 
     fn has_privilege_channel(&self) -> bool;
 

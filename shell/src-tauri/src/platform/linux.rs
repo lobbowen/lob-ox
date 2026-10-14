@@ -112,26 +112,7 @@ impl Platform for Impl {
         cand.is_file()
     }
 
-    fn install_node(&self, file: &Path) -> Result<PathBuf, String> {
-                
-        let root = crate::env::node_install_target();
-        let staging = root.with_file_name("node.extract");
-        let _ = std::fs::remove_dir_all(&staging);
-        std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-        let mut cmd = Command::new("tar");
-        cmd.args(["-xzf"]).arg(file).arg("-C").arg(&staging).arg("--strip-components=1");
-        let out = crate::bounded::run(&mut cmd, INSTALL_CMD_TIMEOUT)
-            .map_err(|e| format!("无法启动 tar: {}", e))?;
-        if !out.success {
-            let _ = std::fs::remove_dir_all(&staging);
-            return Err(format!("解包 Node 归档失败: {}", out.stderr.trim()));
-        }
-        let r = super::commit_user_node(&staging, &root, &["bin", "node"]);
-        if r.is_err() {
-            let _ = std::fs::remove_dir_all(&staging);
-        }
-        r
-    }
+
 
     fn core_extra_candidates(&self, _names: &[&str], _pkg: Option<&str>) -> Vec<PathBuf> {
         Vec::new()

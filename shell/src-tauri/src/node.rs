@@ -204,10 +204,6 @@ pub fn download_verified(
     Err(last_err.unwrap_or_else(|| "下载失败".into()))
 }
 
-pub fn install(file: &Path) -> Result<PathBuf, String> {
-    crate::platform::current().install_node(file)
-}
-
 pub fn outdated(installed: Option<&str>, latest: &str) -> bool {
     match installed {
         None => true,
@@ -290,7 +286,7 @@ mod tests {
 ///   - 落定后把 bin 目录接入用户级 PATH，使新终端/IDE 直接可用；
 ///   - 新增运行时时本函数无需改动 —— 它只认 runtime 这一个入口。
 pub fn auto_install_quiet() -> Option<crate::runtime_contract::NodeRuntime> {
-    match crate::runtime::node::install_latest() {
+    match crate::runtime::node::install_latest(&crate::runtime::node::Progress::default()) {
         Ok(inst) => match crate::runtime_contract::adopt_installed(&inst) {
             Ok(rt) => {
                 crate::update::log(&format!(
@@ -328,33 +324,6 @@ pub fn reinstall_for_npm(local: &Path, version: &str) -> Result<crate::runtime_c
         .ok_or_else(|| npm_manual_hint(version))?;
     crate::runtime_contract::write(&rt);
     Ok(rt)
-}
-
-pub fn finalize_install(
-    node_bin: &Path,
-    target: &str,
-    local: &Path,
-) -> Result<crate::runtime_contract::NodeRuntime, (bool, String)> {
-    let v = crate::env::node_version(node_bin)
-        .ok_or_else(|| (false, "安装后未能检测到 Node.js".to_string()))?;
-    if v != target {
-        return Err((false, format!("安装后版本 {} 与目标 {} 不一致", v, target)));
-    }
-    if !meets_minimum(Some(&v)) {
-        return Err((false, format!("安装到的 Node.js {} 低于最低要求 {}", v, min_node())));
-  }
-    if let Some(rt) = crate::runtime_contract::derive_usable(node_bin, &v) {
-        crate::runtime_contract::write(&rt);
-        
-        
-        match crate::env::ensure_global_bin_on_path() {
-            Ok(how) => crate::update::log(&format!("全局 PATH 登记：{}", how)),
-            Err(e) => crate::update::log(&format!("全局 PATH 登记失败（不阻断本次安装）：{}", e)),
-        }
-        return Ok(rt);
-    }
-  crate::update::log("官方分发包未提供可用 npm，正在重新执行官方安装（幂等）…");
-    reinstall_for_npm(local, &v).map_err(|e| (true, e))
 }
 
 pub fn probe_after() -> Option<(PathBuf, String)> {

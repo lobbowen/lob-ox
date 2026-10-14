@@ -145,43 +145,107 @@ pub fn pick_latest_lts(raw: &str) -> Option<(String, String)> {
 ///   - 换装走 engine::swap，备份失败时**不删除旧装**并给出可执行的处置说明；
 ///   - 落定后把 bin 目录接入**用户级 PATH**，使新终端/IDE 直接可用；
 ///   - 产出 InstalledRuntime 供契约落盘，不再只改子进程 PATH。
-pub fn install_latest() -> Result<InstalledRuntime, String> {
-    // 1) 选版
-    let raw = crate::mirror::probe_all(&crate::mirror::load().node, super::node::INDEX_URL)
+/// 安装过程的可选观测点。
+///
+/// 底座被两条路径共用：开机静默获取（无 UI）与引导页安装（有进度条）。
+/// 因此流程本身不直接 emit 事件，而是把阶段回调交给调用方 ——
+/// 这样「同一套安装逻辑」不会分裂成两份实现。
+#[derive(Clone, Default)]
+pub struct Progress {
+    /// (阶段描述, 已下载字节, 总量)
+    pub on_stage: Option<std::sync::Arc<dyn Fn(&str, u64, Option<u64>) + Send + Sync>>,
+}
+
+impl Progress {
+    pub fn stage(&self, msg: &str, done: u64, total: Option<u64>) {
+        if let Some(f) = self.on_stage.as_ref() {
+            f(msg, done, total);
+        } else {
+            crate::update::log(msg);
+        }
+    }
+}
+
+/// 选版结果：给引导页展示用（镜像来源、延迟、选定版本）。
+#[derive(Debug, Clone)]
+pub struct Selection {
+    pub version: String,
+    pub file: String,
+    pub source: String,
+    pub latency_ms: u128,
+}
+
+/// 解析最新 LTS。公开出来是为了让引导页能先展示「将安装哪个版本」，
+/// 而不是等到下载完才知道 —— 这也避免与 install_latest 内部重复一次选版。
+pub fn select_latest() -> Result<Selection, String> {
+    let m = crate::mirror::load();
+    let probes = crate::mirror::probe_all(&m.node, super::node::INDEX_URL);
+    let hit = probes
         .into_iter()
         .find(|p| p.ok)
-        .and_then(|p| p.body)
         .ok_or_else(|| "无法获取 Node 版本索引（全部镜像不可达）".to_string())?;
-    let (version, file) = pick_latest_lts(&raw)
+    let (version, file) = pick_latest_lts(&hit.body)
         .ok_or_else(|| "版本索引中没有可用的 LTS 产物".to_string())?;
-    // 2) 下载校验
+    Ok(Selection {
+        version,
+        file,
+        source: hit.source,
+        latency_ms: hit.latency_ms,
+    })
+}
+/// 端到端安装：解析最新 LTS -> 下载校验 -> 解包 staging -> 切换到专属目录 -> 接入用户 PATH。
+///
+/// 与旧实现的差别（旧实现散落在 domain/install.rs::run_install 与 platform/*::install_node）：
+///   - 落点从 npm 全局 prefix 改为 %LOCALAPPDATA%/lobox/runtime/node（专属目录），
+///     不再与用户全局 npm 包混放，也不再撞上正在运行的 node.exe；
+///   - 换装走 engine::swap，备份失败时不删除旧装并给出可执行的处置说明；
+///   - 落定后把 bin 目录接入用户级 PATH，使新终端/IDE 直接可用；
+///   - 进度经 Progress 回调交给调用方，开机静默与引导页安装共用同一份流程。
+pub fn install_latest(progress: &Progress) -> Result<InstalledRuntime, String> {
+    let sel = select_latest()?;
+    progress.stage(
+        &format!("选用镜像 {}（{}ms），官方最新 LTS {}", sel.source, sel.latency_ms, sel.version),
+        0,
+        None,
+    );
     let dl_dir = crate::env::supervisor_dir().join("dl");
-    let local = crate::node::download_verified(&version, &file, &dl_dir, None, &|_, _| {})?;
-    // 3) 解包到 staging
+    let cb = progress.clone();
+    let local = crate::node::download_verified(
+        &sel.version,
+        &sel.file,
+        &dl_dir,
+        Some(sel.source.as_str()),
+        &move |done, total| {
+            cb.stage("正在下载 Node 官方归档…", done, total);
+        },
+    )?;
+    progress.stage("SHA256 校验通过，准备安装…", 0, None);
     let root = external_path(&install_root());
     let staging = root.with_extension("staging");
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-    // extract_archive 带 &self，需经实例调用；签名是 (archive, dest) 两个参数加 self。
+    progress.stage("正在解包…", 0, None);
     crate::platform::current().extract_archive(&local, &staging)?;
-    let staged_bin = bin_dir_of(&staging, &crate::platform::current().node_exe_name());
-    // 4) 切换（备份失败不毁旧装）
+    let exe = crate::platform::current().node_exe_name();
+    let staged_bin = bin_dir_of(&staging, exe);
+    // 切换：备份失败即中止且不删旧装（那可能是系统正在用的那一份）。
     let backup = root.with_extension("prev");
     super::engine::swap(&staged_bin, &root, &backup)?;
-    let bin_dir = bin_dir_of(&root, &crate::platform::current().node_exe_name());
-    // 5) 接入用户 PATH：这是「全局可用」与「私有捆绑」的分界
+    let bin_dir = bin_dir_of(&root, exe);
+    // 接入用户 PATH：这是「全局可用」与「私有捆绑」的分界。
     let path_changed = super::ensure_on_user_path(&bin_dir)?;
+    progress.stage("正在校验 npm…", 0, None);
     crate::update::log(&format!(
         "[runtime] node {} 已落定 {}（用户 PATH {}）",
-        version,
+        sel.version,
         root.display(),
         if path_changed { "已接入，重启终端后生效" } else { "已在" }
     ));
     Ok(InstalledRuntime {
         spec_id: "node".to_string(),
-        version: version.clone(),
+        version: sel.version.clone(),
         bin_dir: bin_dir.clone(),
-        executable: bin_dir.join(crate::platform::current().node_exe_name()),
+        executable: bin_dir.join(exe),
         on_path: true,
         updated_at: crate::node::now_iso(),
     })

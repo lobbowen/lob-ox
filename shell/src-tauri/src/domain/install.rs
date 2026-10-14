@@ -161,29 +161,26 @@ pub(crate) fn kernel_direct(app: &tauri::AppHandle, origin: &str, why: &str) {
 }
 
 pub(crate) fn run_install(app: &tauri::AppHandle) -> Result<crate::runtime_contract::NodeRuntime, InstallFailure> {
-    stage(app, InstallKind::Node, "获取官方最新 LTS 版本…");
-    let choice = crate::node::latest_lts().map_err(InstallFailure::node)?;
-    let version = choice.version.clone();
-    let file = choice.file.clone();
-    crate::mirror::save(&crate::mirror::Mirrors {
-        selected_node: Some(choice.source.clone()),
-        ..crate::mirror::load()
-    })
-    .ok();
-    stage(app, InstallKind::Node, &format!("选用镜像 {}（{}ms）", choice.source, choice.latency_ms));
-    stage(app, InstallKind::Node, &format!("官方最新 LTS: {}", version));
-    let dl_dir = crate::env::supervisor_dir().join("dl");
-    let a = app.clone();
-    let on_bytes = move |done: u64, total: Option<u64>| download(&a, InstallKind::Node, done, total);
-    let local = crate::node::download_verified(&version, &file, &dl_dir, Some(choice.source.as_str()), &on_bytes)
-        .map_err(InstallFailure::node)?;
-    stage(app, InstallKind::Node, "SHA256 校验通过，准备安装…");
-    let node_bin = crate::node::install(&local).map_err(InstallFailure::node)?;
+    // 引导页与开机静默路径共用 runtime 底座的同一份安装流程 ——
+    // 此前这里自己重写了「选版 / 下载 / install / finalize」四步，走的是旧实现：
+    // 装进 npm 全局 prefix、原地换装、且不接入用户 PATH。
+    // 真机报「备份旧 Node 安装失败（%APPDATA%\\lobox\\bin）」正是这条旧路径。
+    let ui = app.clone();
+    let progress = crate::runtime::node::Progress {
+        on_stage: Some(std::sync::Arc::new(move |msg: &str, done: u64, total: Option<u64>| {
+            // download_line 只在有总量时产出百分比文本；纯阶段消息（done=0）不套它。
+            let (text, ratio) = if done > 0 {
+                download_line(InstallKind::Node, done, total)
+            } else {
+                (msg.to_string(), None)
+            };
+            push(&ui, InstallKind::Node, text, ratio);
+        })),
+    };
+    let inst = crate::runtime::node::install_latest(&progress).map_err(InstallFailure::node)?;
     super::probes::invalidate_all();
-    stage(app, InstallKind::Npm, "正在校验 npm…");
-    let rt = crate::node::finalize_install(&node_bin, &version, &local)
-        .map_err(|(is_npm, e)| if is_npm { InstallFailure::npm(e) } else { InstallFailure::node(e) })?;
-    Ok(rt)
+    // 落契约前复核：装好不等于可用（版本过低 / npm 缺失都要挡住）。
+    crate::runtime_contract::adopt_installed(&inst).map_err(InstallFailure::node)
 }
 
 #[cfg(test)]

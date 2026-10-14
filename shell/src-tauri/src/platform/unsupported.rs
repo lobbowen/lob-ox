@@ -82,42 +82,4 @@ impl Platform for Impl {
         true
     }
 
-    fn install_node(&self, _file: &Path) -> Result<PathBuf, String> {
-        Err(format!(
-            "当前平台（{}）不支持自动安装 Node —— 请手动安装后重启桌面壳",
-            std::env::consts::OS
-        ))
-    }
-
-    fn has_privilege_channel(&self) -> bool {
-        false
-    }
-
-    fn node_exe_name(&self) -> &'static str { "node" }
-    fn npm_exe_name(&self) -> &'static str { "npm" }
-    fn core_exe_names(&self) -> &'static [&'static str] {
-        crate::brand::core_bin_names()
-    }
-    fn is_directly_spawnable(&self, _prog: &Path) -> bool { true }
-}
-
-impl ServiceControl for Impl {
-    fn kind(&self) -> &'static str {
-        "none"
-    }
-
-    fn definition_path(&self) -> PathBuf {
-        PathBuf::from("unsupported")
-    }
-
-    fn ensure_defined(&self, _spec: &LaunchSpec) -> Result<String, String> {
-        Err(format!("当前平台（{}）不支持服务定义", std::env::consts::OS))
-    }
-
-    // start 已从 ServiceControl 契约删除（三平台实现零调用，且与 spawn_daemon 语义重叠），
-    // 此处对应的 stub 随之删除。
-
-    fn stop(&self) -> Result<(), String> {
-        Err(format!("当前平台（{}）不支持守卫服务管理", std::env::consts::OS))
-    }
 }
