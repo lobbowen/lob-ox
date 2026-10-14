@@ -17,6 +17,8 @@ function status(state, deps) {
     providers: provs,
     keysTotal,
     usage: deps.getUsage(),
+    // 配置处于隔离态时，providers=[] 是「读不出来」而非「没有」；必须让调用方看见。
+    configQuarantine: state.configQuarantine || null,
   };
 }
 

@@ -1,11 +1,16 @@
 'use strict';
 
 const { semverCompare } = require('../../shared/version');
+const kinds = require('../agent/kinds');
 
 const { taskStateToView } = require('../../shared/task-state');
 
 function normalizeInstance(inst) {
   if (Object.prototype.hasOwnProperty.call(inst, 'dshToken')) delete inst.dshToken;
+  // 形态在这里一次性归一（agent/kinds.js 是唯一事实源）：
+  // 缺 kind 的旧记录得到与 viewRow、lifecycle、upgrade 相同的答案，
+  // 不再出现「显示为 native 却因 kind==='native' 而永不被监管」的分叉。
+  inst.kind = kinds.normalizeKind(inst.kind);
   if (inst.remoteMode !== 'lan' && inst.remoteMode !== 'wan') {
     inst.remoteMode = inst.remoteEnabled === true ? (inst.frpEnabled === true ? 'wan' : 'lan') : 'off';
   }
@@ -65,7 +70,10 @@ function viewRow(inst, resolved) {
     id: inst.id,
     name: inst.name,
     port: inst.port,
-    kind: inst.kind || 'native',
+    // 形态判据经 agent/kinds.js 归一，不自造默认值：缺 kind 的旧记录在此
+    // 与 lifecycle/upgrade 得到同一个答案（此前此处写死 'native'，而
+    // lifecycle 跳过任何 kind==='native' 的实例——显示为 native 却永不被监管）。
+    kind: kinds.normalizeKind(inst.kind),
     remoteMode: inst.remoteMode || 'off',
     unitName: inst.unitName,
     sandbox: inst.sandbox,

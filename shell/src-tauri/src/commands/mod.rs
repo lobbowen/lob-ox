@@ -201,7 +201,6 @@ pub fn start_node_install(state: tauri::State<Mutex<RunState>>, app: tauri::AppH
     st.error = None;
     st.progress = None;
     st.status = "准备安装 Node.js LTS…".into();
-    st.logs.clear();
     let handle = app.clone();
     std::thread::spawn(move || {
         let out = install::run_install(&handle);
@@ -217,7 +216,6 @@ pub fn start_node_install(state: tauri::State<Mutex<RunState>>, app: tauri::AppH
                     rt.version,
                     rt.npm_version_label()
                 );
-                s.logs.push(format!("安装完成: {} @ {}", rt.version, rt.node.display()));
                                 // 探测缓存必须失效：新装的 Node 只有重新探测才会被发现（否则引导页会在「已装好」之后仍报未检测到）。
                 probes::invalidate_all();
                 drop(s);
@@ -226,9 +224,11 @@ pub fn start_node_install(state: tauri::State<Mutex<RunState>>, app: tauri::AppH
                 install::done(&handle, InstallKind::Npm, serde_json::json!(rt.npm_version));
             }
             Err(f) => {
-                s.error = Some(f.message.clone());
+                // f.kind 已是安装侧判定的 kind（env/install），此处转成 ShellError 以带上
+                // 与前端一致的 kind/hint 文案，而不是裸 message。
+                let se = ShellError::Install { platform: std::env::consts::OS.to_string(), cause: f.message.clone() };
+                s.error = Some(se.to_string());
                 s.status = "环境就绪前置失败".into();
-                s.logs.push(format!("失败({}): {}", f.kind.as_str(), f.message));
                 drop(s);
                 install::fail(&handle, f.kind, &f.message);
             }
@@ -302,14 +302,14 @@ fn fetch_kernel_tgz(
 /// 抽成独立函数：启动门 2（`core_apply`）与面板请求（`kernel_update_apply`）**共用同一实现** —— 内核包只能经这一处写入，符合「单写入者」契约。
 async fn core_apply_inner(app: tauri::AppHandle) -> ShellResult<serde_json::Value> {
     let _ = crate::runtime_contract::ensure();
-    let pkg = crate::core::package_name()?;
+    let pkg = crate::core::package_name().map_err(|e| ShellError::contract("core 契约", e))?;
     let prefix = crate::domain::coreloc::locate_core(&app).and_then(|b| crate::core::global_prefix_for(&b));
     let origins = crate::core::registry_origins();
         // 目标版本由选版算法决定（契约：rollback / canary / latest / versions 兜底）—— 本命令**不做版本比较、不接受调用方指定版本**：目标高于本机就是升级、低于本机就是回退，同一个写入路径，避免「升级与回退两套逻辑」再次分叉。
     let target = {
         let p = pkg.clone();
         let r = tauri::async_runtime::spawn_blocking(move || crate::core::latest_version(&p))
-            .await.map_err(|e| ShellError::ipc(e.to_string()))?;
+            .await.map_err(|e| ShellError::network(&crate::core::registry_origins().join(","), e.to_string()))?;
         match r {
             Ok((v, _)) => v,
             Err(e) => return Ok(serde_json::json!({"ok": false, "stage": "resolve", "error": e})),
@@ -414,34 +414,58 @@ pub async fn kernel_update_apply(app: tauri::AppHandle) -> ShellResult<serde_jso
         // 原逻辑 service().stop() 后轮询 port_open 最多 15 秒，再走 ensure_guard 的
         // 「端口已开早退」分支——那正是守卫所有权语义，也是重启被静默跳过的原因。
         // 进程管理时代：直接停进程表里的内核（壳持有 pid），停完即拉新的，无等待预算。
-    let restart = tauri::async_runtime::spawn_blocking(move || -> Result<(bool, Option<String>), crate::domain::guardctl::LaunchError> {
+    let restart = tauri::async_runtime::spawn_blocking(move || -> Result<(bool, Vec<serde_json::Value>), crate::domain::guardctl::LaunchError> {
         let pm = crate::process_manager::handle();
-        let stop_error = crate::platform::service().stop().err();
-        // 收进程表里所有 pid 已知的负载，逐个杀树。
+        // 只按进程表里 pid 已知的负载逐个精确停机。整表 service().stop() 已删除：
+        // 它按命令行模式杀本机**所有** node（含非本产品的），且发生在逐 pid 停机
+        // **之前**，此时进程表还是陈旧的。
         let victims: Vec<(String, u32)> = {
             let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
             s.iter().filter_map(|(id, st)| st.pid.map(|p| (id.clone(), p))).collect()
         };
-        let mut stopped = victims.is_empty();
+        // 整表聚合：任一条停不掉，整体就不是「已停止」。
+        // 此前是逐条覆盖布尔，最后一个 pid 的结果描述了整表。
+        let mut failed: Vec<serde_json::Value> = Vec::new();
         for (id, pid) in victims {
             pm.set_desired(&id, crate::process_manager::state_machine::Desired::Stopped);
-            if crate::bounded::kill_tree_pid(pid) { stopped = true; }
-            else { stopped = false; }
+            match crate::bounded::kill_tree_pid(pid) {
+                o if o.is_success() => {}
+                o => failed.push(serde_json::json!({ "id": id, "pid": pid, "outcome": format!("{:?}", o) })),
+            }
         }
+        let stopped = failed.is_empty();
         crate::domain::guardctl::ensure_core(&app)?;
-        Ok((stopped, stop_error))
+        Ok((stopped, failed))
     }).await;
     match restart {
-        Ok(Ok((stopped, stop_error))) => Ok(serde_json::json!({
+        Ok(Ok((stopped, failed))) => Ok(serde_json::json!({
             "ok": true, "stage": "done",
             "version": install_out.get("version").cloned().unwrap_or(serde_json::Value::Null),
             "origin": install_out.get("origin").cloned().unwrap_or(serde_json::Value::Null),
             "stopped": stopped,
             "restartUncertain": !stopped,
-            "stopError": stop_error,
+            "stopFailures": failed,
         })),
-        Ok(Err(e)) => Ok(serde_json::json!({ "ok": false, "stage": "restart", "code": e.code, "error": e.message, "detail": install_out })),
-        Err(e) => Ok(serde_json::json!({ "ok": false, "stage": "restart", "error": e.to_string(), "detail": install_out })),
+        // 重启阶段的失败按真实 kind 归类：spawn_blocking panic 是内部调用错误，
+        // 而 ensure_core 的 LaunchError 是**服务操作**失败（拉起/就绪/版本对齐）。
+        // 此前两者都压成裸字符串，10-ui.js 的 errText 按 kind 分支因此永远走不到分支。
+        Ok(Err(e)) => {
+            let se = ShellError::service("内核重启", e.message.clone());
+            Ok(serde_json::json!({
+                "ok": false, "stage": "restart",
+                "kind": se.kind_label(),
+                "hint": se.hint(),
+                "code": e.code,
+                "error": e.message,
+                "detail": install_out,
+            }))
+        }
+        Err(e) => Ok(serde_json::json!({
+            "ok": false, "stage": "restart",
+            "kind": ShellError::ipc(e.to_string()).kind_label(),
+            "error": e.to_string(),
+            "detail": install_out,
+        })),
     }
 }
 
@@ -483,7 +507,22 @@ pub async fn guard_start(app: tauri::AppHandle) -> ShellResult<serde_json::Value
     Ok(match r {
         Ok(()) => serde_json::json!({"ok": true}),
                 // code：结构化阶段；error 保持**字符串**——前端多处做 `'...' + e` 拼接。
-        Err(e) => serde_json::json!({"ok": false, "code": e.code, "error": e.message}),
+                // kind/hint：与 ShellError 的 6 个变体同源，否则 10-ui.js 的 errText
+                // 按 kind 分支永远只落到 ipc 兜底，守卫启动失败被读成「前后端版本不一致」。
+        Err(e) => {
+            let se = match e.code {
+                "KERNEL_MISSING" | "RUNTIME_MISSING" => ShellError::contract("内核契约", e.message.clone()),
+                "KERNEL_SPAWN_FAILED" | "KERNEL_EXITED" | "DAEMON_EXITED_UNREADY" | "READY_TIMEOUT" | "LAUNCH_SPEC_FAILED" => {
+                    ShellError::service("守卫启动", e.message.clone())
+                }
+                _ => ShellError::ipc(e.message.clone()),
+            };
+            serde_json::json!({
+                "ok": false, "code": e.code,
+                "kind": se.kind_label(), "hint": se.hint(),
+                "error": e.message,
+            })
+        }
     })
 }
 
@@ -507,7 +546,9 @@ const GUARD_READY_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from
 
 #[tauri::command]
 pub fn win_ctl(app: tauri::AppHandle, action: String) -> ShellResult<()> {
-    let win = app.get_webview_window("main").ok_or("主窗口不存在")?;
+    // 窗口动作失败按真实语义归类：主窗口不存在是**能力不可用**（Unsupported），
+    // 而非内部调用错误；10-ui.js 按 kind 分支，误分类会让用户读到错误的处置建议。
+    let win = app.get_webview_window("main").ok_or_else(|| ShellError::unsupported("win_ctl", std::env::consts::OS))?;
     match action.as_str() {
         "minimize" => win.minimize().map_err(|e| ShellError::ipc(e.to_string())),
         "toggle-maximize" => {

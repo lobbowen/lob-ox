@@ -130,10 +130,14 @@ class Events {
     const out = Object.assign({}, rec || {});
     if (!out.ts) out.ts = new Date().toISOString();
     if (this.process && !out.producer) out.producer = { process: this.process };
-    const line = JSON.stringify(out);
+    // 序号必须先落到 out 上、再序列化：写盘的是序列化后的字符串，若先 stringify
+    // 后赋 seq，落盘记录里就没有 seq 字段，而 readSince/tailSince 一律按
+    // e.seq > after 过滤 —— 结果是全部磁盘事件恒读不出来（增量流恒空）。
+    // 不变式不变：this.seq 仍只在写入成功后前进，失败时下一条重试同一序号。
     this._rotateIfNeeded();
     const candidate = this.seq + 1;
     out.seq = candidate;
+    const line = JSON.stringify(out);
     let wrote = true;
     try {
       fs.appendFileSync(this.file, line + '\n');

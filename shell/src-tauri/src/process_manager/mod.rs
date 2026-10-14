@@ -56,6 +56,11 @@ impl ProcessManager {
         st.priority = desc.priority;
         st.phase = state_machine::Phase::Starting;
         st.last_transition = Instant::now();
+        // 重置收敛到「重生成功」这一刻：此前只有 on_phase 收到 Running 才清零，
+        // 于是成功重生后 heal_failures 仍停在预算上限，自愈被永久静默禁用，
+        // 只能等负载自己再报一次 running（core 从不报）。
+        st.heal_failures = 0;
+        st.last_will = None;
     }
 
     /// 内核下发意图：设定期望相位（running/stopped）。
@@ -86,25 +91,47 @@ impl ProcessManager {
         }
     }
 
-    /// 自愈选路：按优先级升序（内核最优先）挑出「期望 running 但当前 failed 且未耗尽重试」的对象。
-    /// 返回供调用方执行重新拉起；本方法只做选择，不自行 spawn（保持机箱可测）。
-    pub fn heal_candidates(&self) -> Vec<state_machine::WorkloadDesc> {
+    /// 一次 heal 的选路结果：重拉描述 + 该负载最近一次退出的证据。
+    /// last_will 必须随决策一起返回——它携带 startup_failure（启动窗口内退出），
+    /// 是「刚崩」与「拉起即失败」的唯一分界。字段在此真正被读，注释所述行为才成立。
+    #[derive(Debug, Clone)]
+    pub struct HealCandidate {
+        pub desc: state_machine::WorkloadDesc,
+        pub last_will: Option<state_machine::LastWill>,
+    }
+
+    /// 自愈选路：按优先级升序（内核最优先）挑出「期望 running 但确实已死、且未耗尽重试」的对象。
+    /// 死活的唯一判据是 pid 实探（复用 bounded::pid_alive），不是「相位写着什么」：
+    /// 慢启动的 workload 在 Starting 期间不报错，若只信相位就会被每 tick 重复 spawn。
+    pub fn heal_candidates(&self) -> Vec<HealCandidate> {
         let s = self.states.lock().unwrap_or_else(|e| e.into_inner());
         let mut v: Vec<&state_machine::WorkloadState> = s
             .values()
             .filter(|st| {
-                st.desired == state_machine::Desired::Running
-                    && st.phase == state_machine::Phase::Failed
-                    && st.heal_failures < st.priority.heal_burst()
+                if st.desired != state_machine::Desired::Running {
+                    return false;
+                }
+                if st.heal_failures >= st.priority.heal_burst() {
+                    return false;
+                }
+                // 有 pid 就以实探为准：活着就不 heal。pid 未知（内核自报路径）时
+                // 相位是唯一可用的判据，故只在这一支接受 Failed/Installing。
+                match st.pid {
+                    Some(pid) => !crate::bounded::pid_alive(pid),
+                    None => st.phase == state_machine::Phase::Failed,
+                }
             })
             .collect();
         v.sort_by_key(|st| st.priority);
         v.into_iter()
-            .map(|st| state_machine::WorkloadDesc {
-                id: st.id.clone(),
-                spawn_cmd: st.spawn_cmd.clone(),
-                priority: st.priority,
-                env: st.env.clone(),
+            .map(|st| HealCandidate {
+                desc: state_machine::WorkloadDesc {
+                    id: st.id.clone(),
+                    spawn_cmd: st.spawn_cmd.clone(),
+                    priority: st.priority,
+                    env: st.env.clone(),
+                },
+                last_will: st.last_will.clone(),
             })
             .collect()
     }
@@ -128,9 +155,18 @@ pub fn spawn_healer(pm: std::sync::Arc<ProcessManager>) {
         loop {
             std::thread::sleep(std::time::Duration::from_secs(HEAL_TICK_SECS));
             let cands = pm.heal_candidates();
-            for desc in cands {
+            for cand in cands {
+                let desc = cand.desc;
                 if desc.spawn_cmd.is_empty() {
                     continue;
+                }
+                // last_will 在此被真正消费：startup_failure 的负载刚在启动窗口内退出，
+                // 先落日志再重拉（它不是稳定性的证据，别让日志读成「运行一段时间后崩溃」）。
+                if let Some(w) = &cand.last_will {
+                    crate::update::log(&format!(
+                        "[heal] {} 上次退出: code={:?} signal={:?} startup_failure={}",
+                        desc.id, w.code, w.signal, w.startup_failure
+                    ));
                 }
                 let mut cmd = std::process::Command::new(&desc.spawn_cmd[0]);
                 for a in desc.spawn_cmd.iter().skip(1) {

@@ -1,6 +1,7 @@
 'use strict';
 
 const portsvc = require('../ports');
+const lanServers = require('./lan-servers');
 const monitor = require('../../../platform/service/monitor');
 
 async function targetReachable(inst) {
@@ -17,7 +18,7 @@ function syncProxyQueued(host, inst) {
 function removeOne(host, proxy, inst) {
   host.logger.warn && host.logger.warn('[reconcile] remove proxy ' + proxy.id + ' wanPort=' + proxy.wanPort
     + ' (inst=' + !!inst + ' remoteMode=' + (inst && inst.remoteMode) + ')');
-  if (host._lanServers && host._lanServers[proxy.id]) host._stopLanServer(proxy.id);
+  if (lanServers.isListening(host, proxy.id) || (host._lanPending && host._lanPending[proxy.id])) host._stopLanServer(proxy.id);
   if (!inst) portsvc.releaseOwner('relay:' + proxy.id);
   if (host.events) host.events.append('lan_instance_removed', { id: proxy.id, reason: !inst ? 'stale' : 'disabled' });
 }
@@ -31,7 +32,8 @@ async function ensureProxyRunning(host, proxy, inst) {
     return;
   }
   const targetAlive = await targetReachable(inst);
-  const running = !!(host._lanServers && host._lanServers[proxy.id]);
+  // 就绪判据与 ops.list() 统一：条目存在（即 listen 已成功），不再看 pending。
+  const running = lanServers.isListening(host, proxy.id);
   if (targetAlive && !running) {
     if (!proxy.wanPort) {
       syncProxyQueued(host, inst).catch((e) => host.logger.warn && host.logger.warn('reconcile syncProxy ' + inst.id + ': ' + e.message));

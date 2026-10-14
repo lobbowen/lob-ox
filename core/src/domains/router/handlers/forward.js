@@ -239,11 +239,16 @@ function createForwarder(deps) {
       let settled = false;
       let connectGuard = null;
       let responseGuard = null;
+      // 监听器生命周期绑定到 settle：任何终态（含 net-error、15s 连接超时、180s 响应超时）
+      // 都保证至多一个 'close' 监听器。此前只在 upstream 'response' 时 removeListener，
+      // 于是每次失败尝试都在 clientRes 上永久滞留一个持有 req 的闭包。
+      let onClientClose = null;
       const settle = (v) => {
         if (settled) return;
         settled = true;
         if (connectGuard) clearTimeout(connectGuard);
         if (responseGuard) clearTimeout(responseGuard);
+        if (clientRes && onClientClose) clientRes.removeListener('close', onClientClose);
         resolve(v);
       };
       const headers = {};
@@ -266,9 +271,8 @@ function createForwarder(deps) {
       responseGuard = setTimeout(() => { const err = new Error('response timeout after 180s'); req.destroy(err); settle({ phase: 'net-error', error: err.message }); }, 180000);
       req.on('socket', (s) => { s.setNoDelay(true); s.setKeepAlive(true, 15000); });
       req.on('error', (e) => settle({ phase: 'net-error', error: e.message }));
-      const onClientClose = () => { try { req.destroy(); } catch {} settle({ phase: 'client-abort' }); };
+      onClientClose = () => { try { req.destroy(); } catch {} settle({ phase: 'client-abort' }); };
       if (clientRes && typeof clientRes.once === 'function') clientRes.once('close', onClientClose);
-      req.on('response', () => clientRes.removeListener('close', onClientClose));
       req.end(bodyBuf);
     });
   }

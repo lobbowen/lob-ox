@@ -26,7 +26,8 @@ function createOAuthOps(deps) {
     st._ccLoginReject = null;
     let port = null;
     let server = null;
-    let base = await ports.allocate('oauthCallback', 'oauth:' + state);
+    const alloc = await ports.allocate('oauthCallback', 'oauth:' + state);
+    const base = alloc ? alloc.port : null;
     for (let i = 0; i < 5 && !server && base !== null; i++) {
       port = base + i;
       try {

@@ -51,28 +51,41 @@ function withProcessPool(Base) {
       return (this.instances || []).find((i) => i.keyId === acc.keyId) || acc.instance || null;
     }
 
+    // 启动互斥的作用域 = 单个实例。这把锁要防的是同一实例被重复 spawn（两个调用方各自
+    // spawn 出一个孤儿进程），不是跨实例的 npm 下载争用——原来的全局单字段把不同实例、
+    // 不同供应商的启动全部串行化，且 30s 后把「排队失败」伪装成「启动失败」返回，
+    // 污染 startupFailCount，最终让 reconcile 的自动拉起预算被误耗尽。
+    // 同实例的并发已由 inst.startingPromise 去重，因此这里等到锁即可，无需超时。
     async startInstance(inst) {
+      if (!this._startLocks) this._startLocks = new Map();
       if (inst.pid) return { ok: true, already: true };
       if (inst.startingPromise) return inst.startingPromise;
+      const lockKey = String((inst && inst.keyId) || '') || '@' + String((inst && inst.key) || '');
       inst.startingPromise = (async () => {
+        while (this._startLocks.has(lockKey)) { await new Promise((r) => setTimeout(r, 50)); }
+        this._startLocks.set(lockKey, true);
         try {
-          const lockWaitStart = Date.now();
-          while (this._startLock && Date.now() - lockWaitStart < 30000) { await new Promise((r) => setTimeout(r, 250)); }
-          if (this._startLock) return { ok: false, error: '实例启动互斥锁超时（前一次启动未完成）' };
-          this._startLock = true;
-          try {
-            return await this._doStart(inst);
-          } finally {
-            this._startLock = false;
-          }
+          return await this._doStart(inst);
         } finally {
-          inst.startingPromise = null;
+          this._startLocks.delete(lockKey);
         }
       })();
-      return inst.startingPromise;
+      try {
+        return await inst.startingPromise;
+      } finally {
+        inst.startingPromise = null;
+      }
     }
 
-    async _doStart(inst) { return probe.spawnInstance(this, inst); }
+    // spawnInstance 的契约：返回值恒带 started 事实字段（true=进程已起来）。
+    // 任何提前返回/抛错路径都在这里归一，调用方读 started 而不从 ok 反推。
+    async _doStart(inst) {
+      let r;
+      try { r = await probe.spawnInstance(this, inst); }
+      catch (e) { return { ok: false, started: false, error: (e && e.message) || String(e) }; }
+      const started = !!(r && r.started === true);
+      return Object.assign({}, r, { ok: started, started });
+    }
 
     markRequestOk(inst) {
       if (!inst) return;

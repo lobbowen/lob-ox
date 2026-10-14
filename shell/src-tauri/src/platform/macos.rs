@@ -174,17 +174,6 @@ impl ServiceControl for Impl {
     }
 
     
-    fn start(&self) -> Result<(), String> {
-        let mut cmd = Command::new(crate::platform::self_exe()?);
-        cmd.arg("--run-guard");
-        crate::platform::guard_stdio(&mut cmd);
-        crate::bounded::prepare(&mut cmd);
-        cmd.spawn()
-            .map_err(|e| format!("启动受管对象失败: {}", e))
-            .map(|_| ())
-    }
-
-    
     fn stop(&self) -> Result<(), String> {
         crate::platform::kill_managed_processes()
     }

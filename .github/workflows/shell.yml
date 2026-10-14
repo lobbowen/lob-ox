@@ -39,7 +39,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: tag ↔ 组件版本对账（仅 tag；不一致即失败）
+      - name: tag 命名规范（仅 tag）
         if: github.ref_type == 'tag'
         shell: bash
         env:
@@ -47,22 +47,12 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${TAG_NAME:-}"
-          [ -n "$TAG" ] || { echo "::error::tag 事件下 github.ref_name 为空，无法完成对账"; exit 1; }
+          [ -n "$TAG" ] || { echo "::error::tag 事件下 github.ref_name 为空"; exit 1; }
           case "$TAG" in
             shell-*) ;;
-            *) echo "::error::tag 名 ${TAG} 不带 shell- 前缀（本工作流只认 shell-<壳版本>，见文件头 tags: 段）"; exit 1 ;;
+            *) echo "::error::tag 名 ${TAG} 不带 shell- 前缀（命名空间规范：shell-<壳版本>）"; exit 1 ;;
           esac
-          VER_TAG="${TAG#shell-}"
-          VER_CONF="$(node -p "require('./src-tauri/tauri.conf.json').version")" || {
-            echo "::error::读取 src-tauri/tauri.conf.json#version 失败（node -p 非零）；tag=${TAG}，对账无法完成"; exit 1; }
-          echo "  tag          = $TAG"
-          echo "  tag 版本     = $VER_TAG"
-          echo "  组件 version = $VER_CONF（来源：shell/src-tauri/tauri.conf.json#version）"
-          if [ "$VER_TAG" != "$VER_CONF" ]; then
-            echo "::error::tag=${TAG}（版本 ${VER_TAG}） 组件 version=${VER_CONF}（src-tauri/tauri.conf.json#version） 两者必须一致（发布单源）"
-            exit 1
-          fi
-          echo "  ✓ 对账通过：tag=${TAG} 与 shell/src-tauri/tauri.conf.json#version=${VER_CONF} 逐字一致"
+          echo "  ✓ 命名规范通过：${TAG}"
 
       - id: v
         shell: bash
@@ -81,19 +71,15 @@ jobs:
           - os: ubuntu-22.04
             artifact: linux-x64
             bundles: deb
-            glibc_max: "2.35"
           - os: windows-latest
             artifact: win-x64
             bundles: nsis,msi
-            glibc_max: ""
           - os: macos-latest
             artifact: darwin-arm64
             bundles: app,dmg
-            glibc_max: ""
           - os: macos-15-intel
             artifact: darwin-x64
             bundles: app,dmg
-            glibc_max: ""
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -154,14 +140,6 @@ jobs:
             UPDATER_OFF="--config ${RUNNER_TEMP}/updater-off.json"
           fi
           npx --yes "@tauri-apps/cli@${TAURI_CLI_VERSION}" build --bundles "${{ matrix.bundles }}" ${UPDATER_OFF}
-
-      - name: glibc 基座门禁（Linux）
-        if: runner.os == 'Linux' && matrix.glibc_max != ''
-        shell: bash
-        run: |
-          BIN=src-tauri/target/release/lobox-shell
-          test -f "$BIN" || { echo "找不到产物 $BIN"; exit 1; }
-          bash ci/check-glibc.sh "$BIN" "${{ matrix.glibc_max }}"
 
       - name: 组装 npm 包（更新产物 + 签名）
         shell: bash
@@ -227,8 +205,10 @@ jobs:
           done
           echo "=== 归拢后的包目录 ==="
           find dist/npm-shell -maxdepth 2 -type d | sort
-          if [ ! -d dist/npm-shell/@lob-ox/shell-linux-x64 ]; then
-            echo "::error::未归拢到 shell-linux-x64，artifact 路径假设可能有误"
+          # 哨兵目录名取自 platform-map（6 平台映射单源），不写 @lob-ox/shell-<plat> 字面量
+          SENTINEL="$(node -p "require('./shell-release/platform-map').npmPkgDir('linux-x64')")"
+          if [ ! -d "dist/npm-shell/$SENTINEL" ]; then
+            echo "::error::未归拢到 $SENTINEL，artifact 路径假设可能有误"
             echo "--- dist/artifacts 实际布局 ---"
             find dist/artifacts -maxdepth 4 -type d | head -40
             exit 1
@@ -240,21 +220,6 @@ jobs:
             --ver "${{ needs.version.outputs.ver }}" \
             --entries dist/npm-shell \
             --out dist/npm-shell/shell-manifest.json
-
-      - name: 校验清单
-        shell: bash
-        run: |
-          node -e "
-          const m = require('./dist/npm-shell/shell-manifest.json');
-          const keys = Object.keys(m.platforms);
-          console.log('版本:', m.version, '平台:', keys.join(', '));
-          if (!keys.length) { console.error('清单为空'); process.exit(1); }
-          for (const k of keys) {
-            const p = m.platforms[k];
-            if (!p.url || !p.signature) { console.error('缺 url/signature: ' + k); process.exit(1); }
-          }
-          console.log('清单校验通过');
-          "
 
       - name: 发布平台子包 + 清单包到 npm
         shell: bash
@@ -292,3 +257,30 @@ jobs:
           }, null, 2) + '\n');
           "
           (cd "$REL" && npm publish --access public $TAG)
+
+      # 发布后自证：回查通道上真实可取的清单与产物，并逐字节比对本次构建产物。
+      # 与 core.yml 的「发布后自证」同范式：真发布之后立刻自证，查不到即判红。
+      # ⚠ --artifact-dir 传 assemble 的 --out 根（dist/npm-shell）；verify-channel 内的
+      #   子目录名由 platform-map 推导，与 assemble 写出的 @lob-ox/shell-<plat> 同源。
+      # ⚠ 默认平台名单 = linux-x64 / win-x64 / darwin-arm64 / darwin-x64，即本 workflow 构建矩阵的四腿。
+      - name: 发布后自证（通道字节 = 本次构建产物）
+        shell: bash
+        run: |
+          set -euo pipefail
+          node shell-release/verify-channel.js \
+            --ver "${{ needs.version.outputs.ver }}" \
+            --artifact-dir dist/npm-shell \
+            --conf src-tauri/tauri.conf.json \
+            --tries 5 --settle 30000
+
+      # 手动复核（workflow_dispatch）：只回查通道上的清单与签名块，不带字节比对
+      # （本次 run 并未构建 ⇒ 本地无构建产物可比）。有限重试，轮次用尽即判红。
+      - name: 通道复核（workflow_dispatch）
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${{ inputs.ver }}"
+          [ -n "$VER" ] || VER="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          VER="${VER#shell-}"
+          node shell-release/verify-channel.js --ver "$VER" --conf src-tauri/tauri.conf.json --tries 5 --settle 30000

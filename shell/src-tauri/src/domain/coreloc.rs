@@ -20,14 +20,6 @@ pub fn normalize_guard(bin: PathBuf, pkg: Option<&str>) -> PathBuf {
     bare
 }
 
-pub fn pick_highest(cands: Vec<PathBuf>) -> Option<PathBuf> {
-    cands
-        .into_iter()
-        .filter_map(|c| crate::core::installed_version(&c).map(|v| (c, v)))
-        .max_by(|a, b| crate::core::semver_cmp(&a.1, &b.1).cmp(&0))
-        .map(|(c, _)| c)
-}
-
 pub(crate) fn locate_core_candidates(resource_dir: Option<PathBuf>) -> Vec<PathBuf> {
     let home = crate::env::home();
     let mut out: Vec<PathBuf> = Vec::new();
@@ -95,22 +87,35 @@ pub(crate) fn locate_core(app: &tauri::AppHandle) -> Option<PathBuf> {
     locate_core_with_version(app).map(|(p, _)| p)
 }
 
+/// 多候选仲裁的**唯一**实现：版本降序，版本相同取路径字典序升序（首）。
+/// 此前另有 pick_highest（max_by，平局取 last）与此处并列存在，两套判据结论相反，
+/// 同版本时谁胜出取决于候选顺序（即 PATH 顺序）。已删除前者。
 pub(crate) fn locate_core_with_version(app: &tauri::AppHandle) -> Option<(PathBuf, Option<String>)> {
     let cands = crate::domain::coreloc::locate_core_candidates(app.path().resource_dir().ok());
+    pick_best(cands).map(|(p, v)| (p, Some(v)))
+}
+
+/// 与 locate_core_with_version 同一判据，但不依赖 AppHandle（CLI 与 --run-guard 走这条）。
+pub fn pick_best(cands: Vec<PathBuf>) -> Option<(PathBuf, Option<String>)> {
     if cands.is_empty() { return None; }
-    let mut best: Option<(PathBuf, String)> = None;
-    for c in &cands {
-        let v = match crate::core::installed_version(c) {
-            Some(v) => v,
-            None => continue,
+    let mut ranked: Vec<(PathBuf, Option<String>)> = cands
+        .into_iter()
+        .map(|c| {
+            let v = crate::core::installed_version(&c);
+            (c, v)
+        })
+        .collect();
+    // 读不出版本的候选排在有版本之后（不是并列第一）。
+    ranked.sort_by(|a, b| {
+        let key = |x: &(PathBuf, Option<String>)| match &x.1 {
+            Some(v) => (0u8, v.clone()),
+            None => (1u8, String::new()),
         };
-        let better = best.as_ref().map(|(_, bv)| crate::core::semver_cmp(&v, bv) > 0).unwrap_or(true);
-        if better { best = Some((c.clone(), v)); }
-    }
-    Some(match best {
-        Some((p, v)) => (p, Some(v)),
-        None => (cands.into_iter().next()?, None),
-    })
+        let (ak, av) = key(a);
+        let (bk, bv) = key(b);
+        crate::core::semver_cmp(&av, &bv).cmp(&0).then_with(|| ak.cmp(&bk)).then_with(|| a.0.cmp(&b.0))
+    });
+    Some(ranked.into_iter().next()?)
 }
 
 #[cfg(test)]
@@ -152,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn pick_highest_takes_newest_version() {
+    fn pick_best_takes_newest_version_and_breaks_ties_by_path() {
         let root = tmp("pick");
         let a = root.join("pkgA");
         let b = root.join("pkgB");
@@ -160,7 +165,19 @@ mod tests {
         fake_pkg(&b, "0.2.0");
         let abin = a.join("bin").join("lobox");
         let bbin = b.join("bin").join("lobox");
-        assert_eq!(pick_highest(vec![abin, bbin.clone()]), Some(bbin), "应按版本最高仲裁（内核只有最新版本）");
+        assert_eq!(
+            pick_best(vec![abin, bbin.clone()]).map(|(p, _)| p),
+            Some(bbin.clone()),
+            "应按版本最高仲裁（内核只有最新版本）"
+        );
+        // 同版本：路径字典序升序取首，两种输入顺序结论必须相同（此前 max_by 取 last，取决于 PATH 顺序）。
+        let c = root.join("pkgC");
+        fake_pkg(&c, "0.2.0");
+        let cbin = c.join("bin").join("lobox");
+        let fwd = pick_best(vec![bbin.clone(), cbin.clone()]).map(|(p, _)| p);
+        let rev = pick_best(vec![cbin.clone(), bbin.clone()]).map(|(p, _)| p);
+        assert_eq!(fwd, rev, "同版本时结论不得取决于输入顺序");
+        assert_eq!(fwd, Some(bbin), "同版本应取路径字典序最小");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

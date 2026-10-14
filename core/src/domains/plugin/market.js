@@ -7,7 +7,7 @@ const { classify, pickAuthor } = require('./policies/classify');
 const marketCache = require('./store/market-cache');
 const { npmEntry, githubEntry } = require('./policies/market-entry');
 
-const REGISTRY = 'https://registry.npmjs.org';
+const REGISTRY = require('../../shared/shared-constants').runtime.npmDefaultRegistry;
 const GH_API = 'https://api.github.com';
 const DEFAULT_TTL_MS = 30 * 60 * 1000;
 const INDEX_FILE = 'plugin-market-cache.json';

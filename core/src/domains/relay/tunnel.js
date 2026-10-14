@@ -1,7 +1,9 @@
 'use strict';
 
 const net = require('node:net');
-const { isTrustedSource, hasValidToken, upstreamPath } = require('./core');
+// 直接使用唯一判据 tokenGateDecision：不再经 hasValidToken 这层转发，
+// 「可漏传 mode」的结构性风险随该函数一起从公开面消失。
+const { isTrustedSource, tokenGateDecision, upstreamPath } = require('./core');
 
 function buildRawRequest(req, authority, cookie) {
   let raw = req.method + ' ' + upstreamPath(req.url) + ' HTTP/1.1\r\n';
@@ -36,7 +38,14 @@ function rejectSocket(socket, statusLine) {
   try { socket.destroy(); } catch {}
 }
 
-function createTunnelHandler({ session, authority, targetHost, targetPort, getToken, getGateSalt, gateWaitMs, onGateFailure }) {
+// getToken / getGateSalt / getMode 三者由 createRelay 单点注入，缺一即视为装配错误：
+// 漏注入 mode 会让 normalizeRemoteMode(undefined) 归一为 'off'，
+// 于是 LAN 无令牌的 HTTP 面放行、WS upgrade 却 401 —— 同一道门两种答案。
+// 因此这里在入口一次性校验，令牌判据的输入集合在结构上无法被省略。
+function createTunnelHandler({ session, authority, targetHost, targetPort, getToken, getGateSalt, getMode, gateWaitMs, onGateFailure }) {
+  if (typeof getToken !== 'function' || typeof getGateSalt !== 'function' || typeof getMode !== 'function') {
+    throw new Error('createTunnelHandler: getToken/getGateSalt/getMode 必须全部由装配点注入');
+  }
   return function onUpgrade(req, socket, head) {
     if (!isTrustedSource(req, socket)) {
       rejectSocket(socket, 'HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
@@ -47,7 +56,7 @@ function createTunnelHandler({ session, authority, targetHost, targetPort, getTo
       rejectSocket(socket, 'HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       return;
     }
-    if (!hasValidToken(req, getToken(), typeof getGateSalt === 'function' ? getGateSalt() : undefined)) {
+    if (tokenGateDecision(req, getToken(), getGateSalt(), getMode()).ok !== true) {
       if (typeof onGateFailure === 'function') { try { onGateFailure(ip); } catch {} }
       rejectSocket(socket, 'HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       return;

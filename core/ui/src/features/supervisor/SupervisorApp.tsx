@@ -7,9 +7,10 @@ import {
 import { CheckCircle2, Menu, Plus, Trash2 } from "lucide-react";
 import { Button } from "../../framework/ui";
 import skiffLogo from "../../assets/dsh-logo.svg";
-import { toast } from "sonner";
 import { supervisorStore, useSupervisorData } from "../../services/supervisor";
 import { SUPERVISOR_NAV, type SupervisorViewKey } from "./nav";
+import { copyText } from "./clipboard";
+import { guardStateOf } from "./session";
 
 const OverviewPage = lazy(() => import("./OverviewPage").then((m) => ({ default: m.OverviewPage })));
 const InstancesPage = lazy(() => import("./InstancesPage").then((m) => ({ default: m.InstancesPage })));
@@ -55,8 +56,8 @@ export function SupervisorApp() {
 
   const meta = PAGE_META[view];
   const phase = status?.phase;
-  const sessionState = status?.sessionState;
-  const running = Boolean(status?.dshPid);
+  // 会话态唯一判定在 session.guardStateOf，StatusBar 与 OverviewPage 共用。
+  const guard = guardStateOf(status, online, authFailed);
 
   return (
     <AppShell mode="classic">
@@ -131,26 +132,7 @@ export function SupervisorApp() {
                     type="button"
                     onClick={() => {
                       const id = String(status.installId);
-                      const fallback = () => {
-                        try {
-                          const ta = document.createElement("textarea");
-                          ta.value = id;
-                          ta.style.position = "fixed";
-                          ta.style.opacity = "0";
-                          document.body.appendChild(ta);
-                          ta.select();
-                          document.execCommand("copy");
-                          document.body.removeChild(ta);
-                          toast.success("已复制 UUID");
-                        } catch {
-                          toast.error("复制失败，请手动选择");
-                        }
-                      };
-                      if (navigator.clipboard?.writeText) {
-                        navigator.clipboard.writeText(id).then(() => toast.success("已复制 UUID"), fallback);
-                      } else {
-                        fallback();
-                      }
+                      void copyText(id, "已复制 UUID");
                     }}
                     className="shrink-0 font-mono text-xs leading-tight text-muted-foreground transition-colors hover:text-foreground"
                     title={"本机安装标识（灰度测试用）：" + String(status.installId) + "\n点击复制"}
@@ -159,27 +141,22 @@ export function SupervisorApp() {
                   </button>
                 ) : null}
                 {
-                  sessionState === "stopping" ? (
+                  guard === "halted" ? (
                 <span className="inline-flex items-center gap-1.5 text-xs leading-tight text-muted-foreground">
                   <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
-                  管家正在退出（停止全部服务）…
+                  管家已停止（服务已全部停止）{phase ? " · " + phase : ""}
                 </span>
-              ) : sessionState === "stopped" ? (
-                <span className="inline-flex items-center gap-1.5 text-xs leading-tight text-muted-foreground">
-                  <span className="size-1.5 rounded-full bg-muted-foreground/50" />
-                  管家已退出（服务已全部停止）
-                </span>
-              ) : online && running ? (
+              ) : guard === "running" ? (
                 <span className="inline-flex items-center gap-1.5 text-xs leading-tight text-muted-foreground">
                   <span className="size-1.5 rounded-full bg-status-ok" />
                   DSH 管家运行中{phase ? " · " + phase : ""}
                 </span>
-              ) : online ? (
+              ) : guard === "stopped" ? (
                 <span className="inline-flex items-center gap-1.5 text-xs leading-tight text-muted-foreground">
                   <span className="size-1.5 rounded-full bg-muted-foreground/50" />
                   DSH 管家已停止{phase ? " · " + phase : ""}
                 </span>
-              ) : authFailed ? (
+              ) : guard === "auth-failed" ? (
                 <span className="inline-flex items-center gap-1.5 text-xs leading-tight text-destructive" title="管家在运行，但本机未缓存有效访问密钥。请用带 ?access_key= 的链接重新进入，或在本机 127.0.0.1 面板更新密钥。">
                   <span className="size-1.5 rounded-full bg-destructive" />
                   访问密钥缺失或错误
@@ -191,6 +168,11 @@ export function SupervisorApp() {
                 </span>
               )
                 }
+                {online && snap.degraded.length ? (
+                  <span className="text-xs leading-tight text-warning">
+                    部分面板不可用：{snap.degraded.join("、")}
+                  </span>
+                ) : null}
               </span>
             }
           />

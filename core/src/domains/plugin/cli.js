@@ -7,7 +7,7 @@ const ProcessSpec = require('../../platform/os/process-spec');
 const { assertSafeCliArgs } = require('./policies');
 
 const CLI_TIMEOUT_MS = 180000;
-const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
+const DEFAULT_REGISTRY = require('../../shared/shared-constants').runtime.npmDefaultRegistry;
 
 async function registryOrigin(dist) {
   if (dist) { try { return await dist.registryOrigin(false); } catch {} }

@@ -50,7 +50,7 @@ const { extension: domainConfigExtension } = require('../src/app/settings/domain
 const DEFAULT_CONFIG = Object.assign(
   {},
   buildDefaults(domainConfigExtension()),
-  { command: ['node', 'dsh', 'web'], healthUrl: 'http://127.0.0.1:3080/' }
+  { command: ['node', 'dsh', 'web'], healthUrl: 'http://127.0.0.1:' + SHARED.net.dshDefaultPort + '/' }
 );
 // stateFile 落点：与 logFilePaths() 同口径——尊重 cfg.stateFile（~ 展开），读不到配置才回落到默认。
 function stateFilePath() {

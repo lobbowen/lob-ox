@@ -51,6 +51,9 @@ function chmodWarn(file, e) {
   } catch {  }
 }
 
+// 返回 { ok, reason }，而不是裸布尔。
+// 此前失败一律 return false 且原因被 catch{} 吞掉，调用方只看到「轮转没发生」
+// 却拿不到任何线索 —— rename 失败在 Windows 文件占用/杀软锁下是常见路径。
 function rotateByBackup(file, opts) {
   const fp = path.resolve(file);
   const keep = (opts && opts.keep) || PERSIST_LIMITS.KEEP_BACKUPS;
@@ -58,17 +61,23 @@ function rotateByBackup(file, opts) {
     const slot = pickBackupSlot(fp, keep);
     fs.renameSync(fp, slot);
     try { fs.chmodSync(slot, 0o600); } catch {  }
-    return true;
-  } catch {
+    return { ok: true, slot };
+  } catch (renameErr) {
+    // rename 不可用（跨卷 / Windows 文件占用）：退回复制+截断。
+    // 必须走与主路径同一个写入口 fsUtil.writeDurable —— 此前这里写的是
+    // 裸 writeAtomic，而该标识符在本模块从未被导入，恒 ReferenceError，
+    // 又被本函数的 catch 吞掉：轮转在 rename 失败时永不发生，账本无限增长。
     try {
       const content = fs.readFileSync(fp);
       const slot = pickBackupSlot(fp, keep);
-      const w = writeAtomic(slot, content);
-      if (!w.ok) return false;
+      const w = writeDurable(slot, content);
+      if (!w.ok) return { ok: false, reason: 'backup write failed: ' + (w.reason || '') + ' (rename: ' + ((renameErr && renameErr.message) || renameErr) + ')' };
       fs.truncateSync(fp, 0);
       try { fs.chmodSync(fp, 0o600); } catch {  }
-      return true;
-    } catch { return false; }
+      return { ok: true, slot };
+    } catch (copyErr) {
+      return { ok: false, reason: 'rotation failed: ' + ((copyErr && copyErr.message) || copyErr) + ' (rename: ' + ((renameErr && renameErr.message) || renameErr) + ')' };
+    }
   }
 }
 
@@ -92,16 +101,23 @@ function appendByRotation(file, line, opts) {
     text = text.slice(0, PERSIST_LIMITS.MAX_LINE_BYTES);
   }
   let rotated = false;
+  let rotateReason = null;
   try {
     ensureDir(path.dirname(fp));
     let size = 0;
     try { size = fs.statSync(fp).size; } catch {  }
-    if (size > maxBytes) rotated = rotateByBackup(fp, opts);
+    if (size > maxBytes) {
+      // rotateByBackup 返回 {ok,reason}。轮转失败时账本仍会继续追加而不停增长，
+      // 因此把原因透出到返回值，让调用方能观测到「已超限但轮转未生效」。
+      const r = rotateByBackup(fp, opts);
+      rotated = !!(r && r.ok);
+      rotateReason = (r && r.ok) ? null : ((r && r.reason) || 'rotation failed');
+    }
     fs.appendFileSync(fp, text + '\n', { mode: 0o600 });
     try { fs.chmodSync(fp, 0o600); } catch {  }
-    return { ok: true, path: fp, rotated: rotated };
+    return { ok: true, path: fp, rotated, rotateReason };
   } catch (e) {
-    return { ok: false, path: fp, rotated: rotated, reason: (e && e.message) || String(e) };
+    return { ok: false, path: fp, rotated, rotateReason, reason: (e && e.message) || String(e) };
   }
 }
 

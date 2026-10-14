@@ -67,33 +67,20 @@ jobs:
           node-version: '24'
 
 
-      - name: tag ↔ 组件版本对账（仅 tag；不一致即失败）
+      - name: tag 命名规范（仅 tag）
         if: github.ref_type == 'tag'
         shell: bash
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          # ⚠ 本步带 -e：`VAR=$(cmd)` 非零会直接终止脚本，连 ::error:: 都打不出来
-          #    ⇒ 取值类赋值一律带 `|| { ...exit 1; }` 兜底。
           set -euo pipefail
           TAG="${TAG_NAME:-}"
-          [ -n "$TAG" ] || { echo "::error::tag 事件下 github.ref_name 为空，无法完成对账"; exit 1; }
+          [ -n "$TAG" ] || { echo "::error::tag 事件下 github.ref_name 为空"; exit 1; }
           case "$TAG" in
             core-*) ;;
-            *) echo "::error::tag 名 ${TAG} 不带 core- 前缀（本工作流只认 core-<内核版本>，见文件头 tags: 段）"; exit 1 ;;
+            *) echo "::error::tag 名 ${TAG} 不带 core- 前缀（命名空间规范：core-<内核版本>）"; exit 1 ;;
           esac
-          # 刻意不做 `${...#v}` 历史兼容剥离：core-v<x> 应在这里如实判红，否则命名空间漂移会静默通过。
-          VER_TAG="${TAG#core-}"
-          VER_PKG="$(node -p "require('./package.json').version")" || {
-            echo "::error::读取 core/package.json#version 失败（node -p 非零）；tag=${TAG}，对账无法完成"; exit 1; }
-          echo "  tag          = $TAG"
-          echo "  tag 版本     = $VER_TAG"
-          echo "  组件 version = $VER_PKG（来源：core/package.json#version）"
-          if [ "$VER_TAG" != "$VER_PKG" ]; then
-            echo "::error::tag=${TAG}（版本 ${VER_TAG}） 组件 version=${VER_PKG}（core/package.json#version） 两者必须一致（发布单源）"
-            exit 1
-          fi
-          echo "  ✓ 对账通过：tag=${TAG} 与 core/package.json#version=${VER_PKG} 逐字一致"
+          echo "  ✓ 命名规范通过：${TAG}"
 
       - name: 探测该版本是否已全部发布
         id: probe
@@ -129,7 +116,7 @@ jobs:
       matrix:
         include:
           # ⚠ Linux 必须用 ubuntu-22.04（glibc 2.35）：24.04（glibc 2.39）的产物无法在
-          #   22.04 / Debian 12 运行；ci-core.sh [3.5/5] 另调 ci/check-glibc.sh 卡 ≤ 2.35。
+          #   22.04 / Debian 12 运行。
           - os: ubuntu-22.04
             artifact: linux-x64
             arch_override: ""

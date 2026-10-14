@@ -97,6 +97,34 @@ impl ShellError {
         }
     }
 
+    pub fn install(platform: &str, cause: impl Into<String>) -> Self {
+        ShellError::Install {
+            platform: platform.to_string(),
+            cause: cause.into(),
+        }
+    }
+
+    pub fn service(action: &str, cause: impl Into<String>) -> Self {
+        ShellError::Service {
+            action: action.to_string(),
+            cause: cause.into(),
+        }
+    }
+
+    pub fn contract(file: &str, cause: impl Into<String>) -> Self {
+        ShellError::Contract {
+            file: file.to_string(),
+            cause: cause.into(),
+        }
+    }
+
+    pub fn unsupported(capability: &str, platform: &str) -> Self {
+        ShellError::Unsupported {
+            capability: capability.to_string(),
+            platform: platform.to_string(),
+        }
+    }
+
     pub fn hint(&self) -> &'static str {
         match self {
             ShellError::Probe { .. } => "探测超时。可检查网络与代理设置后重试；诊断信息含失败阶段与耗时。",

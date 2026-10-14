@@ -7,7 +7,7 @@ const path = require('node:path');
 const ex = require('../util/exec');
 const execPath = require('./exec-path');
 const desktop = require('./desktop');
-const CAPABILITY_PROFILES = require('./capability-profile');
+const { SUPPORTED } = require('./capability-profile');
 const environment = require('./environment');
 
 const { PLATFORM, ARCH, isLinux, isMac, isWindows } = require('../../shared/platform');
@@ -29,14 +29,15 @@ function supervisorDir() {
   return stateRoot.supervisorDir();
 }
 
+// 产品支持基线（静态）；本机可用性由下面的 capabilities() 探测覆盖。
 function capabilityProfile(platform, arch) {
   const pl = platform || PLATFORM;
   const ar = arch || ARCH;
   const base = { platform: pl, arch: ar };
-  if (pl === 'linux') return Object.assign(base, CAPABILITY_PROFILES.linux);
-  if (pl === 'darwin') return Object.assign(base, CAPABILITY_PROFILES.darwin);
-  if (pl === 'win32') return Object.assign(base, CAPABILITY_PROFILES.win32);
-  return Object.assign(base, CAPABILITY_PROFILES.unknown);
+  if (pl === 'linux') return Object.assign(base, SUPPORTED.linux);
+  if (pl === 'darwin') return Object.assign(base, SUPPORTED.darwin);
+  if (pl === 'win32') return Object.assign(base, SUPPORTED.win32);
+  return Object.assign(base, SUPPORTED.unknown);
 }
 
 function capabilities() {

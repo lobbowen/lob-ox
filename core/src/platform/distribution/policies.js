@@ -1,11 +1,14 @@
 'use strict';
 
 const registryRef = require('./registry-ref');
+const SHARED = require('../../shared/shared-constants');
 
 const NPM_TIMEOUT_MS = { install: 600000, uninstall: 900000 };
 
+// 默认 registry 取自 shared-constants.json 的 runtime.npmDefaultRegistry（跨语言单源），
+// 不再在本文件复刻一份字面量。
 const FALLBACK_REGISTRIES = [
-  'https://registry.npmjs.org',
+  SHARED.runtime.npmDefaultRegistry,
   'https://registry.npmmirror.com',
 ];
 

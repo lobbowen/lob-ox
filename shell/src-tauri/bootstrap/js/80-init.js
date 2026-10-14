@@ -2,7 +2,7 @@
   NS.$('btnUpdRetry').addEventListener('click', function () {
     NS.hideUpdChoice();
     NS.status('正在重试桌面版本更新…');
-    NS.stepShellApply().catch(function (e) { NS.showUpdChoice('重试异常：' + NS.errText(e)); });
+    NS.stepShellApply().catch(function (e) { NS.showUpdRetry('重试异常：' + NS.errText(e)); });
   });
   NS.$('btnMirror').addEventListener('click', function () {
     var shown = NS.$('mirrorBox').style.display !== 'none';
@@ -52,7 +52,9 @@
     NS.status('诊断信息已复制：' + t);
   });
   if (NS.evt) {
-    NS.evt.listen('guard_progress', function (e) {
+    // Rust 发的是 core_progress（guardctl.rs 的 step()）；监听 guard_progress 是死的，
+    // guard_start 期间 boot UI 从不显示内核进度。
+    NS.evt.listen('core_progress', function (e) {
       var p = e.payload || {};
       if (p.status) NS.status(p.status);
     });

@@ -90,6 +90,12 @@ const EVENT_SHELL_UPDATE_CHECKED = SHARED.event.shell_update_checked;
 
 const SYSTEMD_TEMPLATE_ASIDE_SUFFIX = SHARED.platform.systemdTemplateAsideSuffix;
 
+// PROC_MATCH_GUARD 的消费方是 platform/os/pidlookup（进程归属判据）。
+// 此前 shared-constants.proc.matchGuard 已在 JSON 单源中存在，但本文件从未把它
+// 导出，pidlookup 读到 undefined 后回退到硬编码 /dsh|lobox/i —— 该回退漏掉
+// npm scope 形态 @lob-ox（连字符），导致改名后的内核被判为外部进程。
+const PROC_MATCH_GUARD = SHARED.proc.matchGuard;
+
 
 function corePackageName(tag) {
   return NPM_SCOPE + '/' + CORE_PKG_PREFIX + tag;
@@ -154,6 +160,7 @@ module.exports = {
   EVENT_LAN_HARNESS_TOKEN_UPDATED,
   EVENT_SHELL_UPDATE_CHECKED,
   SYSTEMD_TEMPLATE_ASIDE_SUFFIX,
+  PROC_MATCH_GUARD,
   corePackageName,
   stateRoot,
   legacyStateRoot,

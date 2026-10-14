@@ -6,7 +6,6 @@ import { cn } from "../utils";
 export type AppLayoutProps = {
   children: ReactNode;
   sidebar?: ReactNode;
-  wideSidebar?: boolean;
   sidebarOpen?: boolean;
   onCloseSidebar?: () => void;
   className?: string;
@@ -15,14 +14,13 @@ export type AppLayoutProps = {
 export function AppLayout({
   children,
   sidebar,
-  wideSidebar = false,
   sidebarOpen = false,
   onCloseSidebar,
   className,
 }: AppLayoutProps) {
   return (
     <div
-      data-mode={wideSidebar ? "wide-sidebar" : "classic"}
+      data-mode="classic"
       data-sidebar-open={sidebarOpen ? "true" : "false"}
       className={cn(
         "fw-layout grid h-full min-h-0 min-w-0 overflow-hidden bg-background max-[640px]:overflow-visible",

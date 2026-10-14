@@ -93,46 +93,114 @@ pub fn kill_tree(child: &mut std::process::Child) {
     }
 }
 
+/// pid 是否仍存活（自愈判活的**唯一**实现）。
+/// 走系统 API 而非猜：/proc 只在 Linux 有，Windows 上"文件存在"根本不是判据。
+#[cfg(windows)]
+pub fn pid_alive(pid: u32) -> bool {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn OpenProcess(dwDesiredAccess: u32, bInheritHandle: i32, dwProcessId: u32) -> *mut core::ffi::c_void;
+        fn GetExitCodeProcess(hProcess: *mut core::ffi::c_void, lpExitCode: *mut u32) -> i32;
+        fn CloseHandle(hObject: *mut core::ffi::c_void) -> i32;
+    }
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const STILL_ACTIVE: u32 = 259;
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return false;
+        }
+        let mut code: u32 = 0;
+        let ok = GetExitCodeProcess(h, &mut code) != 0;
+        CloseHandle(h);
+        ok && code == STILL_ACTIVE
+    }
+}
+#[cfg(not(windows))]
+pub fn pid_alive(pid: u32) -> bool {
+    std::path::Path::new(&format!("/proc/{}", pid)).exists()
+}
+
+/// 终止结果的唯一判据形态。三种现场的可操作结论完全不同：已终止 / 本来就不在 /
+/// 终止失败（要报错），压成一个 bool 会让「进程还在跑」被读成「已停止」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KillOutcome {
+    /// 树已被终止。
+    Terminated,
+    /// 目标本来就不存在——对「停机」这个目标而言是成功。
+    AlreadyGone,
+    /// 终止失败，调用方必须当失败处理。
+    Failed,
+}
+
+impl KillOutcome {
+    pub fn is_success(self) -> bool {
+        matches!(self, KillOutcome::Terminated | KillOutcome::AlreadyGone)
+    }
+}
+
 /// 按 pid 终止进程树（不持有 Child 句柄时用：壳从进程表登记项反查 pid 停机）。
 /// 与 kill_tree 的区别仅在入口：那个收 Child（壳自己 spawn 的路径），
 /// 这个收 pid（内核自报 / 上次会话遗留 / 已 detach 的进程）。
-pub fn kill_tree_pid(pid: u32) -> bool {
+/// 判据收口到 KillOutcome：此前本函数把 run_checked 的错误串里出现 "128" 当成功
+/// （而错误串恰好含退出码 128，故真会命中），platform::kill_managed_processes 又把
+/// 任何非零当 Err——两处结论相反。统一按退出码判定。
+pub fn kill_tree_pid(pid: u32) -> KillOutcome {
+    if !pid_alive(pid) {
+        return KillOutcome::AlreadyGone;
+    }
     #[cfg(windows)]
     {
-        // taskkill /T /F：杀整树。退出码 128 = 进程不存在（已退出），
-        // 对「停机」这个目标而言是成功——调用方要的是「它不在了」。
-        let r = run_checked(
+        // taskkill /T /F：杀整树。退出码 128 = 进程不存在（已退出）。
+        let r = run(
             std::process::Command::new("taskkill")
                 .arg("/PID")
                 .arg(pid.to_string())
                 .arg("/T")
                 .arg("/F"),
             std::time::Duration::from_secs(10),
-            "taskkill",
         );
-        match r {
-            Ok(_) => true,
-            Err(e) => !e.contains("128") && !e.to_lowercase().contains("not found"),
-        }
+        return match r {
+            Ok(o) if o.success => KillOutcome::Terminated,
+            Ok(o) => {
+                if o.code == Some(128) {
+                    KillOutcome::AlreadyGone
+                } else {
+                    crate::update::log(&format!("[kill] pid={} taskkill 失败: {}", pid, o.stderr.trim()));
+                    KillOutcome::Failed
+                }
+            }
+            Err(e) => {
+                crate::update::log(&format!("[kill] pid={} taskkill 调用失败: {}", pid, e));
+                KillOutcome::Failed
+            }
+        };
     }
     #[cfg(not(windows))]
     {
-        // 先 SIGTERM 进程组，再兜底 SIGKILL 单pid。
-        let term = std::process::Command::new("kill")
+        // 先 SIGTERM 进程组，再兜底 SIGKILL 单 pid。
+        let _term = std::process::Command::new("kill")
             .arg("-TERM")
             .arg("-")
             .arg(pid.to_string())
             .status();
         std::thread::sleep(std::time::Duration::from_millis(300));
-        let alive = std::path::Path::new(&format!("/proc/{}", pid)).exists();
-        if !alive { return true; }
-        std::process::Command::new("kill")
+        if !pid_alive(pid) {
+            return KillOutcome::Terminated;
+        }
+        let killed = std::process::Command::new("kill")
             .arg("-KILL")
             .arg(pid.to_string())
             .status()
             .map(|s| s.success())
-            .unwrap_or(false)
-            || term.map(|s| s.success()).unwrap_or(false)
+            .unwrap_or(false);
+        if killed {
+            KillOutcome::Terminated
+        } else if !pid_alive(pid) {
+            KillOutcome::Terminated
+        } else {
+            KillOutcome::Failed
+        }
     }
 }
 

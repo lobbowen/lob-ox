@@ -70,10 +70,23 @@ case "${1:-list}" in
     fi
     if [ -f "$f" ]; then
       BK="$f.bak-$(date +%Y%m%d%H%M%S)"
-      ( cp -p "$f" "$BK" && chmod 600 "$BK" ) 2>/dev/null \
-        || echo "警告：旧值备份失败（${BK} 未落），写入仍继续；如需保底请先手工复制 ${f}。" >&2
+      # 备份不是「尽力而为」：备份失败即拒写。覆盖写一旦随后失败，旧值已永久丢失且无人察觉。
+      if ! ( cp -p "$f" "$BK" && chmod 600 "$BK" ) 2>/dev/null; then
+        rm -f "$TMP_IN" 2>/dev/null || true
+        echo "拒绝：旧值备份失败（${BK} 未落）—— 未改动 ${f}。" >&2
+        echo "  凭据覆盖写一旦失败旧值即永久丢失，故备份不成功不接受写入；请先手工复制 ${f}。" >&2
+        exit 2
+      fi
     fi
-    cat "$TMP_IN" > "$f"; rm -f "$TMP_IN" 2>/dev/null || true; chmod 600 "$f"
+    # 落盘用同目录 rename（同分区在 POSIX 与 NTFS 上均为原子替换），不复用截断重写：
+    # 截断重写在写入途中断电/磁盘满会留下 0 字节的真凭据文件。
+    chmod 600 "$TMP_IN"
+    mv "$TMP_IN" "$f"
+    # 「落盘必须非空」是契约，不只是对 stdin 的输入检查：任何路径下写出 0 字节即判失败。
+    if [ ! -s "$f" ]; then
+      echo "拒绝：写入后 ${f} 为 0 字节（原子替换未产出有效内容）—— 请从备份恢复。" >&2
+      exit 2
+    fi
     node -e "
       const fs=require('fs'),p=process.env.INDEX;
       const j=JSON.parse(fs.readFileSync(p,'utf8'));

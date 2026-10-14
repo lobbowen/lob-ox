@@ -6,6 +6,7 @@ function createState(opts) {
     providers: [],
     running: false,
     stopped: false,
+    configQuarantine: null,
     ring: [],
     ringMax: 800,
     proxyUpdateCache: {},

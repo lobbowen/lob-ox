@@ -19,7 +19,27 @@ use hyper_util::rt::TokioIo;
 use crate::process_manager::state_machine;
 use crate::process_manager::ProcessManager;
 
+/// 契约文件是否已被一个**在世**的进程持有。pid 只由本文件写入，
+/// 故读到的 pid 可直接判活（与 pm-client.js 的 endpoint() 同一判据）。
+fn live_contract_owner() -> Option<u32> {
+    let path = crate::env::supervisor_dir().join("guard-mgmt.json");
+    let text = std::fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let pid = v.get("pid")?.as_u64()? as u32;
+    if pid == std::process::id() {
+        return Some(pid);
+    }
+    if crate::bounded::pid_alive(pid) { Some(pid) } else { None }
+}
+
 pub async fn run(state: Arc<ProcessManager>) {
+    // guard-mgmt.json 是**单所有者**契约：已有在世所有者时本进程不得接管。
+    // 否则后起的 --run-guard 子进程会把壳的端口覆盖成自己的，内核上报随即
+    // 全部落进这张没人查询、没人 heal 的临时表。
+    if let Some(pid) = live_contract_owner() {
+        eprintln!("[mgmt] 契约已有在世所有者 pid={}，本进程不接管管理端点", pid);
+        return;
+    }
     let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
         Ok(l) => l,
         Err(e) => {
@@ -35,7 +55,11 @@ pub async fn run(state: Arc<ProcessManager>) {
     eprintln!("[mgmt] guard-mgmt 监听 127.0.0.1:{port}");
     // 端口回灌内核（壳写内核读，单向）：内核 daemon 与 GUI 壳是两个独立进程
     //   （--run-guard 走 exec 替换，壳进程不再存在），故不能用父传子 env，改走落盘契约。
-    export_port(port);
+    // 令牌根不可得 → 不写契约文件：内核读不到端点即静默降级，
+    // 而挂着可预测凭据的端点可被本机任意进程用来执行任意 spawn_cmd。
+    if let Err(e) = export_port(port) {
+        eprintln!("[mgmt] 契约未落盘，管理端点不可用: {e}");
+    }
     loop {
         let (stream, _addr) = match listener.accept().await {
             Ok(x) => x,
@@ -75,70 +99,69 @@ const MGMT_BODY_CAP: usize = 64 * 1024;
 // healer 每 5 秒以壳的权限执行它。Windows 上 schtasks 用了 /RL HIGHEST，
 // 即完整的本地提权链。
 //
-// 修为：进程启动时生成 128-bit 随机根，令牌按端口 SHA256 派生。
+// 修为：进程启动时生成 256-bit 随机根，令牌按端口 SHA256 派生。
 //   - 每个管理面一个令牌，泄漏一个不影响其他面；
 //   - 根不可复现，本机其他进程无法推算；
 //   - 比较用常量时间。
+//
+// 熵源失败时 **fail-closed**（返回 Err）：早期版本在此退化成
+// 「时间纳秒 ^ pid ^ 栈地址」且后半段是前半段按位取反，有效熵只有 128 bit 且 pid 全世界可读，
+// 可被本地爆破——而当时的注释仍声称「不可复现」。宁可管理端点起不来（内核降级静默），
+// 也不能挂一个可预测的凭据。
 
 use std::sync::OnceLock;
 
 static MGMT_TOKEN_ROOT: OnceLock<[u8; 32]> = OnceLock::new();
 
-fn mgmt_token_root() -> &'static [u8; 32] {
-    MGMT_TOKEN_ROOT.get_or_init(|| {
-        let mut seed = [0u8; 32];
-        let mut ok = false;
-        unsafe {
-            #[cfg(target_os = "windows")]
-            {
-                // BCryptGenRandom（CNG）是 Windows 上无需提权的 CSPRNG 入口，且 bcrypt.lib
-                // 已在依赖图内（ring 引入，链接器命令行可见）。此前用 RtlGenRandom 声明
-                // extern "system" 导致 LNK2019——它是 advapi32 的 SystemFunction036 别名，
-                // 未经 #[link(name="advapi32")] 声明时链接器找不到符号。
-                extern "system" {
-                    fn BCryptGenRandom(hAlgorithm: *mut core::ffi::c_void, pbBuffer: *mut u8, cbBuffer: u32, dwFlags: u32) -> i32;
-                }
-                const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x00000002;
-                let rc = BCryptGenRandom(
-                    core::ptr::null_mut(),
-                    seed.as_mut_ptr(),
-                    seed.len() as u32,
-                    BCRYPT_USE_SYSTEM_PREFERRED_RNG,
-                );
-                // STATUS_SUCCESS == 0
-                ok = rc == 0;
+fn system_entropy() -> Option<[u8; 32]> {
+    let mut seed = [0u8; 32];
+    let mut ok = false;
+    unsafe {
+        #[cfg(target_os = "windows")]
+        {
+            extern "system" {
+                fn BCryptGenRandom(hAlgorithm: *mut core::ffi::c_void, pbBuffer: *mut u8, cbBuffer: u32, dwFlags: u32) -> i32;
             }
-            #[cfg(not(target_os = "windows"))]
-            {
-                if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-                    use std::io::Read;
-                    ok = f.read_exact(&mut seed).is_ok();
-                }
+            const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x00000002;
+            let rc = BCryptGenRandom(
+                core::ptr::null_mut(),
+                seed.as_mut_ptr(),
+                seed.len() as u32,
+                BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+            );
+            // STATUS_SUCCESS == 0
+            ok = rc == 0;
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+                use std::io::Read;
+                ok = f.read_exact(&mut seed).is_ok();
             }
         }
-        if !ok {
-            let t = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0);
-            let pid = std::process::id() as u128;
-            let ptr = seed.as_ptr() as u128;
-            let mix = t ^ (pid << 64) ^ (ptr << 16);
-            seed[..16].copy_from_slice(&mix.to_le_bytes());
-            seed[16..].copy_from_slice(&(!mix).to_le_bytes());
-        }
-        seed
-    })
+    }
+    if ok { Some(seed) } else { None }
 }
 
-fn mgmt_token(port: u16) -> String {
+fn mgmt_token_root() -> Result<&'static [u8; 32], String> {
+    if let Some(r) = MGMT_TOKEN_ROOT.get() {
+        return Ok(r);
+    }
+    let seed = system_entropy().ok_or_else(|| {
+        "系统熵源不可用：拒绝以可预测种子派生 guard-mgmt 令牌（fail-closed）".to_string()
+    })?;
+    Ok(MGMT_TOKEN_ROOT.get_or_init(|| seed))
+}
+
+fn mgmt_token(port: u16) -> Result<String, String> {
     use sha2::{Digest, Sha256};
+    let root = mgmt_token_root()?;
     let mut h = Sha256::new();
-    h.update(mgmt_token_root());
+    h.update(root);
     h.update(b"lobox-mgmt:");
     h.update(port.to_string().as_bytes());
     let digest = h.finalize();
-    hex::encode(&digest[..16])
+    Ok(hex::encode(&digest[..16]))
 }
 
 fn token_eq(got: &str, want: &str) -> bool {
@@ -153,14 +176,14 @@ fn token_eq(got: &str, want: &str) -> bool {
     }
     diff == 0
 }
-fn export_port(port: u16) {
+fn export_port(port: u16) -> Result<(), String> {
     let path = crate::env::supervisor_dir().join("guard-mgmt.json");
     let body = match serde_json::to_string_pretty(&serde_json::json!({
         "schema": 1,
         "role": "guard-mgmt",
         "host": "127.0.0.1",
         "port": port,
-        "token": mgmt_token(port),
+        "token": mgmt_token(port)?,
         "pid": std::process::id(),
         "at": std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -168,12 +191,10 @@ fn export_port(port: u16) {
             .unwrap_or(0),
     })) {
         Ok(b) => b,
-        Err(e) => { eprintln!("[mgmt] 端口契约序列化失败: {e}"); return; }
+        Err(e) => return Err(format!("端口契约序列化失败: {e}")),
     };
     // 原子提交收口到 atomic_write（失败即清理 tmp）。
-    if let Err(e) = crate::atomic_write::write(&path, &(body + "\n")) {
-        eprintln!("[mgmt] 端口契约落盘失败: {e}");
-    }
+    crate::atomic_write::write(&path, &(body + "\n")).map_err(|e| format!("端口契约落盘失败: {e}"))
 }
 
 // 错误类型用 Infallible：内核上报表单是「尽力而为」的控制面，任一环节失败都就地转成 4xx/5xx 响应，
@@ -191,7 +212,10 @@ async fn handle(
         .ok()
         .and_then(|g| g.get("guard-mgmt"))
         .unwrap_or(0);
-    let want_token = mgmt_token(port);
+    let want_token = match mgmt_token(port) {
+        Ok(t) => t,
+        Err(e) => return Ok(reply(StatusCode::INTERNAL_SERVER_ERROR, &format!("mgmt token unavailable: {e}"))),
+    };
     let got_token = req
         .headers()
         .get(mgmt_token_header())
@@ -215,38 +239,58 @@ async fn handle(
             Err(_) => return Ok(reply(StatusCode::BAD_REQUEST, "bad json")),
         }
     };
+    // 上报被接受与否必须如实回报：此前四个分支无论 id/phase/desired 是否缺失或不可解析
+    // 一律回 200，而 pm-client.js 的 post 对任何 2xx 返回 true 并吞掉——
+    // 两层都报「成功」而状态从未改变（例如 core 上报 installing 会被静默丢弃）。
+    // 这里改为：解析失败返回 4xx 并带明确原因。
     match (method.as_str(), path.as_str()) {
-        ("POST", "/pm/register") => {
-            if let Some(desc) = parse_desc(&json) {
+        ("POST", "/pm/register") => match parse_desc(&json) {
+            Some(desc) => {
                 state.register_workload(desc);
+                Ok(reply(StatusCode::OK, "ok"))
             }
-            Ok(reply(StatusCode::OK, "ok"))
-        }
+            None => Ok(reply(StatusCode::BAD_REQUEST, "register: id 缺失或不是字符串")),
+        },
         ("POST", "/pm/set-desired") => {
-            if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
-                if let Some(d) = json
+            match json.get("id").and_then(|v| v.as_str()) {
+                None => Ok(reply(StatusCode::BAD_REQUEST, "set-desired: id 缺失或不是字符串")),
+                Some(id) => match json
                     .get("desired")
                     .and_then(|v| v.as_str())
                     .and_then(parse_desired)
                 {
-                    state.set_desired(id, d);
-                }
+                    Some(d) => {
+                        state.set_desired(id, d);
+                        Ok(reply(StatusCode::OK, "ok"))
+                    }
+                    None => Ok(reply(
+                        StatusCode::BAD_REQUEST,
+                        &format!("set-desired: desired 不可解析: {:?}", json.get("desired")),
+                    )),
+                },
             }
-            Ok(reply(StatusCode::OK, "ok"))
         }
         ("POST", "/pm/on-phase") => {
-            if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
-                if let Some(p) = json.get("phase").and_then(|v| v.as_str()).and_then(parse_phase) {
-                    state.on_phase(id, p);
-                }
+            match json.get("id").and_then(|v| v.as_str()) {
+                None => Ok(reply(StatusCode::BAD_REQUEST, "on-phase: id 缺失或不是字符串")),
+                Some(id) => match json.get("phase").and_then(|v| v.as_str()).and_then(parse_phase) {
+                    Some(p) => {
+                        state.on_phase(id, p);
+                        Ok(reply(StatusCode::OK, "ok"))
+                    }
+                    None => Ok(reply(
+                        StatusCode::BAD_REQUEST,
+                        &format!("on-phase: phase 不可解析: {:?}", json.get("phase")),
+                    )),
+                },
             }
-            Ok(reply(StatusCode::OK, "ok"))
         }
-        ("POST", "/pm/record-exit") => {
-            if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
+        ("POST", "/pm/record-exit") => match json.get("id").and_then(|v| v.as_str()) {
+            None => Ok(reply(StatusCode::BAD_REQUEST, "record-exit: id 缺失或不是字符串")),
+            Some(id) => {
                 let code = json.get("code").and_then(|v| v.as_i64()).map(|x| x as i32);
                 let signal = json.get("signal").and_then(|v| v.as_str()).map(|s| s.to_string());
-                // R3 / D.8-P0-11：解析 startup_failure。缺省 false（未知不当失败）。
+                // startup_failure 缺省 false（未知不当失败）。
                 let startup_failure = json
                     .get("startup_failure")
                     .and_then(|v| v.as_bool())
@@ -260,8 +304,8 @@ async fn handle(
                         startup_failure,
                     },
                 );
+                Ok(reply(StatusCode::OK, "ok"))
             }
-            Ok(reply(StatusCode::OK, "ok"))
         }
         _ => Ok(reply(StatusCode::NOT_FOUND, "not found")),
     }
@@ -317,13 +361,15 @@ fn parse_priority(s: Option<&str>) -> state_machine::Priority {
 }
 
 fn parse_phase(s: &str) -> Option<state_machine::Phase> {
+    // installing：core 的生命周期状态机确有 INSTALLING（lifecycle.js 会上报），
+    // Rust 侧此前没有这个值 → 静默丢弃并回 200，故补进枚举而非在 parse 处猜。
     Some(match s {
         "stopped" => state_machine::Phase::Stopped,
         "starting" => state_machine::Phase::Starting,
+        "installing" => state_machine::Phase::Installing,
         "running" => state_machine::Phase::Running,
         "draining" => state_machine::Phase::Draining,
         "failed" => state_machine::Phase::Failed,
-        "restarting" => state_machine::Phase::Restarting,
         _ => return None,
     })
 }

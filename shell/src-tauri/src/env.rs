@@ -273,6 +273,19 @@ pub fn current_api_port() -> u16 {
     discovered_api_port().unwrap_or_else(api_port)
 }
 
+/// 壳访问内核 API 的**唯一**端口解析。
+/// 此前托盘闭包读 env.tray_port 再回落 current_api_port，而 CloseRequested 直接用
+/// current_api_port：同一进程两条路径给出两个端口（tray_port 覆盖时生命周期动作
+/// 打向另一个端口，退出却打向真端口）。环境变量名保留（它在 shared-constants 里，
+/// 属跨语言契约），但两处必须调同一个函数。
+pub fn resolved_api_port() -> u16 {
+    std::env::var(crate::brand::env_tray_port())
+        .ok()
+        .and_then(|p| p.trim().parse::<u16>().ok())
+        .filter(|p| *p > 0)
+        .unwrap_or_else(current_api_port)
+}
+
 pub fn ensure_global_bin_on_path() -> Result<String, String> {
     let dir = global_install_root();
     if !dir.is_dir() {

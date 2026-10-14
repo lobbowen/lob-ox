@@ -3,7 +3,7 @@
 const path = require('node:path');
 const spawnOS = require('./spawn');
 const desktop = require('./desktop');
-const CAPABILITY_PROFILES = require('./capability-profile');
+const { SUPPORTED } = require('./capability-profile');
 const { resolveExecutable, isExecutableFile } = require('./exec-path');
 const environment = require('./environment');
 const detector = require('./browser-inventory');
@@ -24,7 +24,8 @@ function openCommand(platform, url) {
   return { cmd: 'xdg-open', args: [url] };
 }
 
-const SUPPORTED_OPEN_PLATFORMS = Object.keys(CAPABILITY_PROFILES).filter((k) => CAPABILITY_PROFILES[k].openBrowser === true);
+// 白名单问的是「产品支持在哪些平台调起浏览器」，必须读未被探测污染的支持矩阵。
+const SUPPORTED_OPEN_PLATFORMS = Object.keys(SUPPORTED).filter((k) => SUPPORTED[k].openBrowser === true);
 
 function outcome(p) {
   const ok = !!p.ok;
@@ -58,6 +59,11 @@ function ownsItsWindow(via, platform) {
   return platform !== 'win32';
 }
 
+// 构造 plan 对象的唯一工厂：每分支一份新对象，绝不共享引用。
+function mkPlan(base, patch) {
+  return Object.assign({}, base, patch);
+}
+
 function formOfBin(pl, b) {
   const engine = b && b.bin ? engineOf(b.bin) : 'other';
   return { engine, direct: !!b && (engine !== 'other' || pl === 'win32') };
@@ -69,18 +75,16 @@ function openPlan(platform, url, opts) {
   const picked = o.pick || environment.pickLauncher(pl, o.inventory, o.preference);
   const b = picked.browser;
   const form = formOfBin(pl, b);
+  const base = { engine: form.engine, isolated: false, watch: false, envKind: 'sys',
+                 pick: picked.how, stale: picked.stale === true };
   if (form.direct) {
-    return { bin: b.bin, args: (b.baseArgs || []).concat([url]), engine: form.engine, via: 'browser',
-             isolated: false, watch: false, envKind: 'sys', pick: picked.how, stale: picked.stale === true,
-             exitIsEvidence: ownsItsWindow('browser', pl) };
+    return mkPlan(base, { bin: b.bin, args: (b.baseArgs || []).concat([url]), via: 'browser',
+                          exitIsEvidence: ownsItsWindow('browser', pl) });
   }
   const c = openCommand(pl, url);
-  if (!c) return { bin: null, args: [url], engine: form.engine, via: 'none',
-                   isolated: false, watch: false, envKind: 'sys', pick: picked.how, stale: picked.stale === true,
-                   exitIsEvidence: false };
-  return { bin: c.cmd, args: c.args, engine: 'other', via: 'dispatcher',
-           isolated: false, watch: false, envKind: 'sys', pick: picked.how, stale: picked.stale === true,
-           exitIsEvidence: ownsItsWindow('dispatcher', pl) };
+  if (!c) return mkPlan(base, { bin: null, args: [url], via: 'none', exitIsEvidence: false });
+  return mkPlan(base, { bin: c.cmd, args: c.args, engine: 'other', via: 'dispatcher',
+                        exitIsEvidence: ownsItsWindow('dispatcher', pl) });
 }
 
 function isolatedPlan(platform, url, opts) {
@@ -90,21 +94,22 @@ function isolatedPlan(platform, url, opts) {
   const b = picked.browser;
   const form = formOfBin(pl, b);
   const baseArgs = (b && b.baseArgs) || [];
-  const common = { pick: picked.how, stale: picked.stale === true, engine: form.engine };
-  const plain = (bin, label) => Object.assign(common, {
+  // common 是只读基线，不再被 Object.assign 写入并返回——原先 5 处分支返回同一引用。
+  const common = Object.freeze({ pick: picked.how, stale: picked.stale === true, engine: form.engine });
+  const plain = (bin, label) => mkPlan(common, {
     bin, args: baseArgs.concat([url]), via: 'browser', isolated: false, watch: false, envKind: 'sys', label,
     exitIsEvidence: ownsItsWindow('browser', pl),
   });
   if (form.direct && form.engine === 'chromium' && o.profileDir) {
     const args = ['--user-data-dir=' + o.profileDir,
       '--no-first-run', '--no-default-browser-check', '--disable-session-crashed-bubble'];
-    return Object.assign(common, {
+    return mkPlan(common, {
       bin: b.bin, args: [...baseArgs, ...args, url], via: 'isolated', isolated: true, watch: true,
       envKind: 'anti', label: 'chromium', exitIsEvidence: ownsItsWindow('isolated', pl),
     });
   }
   if (form.direct && form.engine === 'firefox' && o.profileDir) {
-    return Object.assign(common, {
+    return mkPlan(common, {
       bin: b.bin, args: [...baseArgs, '--no-remote', '--profile', o.profileDir, url],
       via: 'isolated', isolated: true, watch: true, envKind: 'anti', label: 'firefox',
       exitIsEvidence: ownsItsWindow('isolated', pl),
@@ -112,11 +117,11 @@ function isolatedPlan(platform, url, opts) {
   }
   if (form.direct) return plain(b.bin, path.basename(b.bin));
   const c = openCommand(pl, url);
-  if (!c) return Object.assign(common, {
+  if (!c) return mkPlan(common, {
     bin: null, args: [url], via: 'none', isolated: false, watch: false, envKind: 'sys', label: null,
     exitIsEvidence: false,
   });
-  return Object.assign(common, {
+  return mkPlan(common, {
     bin: c.cmd, args: c.args, via: 'dispatcher', isolated: false, watch: false, envKind: 'sys', label: c.cmd,
     exitIsEvidence: ownsItsWindow('dispatcher', pl),
   });

@@ -26,9 +26,10 @@ impl LaunchError {
 /// `--run-guard` 的本地检测（不触网）：解析可运行的 node + 守卫（取本地最高版本）。服务定义只指向稳定入口，故每次启动重新检测，node 迁移（nvm/volta/fnm）与内核升级后自动适配；线上对齐（P1）仍由壳在创建/启动服务前把关，此处只做本地解析，离线也能启动。
 pub fn resolve_local(resource_dir: Option<std::path::PathBuf>) -> Option<(crate::runtime_contract::NodeRuntime, std::path::PathBuf)> {
     let rt = crate::runtime_contract::ensure()?;
-    let guard = crate::domain::coreloc::pick_highest(
+    let guard = crate::domain::coreloc::pick_best(
         crate::domain::coreloc::locate_core_candidates(resource_dir),
-    )?;
+    )
+    .map(|(p, _)| p)?;
     Some((rt, guard))
 }
 
@@ -36,7 +37,7 @@ pub fn resolve_local(resource_dir: Option<std::path::PathBuf>) -> Option<(crate:
 // 那套是守卫所有权语义：守卫是「唯一监管者」，要等它自己拆完服务链再让外部停。
 // 进程管理时代壳直接持有进程句柄（adopt_spawned），停机就是停进程表里的每个对象，
 // 没有握手、没有让出端口的等待预算、没有 GUARD_STOP_FAILED 这条路径。
-pub(crate) fn shutdown_all(_port: u16) {
+pub(crate) fn shutdown_all() {
     let pm = crate::process_manager::handle();
     let ids: Vec<String> = {
         let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
@@ -49,16 +50,19 @@ pub(crate) fn shutdown_all(_port: u16) {
             let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
             s.get(&id).and_then(|st| st.pid)
         };
+        // 只按本表持有的 pid 精确停止：pid 为 None（core 行恰好如此）时什么都不做。
+        // 此前在此退化为 service().stop() 整表杀——那会连带停掉非本产品的 node，
+        // 且 core 行每次退出必然走一次（register_core 造的正是 Running + pid=None）。
         match pid {
             Some(p) => {
                 crate::update::log(&format!("[shell] 停止 {} (pid={})", id, p));
-                if !crate::bounded::kill_tree_pid(p) {
-                    crate::update::log(&format!("[shell] 停止 {} (pid={}) 失败", id, p));
+                match crate::bounded::kill_tree_pid(p) {
+                    o if o.is_success() => {}
+                    o => crate::update::log(&format!("[shell] 停止 {} (pid={}) 未成功: {:?}", id, p, o)),
                 }
             }
             None => {
-                // 壳不持有句柄（内核自报路径）：退回服务通道停一次。
-                let _ = crate::platform::service().stop();
+                crate::update::log(&format!("[shell] 跳过 {}：进程表无 pid（不整表停机）", id));
             }
         }
     }
@@ -68,12 +72,41 @@ pub(crate) fn shutdown_all(_port: u16) {
 /// 服务管理器路径（P4 建立定义 -> P5 请求启动）的阶段产物。不变量由结构强制：`started` 只可能在 `defined` 为 `Ok` 时才是 `Some` —— 定义失败时那条出边是关闭的。丢掉 `ensure_defined` 的错误再无条件 `start()`，报错就只剩「/Run 失败（退出码 1）」，真实失败点可能在更早的 P4。
 /// 内核进程登记表项：把「内核」作为最高优先级负载收进机箱进程表。
 /// 这是进程所有权归壳的体现 —— 表里没有内核，自愈就无从谈起。
+/// spawn_cmd 必须指向**真实**内核可执行入口（与 spawn 路径解析出的 spec.guard 一致）。
+/// 空 Vec 会被 spawn_healer 跳过，core 就永远不可 heal——这不是保守，是静默失去自愈。
+/// 解析失败时退回到「本进程 --run-guard」：那是已验证可用的内核启动入口。
 fn core_desc() -> crate::process_manager::state_machine::WorkloadDesc {
+    let spawn_cmd = match crate::runtime_contract::ensure() {
+        Some(rt) => {
+            let guard = crate::domain::coreloc::pick_best(
+                crate::domain::coreloc::locate_core_candidates(None),
+            )
+            .map(|(p, _)| p)
+            .or_else(|| crate::core_contract::read().map(|c| c.bin));
+            match guard {
+                Some(g) => {
+                    let g = crate::domain::coreloc::normalize_guard(g, crate::core::package_name().ok().as_deref());
+                    vec![rt.node.to_string_lossy().into_owned(), g.to_string_lossy().into_owned(), "daemon".to_string()]
+                }
+                None => fallback_core_spawn_cmd(),
+            }
+        }
+        None => fallback_core_spawn_cmd(),
+    };
     crate::process_manager::state_machine::WorkloadDesc {
         id: "core".to_string(),
-        spawn_cmd: Vec::new(),
+        spawn_cmd,
         priority: crate::process_manager::state_machine::Priority::Core,
         env: Vec::new(),
+    }
+}
+
+/// runtime/node 尚不可解析时的内核启动入口：本进程 --run-guard。
+/// 与 platform::service::spawn_daemon 的默认实现同一条路径。
+fn fallback_core_spawn_cmd() -> Vec<String> {
+    match crate::platform::self_exe() {
+        Ok(exe) => vec![exe.to_string_lossy().into_owned(), "--run-guard".to_string()],
+        Err(_) => Vec::new(),
     }
 }
 
@@ -106,12 +139,11 @@ fn resolve_local_kernel(
             return Ok((bin, c.version));
         }
     }
-    let guard = crate::domain::coreloc::pick_highest(
+    let (guard, version) = crate::domain::coreloc::pick_best(
         crate::domain::coreloc::locate_core_candidates(resource_dir),
     )
     .ok_or_else(|| "本地未找到任何已安装内核".to_string())?;
-    let version = crate::core::installed_version(&guard)
-        .unwrap_or_else(|| "unknown".to_string());
+    let version = version.unwrap_or_else(|| "unknown".to_string());
     let prefix = crate::core::global_prefix_for(&guard);
     crate::core_contract::write(&crate::core_contract::InstalledCore {
         bin: guard.clone(),
@@ -192,15 +224,18 @@ pub(crate) fn ensure_started(
                 return Ok(());
             }
             Err(LaunchError::new(
-                "READY_TIMEOUT",
+                if matches!(exited, ExitState::ExitedWith(_)) {
+                    "KERNEL_EXITED"
+                } else if matches!(exited, ExitState::ExitedCleanly) {
+                    "DAEMON_EXITED_UNREADY"
+                } else {
+                    "READY_TIMEOUT"
+                },
                 format!(
                     "内核启动失败（{}）；进程 pid={}{}，其输出见 {}\n内核输出末段：{}",
                     verdict.describe(),
                     pid,
-                    match exited {
-                        Some(code) => format!("已退出（{}）", crate::bounded::exit_code_label(Some(code))),
-                        None => "仍在运行".to_string(),
-                    },
+                    exited.describe(),
                     crate::update::guard_log_path().display(),
                     guard_log_tail()
                 ),
@@ -213,25 +248,62 @@ pub(crate) fn ensure_started(
     }
 }
 
-/// 兜底直拉后的等待：就绪判据与 [`await_ready`] 同源，但子进程非零退出即早停 —— 一个已经退出的进程不会再变绿，让它跑满 60 秒就是把「拉起即失败」说成「启动超时」。退出码 0 不算失败：Windows 上稳定入口 `<壳> --run-guard` 是先 detach 出 node 再退出的，它退了不代表守卫退了。
+/// 兜底直拉后的子进程结局。压成 (Readiness, Option<i32>) 会让两种截然不同的
+/// 现场共用同一条话术：干净退出的守卫本该立刻报「已退出且未就绪」，
+/// 却要烧满 60 秒预算后被说成「仍在运行」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExitState {
+    /// 子进程干净退出（code 0）。仍需就绪预算——正常路径下入口是先 detach 再退。
+    ExitedCleanly,
+    /// 子进程非零退出。
+    ExitedWith(i32),
+    /// 预算用尽，进程仍在。
+    StillRunning,
+}
+
+impl ExitState {
+    pub fn describe(self) -> String {
+        match self {
+            ExitState::ExitedCleanly => "启动入口已正常退出（退出码 0），但端口始终未就绪".to_string(),
+            ExitState::ExitedWith(c) => format!("已退出（{}）", crate::bounded::exit_code_label(Some(c))),
+            ExitState::StillRunning => "仍在运行".to_string(),
+        }
+    }
+}
+
+/// 兜底直拉后的等待：就绪判据与 [`ready`] 同源。
+/// 非零退出即停：一个已经退出的进程不会再变绿，让它跑满 60 秒预算就是把「拉起即失败」
+/// 说成「启动超时」。
+/// 退出码 0 **不停**（Windows 稳定入口先 detach 再退），但必须把结局记下来，
+/// 否则预算用尽只能说「仍在运行」——这正是「消息谎称仍在运行」那条缺陷。
 fn await_daemon(
     budget: std::time::Duration,
     child: &mut std::process::Child,
-) -> (Readiness, Option<i32>) {
+) -> (Readiness, ExitState) {
     let started = std::time::Instant::now();
     let mut last = Readiness::PortClosed;
+    // 记住子进程是否已退出：退出码 0 在 Windows 上是**正常**的 detach 结局
+    // （入口先拉出 node 再退出），不能就此早停——守卫可能仍在起。
+    // 但必须记住，否则预算用尽时只能说「仍在运行」，把「它早就退了」谎报成还在跑。
+    let mut exited: Option<ExitState> = None;
     loop {
         last = ready(crate::env::current_api_port(), READINESS_HTTP_TIMEOUT);
         if last == Readiness::Ready {
-            return (last, None);
+            return (last, ExitState::StillRunning);
         }
         if let Ok(Some(st)) = child.try_wait() {
-            if !st.success() {
-                return (last, st.code());
+            exited = Some(match st.code() {
+                Some(0) => ExitState::ExitedCleanly,
+                Some(c) => ExitState::ExitedWith(c),
+                None => ExitState::StillRunning,
+            });
+            // 非零退出是确定失败，没有再等的理由。
+            if matches!(exited, Some(ExitState::ExitedWith(_))) {
+                return (last, ExitState::ExitedWith(st.code().unwrap_or(0)));
             }
         }
         if started.elapsed() >= budget {
-            return (last, None);
+            return (last, exited.unwrap_or(ExitState::StillRunning));
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }

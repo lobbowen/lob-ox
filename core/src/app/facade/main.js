@@ -1,5 +1,8 @@
 'use strict';
 
+// 跨语言共享常量单源：主实例端口不得硬编码（与 core/bin/lobox 的 healthUrl、core/src/supervisor.js 同源）。
+const { net: SHARED_NET } = require('../../shared/shared-constants');
+
 const DEPS = new WeakMap();
 function depsOf(host) {
   let d = DEPS.get(host);
@@ -25,7 +28,7 @@ const methods = {
     return {
       id: 'main',
       name: '主实例',
-      port: Number(cfg.targetPort || 3080),
+      port: Number(cfg.targetPort || SHARED_NET.dshDefaultPort),
       command: cmd,
       kind: 'native',
       remoteMode: m.remoteMode,

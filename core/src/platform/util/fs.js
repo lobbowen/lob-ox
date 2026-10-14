@@ -66,18 +66,27 @@ function writeAtomic(file, data, opts) {
 //                watermark / providers.json / dsh-main.json / tasks.json）。
 // 分级依据：数据能否从其他来源重建。能重建用 atomic，不能则必须 durable。
 
+// 返回 true=目录已 fsync，false=本平台不支持目录 fsync（Windows EPERM/EINVAL）。
+// 真失败（EIO/ENOSPC 等）走 chmodWarn 范式告警但绝不抛：durable 的核心价值在文件 fsync，
+// 目录 fsync 只是 rename 落盘的加固，不应让账本写失败（writeDurable 自身已 fsync 过文件）。
 function fsyncDir(dir) {
-  // 目录 fsync 保证 rename 本身落盘。部分平台（Windows）对目录 fsync 返回 EPERM/EINVAL，
-  // 此时降级为不 fsync——已比完全不 fsync 好，且不因平台差异抛错阻断调用方。
   let fd;
   try {
     fd = fs.openSync(dir, 'r');
-    try { fs.fsyncSync(fd); } catch (e) { if (e && e.code !== 'EPERM' && e.code !== 'EINVAL') throw e; }
   } catch (e) {
-    if (e && (e.code === 'EPERM' || e.code === 'EINVAL')) return;
-    // 打开失败等其他错误不阻断：durable 的核心价值在文件 fsync，目录 fsync 是加固。
+    if (e && (e.code === 'EPERM' || e.code === 'EINVAL')) return false;
+    console.warn('[fs] 目录 fsync 打开失败（数据已落盘，rename 落盘未加固）: ' + dir + ' — ' + ((e && e.message) || e));
+    return false;
+  }
+  try {
+    fs.fsyncSync(fd);
+    return true;
+  } catch (e) {
+    if (e && (e.code === 'EPERM' || e.code === 'EINVAL')) return false;
+    console.warn('[fs] 目录 fsync 失败（数据已落盘，rename 落盘未加固）: ' + dir + ' — ' + ((e && e.message) || e));
+    return false;
   } finally {
-    if (fd !== undefined) { try { fs.closeSync(fd); } catch {  } }
+    try { fs.closeSync(fd); } catch {  }
   }
 }
 

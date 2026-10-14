@@ -32,7 +32,7 @@ function createRestartOrchestrator(deps) {
           inst.pid = null;
         }
         const attempt = () => startInstance(inst).then((sr) => {
-          if (sr && sr.ok) return waitHealthy(inst).then((ok) => { if (!ok) logger.warn && logger.warn('[proxy-instance] 重启后不健康 key=' + inst.maskedKey); });
+          if (sr && sr.started) return waitHealthy(inst).then((ok) => { if (!ok) logger.warn && logger.warn('[proxy-instance] 重启后不健康 key=' + inst.maskedKey); });
           logger.warn && logger.warn('[proxy-instance] 重启拉起失败 key=' + inst.maskedKey + ' err=' + (sr && sr.error));
           return null;
         }).catch((e) => { logger.warn && logger.warn('[proxy-instance] 重启拉起异常 key=' + inst.maskedKey + ' ' + (e && e.message)); });
@@ -67,9 +67,12 @@ async function runReconcileThrottled(provider, allowStop) {
     try {
       const r = await provider.startInstance(inst);
       
-      const startupFailure = !r.ok || (!wasRunning && !inst.pid);
+      // started 是与 ok 并列的事实字段：spawnInstance 的终态自带它，
+      // 调用方读它而不是从 ok 反推（stoppedDuringShutdown 时 ok 为真但实例已被收走）。
+      const started = !!(r && r.started === true);
+      const startupFailure = !started || (!wasRunning && !inst.pid);
       b.note(startupFailure);
-      if (r && r.ok) {
+      if (started) {
         await provider._waitHealthy(inst).catch(() => {});
         out.started.push(acc.keyId);
         if (b.tripped && provider.logger && provider.logger.warn) {

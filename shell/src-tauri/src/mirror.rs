@@ -354,10 +354,14 @@ pub fn probe_all(sources: &[String], path: &str) -> Vec<Probe> {
         }
     });
     let mut v = out.into_inner().unwrap_or_default();
+    // 末支按 source 打破平局：ok 与 latency 相同的两源此前比较器返回 Equal（非全序），
+    // 排序结果取决于线程完成顺序，而它经 record_npm_measurements 写进内核契约。
     v.sort_by(|a, b| match (a.ok, b.ok) {
         (true, false) => std::cmp::Ordering::Less,
         (false, true) => std::cmp::Ordering::Greater,
-        _ => a.latency_ms.cmp(&b.latency_ms),
+        _ => a.latency_ms
+            .cmp(&b.latency_ms)
+            .then_with(|| a.source.cmp(&b.source)),
     });
     v
 }

@@ -1,10 +1,17 @@
 'use strict';
 
-const { createJobRecord, finishJobRecord, planJobCleanup, taskStateToJobState } = require('./model');
+const { createJobRecord, finishJobRecord, planJobCleanup, taskStateToView } = require('./model');
+
+// 作业终态的唯一兜底：与 tasks 侧 job.taskId 同处生命周期。
+// 唯一推进点是 promise 链，一旦 withScopeLock 的 prev 链因非 fn 异常断裂，
+// 作业会永久停在 state:'running' 且没有任何定时器能救它。这里为每个作业登记 deadline，
+// 由 finishJob 统一清除：作业要停在 running 上，必须有东西能让它离开。
+const JOB_DEADLINE_MS = 30 * 60 * 1000;
 
 function createJobs({ tasks }) {
   const _jobs = {};
   const _scopeQueues = {};
+  const _jobDeadlines = {};
 
   const withScopeLock = (targetId, fn) => {
     const prev = _scopeQueues[targetId] || Promise.resolve();
@@ -15,12 +22,30 @@ function createJobs({ tasks }) {
 
   const cleanupJobs = () => {
     const drop = planJobCleanup(Object.keys(_jobs));
-    for (const id of drop) delete _jobs[id];
+    for (const id of drop) { delete _jobs[id]; clearDeadline(id); }
   };
+
+  function clearDeadline(id) {
+    const t = _jobDeadlines[id];
+    if (!t) return;
+    clearTimeout(t);
+    delete _jobDeadlines[id];
+  }
+  function armDeadline(job) {
+    clearDeadline(job.id);
+    const t = setTimeout(() => {
+      if (_jobs[job.id] !== job) return;
+      delete _jobDeadlines[job.id];
+      finishJob(job, false, '作业超过 ' + Math.round(JOB_DEADLINE_MS / 60000) + ' 分钟未推进（推进链已断），已强制置为失败');
+    }, JOB_DEADLINE_MS);
+    if (t.unref) t.unref();
+    _jobDeadlines[job.id] = t;
+  }
 
   const createJob = (kind, name, targetStr, targets) => {
     const job = createJobRecord(kind, name, targetStr, targets);
     _jobs[job.id] = job;
+    armDeadline(job);
     cleanupJobs();
     if (tasks) {
       const taskKind = kind === 'install' ? 'install' : (kind === 'update' ? 'update' : 'uninstall');
@@ -34,6 +59,7 @@ function createJobs({ tasks }) {
   };
 
   const finishJob = (job, ok, error) => {
+    if (job) clearDeadline(job.id);
     finishJobRecord(job, ok, error);
     if (tasks && job.taskId) {
       if (ok) { tasks.log(job.taskId, '完成'); tasks.succeed(job.taskId); }
@@ -48,7 +74,7 @@ function createJobs({ tasks }) {
       if (t) {
         return {
           id: job.id, kind: job.kind, name: job.name, target: job.target,
-          state: taskStateToJobState(t.state), startedAt: t.startedAt, finishedAt: t.finishedAt, error: t.error,
+          state: taskStateToView(t.state), startedAt: t.startedAt, finishedAt: t.finishedAt, error: t.error,
           targets: job.targets,
         };
       }
@@ -56,7 +82,7 @@ function createJobs({ tasks }) {
     return job || { error: 'job not found' };
   };
 
-  return { _jobs, _scopeQueues, withScopeLock, createJob, finishJob, installStatus };
+  return { _jobs, _scopeQueues, _jobDeadlines, withScopeLock, createJob, finishJob, installStatus };
 }
 
 module.exports = { createJobs };
