@@ -15,12 +15,47 @@ import { Card, Metric, Pill, QuotaBox, MonoEllipsis, ToneDot } from "./widgets";
 import { useSupervisorAction } from "./useSupervisorAction";
 import { runOpenExternal, OpenUrlRow } from "./openExternal";
 import { loginIsolationText, loginUrlOf } from "../../services/supervisor/externalOpen";
+import { copyText } from "./clipboard";
 import { cn } from "../../framework/utils";
+
+/** 额度窗口用尽的唯一判据：status 或 percent 达标。不得在别处再写一遍。 */
+export function quotaWindowExhausted(w?: { status?: string; percent?: number } | null): boolean {
+  if (!w) return false;
+  return w.status === "rate-limited" || Number(w.percent) >= 100;
+}
 
 function quotaFull(q?: ProviderAccount["quota"]): boolean {
   if (!q) return false;
-  const w = (x?: { status?: string; percent?: number }) => !!(x && (x.status === "rate-limited" || Number(x.percent) >= 100));
-  return w(q.rolling) || w(q.weekly) || w(q.monthly);
+  return quotaWindowExhausted(q.rolling) || quotaWindowExhausted(q.weekly) || quotaWindowExhausted(q.monthly);
+}
+
+/** 百分比渲染：percent 缺失显示破折号，不猜 0。 */
+function percentText(pct?: number | null): string {
+  return pct != null && Number.isFinite(Number(pct)) ? Number(pct) + "%" : "—";
+}
+
+/** 后端把「动作未被接受」放在响应体里，HTTP 层已带上 body。 */
+function bodyError(e: unknown): string {
+  const body = (e as { body?: { error?: string; message?: string } }).body;
+  if (body && typeof body === "object") {
+    if (typeof body.error === "string" && body.error) return body.error;
+    if (typeof body.message === "string" && body.message) return body.message;
+  }
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** Key 批量结果的唯一收尾口径：两个分支共用，失败明细逐条呈现，不按输入条数一律报成功。 */
+function reportKeysResult(
+  okN: number,
+  discardedKeys: Array<{ key: string; error: string }>,
+  label: string,
+): void {
+  if (discardedKeys.length) {
+    const detail = discardedKeys.slice(0, 3).map((d) => d.key + "（" + d.error + "）").join("；");
+    toast.warning("已添加 " + okN + " 个，" + discardedKeys.length + " 个失败被丢弃：" + detail + (discardedKeys.length > 3 ? " …" : ""));
+  } else {
+    toast.success("已添加 " + okN + " 个 Key（" + label + "）");
+  }
 }
 
 function fmtClock(ms?: number | null): string {
@@ -199,7 +234,8 @@ function ProviderCard({ p, proxyApps, busy, onAction }: {
                   const snap = res.snapshot as { restarted?: number; errors?: number } | null;
                   if (res.state === "done") toast.success("更新完成" + (snap?.restarted ? "（已重启 " + snap.restarted + " 个实例）" : ""), { id: t });
                   else if (res.state === "failed") toast.error("更新失败：" + (res.error || (snap?.errors ? snap.errors + " 个实例失败" : "未知原因")), { id: t });
-                  else toast.warning("更新仍在进行（超时未完成，可稍后查看）", { id: t });
+                  else if (res.state === "canceled") toast.warning("更新已取消", { id: t });
+                  else toast.error("更新未完成：" + (res.error || "超时未完成，可稍后查看"), { id: t });
                   await supervisorStore.refresh();
                 }, undefined)}
                 size="chip"
@@ -262,7 +298,7 @@ function ProviderCard({ p, proxyApps, busy, onAction }: {
         </div>
         {p.activated && apiBase ? (
           <Button
-            onClick={() => void navigator.clipboard.writeText(apiBase || "").then(() => toast.success("已复制 API 地址"))}
+            onClick={() => void copyText(apiBase || "", "已复制 API 地址")}
             size="sm"
             title="复制该供应商 API 地址"
             variant="outline"
@@ -317,8 +353,9 @@ function EditKeysDialog({ open, onOpenChange, p }: {
     setLoggingIn(true);
     try {
       const s = await runOpenExternal(() => supervisorApi.proxyLoginStart());
+      // 先判 ok 再落地址：ok:false 的响应体也可能带 https 地址，但那是一次作废的授权地址。
+      if (s.ok !== true) { setLoginUrl(""); return; }
       setLoginUrl(loginUrlOf(s));
-      if (!s || s.ok !== true) return;
       const iso = loginIsolationText(s);
       if (iso) toast.warning(iso, { duration: 12000 });
       const w = await supervisorApi.proxyLoginWait(s.waitMs ?? 180000);
@@ -332,36 +369,33 @@ function EditKeysDialog({ open, onOpenChange, p }: {
   }
   async function addKeys() {
     const keys = input.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean); // \s 为空白；写成 s 会把字母 s 当分隔符切碎 Key
-    if (!keys.length) { toast.error("请输入至少一个 Key"); return; }
     setSaving(true);
     try {
       if (isProxy) {
+        // 逐 Key 单独捕获：一条失败不中止整批，已成功的几条照常计入。
+        let okN = 0;
+        const bad: Array<{ key: string; error: string }> = [];
+        let exhausted = "";
         for (const k of keys) {
-          const addRes = await supervisorApi.proxyAddKey(p.id, k) as { limited?: string; account?: { limit?: { recovery?: { type?: string; at?: number | null } | null } | null } | null } | null;
-          // 额度用尽的账号照常入库（界面显示「额度用尽」），不在添加时拒绝
-          if (addRes && addRes.limited === "credits") {
-            const rec = addRes.account?.limit?.recovery;
-            toast.warning("已添加：该账号额度用尽" + (rec?.type === "at" && rec.at ? `（预计 ${fmtClock(rec.at)} 自动恢复）` : "（等待月度重置后自动恢复）"));
+          try {
+            const addRes = await supervisorApi.proxyAddKey(p.id, k) as { limited?: string; account?: { limit?: { recovery?: { type?: string; at?: number | null } | null } | null } | null } | null;
+            okN++;
+            // 额度用尽的账号照常入库（界面显示「额度用尽」），不在添加时拒绝
+            if (addRes && addRes.limited === "credits") {
+              const rec = addRes.account?.limit?.recovery;
+              exhausted = "；其中有账号额度用尽" + (rec?.type === "at" && rec.at ? "（预计 " + fmtClock(rec.at) + " 自动恢复）" : "（等待月度重置后自动恢复）");
+            }
+          } catch (e) {
+            bad.push({ key: k, error: bodyError(e) });
           }
         }
+        reportKeysResult(okN, bad, "反代账号" + exhausted);
       } else {
         const r = await supervisorApi.providerKeysSet(p.id, { add: keys });
         if (r.ok === false) { toast.error(r.error || "添加失败"); return; }
         // keys/set 同步返回逐 Key 检测结果：added/discardedKeys 如实呈现，不按输入条数一律报成功
-        const okN = typeof r.added === "number" ? r.added : keys.length;
-        const badKeys = r.discardedKeys || [];
-        if (badKeys.length) {
-          const detail = badKeys.slice(0, 3).map((d) => `${d.key}（${d.error}）`).join("；");
-          toast.warning(`已添加 ${okN} 个，${badKeys.length} 个失败被丢弃：${detail}${badKeys.length > 3 ? " …" : ""}`);
-        } else {
-          toast.success("已添加 " + okN + " 个 Key（" + (isProxy ? "反代账号" : "API Key") + "）");
-        }
-        setInput("");
-        onOpenChange(false);
-        await supervisorStore.refresh();
-        return;
+        reportKeysResult(typeof r.added === "number" ? r.added : keys.length, r.discardedKeys || [], "API Key");
       }
-      toast.success("已添加 " + keys.length + " 个 Key（" + (isProxy ? "反代账号" : "API Key") + "）");
       setInput("");
       onOpenChange(false);
       await supervisorStore.refresh();
@@ -459,12 +493,9 @@ function QuotaSummary({ acc, busy, p, onAction }: { acc: ProviderAccount; busy: 
   const q = acc.quota;
   const isActive = Boolean(acc.selected);
   const isLocked = Boolean(acc.locked);
-  const qm = q && q.monthlyRemaining;
-  // monthly.percent（解析层据 credits.monthlyRemaining 推导，配额池 app.quota.monthlyCapUsd）缺失才回退剩余金额
-  const mpct = q?.monthly?.percent;
-  const monthlyValue = Number.isFinite(Number(mpct))
-    ? mpct + "%"
-    : (Number.isFinite(Number(qm)) ? "$ " + Number(qm).toFixed(2) : "—");
+  // 三格同单位（用掉百分比）；月度百分比由内核按配额池推导（quota-strategies 返回 monthly.percent），
+  // 缺失就显示破折号，不拿美元余额顶替（那是另一个量纲）。美元余额只在限额详情里出现。
+  const monthlyValue = percentText(q?.monthly?.percent);
   return (
     <div className="flex flex-wrap items-center gap-4 px-5 py-3">
       <div className="grid min-w-[180px] content-center gap-1">
@@ -481,9 +512,9 @@ function QuotaSummary({ acc, busy, p, onAction }: { acc: ProviderAccount; busy: 
         </div>
       </div>
       <div className="grid min-w-0 flex-1 grid-cols-3 items-stretch gap-2">
-        <QuotaBox icon={<RefreshCw className="size-3.5" />} label="5小时" value={(q?.rolling?.percent ?? 0) + "%"} danger={q?.rolling?.status === "rate-limited"} />
-        <QuotaBox icon={<CheckCircle2 className="size-3.5" />} label="每周" value={(q?.weekly?.percent ?? 0) + "%"} danger={q?.weekly?.status === "rate-limited"} />
-        <QuotaBox icon={<Activity className="size-3.5" />} label="每月" value={monthlyValue} danger={q?.monthly?.status === "rate-limited" || Number(q?.monthly?.percent ?? 0) >= 100} />
+        <QuotaBox icon={<RefreshCw className="size-3.5" />} label="5小时" value={percentText(q?.rolling?.percent)} danger={quotaWindowExhausted(q?.rolling)} />
+        <QuotaBox icon={<CheckCircle2 className="size-3.5" />} label="每周" value={percentText(q?.weekly?.percent)} danger={quotaWindowExhausted(q?.weekly)} />
+        <QuotaBox icon={<Activity className="size-3.5" />} label="每月" value={monthlyValue} danger={quotaWindowExhausted(q?.monthly)} />
       </div>
     </div>
   );
@@ -552,15 +583,9 @@ function QuotaLimitDialog({ open, onOpenChange, a, p }: {
   open: boolean; onOpenChange: (o: boolean) => void; a: ProviderAccount; p: RouterProvider;
 }) {
   const q = a.quota;
-  const monthlyUsed = (() => {
-    const mp = q?.monthly?.percent;
-    if (mp != null && Number.isFinite(Number(mp))) return Number(mp);
-    const rem = Number(q?.credits?.monthlyCredits ?? q?.monthlyRemaining);
-    const cap = 10; // Command $10/月订阅配额池
-    if (Number.isFinite(rem) && rem >= 0 && cap > 0) return Math.min(100, Math.round(((cap - rem) / cap) * 100));
-    return 0;
-  })();
-  const monthlyCell = (q?.monthly?.status ? { ...q.monthly, percent: monthlyUsed } : { status: "ok", percent: monthlyUsed, resetsAt: q?.monthly?.resetsAt });
+  // 月度百分比只认内核推导的 monthly.percent（下方 win 直接吃 q.monthly）。
+  // 此前的 cap=10 推算是重复实现且只在 Command $10 池成立（输入是聚合三路 credits 的和），
+  // 任何非 10 美元池都算错——已删除，而非改常数。
   const monthlyRemainingText = (() => {
     const c = q?.credits?.monthlyCredits;
     const m = q?.monthlyRemaining;
@@ -571,11 +596,11 @@ function QuotaLimitDialog({ open, onOpenChange, a, p }: {
     <div className="grid gap-1 rounded-md border border-border/70 bg-muted/40 px-3 py-2.5">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-foreground">{label}</span>
-        <Pill tone={w?.status === "rate-limited" || Number(w?.percent) >= 100 ? "err" : "ok"}>
-          {w?.status === "rate-limited" || Number(w?.percent) >= 100 ? "已限额" : "正常"}
+        <Pill tone={quotaWindowExhausted(w) ? "err" : "ok"}>
+          {quotaWindowExhausted(w) ? "已限额" : "正常"}
         </Pill>
       </div>
-      <strong className="text-xl font-semibold tabular-nums text-foreground">{w?.percent ?? 0}%</strong>
+      <strong className="text-xl font-semibold tabular-nums text-foreground">{percentText(w?.percent)}</strong>
       {amount ? <span className="text-[11px] leading-tight text-muted-foreground">{amount}</span> : null}
       {w?.resetsAt ? <span className="text-[11px] leading-tight text-muted-foreground">重置：{new Date(w.resetsAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span> : null}
     </div>
@@ -593,7 +618,7 @@ function QuotaLimitDialog({ open, onOpenChange, a, p }: {
             <div className="grid grid-cols-3 gap-2">
               {win(q.rolling, "5小时")}
               {win(q.weekly, "每周")}
-              {win(monthlyCell, "每月")}
+              {win(q.monthly, "每月")}
               {(q.credits || q.monthlyRemaining != null) ? (
                 <div className="col-span-3 flex flex-col gap-1 rounded-md border border-border/70 bg-muted/40 px-3 py-2">
                   <div className="flex items-center justify-between gap-2">

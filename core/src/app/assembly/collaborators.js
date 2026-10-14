@@ -99,13 +99,19 @@ function installState(host) {
     getCrashHalted: () => host._crashHalted, setCrashHalted: (v) => { host._crashHalted = v; },
     getManualRestart: () => host.manualRestart, setManualRestart: (v) => { host.manualRestart = v; },
     getShellHalted: () => host._shellHalted, setShellHalted: (v) => { host._shellHalted = v; },
-    stopProcess: (why) => host.stopProcess(why), tick: () => host.tick(),
+    stopProcess: (why) => host.stopProcess(why),
+    // 收敛拍的真实实现是 host.main.converge()（controller._dshConverge），
+    // 由 assembly/bootstrap.js:48 注册进 BeatScheduler。此处必须在调用时再解析，
+    // 因为 collaborators 先于 main 装配；早绑会把 undefined 烤进闭包，
+    // 而 desired.js:18 的 typeof 守卫只检查这个恒为函数的包装，恒被绕过。
+    tick: () => { if (host.main && typeof host.main.converge === 'function') host.main.converge(); },
   });
   host.state = state;
 
   host._mPhase = () => state.phase();
   host._mSetPhase = (u) => { state.setPhase(u); return host; };
-  host.mainGuardian = () => state.mainGuardian();
+  // 原下一行 host.mainGuardian = () => state.mainGuardian() 已删除：createStateStore
+  // 从不返回 mainGuardian 键（全仓仅该行命中此名），调用即 TypeError，且无消费方。
   host._mDesired = () => state.desired();
   host._mSetDesired = (v) => { state.setDesired(v); return host; };
   host._readDshMain = () => state.readMainMeta();

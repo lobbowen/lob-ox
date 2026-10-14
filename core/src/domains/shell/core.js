@@ -1,10 +1,6 @@
 'use strict';
 
-function isUpdatePhase(phase) {
-  const p = String(phase || '');
-  return p === 'restarting' || p.indexOf('shell-update') === 0;
-}
-
+// 纯 deriveState 模块（isUpdatePhase 全仓零引用，已移除）。
 function deriveState(id, journal) {
   const j = journal || {};
   if (!j.to) return { state: 'idle', reason: '无进行中的更新', journal: j, identity: id };
@@ -24,4 +20,4 @@ function deriveState(id, journal) {
   };
 }
 
-module.exports = { isUpdatePhase, deriveState };
+module.exports = { deriveState };

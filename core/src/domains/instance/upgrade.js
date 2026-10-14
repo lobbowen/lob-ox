@@ -1,5 +1,4 @@
 'use strict';
-const { semverCompare } = require('../../shared/version');
 const sandbox = require('./sandbox');
 const model = require('./model');
 const dshInstall = require('./ops/dsh-install');
@@ -7,13 +6,19 @@ function taskLogger(task, tasks) {
   return (l) => { if (task) tasks.log(task.id, l); };
 }
 
-function portHealthOpts(inst, ctx) {
-  const o = { host: '127.0.0.1', port: inst.port, unit: 'dsh-web@' + inst.id, timeoutMs: 120000 };
-  if (ctx) {
-    if (ctx.pidFile !== undefined) o.pidFile = ctx.pidFile;
-    if (Array.isArray(ctx.anchors)) o.anchors = ctx.anchors;
+// 就绪判定只有一份实现：agent/ops/lifecycle.js 的 ready()（TCP 可达 + /healthz 2xx）。
+// dist.waitPortHealthy 只判端口在听——那是必要不充分的条件，端口在听不代表可服务。
+// 这里只负责轮询节奏，终态判定完全委托 ready()，不自行解释其返回值。
+async function waitInstanceReady(inst, totalMs) {
+  const agentLifecycle = require('../agent/ops/lifecycle');
+  const deadline = Date.now() + (totalMs || 120000);
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await agentLifecycle.ready(inst.port, { timeoutMs: 2000 });
+    if (last && last.state === 'ready') return { ok: true, state: last.state };
+    await new Promise((r) => setTimeout(r, 1000));
   }
-  return o;
+  return { ok: false, state: (last && last.state) || 'timeout' };
 }
 
 function createUpgrade(deps) {
@@ -21,7 +26,6 @@ function createUpgrade(deps) {
   const save = () => store.save();
   const _updCache = {};
   const _updJobs = {};
-  const _updTTL = 6 * 3600 * 1000;
   function _scheduleJobCleanup(id) {
     const t = setTimeout(() => {
       try { if (_updJobs[id] && _updJobs[id].state !== 'running') delete _updJobs[id]; } catch {}
@@ -36,9 +40,23 @@ function createUpgrade(deps) {
   function readInstalledVersion(inst) { return install.readInstalledVersion(inst); }
   async function latestDsh() { return install.latestDsh(); }
 
+  // versionInfo 只投影 _updCache，不再在每次 list() 里重新读盘。
+  // installed 记在同一个缓存里，由「首次读取 / checkUpdate / 升级完成」写入；
+  // latest 同样只来自 agent 域 checkUpdate 或升级完成（此前 _updCache 只在升级完成写入，
+  // 正常运行期 latest 恒为 null，而 _checkUpdateLocal 又在生产不可达分支里自行查 npm）。
   function versionInfo(inst) {
     const cached = _updCache[inst.id];
-    return { version: readInstalledVersion(inst), latest: (cached && cached.latest) || null };
+    if (!cached || cached.installed === undefined) {
+      // 惰性补一次并记住（读盘是一次性的，不是每次 list 都读）。
+      cached_installed(inst);
+    }
+    const c = _updCache[inst.id];
+    return { version: (c && c.installed) || null, latest: (c && c.latest) || null };
+  }
+  function cached_installed(inst) {
+    const prev = _updCache[inst.id];
+    if (!prev) _updCache[inst.id] = { installed: readInstalledVersion(inst), latest: null, checkedAt: 0, error: null };
+    else if (prev.installed === undefined) prev.installed = readInstalledVersion(inst);
   }
   function jobView(inst) {
     const tAll = tasks ? tasks.list('instance') : [];
@@ -54,42 +72,24 @@ function createUpgrade(deps) {
     const nj = _updJobs[inst.id];
     return nj ? { state: nj.state, step: nj.step, errors: nj.errors, error: nj.error } : null;
   }
-  // R8-agent：委托 agent 域。原实现在此重复了一套「查 latest + semverCompare」，
-  // 与 domains/agent 的 checkUpdate 是同一件事——现在只保留一处。
+  // R8-agent：「已装 vs 最新」只有 agent 域 checkUpdate 一处判据。
+  // 生产装配 compose/domains.js 恒注入 agents；未注入时不再退回本地第二实现
+  // （那是与 agent/status.js isNewer 重复的一份 semverCompare，且生产不可达），
+  // 而是明确失败——「没有判据」不能被伪装成「有结果」。
   async function checkUpdate(id) {
     const inst = store.instances.find((i) => i.id === id);
     if (!inst) return { ok: false, error: '实例不存在' };
     if (inst.kind !== 'sandbox') return { ok: false, error: '仅沙箱实例支持版本检查' };
-    if (!deps.agents) {
-      // 未注入 agent 域（测试/独立使用）时退回本地实现，保证可用。
-      return _checkUpdateLocal(inst);
-    }
+    if (!deps.agents) return { ok: false, error: 'agent 域未装配，无法执行版本检查' };
     const r = await deps.agents.checkUpdate(
       { id: 'sandbox:' + id, kind: 'sandbox', product: '@deepseek-ai/dsh' },
       { dist, installed: readInstalledVersion(inst), prefix: sandbox.installDir(instancesRoot, inst) }
     );
+    _updCache[inst.id] = { installed: (r && r.installed) || null, latest: (r && r.latest) || null, checkedAt: Date.now(), error: (r && r.error) || null };
     if (events) events.append('inst_update_check', { id, installed: r.installed, latest: r.latest, updateAvailable: r.updateAvailable });
     return r;
   }
 
-  // 本地回退实现（仅 agents 未注入时用）。
-  async function _checkUpdateLocal(inst) {
-    const installed = readInstalledVersion(inst);
-    const cached = _updCache[inst.id];
-    let latest = (cached && cached.latest) || null;
-    if (!latest || !cached || (Date.now() - cached.checkedAt) > _updTTL) {
-      try {
-        const pick = await dist.fetchNpmLatest('@deepseek-ai/dsh');
-        latest = pick.ok ? pick.version : null;
-        _updCache[inst.id] = { latest, checkedAt: Date.now(), error: pick.ok ? null : (pick.error || '查询失败') };
-      } catch (e) {
-        latest = null;
-        _updCache[inst.id] = { latest, checkedAt: Date.now(), error: e.message };
-      }
-    }
-    const updateAvailable = !!(latest && installed && semverCompare(latest, installed) > 0);
-    return { ok: true, installed, latest, updateAvailable, error: _updCache[inst.id].error };
-  }
   // 经 agent 域安装指定版本到本实例的 prefix。
   // 保留 dist 直调作为 agents 未注入时的兜底（独立使用/测试）。
   async function installViaAgent(inst, version, registry, task) {
@@ -156,15 +156,19 @@ function createUpgrade(deps) {
           if (!res.ok) { nj.errors++; nj.error = res.error || 'npm install 失败'; if (task) tasks.log(task.id, res.error || 'npm install 失败'); }
         }
       }
+      // 回滚的形态必须与「升级前」对称：wasRunning 为假说明实例本来就没在跑，
+      // 此时无条件 stop 会把一个从未被停止的实例停掉（不对称回滚）。
+      // wasRunning 因此是 rollback 的显式参数，不是闭包里的隐含假设。
       const rollback = async (why) => {
         if (!oldVersion) { if (task) tasks.log(task.id, '无旧版本可回滚，保持失败态'); return false; }
         if (task) { tasks.log(task.id, '自动回滚到 ' + oldVersion + '…'); }
-        
-        try {
-          const rs = await lifecycle.stop(id);
-          if (rs && rs.ok === false && task) tasks.log(task.id, '回滚前停止失败（继续回装旧版）：' + (rs.error || ''));
-        } catch (e) {
-          if (task) tasks.log(task.id, '回滚前停止异常（继续回装旧版）：' + ((e && e.message) || e));
+        if (wasRunning) {
+          try {
+            const rs = await lifecycle.stop(id);
+            if (rs && rs.ok === false && task) tasks.log(task.id, '回滚前停止失败（继续回装旧版）：' + (rs.error || ''));
+          } catch (e) {
+            if (task) tasks.log(task.id, '回滚前停止异常（继续回装旧版）：' + ((e && e.message) || e));
+          }
         }
         let rbOk = false;
         if (dist) {
@@ -174,21 +178,23 @@ function createUpgrade(deps) {
           } catch { rbOk = false; }
         }
         if (!rbOk) { nj.error = (nj.error || why) + '；自动回滚失败（npm install 退出非 0），请手动处理'; return false; }
+        // 与升级路径同理：实例原本没在跑，就不要因为回滚把它拉起来。
+        if (!wasRunning) { nj.error = (nj.error || why) + '；已回滚到 ' + oldVersion + '（实例原未运行，保持停止）'; return false; }
         const rbStart = await lifecycle.start(id, { fromUpgrade: true }).catch(() => ({ ok: false }));
         if (!rbStart || !rbStart.ok) { nj.error = (nj.error || why) + '；回滚后重启也失败'; if (task) tasks.log(task.id, '回滚后重启失败：' + ((rbStart && rbStart.error) || '')); return false; }
         if (task) tasks.log(task.id, '回滚完成，版本 ' + (readInstalledVersion(inst) || '') + '，实例已重启');
         return true;
       };
-      if (nj.errors) { nj.state = 'failed'; await rollback(nj.error); }
+      if (nj.errors) { nj.state = 'failed'; const rb = await rollback(nj.error); if (rb === false && oldVersion) nj.error = nj.error || '自动回滚未成功（见任务日志）'; }
       else {
         nj.step = 'restarting';
         if (task) { const s = tasks.step(task.id, '重启实例并验证'); tasks.stepState(task.id, tasks.get(task.id).steps.indexOf(s), 'running'); }
         const sr = await lifecycle.start(id, { fromUpgrade: true }).catch(() => ({ ok: false }));
-        if (!sr || !sr.ok) { nj.errors++; nj.error = '升级后重启失败: ' + ((sr && sr.error) || ''); nj.state = 'failed'; await rollback(nj.error); }
+        if (!sr || !sr.ok) { nj.errors++; nj.error = '升级后重启失败: ' + ((sr && sr.error) || ''); nj.state = 'failed'; const rb = await rollback(nj.error); if (rb === false && oldVersion) nj.error = nj.error || '自动回滚未成功（见任务日志）'; }
         else {
           let up = false;
-          if (dist) {
-            const vh = await dist.waitPortHealthy(portHealthOpts(inst, sandbox.launchCtx(instancesRoot, deps.dshBin, inst)));
+          {
+            const vh = await waitInstanceReady(inst, 120000);
             up = vh.ok;
           }
           if (!up) {
@@ -196,13 +202,13 @@ function createUpgrade(deps) {
             nj.error = '升级后实例未能启动（端口 ' + inst.port + ' 未就绪）';
             nj.state = 'failed';
             if (task) tasks.log(task.id, '实例启动失败：端口 ' + inst.port + ' 未就绪（详见 dsh.log / systemd 单元状态）');
-            await rollback(nj.error);
+            const rb = await rollback(nj.error); if (rb === false && oldVersion) nj.error = nj.error || '自动回滚未成功（见任务日志）';
           }
         }
         if (task && nj.state !== 'failed') { const t2 = tasks.get(task.id); const s2 = t2.steps[t2.steps.length - 1]; tasks.stepState(task.id, t2.steps.indexOf(s2), 'done'); }
       }
       if (nj.state !== 'failed') { nj.state = 'done'; }
-      _updCache[id] = { latest: targetVer || readInstalledVersion(inst) || null, checkedAt: Date.now(), error: null };
+      _updCache[id] = { installed: readInstalledVersion(inst), latest: targetVer || null, checkedAt: Date.now(), error: null };
       nj.finishedAt = Date.now();
       if (events) events.append('inst_upgraded', { id: inst.id, name: inst.name, ok: nj.state === 'done', error: nj.error });
       if (task) {

@@ -53,10 +53,11 @@ class PluginManager {
     return this.layers.enqueue('scrub', () => this._scrubPluginLayersInner(target, name, onLog));
   }
   _scrubPluginLayersInner(target, name, onLog) { return this.layers.scrubPluginLayersInner(this, target, name, onLog); }
-  _removeFromProfileBundles(target, pluginName) { return this.layers.removeFromProfileBundles(target, pluginName); }
+  // 补丁层写入口一律走队列（layers 内部已无裸写方法暴露）。
+  _removeFromProfileBundles(target, pluginName) { return this.layers.removeFromProfileBundlesQueued(target, pluginName); }
   _readHomePatch(target) { return store.readHomePatch(target); }
-  _writeHomePatch(target, entries) { return this.layers.writeHomePatch(target, entries); }
-  saveOverlayEntries(entries) { return this.layers.saveOverlayEntries(entries); }
+  _writeHomePatch(target, entries) { return this.layers.writeHomePatchQueued(target, entries); }
+  saveOverlayEntries(entries) { return this.layers.saveOverlayEntriesQueued(entries); }
 
   _runCli(target, args, opts) {
     return cli.runCli({ target, args, opts, registryOrigin: () => cli.registryOrigin(this.dist), logger: this.logger });

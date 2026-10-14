@@ -3,14 +3,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 NEW="${1:?用法: bash scripts/bump-shell.sh <version>}"
-if ! NEW="$NEW" node -e 'const RE=/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;process.exit(RE.test(process.env.NEW||"")?0:1)'; then
+# 版本判定单源 = core/src/shared/version.js（壳已合仓，与内核 bump.sh 同一权威）。
+# 本脚本不再内联 SemVer 正则与比较函数：内联副本只比 Number(split('.')[1])，对 RC.1.2 这类多段 prerelease 取错值。
+VLIB="$(cd "$(dirname "$0")/../../core/src/shared" && pwd)/version.js"
+if ! VLIB="$VLIB" NEW="$NEW" node -e 'const {VERSION_RE}=require(process.env.VLIB);process.exit(VERSION_RE.test(process.env.NEW||"")?0:1)'; then
   echo "非法版本号（须为合法 SemVer，可带任意预发布后缀，如 1.2.11 / 1.2.11-RC.1 / 1.2.11-test1）: $NEW"; exit 1
 fi
-ver_lt() {
-  node -e "const [a,b]=process.argv.slice(1);const p=(v)=>{const[m,t]=v.split('-');const c=m.split('.').map(Number);const tier=t?(t.startsWith('BETA')?0:1):2;return[c[0],c[1],c[2],tier,t?(Number(t.split('.')[1])||0):0];};const A=p(a),B=p(b);for(let i=0;i<5;i++){if(A[i]<B[i])process.exit(0);if(A[i]>B[i])process.exit(1);}process.exit(1);" "$1" "$2"
-}
 CUR="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-if ver_lt "$NEW" "$CUR"; then
+if VLIB="$VLIB" NEW="$NEW" CUR="$CUR" node -e 'const {semverCompare}=require(process.env.VLIB);process.exit(semverCompare(process.env.NEW,process.env.CUR)<0?0:1)'; then
   echo "[warn] 新版本 $NEW 低于当前壳 $CUR（判定基准 = src-tauri/tauri.conf.json#version）—— 若不是有意重置版本线，请先确认" >&2
 fi
 _t="$(mktemp)"; sed -E "s/^version = .*/version = \"$NEW\"/" src-tauri/Cargo.toml > "$_t" && mv "$_t" src-tauri/Cargo.toml

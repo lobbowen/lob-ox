@@ -59,7 +59,11 @@ dsh_npm_auth_setup() {
   fi
   local tok="${NPM_TOKEN:-${NODE_AUTH_TOKEN:-}}"
   if [ -n "$tok" ]; then
-    local tmp; tmp="$(mktemp)" || return 1
+    # 同目录暂存（-p）：临时 userconfig 必须与它将扮演的角色同处一个信任边界 ——
+    # 落在 TMPDIR 时，SIGKILL/掉电残留的明文令牌在系统临时区无人巡检。同目录 mv 仍是同分区 rename。
+    local tmpdir; tmpdir="$(dirname "$(dsh_canonical_npmrc)")"
+    mkdir -p "$tmpdir" 2>/dev/null || true
+    local tmp; tmp="$(mktemp -p "$tmpdir" .npmrc.tmp.XXXXXX)" || return 1
     chmod 600 "$tmp"
     printf "//registry.npmjs.org/:_authToken=%s\n" "$tok" > "$tmp"
     dsh_npm_auth__apply "$tmp"

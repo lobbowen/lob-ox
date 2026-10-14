@@ -25,4 +25,4 @@ function loadConfig() {
   return normalize(raw);
 }
 
-module.exports = { DEFAULT_CTL_PORT, ROUTER_CTL_METHODS, CONFIG_PATH, loadConfig };
+module.exports = { DEFAULT_CTL_PORT, ROUTER_CTL_METHODS, loadConfig };

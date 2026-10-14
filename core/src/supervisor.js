@@ -2,6 +2,9 @@
 
 const path = require('node:path');
 
+// 跨语言共享常量单源（与 Rust 侧 include_str! 同一份 JSON）：dshDefaultPort 等端口不得另写副本。
+const { net: SHARED_NET } = require('./shared/shared-constants');
+
 const platformConfig = require('./platform/service/config');
 const { extension: domainConfigExtension } = require('./app/settings/domain-config');
 const normalize = (raw) => platformConfig.normalize(raw, domainConfigExtension());
@@ -27,7 +30,7 @@ class Supervisor {
           const m = this._readDshMain();
           m.id = 'main';
           m.name = '主实例';
-          m.port = Number(this.config.targetPort || 3080);
+          m.port = Number(this.config.targetPort || SHARED_NET.dshDefaultPort);
           m.kind = 'native';
           return m;
         },

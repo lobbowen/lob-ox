@@ -11,11 +11,6 @@ html, body {
   grid-template-rows: minmax(0, 1fr);
 }
 
-.fw-layout[data-mode="wide-sidebar"] {
-  grid-template-columns: clamp(320px, 28vw, 560px) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-}
-
 .fw-system-titlebar {
   --fw-left-column: 232px;
   background:
@@ -26,10 +21,6 @@ html, body {
       #fafbfc var(--fw-left-column),
       #fafbfc 100%
     );
-}
-
-.fw-system-titlebar[data-mode="wide-sidebar"] {
-  --fw-left-column: clamp(320px, 28vw, 560px);
 }
 
 .fw-system-titlebar .fw-sidebar,
@@ -60,8 +51,7 @@ html, body {
 }
 
 @media (max-width: 640px) {
-  .fw-layout,
-  .fw-layout[data-mode="wide-sidebar"] {
+  .fw-layout {
     grid-template-columns: minmax(0, 1fr);
   }
 

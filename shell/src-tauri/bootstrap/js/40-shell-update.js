@@ -48,7 +48,6 @@
       });
   }
   NS.hideUpdChoice = hideUpdChoice;
-  NS.showUpdChoice = showUpdRetry;
   NS.showUpdRetry = showUpdRetry;
   NS.stepShellUpdate = stepShellUpdate;
   NS.stepShellApply = stepShellApply;

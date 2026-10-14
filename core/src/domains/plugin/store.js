@@ -56,7 +56,10 @@ async function inventory(dshPort) {
   });
 }
 
-function installedOn(target, protectedSet = PROTECTED) {
+// protectedSet 必填：内置插件集合是判据的一部分，不是可省的默认值。
+// 唯一外部调用（plugin/index.js:42）本就显式传 PROTECTED，只有内部调用在吃默认值——
+// 那让「漏传」看起来像合法用法。
+function installedOn(target, protectedSet) {
   const profile = readProfile(target.profileDir);
   const bundles = (profile.dsh && profile.dsh.profile && profile.dsh.profile.bundles) || [];
   const deps = profile.dependencies || {};
@@ -100,7 +103,7 @@ async function listInstalled(ctx, targets) {
   const nativeDetail = await listInstalledNative(ctx, nativeTarget);
   const byName = new Map();
   for (const t of targets) {
-    for (const p of installedOn(t)) {
+    for (const p of installedOn(t, PROTECTED)) {
       if (!byName.has(p.name)) byName.set(p.name, { name: p.name, version: p.version, bundle: p.bundle, source: p.source, targets: [] });
       byName.get(p.name).targets.push(t.id);
     }

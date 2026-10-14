@@ -5,6 +5,7 @@ const spawner = require('./spawn');
 const procOS = require('./process');
 const pidlookup = require('./pidlookup');
 const { findOurs, portable } = require('./portable');
+const { judge: judgeIdentity } = require('./liveness');
 
 const ESCALATE_MS = 1500;
 
@@ -33,13 +34,16 @@ function start(spec) {
   return { pid: child.pid, child, identity };
 }
 
+// 与 portable.isUnitActive / monitor.probeInstance 同源：judge 的 state 即结论。
+// 原先此处把「有监听无锚点」硬判为 foreign，而 monitor 对同一观测返回 running=true。
 function probe(identity) {
-  const ours = findOurs(identity || {});
-  if (ours) return { state: 'ours', ...ours };
-  const port = Number(identity && identity.port);
-  const listening = Number.isInteger(port) && port > 0 ? pidlookup.findListeningPid(port) : null;
-  if (listening !== null) return { state: 'foreign', pid: listening };
-  return { state: 'dead' };
+  const id = identity || {};
+  const v = judgeIdentity({
+    pidFile: id.pidFile || null,
+    port: Number(id.port) || 0,
+    anchors: Array.isArray(id.anchors) ? id.anchors : [],
+  });
+  return { state: v.state, pid: v.pid === undefined ? null : v.pid, via: v.via, evidence: v.evidence };
 }
 
 function signalTermination(pid) {

@@ -21,6 +21,18 @@ function options(opts) {
   };
 }
 
+// 命令失败告警的唯一出口：run / runAsync / runDetail 共用，杜绝"失败静默"。
+// opts.logger 缺失时退回 console.error（platform/service/log/events.js 的既有范式）——
+// 调用点（如 os/file-protect 的 icacls 凭据收口）不传 logger 也必须留下痕迹。
+function warnExecFailure(opts, tag, bin, args, err) {
+  const line = '[exec] ' + tag + bin + ' ' + (args || []).join(' ').slice(0, 80) +
+    ' failed: ' + ((err && err.message) || err);
+  try {
+    if (opts && opts.logger && opts.logger.warn) opts.logger.warn(line);
+    else console.error(line);
+  } catch {}
+}
+
 function run(bin, args, opts) {
   const o = opts || {};
   try {
@@ -30,12 +42,7 @@ function run(bin, args, opts) {
     }
     return out;
   } catch (e) {
-    if (o.logger && o.logger.warn) {
-      try {
-        o.logger.warn('[exec] ' + bin + ' ' + (args || []).join(' ').slice(0, 80) +
-          ' failed: ' + ((e && e.message) || e));
-      } catch {}
-    }
+    warnExecFailure(o, '', bin, args, e);
     return null;
   }
 }
@@ -47,26 +54,27 @@ function runOut(bin, args, opts) {
   try { return String(r); } catch { return null; }
 }
 
+// 失败 -> 结果对象：runAsync 与 runDetail 的唯一实现。返回形状固定，
+// 全部调用点（autostart/*、os/file-protect 等）都按 ok/code/stdout/stderr/timedOut/error 读取。
+function failureResult(err) {
+  const timedOut = !!(err && (err.code === 'ETIMEDOUT' || err.signal === 'SIGKILL' ||
+    /ETIMEDOUT|timed? ?out/i.test(String(err && err.message))));
+  return {
+    ok: false,
+    code: (err && err.status != null) ? String(err.status) : null,
+    stdout: String((err && err.stdout) || ''),
+    stderr: String((err && err.stderr) || ''),
+    timedOut,
+    error: (err && err.message) ? String(err.message) : String(err),
+  };
+}
+
 function runAsync(bin, args, opts) {
   const o = opts || {};
   return new Promise((resolve) => {
     const fail = (err) => {
-      if (o.logger && o.logger.warn) {
-        try {
-          o.logger.warn('[exec] (async) ' + bin + ' ' + (args || []).join(' ').slice(0, 80) +
-            ' failed: ' + ((err && err.message) || err));
-        } catch {}
-      }
-      const timedOut = !!(err.code === 'ETIMEDOUT' || err.signal === 'SIGKILL' ||
-        /ETIMEDOUT|timed? ?out/i.test(String(err && err.message)));
-      resolve({
-        ok: false,
-        code: err.status != null ? String(err.status) : null,
-        stdout: String(err.stdout || ''),
-        stderr: String(err.stderr || ''),
-        timedOut,
-        error: (err && err.message) ? String(err.message) : String(err),
-      });
+      warnExecFailure(o, '(async) ', bin, args, err);
+      resolve(failureResult(err));
     };
     try {
       execFile(bin, args, Object.assign({}, options(o), { encoding: 'utf8' }), (err, stdout, stderr) => {
@@ -91,16 +99,8 @@ function runDetail(bin, args, opts) {
     const out = execFileSync(bin, args, options(Object.assign({}, o, { encoding: 'utf8' })));
     return { ok: true, code: '0', stdout: String(out || ''), stderr: '', timedOut: false, error: null };
   } catch (e) {
-    const timedOut = !!(e && (e.code === 'ETIMEDOUT' || e.signal === 'SIGKILL' ||
-      /ETIMEDOUT|timed? ?out/i.test(String(e && e.message))));
-    return {
-      ok: false,
-      code: (e && e.status != null) ? String(e.status) : null,
-      stdout: String((e && e.stdout) || ''),
-      stderr: String((e && e.stderr) || ''),
-      timedOut,
-      error: (e && e.message) ? String(e.message) : String(e),
-    };
+    warnExecFailure(o, '(detail) ', bin, args, e);
+    return failureResult(e);
   }
 }
 

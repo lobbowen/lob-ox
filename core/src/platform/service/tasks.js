@@ -41,13 +41,6 @@ class TaskRegistry {
     catch (e) { this._log('error', 'tasks persist failed: ' + e.message); }
   }
 
-  _cleanup() {
-    if (this.tasks.length > MAX_TASKS) {
-      this.tasks = this.tasks.slice(0, MAX_TASKS);
-      this._save();
-    }
-  }
-
   begin(kind, action, target, opts) {
     const o = opts || {};
     const now = Date.now();
@@ -70,7 +63,6 @@ class TaskRegistry {
     this.tasks.unshift(task);
     this._current[kind + ':' + task.target.id] = task.id;
     this._save();
-    this._cleanup();
     this._emit('task_created', { id: task.id, kind, action, target: task.target });
     this._log('info', 'task ' + task.id + ' created (' + kind + '/' + action + ' ' + task.target.id + ')');
     return task;

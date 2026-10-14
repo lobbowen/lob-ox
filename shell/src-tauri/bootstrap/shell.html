@@ -63,17 +63,16 @@
   </div>
   </div>
 
+  <!-- 标题栏接线与全局错误处理由 00-runtime.js 提供（此前此处是一份逐字副本） -->
+  <script src="js/00-runtime.js"></script>
   <script>
   (function () {
-    var core = window.__TAURI__ && window.__TAURI__.core;
-    var evt = window.__TAURI__ && window.__TAURI__.event;
+    var NS = window.__BOOT_NS || {};
+    var core = NS.core;
+    var evt = NS.evt;
     var frame = document.getElementById('frame');
-    var wctl = function (a) { if (core) core.invoke('win_ctl', { action: a }).catch(function () {}); };
-    document.getElementById('btnMin').addEventListener('click', function () { wctl('minimize'); });
-    document.getElementById('btnMax').addEventListener('click', function () { wctl('toggle-maximize'); });
-    document.getElementById('btnClose').addEventListener('click', function () { wctl('hide'); });
-        // 显式拖动（Linux WebKit drag-region 常不生效的可靠替代）
-    document.getElementById('dragRegion').addEventListener('mousedown', function () { wctl('drag'); });
+    // 标题栏的 win_ctl 接线已由 00-runtime.js 完成；此处不得重复绑定
+    // （重复绑定会让每次点击发两次 win_ctl）。
     var panelUrl = null;
     var retried = 0;
     var loadPanel = function (u) { panelUrl = u; frame.src = u; };
