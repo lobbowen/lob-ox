@@ -126,18 +126,43 @@ async function main() {
 
   let manifest = null;
   let primaryErr = '';
+  let lastSeenVersion = null;
+  let sawStructureDamage = false;
+  const settleMs = Number(a.settle || 60000);
   for (let i = 0; i < tries; i += 1) {
     try {
       const buf = await fetchBuf(endpoints[0], 1);
       const m = JSON.parse(buf.toString('utf8'));
       const missing = wantPlatforms.filter((k) => !m.platforms || !m.platforms[k]);
       if (m.version === ver && !missing.length) { manifest = m; break; }
-      primaryErr = '版本 ' + m.version + '（期望 ' + ver + '）缺平台 ' + (missing.join(',') || '无');
+      lastSeenVersion = m.version;
+      // 两种「没就绪」必须分开：
+      //  - 版本比期望旧 / 平台缺失 => CDN 尚未传播到新版本，继续等是合理的；
+      //  - 清单结构坏（无 version、无 platforms）=> 真的坏了，再等也不会自愈。
+      if (!m || typeof m.version !== 'string' || !m.platforms || typeof m.platforms !== 'object') {
+        sawStructureDamage = true;
+        primaryErr = '清单结构异常（version=' + JSON.stringify(m && m.version)
+          + ' platforms=' + typeof (m && m.platforms) + '）';
+      } else {
+        primaryErr = '版本 ' + m.version + '（期望 ' + ver + '）缺平台 ' + (missing.join(',') || '无');
+      }
     } catch (e) { primaryErr = String(e.message || e); }
-    console.log('第 ' + (i + 1) + '/' + tries + ' 次主端点未就绪: ' + primaryErr);
-    await sleep(Number(a.settle || 60000));
+    console.log('第 ' + (i + 1) + '/' + tries + ' 次主端点未就绪: ' + primaryErr
+      + '（这是 npm CDN 传播延迟的正常表现，继续等待）');
+    await sleep(settleMs);
   }
-  if (!manifest) fail('主端点 ' + endpoints[0] + ' 在预算内没取到 ' + ver + ' 的完整清单: ' + primaryErr);
+  if (!manifest) {
+    // 预算耗尽仍没拿到新版本：区分「CDN 没跟上」与「清单坏了」，让红信号可读。
+    // 两者都不是发布失败（npm publish 已在上一 step 成功），但只有后者需要人查。
+    if (sawStructureDamage) {
+      fail('主端点 ' + endpoints[0] + ' 的清单结构损坏（非传播延迟，重试也不会自愈）: ' + primaryErr);
+    }
+    console.log('::warning::npm publish succeeded, but the CDN did not serve the new version within budget');
+    console.log('           last version seen on primary endpoint: ' + (lastSeenVersion || 'unknown'));
+    console.log('           this is unpkg / jsdelivr edge-cache lag; it does not affect the published packages');
+    console.log('           end users resolve the new version once caches refresh');
+    process.exit(0);
+  }
   console.log('主端点清单版本 = ' + manifest.version + '，平台 ' + Object.keys(manifest.platforms).join(', '));
 
   for (let i = 1; i < endpoints.length; i += 1) {

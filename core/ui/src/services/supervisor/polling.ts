@@ -55,7 +55,41 @@ function safeSeq(v: unknown, fallback: number): number {
 }
 
 function emit() { for (const l of listeners) l(snap); }
-function setPartial(p: Partial<SupervisorSnapshot>) { snap = { ...snap, ...p }; emit(); }
+
+/**
+ * 逐字段浅比较：内容没变就返回 false。
+ *
+ * 这是「每 2 秒整棵树重渲染」的唯一成因：setPartial 无条件 emit，
+ * useSyncExternalStore 的 getSnapshot 每次返回新对象引用，React 即判定 store 已变，
+ * 于是即便 8 个 endpoint 的响应字节完全相同，整棵组件树仍会重渲染一遍。
+ * 面板内部还有各自的定时重渲染（事件流、时钟），叠加后表现为界面持续闪动。
+ *
+ * 注意必须逐字段比较而不是只比引用：{...snap, ...p} 每次都产生新对象，
+ * 引用比较永远为 false，等于没有比较。
+ */
+function changed(prev: SupervisorSnapshot, next: SupervisorSnapshot): boolean {
+  const keys = Object.keys(next) as (keyof SupervisorSnapshot)[];
+  for (const k of keys) {
+    const a = prev[k];
+    const b = next[k];
+    if (a === b) continue;
+    // 数组按元素逐个比（事件列表每拍都会是新数组，但内容常常完全一致）
+    if (Array.isArray(a) && Array.isArray(b)) {
+      if (a.length !== b.length) return true;
+      for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return true;
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+function setPartial(p: Partial<SupervisorSnapshot>) {
+  const next = { ...snap, ...p };
+  if (!changed(snap, next)) return;   // 内容未变：不换引用、不通知订阅者
+  snap = next;
+  emit();
+}
 
 let epoch = 0;
 

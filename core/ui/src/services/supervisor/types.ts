@@ -342,9 +342,20 @@ export interface RegistryInfo {
 }
 export interface SelfUpdateStatus {
   ok: boolean;
+  /** 平台化内核包名，如 @lob-ox/core-win-x64。 */
+  pkg?: string | null;
   installed?: string;
-  latest?: string;
-  updateAvailable?: boolean;
+  latest?: string | null;
+  /**
+   * null 表示「本接口不回答有没有新版」——内核更新由桌面壳接管（单写入者契约），
+   * 不能用 false，那会被读成「已是最新」。
+   */
+  updateAvailable?: boolean | null;
+  /** 谁负责执行更新。当前恒为 desktop-shell。 */
+  managedBy?: "desktop-shell" | null;
+  updatable?: boolean;
+  form?: string;
+  reason?: string | null;
   error?: string | null;
 }
 export interface GuardVersion { version?: string; commit?: string; latest?: string; updateAvailable?: boolean; upstream?: string; }

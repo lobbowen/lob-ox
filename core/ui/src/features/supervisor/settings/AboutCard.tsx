@@ -13,8 +13,14 @@ import { cn } from "../../../framework/utils";
 type VerInfo = {
   version?: string;
   installed?: string;
-  latest?: string;
-  updateAvailable?: boolean;
+  /** null = 内核侧不回答「有没有新版」（更新由桌面壳接管）。不能当 false 用。 */
+  latest?: string | null;
+  updateAvailable?: boolean | null;
+  /** 谁负责执行更新。当前恒为 desktop-shell。 */
+  managedBy?: "desktop-shell" | null;
+  updatable?: boolean;
+  form?: string;
+  reason?: string | null;
   ok?: boolean;
   error?: string | null;
   upstream?: string;
@@ -92,9 +98,13 @@ export function AboutCard() {
       const r = await supervisorApi.selfUpdateStatus().catch(() => null);
       if (r && r.ok !== false) {
         setVer((prev) => ({ ...(prev || {}), ...r }));
-        coreMsg = r.updateAvailable && r.latest
-          ? "内核有新版本 " + fmt(r.latest) + "（当前 " + fmt(r.installed) + "）"
-          : "内核已是最新（" + fmt(r.installed) + "）";
+        // updateAvailable 为 null 表示「本接口不回答这个问题」（内核由壳接管），
+        // 不能当 false 渲染成「已是最新」—— 那会让用户以为内核不用管。
+        coreMsg = r.managedBy === "desktop-shell"
+          ? "内核 " + fmt(r.installed) + "（更新由桌面壳统一执行）"
+          : r.updateAvailable === true && r.latest
+            ? "内核有新版本 " + fmt(r.latest) + "（当前 " + fmt(r.installed) + "）"
+            : "内核已是最新（" + fmt(r.installed) + "）";
       } else {
         const local = await supervisorApi.guardVersion().catch(() => null);
         if (local?.upstream === "git-repo") {
@@ -143,7 +153,8 @@ export function AboutCard() {
   };
 
 
-  const coreUpdate = Boolean(ver?.updateAvailable && ver?.latest && ver.latest !== ver?.installed);
+  // updateAvailable 可能是 null（由壳接管，内核侧不回答）；只有显式 true 才算「有更新待装」。
+  const coreUpdate = ver?.updateAvailable === true && Boolean(ver?.latest && ver.latest !== ver?.installed);
   const shellUpdate = Boolean(shell?.updateAvailable && shell?.latest && shell.latest !== shell?.version);
   const shellUncapable = shell?.capable === false;
 
