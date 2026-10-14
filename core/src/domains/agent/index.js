@@ -9,6 +9,7 @@
 const path = require('node:path');
 const kinds = require('./kinds');
 const model = require('./model');
+const runtime = require('./runtime');
 
 class AgentManager {
   constructor(opts) {
@@ -42,14 +43,6 @@ class AgentManager {
     }));
   }
 
-  // prefix 解析的唯一实现。install/uninstall/upgrade/start 都必须走这里——
-  // 否则某个方法漏看 opts.prefix，显式传入的落点会被静默改写。
-  _prefixOf(agent, opts) {
-    const o = opts || {};
-    const isSandbox = !!(agent && agent.kind === 'sandbox');
-    return o.prefix || (isSandbox ? model.installDirOf(this.root, agent) : (o.npmRoot || null));
-  }
-
   // ---- 落点（UI 与清理逻辑都问这里，不各自拼路径）----
   entryOf(agent, opts) {
     return require('./ops/entry').entryOf(agent, Object.assign({ root: this.root }, opts || {}));
@@ -63,7 +56,9 @@ class AgentManager {
   async install(agent, opts) {
     const o = opts || {};
     const installOps = require('./ops/install');
-    const prefix = this._prefixOf(agent, o);
+    const prefix = o.prefix || (agent && agent.kind === 'sandbox'
+      ? model.installDirOf(this.root, agent)
+      : (o.npmRoot || null));
     if (!prefix) return { ok: false, error: '原生形态需显式提供 npmRoot（或 opts.prefix）' };
     return installOps.installToPrefix({
       product: o.product || { pkg: agent && agent.product },
@@ -84,7 +79,7 @@ class AgentManager {
     const o = opts || {};
     const uninstallOps = require('./ops/uninstall');
     const isSandbox = agent && agent.kind === 'sandbox';
-    const prefix = this._prefixOf(agent, o);
+    const prefix = o.prefix || (isSandbox ? model.installDirOf(this.root, agent) : (o.npmRoot || null));
     // 安全边界：显式传入优先；否则按形态推（沙箱=root/<id>，原生=npmRoot）。
     // 显式传空数组 = 调用方明确表示「不给边界」，必须尊重为拒绝，
     // 不能回退到自动推断（那会把「我想禁止删除」变成「按默认边界删」）。
@@ -111,8 +106,10 @@ class AgentManager {
     const o = opts || {};
     const upgradeOps = require('./ops/upgrade');
     const env = o.env || {};
-    // 形态相关：沙箱用每实例 installDir，原生用 npmRoot（显式 prefix 优先）
-    const prefix = this._prefixOf(agent, o);
+    // 形态相关：沙箱用每实例 installDir，原生用 npmRoot
+    const prefix = o.prefix || (agent && agent.kind === 'sandbox'
+      ? model.installDirOf(this.root, agent)
+      : (o.npmRoot || null));
     const pkg = (o.product && o.product.pkg) || (agent && agent.product);
     // 用 ops/install 的 installToPrefix 包一层，使 env.install 按 prefix 生效
     const installOps = require('./ops/install');
@@ -145,7 +142,7 @@ class AgentManager {
     const lc = require('./ops/lifecycle');
     const entryOps = require('./ops/entry');
     const isSandbox = agent && agent.kind === 'sandbox';
-    const installDir = this._prefixOf(agent, o);
+    const installDir = isSandbox ? model.installDirOf(this.root, agent) : (o.npmRoot || null);
     const entry = o.entry || entryOps.entryOf(agent, {
       root: this.root,
       npmRoot: o.npmRoot || null,
@@ -211,7 +208,8 @@ class AgentManager {
     const latest = o.latest || installOps.createLatestResolver(o.dist || this.dist, o);
     const r = await latest(pkg);
     if (!r || r.ok !== true) return { ok: false, error: (r && r.error) || '查询失败', installed: o.installed || null, latest: null, updateAvailable: false };
-    const installed = o.installed || installOps.installedVersionAt(this._prefixOf(agent, o), pkg);
+    const installed = o.installed || installOps.installedVersionAt(
+      agent && agent.kind === 'sandbox' ? model.installDirOf(this.root, agent) : (o.npmRoot || null), pkg);
     return {
       ok: true,
       installed: installed || null,
@@ -234,4 +232,4 @@ class AgentManager {
   }
 }
 
-module.exports = { AgentManager, kinds, model };
+module.exports = { AgentManager, kinds, model, runtime };

@@ -1,19 +1,21 @@
 'use strict';
 
 function createInflight() {
-  // 只保留 recordError 及其累加器：stats()/errorCount() 全仓零引用，
-  // 为它们存在的 begun/ended 计数器也一并删除。
+  let begun = 0;
+  let ended = 0;
   let errors = 0;
 
   return {
     begin(acc) {
       if (!acc) return 0;
+      begun += 1;
       acc.inflight = (acc.inflight || 0) + 1;
       return acc.inflight;
     },
 
     end(acc, ctx) {
       if (!acc) return { zero: false, effects: [] };
+      ended += 1;
       acc.inflight = Math.max(0, (acc.inflight || 0) - 1);
       if (acc.inflight !== 0) return { zero: false, effects: [] };
       const c = ctx || {};
@@ -28,6 +30,8 @@ function createInflight() {
     },
 
     recordError() { errors += 1; return errors; },
+    errorCount() { return errors; },
+    stats() { return { begun, ended, errors, active: begun - ended }; },
   };
 }
 

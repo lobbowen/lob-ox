@@ -5,6 +5,7 @@ window.__BOOT_NS = window.__BOOT_NS || {};
   NS.$ = function (id) { return document.getElementById(id); };
   NS.fatalShown = false;
   NS.cur = -1;
+  NS.skipAction = null;
   NS.emptyToolchain = function () { return { node: null, npm: null }; };
   NS.toolchain = NS.emptyToolchain();
   NS.lastEnv = null;
@@ -68,10 +69,9 @@ window.__BOOT_NS = window.__BOOT_NS || {};
   if (!NS.core || !NS.core.invoke) {
     NS.showFatal("Tauri IPC 不可用：本页面必须在主帧中加载（需要 IPC 的页面不能放在 iframe 内）。");
   }
-  // 标题栏接线：bootstrap 与 shell.html 两侧共用这一份（此前是逐字重复的两份）。
-  NS.bindTitleBar = function () {
+  (function () {
     var wctl = function (a) {
-      if (!NS.core || !NS.core.invoke) return;
+      if (!NS.core) return;
       try { NS.core.invoke('win_ctl', { action: a }).catch(function () {}); } catch (e) {}
     };
     var bind = function (id, action) {
@@ -81,11 +81,9 @@ window.__BOOT_NS = window.__BOOT_NS || {};
     bind('btnMin', 'minimize');
     bind('btnMax', 'toggle-maximize');
     bind('btnClose', 'hide');
-    // 显式拖动（Linux WebKit drag-region 常不生效的可靠替代）
     var drag = document.getElementById('dragRegion');
     if (drag) drag.addEventListener('mousedown', function () { wctl('drag'); });
-  };
-  NS.bindTitleBar();
+  })();
   if (NS.evt) {
     NS.evt.listen('shell:goto-panel', function () { NS.gotoShell(); });
   }

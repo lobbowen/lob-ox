@@ -9,6 +9,17 @@ function createDshInstall(deps) {
   const { store, dist, tasks, logger, instancesRoot, agents } = deps;
   const save = () => store.save();
 
+  function installTimeoutWatchdog(inst, task) {
+    try {
+      if (inst.state && inst.state.phase === 'INSTALLING') {
+        inst.state.phase = 'FAILED';
+        inst.state.installError = '安装超时(10分钟)';
+        save();
+        if (task) { try { tasks.log(task.id, '安装超时(10分钟)——等待安装进程收敛，成功则自动恢复'); } catch {} }
+      }
+    } catch (e2) { logger.error && logger.error('install watchdog ' + inst.id + ': ' + (e2 && e2.message)); }
+  }
+
   // 安装日志：噪声过滤 + 60 行环形缓冲 + 时间戳前缀收拢到 agent 域
   // ops/install.js 的 pushLog（原本这里内联了同一条正则与同一套上限）。
   // 行为保持：sink 指向 inst.state.installLog，放行的行仍写 tasks.log，仍每次落盘。
@@ -56,19 +67,27 @@ function createDshInstall(deps) {
         return { ok: false, error: why };
       }
       const latestVer = pick.version;
-      // 安装超时只有一处权威：agent 层 installToPrefix（agent/ops/install.js 的
-      // INSTALL_TIMEOUT_MS = 10min + platform/distribution/install.js 的 killTree，
-      // 超时以 {ok:false, timedOut:true} 正常 resolve）。此处此前的 10 分钟 watchdog
-      // 只会把相位提前写成 FAILED，随后又靠下面那段「自我恢复」抹掉——一份重复的
-      // 超时判据，且与真实安装结果脱节。相位态超时由 instance/lifecycle.js 的 installAt 检查兜底。
-      const res = agents
-        ? await agents.install(
-            { id: 'sandbox:' + inst.id, kind: 'sandbox', product: '@deepseek-ai/dsh', port: inst.port },
-            { dist, prefix: installDir, version: latestVer, registry: pick.origin, onLine: pushLog }
-          )
-        : await dist.runNpmInstall({ pkg: '@deepseek-ai/dsh', version: latestVer, prefix: installDir, registry: pick.origin, onLine: pushLog });
+      const watchdog = setTimeout(() => installTimeoutWatchdog(inst, task), 10 * 60 * 1000);
+      let res;
+      try {
+        // 安装本体委托 agent 域（installToPrefix）：那里有 10min 超时、launcher 透传、
+        // commandTemplate 与噪声过滤。原实现直接调 dist.runNpmInstall 并硬编码包名，
+        // 与 agent 域的那份是同一件事的两份实现。
+        res = agents
+          ? await agents.install(
+              { id: 'sandbox:' + inst.id, kind: 'sandbox', product: '@deepseek-ai/dsh', port: inst.port },
+              { dist, prefix: installDir, version: latestVer, registry: pick.origin, onLine: pushLog }
+            )
+          : await dist.runNpmInstall({ pkg: '@deepseek-ai/dsh', version: latestVer, prefix: installDir, registry: pick.origin, onLine: pushLog });
+      } finally {
+        clearTimeout(watchdog);
+      }
       inst.state.installOk = res.ok;
       if (!res.ok) { inst.state.installError = res.error; logger.error('sandbox install failed for ' + inst.id + ': ' + res.error); }
+      if (res.ok && inst.state.phase === 'FAILED' && inst.state.installError && /安装超时/.test(inst.state.installError || '')) {
+        inst.state.phase = 'INSTALLING';
+        inst.state.installError = null;
+      }
       save();
       const doneMeta = { meta: { version: latestVer } };
       if (task) {

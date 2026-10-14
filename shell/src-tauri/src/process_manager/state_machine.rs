@@ -1,14 +1,11 @@
 //! 相位状态机（机箱唯一真相，取代内核 ManagedRegistry 相位）。
 //!
-//! 相位集合全域唯一：stopped / starting / installing / running / draining / failed。
-//! 每个变体都必须有真实写入者：Restarting 全仓零来源（Rust 无赋值，core 的
-//! lifecycle 相位只有 STOPPED/STARTING/RUNNING/INSTALLING/FAILED），唯一读者是
-//! pm_status 渲染 Debug 串——无源的枚举只会让「已接受」与「真被写过」分叉，已删除。
+//! 相位集合全域唯一：stopped / starting / running / draining / failed / restarting。
 
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Phase { Stopped, Starting, Installing, Running, Draining, Failed }
+pub enum Phase { Stopped, Starting, Running, Draining, Failed, Restarting }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Desired { Running, Stopped }

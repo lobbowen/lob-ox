@@ -111,9 +111,8 @@ impl ServiceControl for Impl {
         Err(format!("当前平台（{}）不支持服务定义", std::env::consts::OS))
     }
 
-    fn start(&self) -> Result<(), String> {
-        Err(format!("当前平台（{}）不支持守卫服务管理", std::env::consts::OS))
-    }
+    // start 已从 ServiceControl 契约删除（三平台实现零调用，且与 spawn_daemon 语义重叠），
+    // 此处对应的 stub 随之删除。
 
     fn stop(&self) -> Result<(), String> {
         Err(format!("当前平台（{}）不支持守卫服务管理", std::env::consts::OS))

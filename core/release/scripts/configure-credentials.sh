@@ -3,8 +3,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 . "$ROOT/release/scripts/_npm-auth.sh"
-# 与 publish-core.sh 统一：任何退出路径都不得留下临时 userconfig / 悬空的 NPM_CONFIG_USERCONFIG 快照。
-trap 'dsh_npm_auth_cleanup' EXIT
 
 REAL_HOME="$(dsh_real_home)"
 NPMRC="$(dsh_canonical_npmrc)"
@@ -12,10 +10,7 @@ perm_of() { node -e "try{process.stdout.write((require('fs').statSync(process.ar
 
 write_npmrc() {
   [ -n "${NPM_TOKEN:-}" ] || { echo "❌ NPM_TOKEN 环境变量为空（请先 export NPM_TOKEN=...）"; exit 1; }
-  # 暂存落在 npmrc 同目录：mktemp 默认目录在 TMPDIR，SIGKILL/掉电后残留的明文令牌就散在
-  # 系统临时区（不受 ~/.npmrc 的 0600 信任边界与权限巡检覆盖）。同目录 mv 仍为同分区 rename。
-  mkdir -p "$(dirname "$NPMRC")"
-  TMP="$(mktemp -p "$(dirname "$NPMRC")" .npmrc.tmp.XXXXXX)"
+  TMP="$(mktemp)"
   if [ -f "$NPMRC" ]; then
     grep -v '^//registry\.npmjs\.org/:_authToken=' "$NPMRC" > "$TMP" || true
   fi
@@ -38,7 +33,7 @@ check() {
   if [ "$HOME" != "$REAL_HOME" ]; then echo "当前 \$HOME: ${HOME}（沙箱覆盖，不影响发布：解析以真实 home 为准）"; fi
   if dsh_npm_auth_setup; then
     echo "NPM: ✅ 命中认证来源 → $(dsh_npm_auth_describe)"
-    dsh_npm_auth_cleanup   # 幂等：EXIT trap 还会再调一次，无副作用
+    dsh_npm_auth_cleanup
   else
     echo "NPM: 本机无认证来源（正常：发布走 CI 的 NPM_TOKEN；仅本机手工 publish 才需 --npm）"
   fi
@@ -75,13 +70,7 @@ check() {
 
 case "${1:-}" in
   --npm) write_npmrc ;;
+  --git) echo "❌ --git 不再提供：本脚本只管 npm，Git 凭据由 cred.sh 管理。" >&2; exit 2 ;;
   --check) check ;;
-  # 无 --git 分支：Git 凭据由 cred.sh 管理（真机写入需 DSH_CRED_ALLOW_OVERWRITE=1，见其 usage）。
-  *)
-    echo "用法: configure-credentials.sh --npm | --check"
-    echo "  --npm    把 NPM_TOKEN 写入规范 ~/.npmrc（0600）"
-    echo "  --check  凭据自检（不含值）"
-    echo "  Git 凭据不走本脚本：由 release/scripts/cred.sh 管理（真机写入需 DSH_CRED_ALLOW_OVERWRITE=1）"
-    exit 2
-    ;;
+  *) echo "用法: configure-credentials.sh --npm | --check"; exit 2 ;;
 esac

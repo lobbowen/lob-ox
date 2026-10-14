@@ -4,7 +4,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const BRAND = require('../../shared/brand');
-const lease = require('../util/lease');
 
 const SCHEMA = 1;
 
@@ -69,7 +68,19 @@ function detectLegacyInstall(opts) {
   
   
   
-  const pid = lease.lockPid(info.lockFile);
+  let pid = null;
+  try {
+    const raw = fs.readFileSync(info.lockFile, 'utf8');
+    try {
+      const j = JSON.parse(raw);
+      if (j && typeof j === 'object') pid = j.pid;
+      else if (Number.isInteger(j)) pid = j;
+    } catch {  }
+    if (!Number.isInteger(pid) || pid <= 0) {
+      const n = parseInt(raw, 10);
+      pid = Number.isInteger(n) && n > 0 ? n : null;
+    }
+  } catch { pid = null; }
   info.lockPid = pid;
   
   if (pid !== null && pid !== process.pid && isAlive(pid)) info.guardRunning = true;

@@ -65,7 +65,7 @@ class LanManager {
       } : null;
       const remote = projectRemoteView({
         mode: normalizeRemoteMode(inst.remoteMode),
-        relayListening: lanServers.isListening(this, inst.id),
+        relayListening: !!(this._lanServers && this._lanServers[inst.id]),
         tokenSet: !!String(inst.remoteToken || '').trim(),
         cookieReady: !!(st && st.cookieReady),
         frpcRunning: !!frpSt.running,
@@ -78,7 +78,7 @@ class LanManager {
         wanPort: proxy ? proxy.wanPort : null,
         token: inst.remoteToken || '',
         dshToken: this.tokenOf(inst.id) || '',
-        running: lanServers.isListening(this, inst.id),
+        running: !!this._lanServers && !!this._lanServers[inst.id],
         inject, remote,
       };
     });
@@ -116,19 +116,19 @@ class LanManager {
   _hasWanIntent() {
     return this._allManaged().some((x) => normalizeRemoteMode(x.remoteMode) === 'wan');
   }
-  // 尽力而为的调度触发器，不是取数接口：返回值从未被任何调用点消费
-  // （ops.js / reconcile.js / daemon.js / domain-actions/lan.js / bootstrap.js 共 12 处全部忽略）。
-  // 合并窗口内的第二个调用者原本拿到的是「上一次的结果」，那不是它的结果——与其返回伪结果，
-  // 不如让契约变成 undefined：调用方无法误以为同步已完成。
-  // 方法名保留 syncFrpc：它同时是 daemon RPC 的方法名（daemon.js:21）与
-  // contract.PUBLIC_API 声明项，改名会波及本职责范围外的装配与调用点，而语义变化已由返回值契约承担。
   syncFrpc() {
-    if (!this.frp) return;
-    if (this._syncFrpcCoalescing) return;
+    
+    if (!this.frp) return { ok: false, error: 'frpmgr 不可用' };
+    
+    
+    
+    if (this._syncFrpcCoalescing) return this._lastSyncFrpcResult || { ok: true, coalesced: true };
     this._syncFrpcCoalescing = true;
-    this._syncFrpcNow();
+    const result = this._syncFrpcNow();
+    this._lastSyncFrpcResult = result;
     const reset = () => { this._syncFrpcCoalescing = false; };
     if (typeof setImmediate === 'function') setImmediate(reset); else setTimeout(reset, 0);
+    return result;
   }
 
   _syncFrpcNow() {

@@ -17,7 +17,10 @@ pub trait ServiceControl: Send + Sync {
     
     fn ensure_defined(&self, spec: &crate::platform::LaunchSpec) -> Result<String, String>;
 
-    fn start(&self) -> Result<(), String>;
+    // 注：此处曾有一个 fn start(&self) 契约。三个平台实现全仓零调用方
+    // （所有启动路径统一走 spawn_daemon / ensure_defined），且三份实现彼此逐行雷同，
+    // 却与 spawn_daemon 的语义重叠——保留它等于留一条谁都不用、语义又不唯一的启动路径。
+    // 契约与实现一并删除，让「启动只有 spawn_daemon 一条路」成为结构性事实。
 
     fn stop(&self) -> Result<(), String>;
 

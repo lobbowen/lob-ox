@@ -16,10 +16,6 @@ const { DistributionManager } = require('../../../platform/distribution/index');
 const shellDomain = require('../../../domains/shell/index');
 const { TaskRegistry } = require('../../../platform/service/tasks');
 const { IntentLedger } = require('../../../app/state/intents');
-// ctl 端口缺省值的唯一权威解析实现。此前本文件自己写了一份（且漏了 SHARED 声明，
-// 任何非数字 routerCtlPort/lanCtlPort 都会在组装期抛 ReferenceError），
-// app/ctl/client.js:11-13 还有一份完整副本 —— 两个来源必然漂移。现只留一份。
-const { routerCtlPort: resolveRouterCtlPort, lanCtlPort: resolveLanCtlPort } = require('../../ctl/client');
 require('../log-sources');
 const { TOKEN_FILE_NAME } = require('../../../app/settings/token-kinds');
 
@@ -141,9 +137,11 @@ function composeCore(host, rawConfig, configPath) {
       enableHub: true,
       stateDir: path.dirname(host.config.stateFile),
       aggBase: path.basename(host.config.stateFile || 'state.json', '.json'),
+      // ctl 端口缺省值取 shared-constants 单源（net.routerCtlPort / net.lanCtlPort）。
+    // 此前硬编码 43107/43108，改 shared-constants 不会传导到这里，与壳侧常量漂移。
     ctlPorts: {
-      router: resolveRouterCtlPort(host.config),
-      lan: resolveLanCtlPort(host.config),
+      router: Number(host.config.routerCtlPort) || SHARED.net.routerCtlPort,
+      lan: Number(host.config.lanCtlPort) || SHARED.net.lanCtlPort,
     },
       daemonLogs: {
         router: path.join(path.dirname(host.config.stateFile), 'log', 'router-daemon.log'),

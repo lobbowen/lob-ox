@@ -9,6 +9,5 @@ const {
   health,
   status,
 } = require('./journal');
-const { checkUpdate } = require('./update');
 
-module.exports = { status, evaluate, health, markPending, identity, readJournal, shellDir, checkUpdate };
+module.exports = { status, evaluate, health, markPending, identity, readJournal, shellDir };

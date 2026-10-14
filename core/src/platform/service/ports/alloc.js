@@ -40,10 +40,7 @@ class PortAllocator {
   }
 
   _releaseAlloc() {
-    // 释放必须走 lease.releaseSync —— 直接写 _allocLock=false 是第二条释放路径，
-    // 与 pool._mutate 的 lease.acquireSync 配对时会把布尔标志恢复成「非持有」却绕过
-    // 唯一原语。现统一为一对原语，杜绝「两条释放路径」造成的状态分叉。
-    require('../../util/lease').releaseSync(this._registry, '_allocLock');
+    this._registry._allocLock = false;
     const rel = this._xrel; this._xrel = null;
     if (rel) { try { rel(); } catch {  } }
   }
@@ -79,16 +76,9 @@ class PortAllocator {
 
   async _confirmRegister(port, rangeKey, owner) {
     const r = this._registry;
-    // 本函数全程在 _acquireAlloc() 持有的 _allocLock 内运行（由 claimSlot/allocate 的
-    // try/finally 保证），因此直接写账本而不再经 pool._mutate —— 后者是同步函数，
-    // 在此 await 期间调用会因锁已被本协程持有而抛错。互斥由 acquire/release 一对
-    // 原语在本协程内闭合，不再依赖标志位猜测重入。
     r._records.set(port, { port, role: rangeKey, owner, createdAt: Date.now() });
     r._save();
-    // 确认窗口的语义是「给对端 listener 起来的机会」；360ms 硬编码与同文件其它
-    // 等待预算（waitMs 默认 6000/2500）口径不一，导致确认超时远早于真实可用。
-    const confirmDeadline = Date.now() + (Number(this._confirmWaitMs) || 2500);
-    for (let i = 0; Date.now() < confirmDeadline; i++) {
+    for (let i = 0; i < 3; i++) {
       if (!(await probe.loopbackListening(port))) return true;
       if (probe.listeningPid(port) === process.pid) return true;
       await new Promise((res) => setTimeout(res, 120));
@@ -174,16 +164,17 @@ class PortAllocator {
     return null;
   }
 
-  // skipFirst 只由 allocate() 传入（跳过锚点端口）；_claimSlotLocked 路径不传。
   async _allocFreeCore(rangeKey, range, owner, o) {
     const r = this._registry;
     const reserved = o.reservedPorts instanceof Set ? o.reservedPorts : null;
-    const offset = (o.range ? 0 : r._anchorOffset(rangeKey)) + (o.skipFirst ? 1 : 0);
+    const offset = o.range ? 0 : r._anchorOffset(rangeKey);
     // R6：联合避让。原只查 r._records（本方文件），router-daemon 与 guard 各写各的
     // 文件时会选中同一端口。改为查 _foreignPorts()（本方 + sibling 联合视图）。
     const joint = r._foreignPorts();
     for (let n = 0; n < range.count; n++) {
       const p = range.base + ((offset + n) % range.count);
+      
+      
       if (reserved && reserved.has(p)) continue;
       if (joint.has(p)) continue;
       if (await r.isTaken(p)) {
@@ -199,18 +190,26 @@ class PortAllocator {
     return null;
   }
 
-  // 游走公式、reservedPorts、joint.has、reclaimCmdMark、_confirmRegister 的唯一实现是
-  // _allocFreeCore；此处只负责加解锁与 owner 缺省，不再自带一份会分叉的循环。
-  // 返回形状与 _allocFreeCore 一致：{ port, mode }（调用方一律取 .port）。
   async allocate(rangeKey, owner, opts) {
     const r = this._registry;
     const range = r.rangeOf(rangeKey);
     if (!range) throw new Error('ports.allocate: 未知端口段 ' + rangeKey);
     const o = opts || {};
-    const owner2 = owner || 'dynamic:' + rangeKey;
+    const start = (o.range ? 0 : r._anchorOffset(rangeKey)) + (o.skipFirst ? 1 : 0);
     await this._acquireAlloc();
     try {
-      return await this._allocFreeCore(rangeKey, range, owner2, o);
+      // R6：联合避让（同 _allocFreeCore）。
+    const joint = r._foreignPorts();
+    for (let n = 0; n < range.count; n++) {
+        const p = range.base + ((start + n) % range.count);
+        if (joint.has(p)) continue;
+        if (await r.isTaken(p)) continue;
+        if (!(await probe.bindable(p))) continue;
+        const owner2 = owner || 'dynamic:' + rangeKey;
+        if (await this._confirmRegister(p, rangeKey, owner2)) return p;
+        continue;
+      }
+      return null;
     } finally {
       this._releaseAlloc();
     }

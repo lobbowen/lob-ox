@@ -73,10 +73,7 @@ function createEndpoint(deps) {
     if (!p.activated) {
       p.activated = true;
       if (!p.apiPort) {
-        try {
-          const a = await ports.allocate('providerApi', 'providerApi:' + id);
-          p.apiPort = a ? a.port : null;
-        } catch (e) { p.apiPort = null; }
+        try { p.apiPort = await ports.allocate('providerApi', 'providerApi:' + id); } catch (e) { p.apiPort = null; }
         if (p.apiPort) { try { if (!ports.isRegistered(p.apiPort)) ports.registerUser(p.apiPort, 'providerApi:' + id); } catch {} }
       }
       if (!p.apiPort) {
@@ -111,8 +108,7 @@ function createEndpoint(deps) {
       if (p.activated !== true) continue;
       if (!p.apiPort) {
         try {
-          const a = await ports.allocate('providerApi', 'providerApi:' + p.id);
-          p.apiPort = a ? a.port : null;
+          p.apiPort = await ports.allocate('providerApi', 'providerApi:' + p.id);
           if (p.apiPort && !ports.isRegistered(p.apiPort)) ports.registerUser(p.apiPort, 'providerApi:' + p.id);
         } catch (e) { p.apiPort = null; }
         if (p.apiPort) save();

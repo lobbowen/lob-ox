@@ -73,10 +73,7 @@ async function uninstall(ctx, name, targetStr) {
       catch (e) { res = { ok: false, error: (e && e.message) || String(e) }; }
       let bundlesCleaned = false;
       try {
-        // 写 profile/package.json 已统一经 layers 队列，故此处必须 await：
-        // 返回值随队列完成才确定（此前裸写是同步的，返回布尔）。
-        const br = await ctx._removeFromProfileBundles(target, name);
-        bundlesCleaned = br === true;
+        bundlesCleaned = ctx._removeFromProfileBundles(target, name);
         if (bundlesCleaned) jt.log.push('已从 profile bundles 移除');
       } catch (e) {
         jt.log.push('bundles 清理失败: ' + e.message);

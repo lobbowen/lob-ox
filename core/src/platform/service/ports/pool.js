@@ -111,19 +111,16 @@ class PortRegistry {
   // 修法：所有 mutator 统一走 _mutate，与 alloc 用同一把 _allocLock。
   // 进程内互斥由这把锁保证；跨进程互斥由 alloc 的 .alloc.lock 保证（mutator 的
   // 写盘本身是 writeAtomic 原子替换，不会写坏文件，丢的只是「对方的记录」）。
-  // 进程内互斥的唯一实现。此前这里是「布尔标志 + 两条释放路径」：
-  //   - acquireSync 置真、这里 finally 直写 false、alloc.js:_releaseAlloc 也直写 false
-  //   - 并且用 if (this._allocLock) return fn() 猜测「调用方已持锁」而放行，
-  //     而 alloc 的 _confirmRegister 内含 await —— 期间进来的 mutator 会无锁写盘。
-  // 这两点合起来使 :107-113 注释承诺的「进程内互斥由这把锁保证」只在同步路径成立。
-  // 现改为：所有写者一律经 lease 获取/释放；alloc 路径改用 *_Locked 变体，
-  // 不再靠标志位让 mutator 自行猜测是否重入。
   _mutate(fn) {
-    const lease = require('../../util/lease');
-    if (!lease.acquireSync(this, '_allocLock')) {
-      throw new Error('ports: 账本写锁已被占用且本调用为同步路径，拒绝在无锁状态下写账本');
+    if (this._allocLock) { return fn(); }   // 已持锁（alloc 路径内联调用）不重入
+    let waited = 0;
+    for (;;) {
+      if (require('../../util/lease').acquireSync(this, '_allocLock')) break;
+      await0();
+      waited += 10;
+      if (waited >= 3000) throw new Error('ports: 进程内写锁等待超时（3s），拒绝在无锁状态下写账本');
     }
-    try { return fn(); } finally { lease.releaseSync(this, '_allocLock'); }
+    try { return fn(); } finally { this._allocLock = false; }
   }
 
   migrateByOwnerPrefix(oldFile, newFile, prefixes) {

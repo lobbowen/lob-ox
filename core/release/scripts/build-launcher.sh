@@ -11,9 +11,6 @@ if [ "${GITHUB_ACTIONS:-}" != 'true' ]; then
 fi
 
 VER="$(node -p "require('./package.json').version")"
-# Node 依赖下限取自 package.json#engines.node（其口径由 shared-constants runtime.minNode 单源推导，
-# 并由 verify-versions.js 在发布路径上断言）——本脚本不另写字面量。
-NODE_REQ="$(node -p "require('./package.json').engines.node")"
 
 ALL=0
 OUT_REL="dist/launcher"
@@ -96,4 +93,4 @@ fi
 
 echo "[5/6] 产物清单"
 for d in "${DIRS[@]}"; do ls -lh "$d/core.cjs" | awk '{printf "  %-46s %s\n", $9, $5}'; done
-echo "[6/6] 完成：$OUT/（launcher 形态，Node $NODE_REQ 依赖）"
+echo "[6/6] 完成：$OUT/（launcher 形态，Node >=18 依赖）"

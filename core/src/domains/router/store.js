@@ -8,52 +8,38 @@ class RouterStore {
   constructor(opts) {
     this.file = opts.file;
     this.logger = (opts && opts.logger) || null;
+    this.loadedOk = false;
     this._writable = true;
-    // 配置是否处于「隔离」状态：读/解析失败时置位，本进程禁止任何写入。
-    // 这是 canPersist 的唯一判据来源（与 _writable 并列，而非另开一条 loadedOk 通道）。
-    this._quarantine = null;
   }
 
   load() {
-    this._quarantine = null;
+    this.loadedOk = false;
     let raw = null;
     try { raw = fs.readFileSync(this.file, 'utf8'); }
-    catch { return { providers: [] }; }
+    catch { this.loadedOk = true; return { providers: [] }; }
     try {
       const doc = JSON.parse(raw);
+      this.loadedOk = true;
       return { providers: Array.isArray(doc.providers) ? doc.providers : [] };
     } catch (e) {
       const bak = this.file + '.corrupt-' + Date.now();
-      // 复制留证，不搬走原文件。搬走会让下次启动看到 ENOENT，于是「配置损坏」
-      // 被洗成「从来没有过供应商」，随后任意一次 save 用空态覆盖写出新的 providers.json，
-      // 两次启动之间的用户改动全部蒸发。与 instance/store.js 的 keepOriginal 语义一致。
-      try { fs.copyFileSync(this.file, bak); }
-      catch (e2) {
-        if (this.logger && this.logger.error) this.logger.error('[router] providers.json 现场备份失败: ' + (e2 && e2.message));
-        this._quarantine = { error: String(e && e.message), backup: null };
-        return { providers: [], corrupt: true, backup: null };
-      }
-      this._quarantine = { error: String(e && e.message), backup: bak };
+      try { fs.renameSync(this.file, bak); } catch {}
       if (this.logger && this.logger.error) {
-        this.logger.error('[router] providers.json 解析失败（' + e.message + '）——已**复制**保留现场为 ' + bak +
-          '，原文件原地不动，本次进程禁止写入（防配置静默清零）');
+        this.logger.error('[router] providers.json 解析失败（' + e.message + '）——已保留现场为 ' + bak +
+          '，本次**不覆盖**该文件（防配置静默清零）');
       }
       return { providers: [], corrupt: true, backup: bak };
     }
   }
 
-  // 配置隔离状态（供 API 层透出），未隔离时为 null。
-  quarantine() { return this._quarantine; }
-
-  canPersist() { return this._writable !== false && this._quarantine === null; }
+  canPersist() { return this._writable !== false && this.loadedOk === true; }
 
   setPersistEnabled(v) { this._writable = v !== false; }
 
   save(providers) {
     if (!this.canPersist()) {
-      if (this._quarantine && this.logger && this.logger.warn) {
-        this.logger.warn('router save skipped：providers.json 处于隔离状态（现场备份 ' + this._quarantine.backup +
-          '，原文件原地保留），拒绝用空态覆盖');
+      if (!this.loadedOk && this.logger && this.logger.warn) {
+        this.logger.warn('router save skipped：providers.json 读取异常（已保留现场），拒绝用空态覆盖');
       }
       return false;
     }

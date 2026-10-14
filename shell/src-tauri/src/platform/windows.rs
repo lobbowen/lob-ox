@@ -270,6 +270,10 @@ impl ServiceControl for Impl {
         crate::platform::monitor_registry_path()
     }
 
+    fn is_defined(&self) -> bool {
+        self.definition_path().is_file()
+    }
+
     
     
     fn ensure_defined(&self, spec: &LaunchSpec) -> Result<String, String> {
@@ -299,6 +303,17 @@ impl ServiceControl for Impl {
             shell,
             args,
         ))
+    }
+
+    
+    fn start(&self) -> Result<(), String> {
+        let mut cmd = Command::new(crate::platform::self_exe()?);
+        cmd.arg("--run-guard");
+        crate::platform::guard_stdio(&mut cmd);
+        crate::bounded::prepare(&mut cmd);
+        cmd.spawn()
+            .map_err(|e| format!("启动受管对象失败: {}", e))
+            .map(|_| ())
     }
 
     

@@ -31,22 +31,11 @@ function lockRecyclable(lockFile, staleMs) {
   return true;                                                               
 }
 
-// 「读锁文件取有效 pid」的唯一实现：JSON 优先（{"pid":N} 或裸数字），
-// parseInt 兜底。state-root 的 info.lockPid 曾自带一份，两处会分叉。
-function lockPid(lockFile) {
-  let raw;
-  try { raw = fs.readFileSync(lockFile, 'utf8'); } catch { return null; }
-  let pid = null;
+function lockHolder(lockFile) {
   try {
-    const j = JSON.parse(raw);
-    if (j && typeof j === 'object') pid = j.pid;
-    else if (Number.isInteger(j)) pid = j;
-  } catch {  }
-  if (!Number.isInteger(pid) || pid <= 0) {
-    const n = parseInt(String(raw).trim(), 10);
-    pid = Number.isInteger(n) && n > 0 ? n : null;
-  }
-  return pid;
+    const n = parseInt(fs.readFileSync(lockFile, 'utf8').trim(), 10);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  } catch { return null; }
 }
 
 function stampOf(file) {
@@ -64,6 +53,6 @@ function stampChanged(file, expected) {
 module.exports = {
   STALE_MS,
   acquireSync, releaseSync,
-  lockRecyclable, lockPid,
+  lockRecyclable, lockHolder,
   stampOf, stampChanged,
 };

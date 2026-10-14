@@ -60,38 +60,40 @@ export function AboutCard() {
     }
   }, []);
 
-  // 唯一加载者：一次 Promise.all 拉齐四个来源，一次性合并写入。
-  // 原先 load 与 selfUpdate effect 各自独立发请求且互相整对象覆盖，慢的那一拍会把
-  // updateAvailable/latest 整块抹掉。此处全用合并语义。
   const load = useCallback(async () => {
-      const [core, su, sh, shUpd] = await Promise.all([
+    const [core, sh] = await Promise.all([
       supervisorApi.guardVersion().catch(() => null),
-      supervisorApi.selfUpdateStatus().catch(() => null),
       supervisorApi.shellStatus().catch(() => null),
-      supervisorApi.shellCheckUpdate().catch(() => null),
     ]);
-    if (core) setVer((prev) => ({ ...(prev || {}), ...core }));
-    if (su && su.ok !== false) setVer((prev) => ({ ...(prev || {}), ...su }));
-    if (sh) {
-      setShell((prev) => ({
-        ...(prev || {}),
-        version: sh.identity?.version || null,
-        capable: sh.identity?.selfUpdateCapable === true,
-        installKind: sh.identity?.installKind,
-      }));
-    }
-    if (shUpd) {
-      setShell((prev) => ({ ...(prev || {}), latest: shUpd.latest || null, updateAvailable: shUpd.updateAvailable === true, error: shUpd.error || null }));
-    }
+    setVer(core || {});
+    setShell(sh ? {
+      version: sh.identity?.version || null,
+      capable: sh.identity?.selfUpdateCapable === true,
+      installKind: sh.identity?.installKind,
+    } : {});
   }, []);
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const [core, sh] = await Promise.all([
+        supervisorApi.selfUpdateStatus().catch(() => null),
+        supervisorApi.shellCheckUpdate().catch(() => null),
+      ]);
+      if (!alive) return;
+      if (core && core.ok !== false) setVer((prev) => ({ ...(prev || {}), ...core }));
+      if (sh) setShell((prev) => ({ ...(prev || {}), latest: sh.latest || null, updateAvailable: sh.updateAvailable === true, error: sh.error || null }));
+    })();
+    return () => { alive = false; };
+  }, []);
 
   const check = async () => {
     await run("chk", async () => {
       let coreMsg = "内核：状态未知";
       const r = await supervisorApi.selfUpdateStatus().catch(() => null);
       if (r && r.ok !== false) {
-        setVer((prev) => ({ ...(prev || {}), ...r }));
+        setVer(r || {});
         coreMsg = r.updateAvailable && r.latest
           ? "内核有新版本 " + fmt(r.latest) + "（当前 " + fmt(r.installed) + "）"
           : "内核已是最新（" + fmt(r.installed) + "）";
@@ -99,7 +101,7 @@ export function AboutCard() {
         const local = await supervisorApi.guardVersion().catch(() => null);
         if (local?.upstream === "git-repo") {
           const g = await supervisorApi.guardVersionCheck().catch(() => null);
-          setVer((prev) => ({ ...(prev || {}), ...(local || {}), ...(g || {}) }));
+          setVer({ ...(local || {}), ...(g || {}) });
           coreMsg = g?.updateAvailable
             ? "内核源码仓库有上游更新（当前提交 " + (g.commit || local?.commit || "—") + "）"
             : "内核源码仓库已是最新（提交 " + (local?.commit || g?.commit || "—") + "）";

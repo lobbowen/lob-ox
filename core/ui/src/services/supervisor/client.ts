@@ -36,7 +36,7 @@ export function setStoredAccessKey(key: string): void {
 })();
 export const LONG_TIMEOUT_MS = 210_000;
 
-export interface HttpOptions { timeoutMs?: number; signal?: AbortSignal; }
+export interface HttpOptions { timeoutMs?: number; }
 
 function withTimeout(ms: number): { signal: AbortSignal; clear: () => void } {
   const c = new AbortController();
@@ -46,10 +46,7 @@ function withTimeout(ms: number): { signal: AbortSignal; clear: () => void } {
 
 async function http<T>(method: string, path: string, body?: unknown, opts?: HttpOptions): Promise<T> {
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const to = withTimeout(timeoutMs);
-  // 外部取消信号与超时信号合并：轮询停机时在途请求必须真的被 abort，而不是写完状态再被忽略。
-  const signal = opts?.signal ? AbortSignal.any([opts.signal, to.signal]) : to.signal;
-  const clear = to.clear;
+  const { signal, clear } = withTimeout(timeoutMs);
   const headers: Record<string, string> = {};
   const ak = readStoredAccessKey();
   if (ak) headers["Authorization"] = "Bearer " + ak;
@@ -99,10 +96,8 @@ export function failureFromResult(result: unknown): string | null {
   return msg || "操作未被接受（后端返回 ok:false）";
 }
 
-async function getText(path: string, opts?: HttpOptions): Promise<string> {
-  const to = withTimeout(opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-  const signal = opts?.signal ? AbortSignal.any([opts.signal, to.signal]) : to.signal;
-  const { clear } = to;
+async function getText(path: string): Promise<string> {
+  const { signal, clear } = withTimeout(DEFAULT_TIMEOUT_MS);
   const headers: Record<string, string> = {};
   const ak = readStoredAccessKey();
   if (ak) headers["Authorization"] = "Bearer " + ak;
@@ -122,16 +117,16 @@ function qs(base: string, params: Record<string, string | number | undefined>) {
 }
 
 export const supervisorApi = {
-  status: (o?: HttpOptions) => get<SupervisorStatus>("/status", o),
+  status: () => get<SupervisorStatus>("/status"),
   
-  events: (after = 0, limit = 60, o?: HttpOptions) => get<EventsPage>(qs("/events", { after, limit }), o),
-  instances: (o?: HttpOptions) => get<InstancesResponse>("/instances", o),
-  lanAccess: (o?: HttpOptions) => get<LanAccessResponse>("/lan-access", o),
-  frp: (o?: HttpOptions) => get<FrpStatus>("/remote/frp", o),
-  routerStatus: (o?: HttpOptions) => get<RouterStatus>("/router/status", o),
-  providers: (o?: HttpOptions) => get<ProvidersResponse>("/router/providers", o),
-  tasks: (o?: HttpOptions) => get<TasksResponse>("/tasks", o),
-  ports: (o?: HttpOptions) => get<PortsResponse>("/ports", o),
+  events: (after = 0, limit = 60) => get<EventsPage>(qs("/events", { after, limit })),
+  instances: () => get<InstancesResponse>("/instances"),
+  lanAccess: () => get<LanAccessResponse>("/lan-access"),
+  frp: () => get<FrpStatus>("/remote/frp"),
+  routerStatus: () => get<RouterStatus>("/router/status"),
+  providers: () => get<ProvidersResponse>("/router/providers"),
+  tasks: () => get<TasksResponse>("/tasks"),
+  ports: () => get<PortsResponse>("/ports"),
   lifecycleStart: (id: LifecycleModuleId) => post<GenericOk & { ok?: boolean }>("/lifecycle/" + id + "/start"),
   lifecycleStop: (id: LifecycleModuleId) => post<GenericOk & { ok?: boolean }>("/lifecycle/" + id + "/stop"),
 
@@ -159,8 +154,7 @@ export const supervisorApi = {
   providerKeysSet: (id: string, p: { removeMasked?: string[]; add?: string[] }) =>
     post<GenericOk & {
       added?: number; removed?: number;
-      // discarded 是 discardedKeys.length 的重复计数，UI 只读明细；core 仍照常返回该字段。
-      discardedKeys?: { key: string; error: string }[];
+      discarded?: number; discardedKeys?: { key: string; error: string }[];
     }>("/router/providers/keys/set", { id, ...p }),
   providerKeyUse: (id: string, fingerprint: string) =>
     post<GenericOk & { active?: string }>("/router/providers/key/use", { id, fingerprint }),

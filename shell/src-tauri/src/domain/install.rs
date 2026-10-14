@@ -77,9 +77,7 @@ pub(crate) fn push(app: &tauri::AppHandle, kind: InstallKind, status: String, pr
         let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
         s.status = status.clone();
         s.progress = progress;
-        // 不再往 RunState 里追加日志行：那是 install_progress 事件之外的第二份真相，
-        // 且无界增长（core.rs 的 2s npm 心跳，15 分钟安装约 450 行），
-        // 每次 node_status 轮询（约 400ms）都被整体序列化克隆。
+        s.logs.push(status.clone());
     }
     emit_json(
         app,

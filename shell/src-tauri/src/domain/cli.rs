@@ -165,7 +165,7 @@ pub(crate) fn cli_run_guard() -> i32 {
     {
         let rt_diag = crate::runtime_contract::ensure();
         let cands = crate::domain::coreloc::locate_core_candidates(None);
-        let picked = crate::domain::coreloc::pick_best(cands.clone()).map(|(p, _)| p);
+        let picked = crate::domain::coreloc::pick_highest(cands.clone());
         crate::update::log(&format!(
             "[run-guard] 诊断: runtime={} 候选数={} 选中={}",
             if rt_diag.is_some() { "ok" } else { "缺失/失效" },
@@ -189,15 +189,8 @@ pub(crate) fn cli_run_guard() -> i32 {
         Ok(s) => s,
         Err(e) => { eprintln!("[run-guard] 启动规格组装失败：{}", e); return 1; }
     };
-    // 复用全局 handle()：此前这里另建一个 ProcessManager，与 main 注册的那张表
-    // 并存。危害不在两张表，而在契约文件——mgmt::run 每次都会 export_port，
-    // 于是这个 guard 进程的端口覆盖壳写下的那份；而 pm-client.js 只校验 pidAlive，
-    // 内核的全部 register/setDesired/onPhase 上报就打进 guard 进程那张无人查询、
-    // 无人 heal 的临时表（这正是 core 永不自愈的上游原因）。
-    // 仅复用 handle() 不足以闭环（两个进程各有各的单例），所以真正的约束落在
-    // mgmt::run：契约文件已有在世所有者时不得接管。详见 export_port 的 owner 检查。
     let _supervisor_core = {
-        let pm = crate::process_manager::handle();
+        let pm = std::sync::Arc::new(crate::process_manager::ProcessManager::new());
         match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
             Ok(runtime) => {
                 runtime.spawn(crate::process_manager::mgmt::run(pm.clone()));

@@ -5,19 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-// 反向映射（manifestKey -> 本次构建产物目录）的唯一权威。
-// ⚠ 目录名必须由 platform-map 推导，与 assemble-shell-pkg.js 的 path.join(out, npmPkgDir(plat)) 同源；
-//   否则接上 CI 后这里必然找不到产物（--artifact-dir 传 assemble 的 --out 根即可）。
-const { PLATFORMS, platFromManifestKey, npmPkgDir } = require('./platform-map');
-
-// 默认复核的平台（manifestKey）。按 plat 名单取，走同一张表 ⇒ 键永不会与正向表漂移；
-// 名单里出现未知 plat 立即抛错，不静默产出 undefined。
-const DEFAULT_PLATS = ['linux-x64', 'win-x64', 'darwin-arm64', 'darwin-x64'];
-const EXPECT_PLATFORMS = DEFAULT_PLATS.map((p) => {
-  const m = PLATFORMS[p];
-  if (!m) throw new Error('verify-channel 默认平台名单含未知 plat: ' + p);
-  return m.manifestKey;
-});
+const EXPECT_PLATFORMS = ['linux-x86_64', 'windows-x86_64', 'darwin-aarch64', 'darwin-x86_64'];
 
 function parseArgs(argv) {
   const o = {};
@@ -83,10 +71,11 @@ function unwrapSig(key, b64, wantKeyId, wantId) {
   return { blob, lines: lines.length };
 }
 
-// manifestKey -> assemble 写出的 npm 包目录（单源推导，见文件头注释）。
-function artifactDirFor(key) {
-  return npmPkgDir(platFromManifestKey(key));
-}
+const ARTIFACT_DIR = {
+  'linux-x86_64': 'linux-x64', 'linux-aarch64': 'linux-arm64',
+  'darwin-x86_64': 'darwin-x64', 'darwin-aarch64': 'darwin-arm64',
+  'windows-x86_64': 'win-x64', 'windows-aarch64': 'win-arm64',
+};
 
 function walkFiles(dir) {
   const out = [];
@@ -99,7 +88,7 @@ function walkFiles(dir) {
 }
 
 function candidates(root, key, name) {
-  const sub = path.join(root, artifactDirFor(key));
+  const sub = path.join(root, ARTIFACT_DIR[key] || '');
   const dirs = fs.existsSync(sub) ? [sub] : [root];
   const hits = [];
   for (const d of dirs) {
@@ -167,7 +156,7 @@ async function main() {
     if (artDir) {
       const hits = candidates(artDir, key, name);
       if (!hits.length) {
-        fail(key + ' 的产物 ' + name + ' 在本次构建产物里找不到（' + artDir + '/' + artifactDirFor(key) + '）');
+        fail(key + ' 的产物 ' + name + ' 在本次构建产物里找不到（' + artDir + '/' + (ARTIFACT_DIR[key] || '?') + '）');
       }
       const matched = hits.filter((f) => sha256(fs.readFileSync(f)) === sum);
       if (!matched.length) {

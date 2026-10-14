@@ -26,6 +26,7 @@ function planJobCleanup(ids, max = MAX_JOBS) {
 }
 
 const { taskStateToView } = require('../../shared/task-state');
+const taskStateToJobState = taskStateToView;
 
 function isProtectedName(name) { return PROTECTED.has(name); }
 
@@ -48,6 +49,6 @@ function targetHomePatchPath(target) {
 }
 
 module.exports = {
-  PROTECTED, createJobRecord, finishJobRecord, planJobCleanup, taskStateToView,
+  PROTECTED, createJobRecord, finishJobRecord, planJobCleanup, taskStateToJobState,
   isProtectedName, isOwnRow, isOwnDisabled, ownerPackage, targetHomePatchPath,
 };

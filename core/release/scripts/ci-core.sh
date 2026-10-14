@@ -3,17 +3,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-# 唯一质量判据 = CI 构建结果（见 .github/workflows/core.yml / shell.yml）。
-# 本脚本只做构建与发布，不做测试、不做静态自检、不做工程设计类门禁。
-# 工程收尾时跑一次即可（本地不跑测试、不跑门禁）。
-
 PUBLISH=0
 PUBLISH_ONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --publish) PUBLISH=1 ;;
     --publish-only) PUBLISH=1; PUBLISH_ONLY=1 ;;
-    *) echo "未知参数: $1（支持 --publish / --publish-only）"; exit 2 ;;
+    --all-platforms)
+      echo '拒绝：--all-platforms 不再接受：本产线一律四平台构建，且构建与发布均经 GitHub CI。' >&2
+      exit 2 ;;
+    *) echo "未知参数: $1（支持 --publish / --publish-only / --all-platforms）"; exit 2 ;;
   esac
   shift
 done
@@ -24,38 +23,60 @@ if [ "$PUBLISH" = 1 ] && [ "${GITHUB_ACTIONS:-}" != 'true' ]; then
 fi
 
 if [ "$PUBLISH_ONLY" = 1 ]; then
-  node release/scripts/verify-versions.js --core
-  echo "=== publish-only：构建阶段已由 CI 不带令牌的前一步完成 ==="
-  echo "=== 真发布内核子包（认证由 publish-core.sh 单源处理）==="
+  echo "=== [0/5..4/5] （publish-only：验证已由 CI 不带令牌的前一步完成） ==="
+  echo "=== [5/5] 真发布内核子包（官方 registry；认证由 publish-core.sh 单源处理） ==="
   export DSH_PUBLISH_REGISTRY="${DSH_PUBLISH_REGISTRY:-https://registry.npmjs.org/}"
   npm run publish:core -- --publish
   echo "=== 内核发布产线完成 ==="
   exit 0
 fi
 
-echo "=== [0/3] 运行时契约自检（engines.node 必须与 runtime.minNode 单源同口径）==="
-node release/scripts/verify-versions.js --core
+echo "=== [0/5] 版本自洽校验（内核 package.json 单源；壳版本互锁已随壳仓剥离） ==="
+npm run verify:versions
 
-echo "=== [1/3] 构建 UI 产物（npm ci 可复现安装 + npm run build）==="
+echo "=== [1/5] 前端门禁（typecheck + lint + build）+ 构建 UI 产物 ==="
 if [ -f ui/package.json ]; then
   echo "[ui] 安装前端依赖（npm ci，可复现构建）..."
   (cd ui && npm ci) || { echo "[ui] ERROR: 前端依赖安装失败（npm ci）"; exit 1; }
+  echo "[ui] 前端门禁（verify = typecheck + lint + build）..."
+  (cd ui && npm run verify) || { echo "[ui] ERROR: 前端门禁未通过（typecheck/lint/build）"; exit 1; }
   DSH_UI_SKIP_INSTALL=1 bash release/scripts/build-ui.sh
 else
   bash release/scripts/build-ui.sh
 fi
 
-echo "=== [2/3] 构建内核 launcher（build:launcher）==="
+echo "=== [3/5] 构建内核 launcher（build:launcher：esbuild bundle + node 启动脚本，全平台统一） ==="
 npm run build:launcher --
 
-echo "=== [3/3] 内核子包 dry-run（组装 + 打包审计，不发）==="
+echo "=== [3.5/5] 产物 glibc 基座门禁（仅 Linux · 条件执行） ==="
+if [ "$(uname -s)" = 'Linux' ]; then
+  is_elf() { [ "$(od -An -N4 -tx1 "$1" 2>/dev/null | tr -d ' \n')" = '7f454c46' ]; }
+  elf_count=0
+  while IFS= read -r -d '' f; do
+    if is_elf "$f"; then
+      elf_count=$((elf_count + 1))
+      bash ci/check-glibc.sh "$f" 2.35
+    fi
+  done < <(find dist -type f -print0 2>/dev/null || true)
+  if [ "$elf_count" = 0 ]; then
+    echo "  [glibc] dist/ 下无 ELF 产物（launcher 为纯 JS 形态）→ 本步无对象可检（如实留痕，不假装通过）"
+  else
+    echo "  [glibc] 已校验 $elf_count 个 ELF 产物 ≤ GLIBC_2.35"
+  fi
+else
+  echo "  [glibc] 非 Linux 宿主，跳过（glibc 是 Linux 专有概念）"
+fi
+
+echo "=== [4/5] 内核子包 dry-run（组装 + 打包审计，不发） ==="
 npm run publish:core -s --
 ls -lh dist/npm/
 
 if [ "$PUBLISH" = 1 ]; then
-  echo "=== 真发布内核子包 ==="
+  echo "=== [5/5] 真发布内核子包（官方 registry；认证由 publish-core.sh 单源处理） ==="
   export DSH_PUBLISH_REGISTRY="${DSH_PUBLISH_REGISTRY:-https://registry.npmjs.org/}"
   npm run publish:core -- --publish
+else
+  echo "=== [5/5] （跳过真发布：加 --publish 即发官方 registry） ==="
 fi
 
 echo "=== 内核发布产线完成 ==="

@@ -33,12 +33,6 @@ function depsOf(host) {
       writeLastLanStateJson(v) { host._lastLanStateJson = v; },
       readLastOccupiedWarn() { return host._lastOccupiedWarn; },
       writeLastOccupiedWarn(v) { host._lastOccupiedWarn = v; },
-      // ctl 令牌的读写经 deps 对象走，不再直接引用 host。
-      // 此前 spawnEnv 闭包里用的是裸 host，而 depsOf 返回的是 d（对象）不是 host，
-      // 模块作用域也没有 host —— 于是首次 daemon spawn 抛 ReferenceError，
-      // DSH_CTL_TOKEN 从未注入，ctl 面的鉴权实际处于关闭状态。
-      readCtlToken() { return host._ctlToken; },
-      writeCtlToken(v) { host._ctlToken = v; },
     };
     DEPS.set(host, d);
   }
@@ -72,15 +66,14 @@ module.exports = {
         // 守卫自身调用 ctl 时也读同一值（platform/service/log/tail.js 读 env）。
         spawnEnv: () => {
           const env = { DSH_SUPERVISOR_CONFIG: cfgPath };
-          if (!d.readCtlToken()) {
-            try { d.writeCtlToken(require('node:crypto').randomBytes(32).toString('hex')); }
-            catch { d.writeCtlToken(null); }
+          if (!host._ctlToken) {
+            try { host._ctlToken = require('node:crypto').randomBytes(32).toString('hex'); }
+            catch { host._ctlToken = null; }
           }
-          const tok = d.readCtlToken();
-          if (tok) {
-            env.DSH_CTL_TOKEN = tok;
+          if (host._ctlToken) {
+            env.DSH_CTL_TOKEN = host._ctlToken;
             // 守卫自身进程也要能看到同一令牌（它的 ctlCall 经 tail.js 读 env）。
-            process.env.DSH_CTL_TOKEN = tok;
+            process.env.DSH_CTL_TOKEN = host._ctlToken;
           }
           return env;
         },

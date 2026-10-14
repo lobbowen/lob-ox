@@ -17,10 +17,6 @@ const LOOPBACK_ORIGIN_RE = /^https?:\/\/(?:127\.0\.0\.1|\[::1\]|localhost)(?::\d
 // 内核自身与壳驱动 ctl，面板从不直连。与 mgmt 端点同一范式。
 const CTL_TOKEN_HEADER = 'x-lobox-ctl-token';
 
-// 请求体上限，与 api/transport/body.js 的 collectBody 同一范式（1MB）。
-// 单请求体不得无界增长——ctl 面在内核进程内，内存不受 api 侧同等保护。
-const CTL_MAX_BODY_BYTES = 1 * 1024 * 1024;
-
 function ctlTokenProblem(req) {
   const want = process.env.DSH_CTL_TOKEN;
   // 未配置令牌时不启用鉴权（单机无壳的开发态）。一旦配置，缺失或不匹配一律拒绝。
@@ -55,24 +51,6 @@ function createCtlServer({ target, allowMethods, logger, events } = {}) {
       res.end(body);
     };
 
-    // 超限时先把 413 发出去并声明 Connection: close，再丢弃剩余请求体。
-    // 原先 req.destroy() 无参立即拆 socket，客户端根本收不到 413（实测 ECONNRESET），
-    // 且在 keepAliveTimeout=65s 的池上每超限一次就废掉一条连接。超限的请求本就不能复用，
-    // 故先应答、再断链，而不是先断链。
-    const sendTooLarge = () => {
-      // 先标 Connection: close（res.end 之后再改 shouldKeepAlive 已不生效），再发 413，
-      // 最后 pause+resume 丢弃剩余请求体：请求体已判废，但字节必须从 socket 读干净，
-      // 否则 keep-alive 复用下一请求时会读到本请求的残字节。
-      const payload = JSON.stringify({ ok: false, error: 'payload too large' });
-      try { res.shouldKeepAlive = false; } catch {}
-      try {
-        res.writeHead(413, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), Connection: 'close' });
-        res.end(payload);
-      } catch {}
-      try { req.pause(); } catch {}
-      try { req.resume(); } catch {}
-    };
-
     if (req.method === 'GET' && req.url === '/health') {
       return send(200, { ok: true, pid: process.pid });
     }
@@ -99,9 +77,10 @@ function createCtlServer({ target, allowMethods, logger, events } = {}) {
     req.on('data', (c) => {
       if (settled) return;
       body += c;
-      if (body.length > CTL_MAX_BODY_BYTES) {
+      if (body.length > 1 << 20) {
         settled = true;
-        sendTooLarge();
+        send(413, { ok: false, error: 'payload too large' });
+        req.destroy();
       }
     });
     req.on('end', () => {

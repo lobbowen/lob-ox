@@ -33,12 +33,13 @@ pub(crate) struct RunState {
         
     progress: Option<f32>,
     status: String,
+    logs: Vec<String>,
     error: Option<String>,
 }
 
 impl Default for RunState {
     fn default() -> Self {
-        RunState { busy: false, installed: None, latest: None, progress: None, status: "探测中…".into(), error: None }
+        RunState { busy: false, installed: None, latest: None, progress: None, status: "探测中…".into(), logs: vec![], error: None }
     }
 }
 
@@ -49,6 +50,7 @@ pub(crate) fn log(state: &RunState) -> serde_json::Value {
         "latest": state.latest,
         "progress": state.progress,
         "status": state.status,
+        "logs": state.logs,
         "error": state.error,
     })
 }
@@ -176,8 +178,8 @@ fn main() {
             }
             env::migrate_legacy();
                         
-            // 唯一端口解析：托盘动作与 CloseRequested 共用（见 env::resolved_api_port）。
-            let port = env::resolved_api_port;
+            let port = || std::env::var("DSH_SUPERVISOR_TRAY_PORT")
+                .ok().and_then(|p| p.parse().ok()).unwrap_or_else(env::current_api_port);
             let handle = app.handle().clone();
 
                         
@@ -239,8 +241,9 @@ fn main() {
                                                 
                         "quit" => {
                             let h = app.clone();
+                            let p = port();
                             std::thread::spawn(move || {
-                                domain::guardctl::shutdown_all();
+                                domain::guardctl::shutdown_all(p);
                                 h.exit(0);
                             });
                         }
@@ -267,9 +270,10 @@ fn main() {
                                 
                 if env::close_action() == "exit" {
                     let h = window.app_handle().clone();
+                    let port = env::current_api_port();
                     api.prevent_close();
                     std::thread::spawn(move || {
-                        domain::guardctl::shutdown_all();
+                        domain::guardctl::shutdown_all(port);
                         h.exit(0);
                     });
                     return;

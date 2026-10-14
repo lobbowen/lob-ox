@@ -162,7 +162,7 @@ pub async fn system_node_ready() -> serde_json::Value {
     // npm 必须与 node 同源且真实可用（与 node_status 同一判据），否则装内核时会失败。
     let usable = crate::runtime_contract::probe_npm_usable(&path, path.parent().unwrap_or(std::path::Path::new("")));
     let (npm_ok, npm_why) = match &usable {
-        Ok(u) => (true, None),
+        Ok(_) => (true, None),
         Err(e) => (false, Some(e.clone())),
     };
     // 判定留痕：此前曾用 file mtime + 面板快照反推探测过程，结论自相矛盾（下载时间早于决定安装的时间）。

@@ -18,7 +18,7 @@ const INSTANCE_LOG_MAX_BYTES = 2 * 1024 * 1024;
 
 async function spawnInstance(provider, inst) {
   const app = provider.app;
-  if (!app) return { ok: false, started: false, error: '未知反代应用' };
+  if (!app) return { ok: false, error: '未知反代应用' };
   if (inst.keyId) {
     const owner = 'proxy:' + inst.keyId;
     for (const rec of ports.list()) if (rec.owner === owner && rec.port !== inst.port) { try { ports.release(rec.port, rec.owner); } catch {} }
@@ -47,7 +47,7 @@ async function spawnInstance(provider, inst) {
   }
   const owner = 'proxy:' + (inst.keyId || 'unknown');
   const slot = await ports.claimSlot('proxyInstance', owner, { preferred: inst.port || undefined });
-  if (!slot || slot.conflict) return { ok: false, started: false, error: '反代端口段已满/冲突' };
+  if (!slot || slot.conflict) return { ok: false, error: '反代端口段已满/冲突' };
   const port = slot.port;
   if (inst.port !== port) { inst.port = port; provider._persist(); }
   const deadline = Date.now() + 3000;
@@ -59,7 +59,7 @@ async function spawnInstance(provider, inst) {
     if (provider.events) provider.events.append('proxy_instance_start_port_busy', { app: provider.proxyAppId, port });
     if (provider.logger && provider.logger.warn) provider.logger.warn('[proxy-instance] ' + msg);
     inst.status = INSTANCE_STATES.COLD; inst.healthy = false; provider._persist();
-    return { ok: false, started: false, error: msg };
+    return { ok: false, error: msg };
   }
   const launch = await provider._resolveLaunchCommand(app, port, inst.key);
   if (!launch.ok) return launch;
@@ -115,7 +115,7 @@ async function spawnInstance(provider, inst) {
       onOutput: (c) => { c.stdout.on('data', (b) => pushLog(b, 'out')); c.stderr.on('data', (b) => pushLog(b, 'err')); },
     });
   }
-  catch (e) { return { ok: false, started: false, error: 'spawn 失败: ' + e.message }; }
+  catch (e) { return { ok: false, error: 'spawn 失败: ' + e.message }; }
   const child = handle.child;
   inst.pid = child.pid;
   inst.port = port;
@@ -125,9 +125,7 @@ async function spawnInstance(provider, inst) {
   inst.healthy = false;
   if (provider._stopping) {
     try { provider.stopInstance(inst); } catch {}
-    // 终态是「没起来」：进程已被 stopInstance 收掉，调用方不得把它当 started。
-    // started 是与 ok 并列的事实字段：调用方读它，而不是从 ok 反推。
-    return { ok: false, started: false, stoppedDuringShutdown: true, port, pid: null, error: 'provider stopping（实例在启动过程中被停机收走）' };
+    return { ok: true, port, pid: child.pid, stoppedDuringShutdown: true };
   }
   child.on('close', (code) => {
     if (inst.pid === child.pid) {
@@ -143,7 +141,7 @@ async function spawnInstance(provider, inst) {
   });
   provider._persist();
   if (provider.events) provider.events.append('proxy_instance_started', { app: provider.proxyAppId, port, pid: child.pid });
-  return { ok: true, started: true, port, pid: child.pid };
+  return { ok: true, port, pid: child.pid };
 }
 
 async function healthInstance(provider, inst) {

@@ -18,6 +18,7 @@ export interface ConfirmQueue {
   open(request: ConfirmRequest): Promise<boolean>;
   peek(): ConfirmEntry | null;
   settle(id: number, ok: boolean): void;
+  pending(): number;
 }
 
 export function createConfirmQueue(notify: () => void = () => {}): ConfirmQueue {
@@ -50,6 +51,9 @@ export function createConfirmQueue(notify: () => void = () => {}): ConfirmQueue 
       const [entry] = waiting.splice(0, 1);
       entry.settle(ok);
       notify();
+    },
+    pending() {
+      return waiting.length;
     },
   };
 }

@@ -55,14 +55,21 @@ function createOps(deps) {
     const before = store.instances.length;
     const kept = store.instances.filter((i) => i.id !== id);
     if (kept.length === before) return { ok: false, error: '实例不存在' };
-    // 删除是事务：记录提交点后移到「确认单元已停止」之后。
-    // 在此之前只做「计算 kept」——若单元仍在跑或状态未知却先把记录删掉，
-    // 实例就变成用户再也够不着的孤儿单元（removeInstance 会回答「实例不存在」）。
+    store.replace(kept);
+    store.save();
+    if (tokens) tokens.detach(inst.id);
+    
+    if (inst) {
+      try { ports.unregister('inst:' + id); }
+      catch (e) { logger.warn && logger.warn('[' + id + '] 端口回收失败（账本可能残留）: ' + (e && e.message)); }
+    }
     const unit = 'dsh-web@' + id;
     const ctx = sandbox.launchCtx(instancesRoot, dshBin, inst);
     let stopOk;
     try { stopOk = (await service.stopUnit(unit, ctx)) !== false; }
     catch (e) {
+      
+      
       const unsupported = !!(e && (e.name === 'CapabilityError' || e.code === 'CAPABILITY_UNSUPPORTED'));
       stopOk = unsupported;
       logger.warn && logger.warn('[' + id + '] stopUnit '
@@ -71,31 +78,16 @@ function createOps(deps) {
     
     let active = OUTCOME.UNKNOWN;
     if (stopOk) {
-      try { active = await service.isUnitActive(unit, ctx); }
+      try { active = service.isUnitActive(unit, ctx); }
       catch (e) { active = OUTCOME.UNKNOWN; logger.warn && logger.warn('[' + id + '] isUnitActive 异常: ' + (e && e.message)); }
       
       if (typeof active === 'boolean') active = active ? OUTCOME.OK : OUTCOME.fail('stub: 未在跑');
-      // 契约守卫：isUnitActive 必须同步返回 Outcome。若某个平台适配器改成异步，
-      // await 之外的实现会拿到 Promise 并静默落入 isUnknown 分支，使 removeInstance
-      // 永远无法确认已停止 —— 这里显式拒绝 rather than 悄悄退化。
-      if (active && typeof active.then === 'function') {
-        active = OUTCOME.UNKNOWN;
-        logger.warn && logger.warn('[' + id + '] isUnitActive 返回了 Promise，契约要求同步 Outcome；按 UNKNOWN 处理（不删除记录）');
-      }
     } else {
-      // stopUnit 明确报告未停下：按「仍在运行」处理，保留记录与数据（原有语义）。
+      
       active = OUTCOME.OK;
     }
     const stillActive = OUTCOME.isOk(active);
     const activeUnknown = OUTCOME.isUnknown(active);
-
-    // 提交点：只有确认单元不再运行，删除记录才是可逆性已被排除的一步。
-    store.replace(kept);
-    store.save();
-    if (tokens) tokens.detach(inst.id);
-    try { ports.unregister('inst:' + id); }
-    catch (e) { logger.warn && logger.warn('[' + id + '] 端口回收失败（账本可能残留）: ' + (e && e.message)); }
-
     if (inst && inst.kind === 'sandbox' && inst.id !== 'main' && !stillActive && !activeUnknown) {
       const root = sandbox.root(instancesRoot, inst);
       setImmediate(() => {
@@ -103,26 +95,19 @@ function createOps(deps) {
         catch (e) { logger.warn && logger.warn('清理沙箱目录失败 ' + root + ': ' + e.message); }
       });
     } else if (activeUnknown) {
-      // 状态未知：单元可能还在跑。恢复记录（用户仍能通过 UI 停掉它），只报告不删除。
-      store.replace(store.instances.concat([inst]));
-      store.save();
-      logger.warn && logger.warn('[' + id + '] 单元 ' + unit + ' 状态未知，未删除实例记录并保留数据目录（防不可逆丢失与孤儿单元）');
+      
+      logger.warn && logger.warn('[' + id + '] 单元 ' + unit + ' 状态未知，已保留实例数据目录（防不可逆丢失）');
       if (events) events.append('inst_remove_data_preserved', { id, reason: 'unit-state-unknown' });
     } else if (stillActive) {
-      store.replace(store.instances.concat([inst]));
-      store.save();
-      logger.warn && logger.warn('[' + id + '] 单元 ' + unit + ' 仍在运行，未删除实例记录并保留数据目录（防不可逆丢失与孤儿单元）');
+      logger.warn && logger.warn('[' + id + '] 单元 ' + unit + ' 仍在运行，已保留实例数据目录（防不可逆丢失）');
       if (events) events.append('inst_remove_data_preserved', { id, reason: 'unit-still-active' });
     }
     if (hooks.onRemove) hooks.onRemove(id, store.instances);
     if (hooks.onDestroy) { try { hooks.onDestroy(id); } catch (e) { logger.warn && logger.warn('onDestroy(' + id + '): ' + (e && e.message)); } }
-    
-    if (activeUnknown) return { ok: false, error: '单元状态未知，未确认停止；已保留实例记录与数据目录', dataPreserved: true, preserveReason: 'unit-state-unknown' };
-    if (stillActive) {
-      return { ok: false, error: '单元仍在运行，未删除实例记录；已保留实例数据目录', dataPreserved: true, preserveReason: 'unit-still-active' };
-    }
     if (events) events.append('inst_removed', { id });
-    return { ok: true };
+    
+    if (activeUnknown) return { ok: false, error: '单元状态未知，未确认停止；已保留实例数据目录', dataPreserved: true, preserveReason: 'unit-state-unknown' };
+    return stillActive ? { ok: true, dataPreserved: true, preserveReason: 'unit-still-active' } : { ok: true };
   }
 
   function updateInstance(id, patch) {

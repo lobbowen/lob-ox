@@ -92,7 +92,9 @@ pub(crate) fn locate_core(app: &tauri::AppHandle) -> Option<PathBuf> {
 /// 同版本时谁胜出取决于候选顺序（即 PATH 顺序）。已删除前者。
 pub(crate) fn locate_core_with_version(app: &tauri::AppHandle) -> Option<(PathBuf, Option<String>)> {
     let cands = crate::domain::coreloc::locate_core_candidates(app.path().resource_dir().ok());
-    pick_best(cands).map(|(p, v)| (p, Some(v)))
+    // pick_best 的第二元素已是 Option<String>（读不出版本即为 None），
+    // 此处直接透传；此前多包一层 Some(...) 会把 None 变成 Some(None) 并触发类型不匹配。
+    pick_best(cands)
 }
 
 /// 与 locate_core_with_version 同一判据，但不依赖 AppHandle（CLI 与 --run-guard 走这条）。

@@ -3,14 +3,15 @@ import { Copy, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { classifyOpenResult, handOffFromPanel } from "../../services/supervisor/externalOpen";
 import type { OpenExternalResult } from "../../services/supervisor";
-import { copyText } from "./clipboard";
 
 export function OpenUrlRow({ url }: { url: string }) {
   async function onOpen() {
     await runOpenExternal(() => handOffFromPanel(url));
   }
   function onCopy() {
-    void copyText(url, "地址已复制");
+    const fallback = () => toast.error("复制失败，请手动选中地址");
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(() => toast.success("地址已复制"), fallback);
+    else fallback();
   }
   return (
     <div className="flex min-w-0 items-center gap-1.5">
@@ -35,7 +36,7 @@ function OpenResultBody({ url, detail }: { url: string | null; detail: string | 
 }
 
 /** 证据行是否展示由服务层 classifyOpenResult 的 reveal 决定，组件不自判。 */
-function notifyOpen(r?: OpenExternalResult | null): void {
+export function notifyOpen(r?: OpenExternalResult | null): void {
   const { tier, url, title, detail, reveal } = classifyOpenResult(r);
   const shown = reveal ? detail : null;
   const opts = {
@@ -48,15 +49,13 @@ function notifyOpen(r?: OpenExternalResult | null): void {
 }
 
 /** 后端把「动作未被接受」映射为非 2xx，失败响应体里仍带地址，故 catch 优先取 err.body。 */
-/** 返回值恒非空：失败也带上从响应体还原的结果，调用点不必判空。 */
 export async function runOpenExternal<T extends OpenExternalResult>(
   call: () => Promise<T | null | undefined>,
-): Promise<T> {
+): Promise<T | null> {
   try {
     const r = await call();
-    const v = (r ?? { ok: false, error: "未返回结果" }) as T;
-    notifyOpen(v);
-    return v;
+    notifyOpen(r);
+    return r ?? null;
   } catch (e) {
     const body = (e as { body?: unknown }).body;
     const r: OpenExternalResult = body && typeof body === "object"

@@ -4,9 +4,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-// 反向映射（manifestKey -> npmPlat）的唯一权威；由 assemble 的正向表推导，本文件不再维护 MAP 字面量。
-const { platFromManifestKey } = require('./platform-map');
-
 function flagValue(argv, i, name) {
   const v = argv[i + 1];
   if (v === undefined || v.startsWith('--')) {
@@ -63,7 +60,7 @@ function main() {
   for (const key of Object.keys(platforms)) {
     const p = platforms[key];
     if (!p.url) {
-      p.url = baseTpl.replace('__PLATFORM__', platFromManifestKey(key)).replace('__VERSION__', ver) + encodeURIComponent(p.name);
+      p.url = baseTpl.replace('__PLATFORM__', platToPkg(key)).replace('__VERSION__', ver) + encodeURIComponent(p.name);
     }
     delete p.name;
   }
@@ -80,6 +77,15 @@ function main() {
   console.log('== 清单已生成: ' + out + ' ==');
   console.log('   版本: ' + ver);
   for (const k of Object.keys(platforms)) console.log('   ' + k + ' -> ' + platforms[k].url);
+}
+
+function platToPkg(key) {
+  const MAP = {
+    'linux-x86_64': 'linux-x64', 'linux-aarch64': 'linux-arm64',
+    'darwin-x86_64': 'darwin-x64', 'darwin-aarch64': 'darwin-arm64',
+    'windows-x86_64': 'win-x64', 'windows-aarch64': 'win-arm64',
+  };
+  return MAP[key] || key;
 }
 
 main();

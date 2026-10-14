@@ -119,11 +119,16 @@ function tokenGateDecision(req, token, salt, mode) {
   return { ok: false, unauthorized: true };
 }
 
-// 令牌闸门的唯一判据就是 tokenGateDecision：WS 隧道面与 HTTP 面调用同一个函数、
-// 传同一组输入（token / salt / mode），因此对同一请求不可能给出两种答案。
-// 此处原先还有一个 hasValidToken 转发层与一个 tokenGateDecision 平行实现
-// （query token 正确时前者放行、后者要求种 cookie）。转发层已删除：
-// 多一层包装就多一处「可以漏传参数」的公开面，判据只有一处、调用只有一处。
+// 令牌闸门的唯一判据是 tokenGateDecision。此前这里另有一份 hasValidToken，
+// 与它对同一输入的结论不一致：query token 正确时 tokenGateDecision 返回
+// {ok:false, redirect}（要种 cookie），而 hasValidToken 返回 true（直接放行）
+// ——结果是 WS 隧道放行、HTTP 面 302，同一道安全门两种答案。
+// 现在 WS 侧也走同一判据：decision.ok 为真才算通过；
+// redirect/unauthorized 都视为未通过（WS 无法跟随 302，但不该因此放宽判据）。
+function hasValidToken(req, token, salt, mode) {
+  return tokenGateDecision(req, token, salt, mode).ok === true;
+}
+
 function buildFrpcToml(settings, instances) {
   const s = settings || {};
   const lines = [];
@@ -214,6 +219,7 @@ module.exports = {
   isTrustedSource,
   cookieByName,
   upstreamPath,
+  hasValidToken,
   lanGateCookieValue,
   redactLogPath,
   tokenGateDecision,

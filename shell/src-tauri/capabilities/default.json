@@ -1,11 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "lobox 壳主窗口基础能力（core:default）。窗口动作经壳自身 win_ctl 命令（commands/mod.rs）下达，前端不直接调用任何 window API，故不再逐条授予 core:window 权限。",
+  "description": "lobox 壳主窗口基础能力（core:default + win_ctl 所需的窗口动作）；壳自有命令由 main.rs 的 invoke_handler 注册",
   "windows": [
     "main"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-hide"
   ]
 }

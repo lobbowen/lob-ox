@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const os = require('node:os');
 const path = require('node:path');
@@ -53,7 +53,7 @@ const BASE_DEFAULTS = {
   packageName: '@deepseek-ai/dsh',
   canary: false,
   registries: [
-    SHARED.runtime.npmDefaultRegistry,
+    'https://registry.npmjs.org',
     'https://registry.npmmirror.com',
   ],
   updateCheckEnabled: true,
@@ -105,6 +105,7 @@ function normalize(raw, ext) {
   
   if (isDeprecatedApiPort(provided.apiPort)) {
     cfg.apiPort = BASE_DEFAULTS.apiPort;
+    cfg.__deprecatedOverridden = (cfg.__deprecatedOverridden || []).concat(['apiPort']);
   }
   cfg.stateFile = expandHome(cfg.stateFile);
   cfg.logFile = expandHome(cfg.logFile);

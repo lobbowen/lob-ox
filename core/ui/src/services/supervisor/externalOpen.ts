@@ -1,12 +1,12 @@
 import { supervisorApi } from "./client";
 import type { OpenExternalResult, ProxyLoginStart } from "./types";
 
-function servedByKernelHost(): boolean {
+export function servedByKernelHost(): boolean {
   const h = String(window.location.hostname || "").toLowerCase();
   return h === "localhost" || h === "[::1]" || h === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
 }
 
-function openViaWindow(url: string): OpenExternalResult {
+export function openViaWindow(url: string): OpenExternalResult {
   try {
     const w = window.open(url, "_blank", "noopener,noreferrer");
     return w
@@ -97,8 +97,7 @@ export function classifyOpenResult(r?: OpenExternalResult | null): {
     return { tier: "failed", url, detail: withMsg, title: (r && r.error) || "无法调起系统浏览器，请手动打开下方地址", reveal: true };
   }
   if (r.confirmed === true) {
-    // 三分支口径一致：message 与 evidence 一起拼，不再有 detail 被白算的档。
-    return { tier: "confirmed", url, detail: withMsg, title: r.message || "已在系统浏览器打开", reveal: isolateIntent };
+    return { tier: "confirmed", url, detail, title: r.message || "已在系统浏览器打开", reveal: isolateIntent };
   }
   return {
     tier: "handed-off", url, detail: withMsg, reveal: true,

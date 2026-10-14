@@ -40,8 +40,6 @@ class RouterService {
 
     this.store = this._store = new RouterStore({ file: this.providerFile, logger: this.logger });
     const doc = this.store.load();
-    // 配置隔离状态必须一路透到 API 层：providers 为空不等于「用户没有供应商」。
-    state.configQuarantine = doc.corrupt ? { reason: 'providers.json 解析失败', backup: doc.backup || null } : null;
     state.providers = (doc.providers || []).map((p) => deserializeProvider(p, {
       createDirect: (o) => new DirectProvider(o), createProxy: (o) => new ProxyProvider(o),
       createInstance: (i) => ProxyInstance.fromJSON(i), apps: PROXY_APPS,

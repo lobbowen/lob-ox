@@ -205,8 +205,6 @@ function createRelay(targetHost, targetPort, opts) {
     targetPort,
     getToken: () => token,
     getGateSalt: () => gateSalt,
-    // mode 与 HTTP 面 tokenGateDecision 用的是同一个归一值（proxy.js:158），两侧不再分叉。
-    getMode: () => mode,
     gateWaitMs: (ip) => gateLedger.waitMsFor(ip),
     onGateFailure: (ip) => gateLedger.recordFailure(ip),
   }));

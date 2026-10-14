@@ -34,17 +34,6 @@ function writeTasks(file, tasks) {
   writeDurable(file, JSON.stringify({ tasks }, null, 2), { mode: 0o600 });
 }
 
-// maxTasks 缺省兜底常量：调用方漏传时"上限"不得退化为不封顶。
-const DEFAULT_MAX_TASKS = 200;
-
-// 写盘不变式：合并 -> 按 startedAt 排序 -> 封顶，无条件执行。
-// 排序键补 startedAt 缺省（磁盘上可能有早期无该字段的任务），否则比较恒为 0。
-function capTasks(tasks, maxTasks) {
-  const n = Number.isInteger(maxTasks) && maxTasks > 0 ? maxTasks : DEFAULT_MAX_TASKS;
-  const sorted = tasks.slice().sort((a, b) => ((b && b.startedAt) || 0) - ((a && a.startedAt) || 0));
-  return sorted.length > n ? sorted.slice(0, n) : sorted;
-}
-
 function saveTasks(file, tasks, maxTasks) {
   if (!file) return;
   let merged = tasks;
@@ -53,8 +42,10 @@ function saveTasks(file, tasks, maxTasks) {
     const mine = new Map(tasks.map((t) => [t.id, t]));
     for (const t of disk) { if (t && t.id && !mine.has(t.id)) mine.set(t.id, t); }
     merged = Array.from(mine.values());
+    merged.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+    if (merged.length > maxTasks) merged = merged.slice(0, maxTasks);
   }
-  writeTasks(file, capTasks(merged, maxTasks));
+  writeTasks(file, merged);
 }
 
 module.exports = { loadTasks, saveTasks };

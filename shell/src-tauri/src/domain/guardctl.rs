@@ -281,7 +281,10 @@ fn await_daemon(
     child: &mut std::process::Child,
 ) -> (Readiness, ExitState) {
     let started = std::time::Instant::now();
-    let mut last = Readiness::PortClosed;
+    // 就绪态在循环内首次探测即被赋值，初值从不被读到 —— 不给初值会让编译器
+    // 要求 definite initialization，而给初值又触发「赋值前从未读取」警告。
+    // 用无初值声明 + 循环内首赋值即可消除两难。
+    let mut last;
     // 记住子进程是否已退出：退出码 0 在 Windows 上是**正常**的 detach 结局
     // （入口先拉出 node 再退出），不能就此早停——守卫可能仍在起。
     // 但必须记住，否则预算用尽时只能说「仍在运行」，把「它早就退了」谎报成还在跑。

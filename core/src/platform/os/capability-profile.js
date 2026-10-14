@@ -1,8 +1,5 @@
 'use strict';
 
-// SUPPORTED：产品支持矩阵——「本产品在哪个平台声明支持哪些能力」。
-// 这里的字段永不表达本机可用性。本机可用性由 os/index.js 的 capabilities() 实时探测得出
-// （面板展示的也是那份）。两者曾共用一张表，导致"问产品支持"读到被探测结果污染的表。
 const linux = {
   sandboxLaunch: true,
   
@@ -62,6 +59,4 @@ const unknown = {
   shellAutostart: false, shellSelfHeal: false,
 };
 
-const SUPPORTED = Object.freeze({ linux, darwin, win32, unknown });
-
-module.exports = { SUPPORTED };
+module.exports = { linux, darwin, win32, unknown };

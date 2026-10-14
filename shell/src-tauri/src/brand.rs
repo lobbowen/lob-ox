@@ -1,5 +1,6 @@
-// 不再 blanket 抑制 dead_code：它把真实的死代码与「shared-constants.json 的跨语言
-// 键映射」一起藏住。现在逐项处理（见下方各处的 #[allow(dead_code)] 标注与删除）。
+#![allow(dead_code)]
+
+
 use std::path::{Path, PathBuf};
 
 
@@ -69,7 +70,6 @@ pub fn shared_num(path: &str) -> u16 {
 /// 读 shared-constants 里的字符串数组（逗号分隔），返回静态切片。
 /// 用于 core_bin_names / state.*Segments 这类「一段列表」常量——
 /// shared_str 只能取标量，这些此前在 brand.rs 与 brand.js 各存一份副本。
-#[allow(dead_code)] // 仅被 shared_str_arr_cell! 宏展开调用
 pub fn shared_str_arr(path: &str) -> &'static [&'static str] {
     static CELL: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
     CELL.get_or_init(|| {
@@ -81,10 +81,6 @@ pub fn shared_str_arr(path: &str) -> &'static [&'static str] {
 
 
 
-/// 这些访问器是 shared-constants.json 的**跨语言键映射**：core/src/shared/brand.js
-/// 经同名键读同一份 JSON。一部分在当前 crate 无消费者，但删掉 Rust 侧只会制造
-/// 「只有一半语言读它」的孤儿键，把跨语言单源重新劈成两份。故在此单点标注，
-/// 而不是逐个贴 66 处；宏之外的私有死项仍由编译器暴露。
 macro_rules! shared_str_cell {
     ($fn_name:ident, $path:expr) => {
         pub fn $fn_name() -> &'static str {
@@ -117,15 +113,12 @@ macro_rules! shared_str_arr_cell {
 shared_str_arr_cell!(core_bin_names, "platform.cliBinNames");
 
 
-#[allow(dead_code)] // 跨语言键映射：core 侧经 shared-constants 读同一份
 pub const PRODUCT_NAME: &str = "lobox";
 
-#[allow(dead_code)] // 跨语言键映射：core 侧经 shared-constants 读同一份
 pub const CLI_NAME: &str = "lobox";
 
 pub const GUI_BIN_NAME: &str = "lobox-shell";
 
-#[allow(dead_code)] // 跨语言键映射：core 侧经 shared-constants 读同一份
 pub const GUI_CRATE_NAME: &str = "lobox-shell";
 
 
@@ -139,7 +132,6 @@ shared_str_cell!(tauri_product_name, "product.tauriProductName");
 static STATE_DIR_NAME_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
 // 真相来自 shared-constants.json。不能用 const：解析器依赖运行期字符串操作。
-#[allow(dead_code)] // 跨语言键映射：core 侧经 shared-constants 读同一份
 pub fn state_dir_name() -> &'static str {
     STATE_DIR_NAME_CELL.get_or_init(|| shared_str("state.dirName"))
 }
@@ -148,7 +140,6 @@ pub const STATE_SUPERVISOR_SUBDIR: &str = "supervisor";
 
 pub const STATE_SHELL_SUBDIR: &str = "shell";
 
-#[allow(dead_code)] // 跨语言键映射：core 侧经 shared-constants 读同一份
 pub const LEGACY_PRODUCT_NAME: &str = "dsh-supervisor";
 
 static STATE_ROOT_WIN_BASE_ENV_CELL: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
@@ -225,12 +216,10 @@ shared_str_cell!(windows_gui_task, "platform.windowsGuiTask");
 shared_str_cell!(windows_run_value, "platform.windowsRunValue");
 shared_str_cell!(systemd_unit_name, "platform.systemdUnitName");
 shared_str_cell!(systemd_unit_file, "platform.systemdUnitFile");
-#[allow(dead_code)] // 跨语言键映射：core 侧经 shared-constants 读同一份
 pub fn macos_guard_label() -> String {
     format!("{}.core", tauri_identifier())
 }
 
-#[allow(dead_code)] // 跨语言键映射：core 侧经 shared-constants 读同一份
 pub fn macos_gui_label() -> String {
     format!("{}.shell", tauri_identifier())
 }

@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const hub = require('../../platform/service/log/hub');
 const SHARED = require('../../shared/shared-constants');
@@ -30,8 +30,4 @@ const methods = {
   _lanCtlCall(method, args, timeoutMs) { return ctlCall(lanCtlPort(this.config), method, args, timeoutMs); },
 };
 
-// routerCtlPort / lanCtlPort 是 ctl 端口缺省值的唯一权威实现，必须导出：
-// app/assembly/compose/core.js 曾就地内联重写一份（且漏了 shared-constants 的
-// require，任何非数字配置值都会在组装期抛 ReferenceError 打崩 Supervisor 启动）。
-// 收敛为一份后，compose 通过 require 直接复用，不再各自解析。
-module.exports = { createCtlClient, methods, routerCtlPort, lanCtlPort };
+module.exports = { createCtlClient, methods };

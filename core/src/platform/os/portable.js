@@ -42,14 +42,16 @@ function removePidFile(o) {
 }
 
 
-// judge 的 state -> Outcome 的唯一映射（ours=我们的进程，foreign=别人占用，
-// dead=确定不在，unknown=证据不足）。全仓任何"这份观测算不算我们的实例在跑"的
-// 判断都必须走这里，不允许各自再写一份三分支。
-function outcomeOfJudge(state, evidence) {
-  if (state === 'ours') return OUTCOME.OK;
-  if (state === 'unknown') return OUTCOME.UNKNOWN;
-  if (state === 'foreign') return OUTCOME.fail('端口被非本产品进程占用' + (evidence && evidence.length ? '（' + evidence.join('；') + '）' : ''));
-  return OUTCOME.fail('无本产品进程在跑' + (evidence && evidence.length ? '（' + evidence.join('；') + '）' : ''));
+function aliveOutcome(pid) {
+  if (typeof pidlookup.outcomeAlive === 'function') return pidlookup.outcomeAlive(pid);
+  if (typeof pidlookup.probeAlive === 'function') {
+    const st = pidlookup.probeAlive(pid);
+    if (st === 'alive') return OUTCOME.OK;
+    if (st === 'dead') return OUTCOME.fail('pid ' + pid + ' 已退出');
+    return OUTCOME.UNKNOWN;
+  }
+  const a = !!pidlookup.isAlive(pid);
+  return a ? OUTCOME.OK : OUTCOME.fail('pid ' + pid + ' 已退出');
 }
 
 const portable = {
@@ -132,10 +134,23 @@ const portable = {
    */
   isUnitActive(unit, o) {
     const opts = o || {};
-    // 判据唯一来源：liveness.judge（pid 文件 -> 端口监听者 -> 存活 -> 锚点/cmdline 身份）。
-    // 此前这里与 carrier.probe、monitor.probeInstance 对同一观测给出三种结论。
-    const v = judgeIdentity({ pidFile: pidFileOf(opts), port: portOf(opts), anchors: anchorsOf(opts) });
-    return outcomeOfJudge(v.state, v.evidence);
+    if (findOurs(opts)) return OUTCOME.OK;
+    const port = portOf(opts);
+    const pidFile = pidFileOf(opts);
+    const anchors = anchorsOf(opts);
+    if (!port && !pidFile) return OUTCOME.UNKNOWN;
+    const fp = readPidFile(pidFile);
+    if (!pidFile) return OUTCOME.UNKNOWN;
+    if (fp === null || fp === undefined) return OUTCOME.fail('pid 文件不存在（无进程在跑）');
+    if (!anchors.length) {
+      return aliveOutcome(fp);
+    }
+    const st2 = aliveOutcome(fp);
+    if (OUTCOME.isFail(st2)) return st2;
+    if (OUTCOME.isUnknown(st2)) return st2;
+    const cmd = pidlookup.readCmdline(fp);
+    if (!cmd) return OUTCOME.UNKNOWN;           // 身份无从比对，不是"确定在跑"
+    return matchesAnchors(fp, anchors) ? OUTCOME.OK : OUTCOME.UNKNOWN;
   },
 
   transientUnitFile() { return null; },

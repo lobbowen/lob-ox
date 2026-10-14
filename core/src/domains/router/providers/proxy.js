@@ -23,7 +23,7 @@ class ProxyProvider extends withProcessPool(ProviderBase) {
     this.instances = [];
     this.selectedAccountKeyId = null;
     this._prewarmKeyId = null;
-    this._startLocks = new Map();
+    this._startLock = false;
     this._stopping = false;
     this._terminatingPids = new Set();
   }

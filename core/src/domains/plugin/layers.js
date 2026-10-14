@@ -19,9 +19,6 @@ function createLayers({ overlayFile, logger }) {
     });
   };
 
-  // 三个写入口（profile/package.json、cordis.patch.yml / home 补丁、overlay）的裸实现。
-  // 它们只在已经位于 enqueue 之内时使用；对外一律经下面的 *Queued 包装，
-  // 于是「补丁层写入必须经队列」成为结构上无法违反的事实，而非靠调用方自觉。
   const removeFromProfileBundles = (target, pluginName) => {
     const profilePath = path.join(target.profileDir, 'package.json');
     const profile = readProfile(target.profileDir);
@@ -75,7 +72,7 @@ function createLayers({ overlayFile, logger }) {
         const before = ctx.overlayEntries();
         const list = before.filter((e) => e.id !== name && e.id !== 'include:' + shortName && e.id !== shortName);
         if (list.length !== before.length) {
-          saveOverlayEntries(list);
+          ctx.saveOverlayEntries(list);
           findings.cleaned.push('原生 overlay');
           log('已清理原生 overlay 残留');
         }
@@ -168,7 +165,7 @@ function createLayers({ overlayFile, logger }) {
           const shortName = name.split('/').pop();
           const list = ovBefore.filter((e) => !ids.includes(e && e.id) && e.id !== 'include:' + shortName && e.id !== shortName);
           if (JSON.stringify(list) !== ovJson) {
-            saveOverlayEntries(list);
+            ctx.saveOverlayEntries(list);
             changed = true;
             notes.push('已清理 legacy overlay 禁用行');
           }
@@ -183,14 +180,11 @@ function createLayers({ overlayFile, logger }) {
     return { ok: true, rows, results };
   };
 
-  // 唯一的公开写入口：全部经队列串行化。
-  // 注意：scrubPluginLayersInner / applyBundleEnabled 内部已处于队列中，
-  // 它们必须调用上面的裸实现，直接再 enqueue 会自我等待而死锁。
   return {
     enqueue,
-    removeFromProfileBundlesQueued: (target, pluginName) => enqueue('removeFromProfileBundles', () => removeFromProfileBundles(target, pluginName)),
-    writeHomePatchQueued: (target, entries) => enqueue('writeHomePatch', () => writeHomePatch(target, entries)),
-    saveOverlayEntriesQueued: (entries) => enqueue('saveOverlayEntries', () => { saveOverlayEntries(entries); return true; }),
+    removeFromProfileBundles,
+    writeHomePatch,
+    saveOverlayEntries,
     scrubPluginLayersInner,
     applyBundleEnabled,
   };

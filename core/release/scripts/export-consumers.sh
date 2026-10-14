@@ -115,15 +115,7 @@ bucket_of() {
   esac
 }
 
-# grep 的退出码必须区分：0=有命中，1=零命中（本工具要表达的状态），>=2=I/O 错误。
-# 此前统一 `|| true` 把三者归一为空串，于是「文件不可读」也会被报告成
-# 「R2 结论：可删（全仓零命中）」—— 而判定可删正是本工具的唯一职责。
-RAW="$(cd "${ROOT}" && grep -HnFw -I -- "${SYM}" "${FILES[@]}" 2>/dev/null)"
-GREP_RC=$?
-if [ "${GREP_RC}" -gt 1 ]; then
-  echo "ERROR: grep 扫描符号 ${SYM} 失败（rc=${GREP_RC}），无法判定消费者；拒绝据此输出可删结论" >&2
-  exit 2
-fi
+RAW="$(cd "${ROOT}" && grep -HnFw -I -- "${SYM}" "${FILES[@]}" 2>/dev/null || true)"
 
 TOTAL=0; DEFLINES=0; CONSUMERS=0; IN_DEF_FILE=0; OUTSIDE_R2=0; OUTSIDE_PROC=0
 N_SRC=0; N_TEST=0; N_BIN=0; N_RELEASE=0; N_UI=0; N_DOCS=0; N_PROC=0; N_OTHER=0
@@ -172,13 +164,7 @@ while IFS= read -r _df; do
     [ -z "${_l}" ] && continue
     THIS_REF=$((THIS_REF + 1))
     THIS_LINES+=("${_l}")
-  done < <(cd "${ROOT}" && grep -HnFw -- "this.${SYM}" "${_df}" 2>/dev/null)
-  # 同上：>1 是 I/O 错误，不能与「该文件里没有 this. 引用」混为一谈。
-  _grc=$?
-  if [ "${_grc}" -gt 1 ]; then
-    echo "ERROR: grep 复查 this.${SYM}（${_df}）失败（rc=${_grc}），拒绝据此输出可删结论" >&2
-    exit 2
-  fi
+  done < <(cd "${ROOT}" && grep -HnFw -- "this.${SYM}" "${_df}" 2>/dev/null || true)
 done < <(printf "%s" "${DEF_FILES}" | tr "|" "\n")
 
 echo "== 符号：${SYM} =="

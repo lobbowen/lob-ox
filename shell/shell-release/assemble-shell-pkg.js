@@ -4,8 +4,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-// 6 平台映射的唯一权威（正向与全部反向映射都在 platform-map.js）：本文件不得另存一份。
-const { PLATFORMS, PLATS, npmPkgDir } = require('./platform-map');
+const PLATFORMS = {
+  'linux-x64':    { os: 'linux',  cpu: 'x64',   manifestKey: 'linux-x86_64',   installer: 'deb'  },
+  'linux-arm64':  { os: 'linux',  cpu: 'arm64', manifestKey: 'linux-aarch64',  installer: 'deb'  },
+  'darwin-x64':   { os: 'darwin', cpu: 'x64',   manifestKey: 'darwin-x86_64',  installer: 'app'  },
+  'darwin-arm64': { os: 'darwin', cpu: 'arm64', manifestKey: 'darwin-aarch64', installer: 'app'  },
+  'win-x64':      { os: 'win32',  cpu: 'x64',   manifestKey: 'windows-x86_64', installer: 'nsis' },
+  'win-arm64':    { os: 'win32',  cpu: 'arm64', manifestKey: 'windows-aarch64',installer: 'nsis' },
+};
 
 const ARTIFACT_PATTERNS = {
   deb:  [/\.deb$/],
@@ -67,11 +73,11 @@ function main() {
   const bundleDir = a['bundle-dir'];
   const out = a.out || 'dist/npm-shell';
   const meta = PLATFORMS[plat];
-  if (!meta) { console.error('未知平台: ' + plat + '（可用: ' + PLATS.join(', ') + '）'); process.exit(2); }
+  if (!meta) { console.error('未知平台: ' + plat + '（可用: ' + Object.keys(PLATFORMS).join(', ') + '）'); process.exit(2); }
   if (!ver) { console.error('缺少 --ver'); process.exit(2); }
   if (!bundleDir) { console.error('缺少 --bundle-dir'); process.exit(2); }
 
-  const pkgName = npmPkgDir(plat); // 单源：目录名同时被 verify-channel.js 用于定位本次构建产物
+  const pkgName = '@lob-ox/shell-' + plat;
   const stage = path.join(out, pkgName);
   fs.rmSync(stage, { recursive: true, force: true });
   fs.mkdirSync(path.join(stage, 'artifact'), { recursive: true });

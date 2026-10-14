@@ -16,6 +16,20 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
+/// 一次 heal 的选路结果：重拉描述 + 该负载最近一次退出的证据。
+///
+/// 必须定义在**模块层级**而非 `impl` 块内 —— Rust 不允许在 trait/impl 中定义 struct
+/// （编译错误：struct is not supported in `trait`s or `impl`s），而本类型又被
+/// `heal_candidates()` 的返回签名引用。
+///
+/// last_will 随决策一起返回：它携带 startup_failure（启动窗口内退出），
+/// 是「刚崩」与「拉起即失败」的唯一分界。该字段在此真正被读，注释所述行为才成立。
+#[derive(Debug, Clone)]
+pub struct HealCandidate {
+    pub desc: state_machine::WorkloadDesc,
+    pub last_will: Option<state_machine::LastWill>,
+}
+
 /// 单一进程管理器实例（全局单例，由 main 在启动时持有）。
 /// 自愈节拍间隔（秒）：内核 120s 预算下 5s 一拍足够密集，又不至于空转。
 const HEAL_TICK_SECS: u64 = 5;
@@ -89,15 +103,6 @@ impl ProcessManager {
         if let Some(st) = s.get_mut(id) {
             st.last_will = Some(last_will);
         }
-    }
-
-    /// 一次 heal 的选路结果：重拉描述 + 该负载最近一次退出的证据。
-    /// last_will 必须随决策一起返回——它携带 startup_failure（启动窗口内退出），
-    /// 是「刚崩」与「拉起即失败」的唯一分界。字段在此真正被读，注释所述行为才成立。
-    #[derive(Debug, Clone)]
-    pub struct HealCandidate {
-        pub desc: state_machine::WorkloadDesc,
-        pub last_will: Option<state_machine::LastWill>,
     }
 
     /// 自愈选路：按优先级升序（内核最优先）挑出「期望 running 但确实已死、且未耗尽重试」的对象。

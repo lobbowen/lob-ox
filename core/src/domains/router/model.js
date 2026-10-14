@@ -8,6 +8,11 @@ function isServable(inst) {
   return !!inst && inst.status === INSTANCE_STATES.HOT && !!inst.pid;
 }
 
+function occupiesSlot(inst) {
+  return !!inst && (inst.status === INSTANCE_STATES.WARM
+    || inst.status === INSTANCE_STATES.HOT || inst.status === INSTANCE_STATES.DEAD);
+}
+
 function serializeInstance(inst) {
   return {
     key: inst.key,
@@ -52,6 +57,8 @@ class ProxyInstance {
 
   isServable() { return isServable(this); }
 
+  occupiesSlot() { return occupiesSlot(this); }
+
   static fromJSON(o) { return deserializeInstance(o); }
 }
 
@@ -66,6 +73,4 @@ function deserializeInstance(o) {
   return i;
 }
 
-// 槽位判据的唯一实现是 providers/pool.js 的 computeDesired/isDesired；
-// 此处那份 occupiesSlot 全仓零引用，且与 pool 的口径不同（WARM/DEAD 也算占位）。
-module.exports = { ProxyInstance, INSTANCE_STATES, isServable, serializeInstance, deserializeInstance };
+module.exports = { ProxyInstance, INSTANCE_STATES, isServable, occupiesSlot, serializeInstance, deserializeInstance };

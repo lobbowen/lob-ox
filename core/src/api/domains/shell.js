@@ -29,8 +29,7 @@ function handle(ctx) {
   if (req.method === 'POST' && pathname === '/shell/check-update') {
     if (!originAllowed(req)) return ctx.rejectCrossOrigin(ctx);
     req.resume();
-    // 复用 host 已装配的 AgentManager，避免第二个 manager 实例。
-    return Promise.resolve(shell.checkUpdate(sup.dist, { authoritative: true, agents: sup.agents }))
+    return Promise.resolve(shell.checkUpdate(sup.dist, { authoritative: true }))
       .then((r) => {
         if (sup.events) {
           sup.events.append(BRAND.EVENT_SHELL_UPDATE_CHECKED, { installed: r.installed, latest: r.latest, updateAvailable: r.updateAvailable });

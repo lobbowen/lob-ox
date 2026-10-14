@@ -4,19 +4,9 @@ const { createRelay } = require('../proxy');
 const portsvc = require('../ports');
 const BRAND = require('../../../shared/brand');
 
-// _lanServers 的成员资格 = listen 已成功。这是「就绪」的唯一事实来源。
-// 此前 listen() 之前就先登记条目，于是从登记到回调/错误之间存在一个窗口，
-// ops.list() 会把尚未成立的监听报告为 relayListening/running（core.js projectRemoteView 据此判 ready）。
-// 监听进程存在但尚未 listening 的中间态由 _lanPending 表达，它不表示就绪。
-function isListening(host, id) {
-  return !!(host._lanServers && host._lanServers[id]);
-}
-
 function startLanServer(host, inst) {
   host._lanServers = host._lanServers || {};
-  host._lanPending = host._lanPending || {};
-  if (isListening(host, inst.id)) return;
-  if (host._lanPending[inst.id]) return;
+  if (host._lanServers[inst.id]) return;
   if (!inst.wanPort) return;
   for (const id of Object.keys(host._lanServers)) {
     if (id === inst.id) continue;
@@ -37,16 +27,14 @@ function startLanServer(host, inst) {
   server.on('error', (err) => {
     host.logger.warn && host.logger.warn('lan relay error (' + inst.id + '): ' + err.message);
     delete host._lanServers[inst.id];
-    delete host._lanPending[inst.id];
     if (err.code === 'EADDRINUSE') handleRelayListenFail(host, inst);
   });
-  host._lanPending[inst.id] = server;
   server.listen(inst.wanPort, '0.0.0.0', () => {
     host._lanServers[inst.id] = server;
-    delete host._lanPending[inst.id];
     if (host.events) host.events.append('lan_instance_started', { id: inst.id, wanPort: inst.wanPort, dshPort: inst.dshPort });
     host.logger.info && host.logger.info('lan ' + inst.name + ' on 0.0.0.0:' + inst.wanPort + ' -> 127.0.0.1:' + inst.dshPort);
   });
+  host._lanServers[inst.id] = server;
 }
 
 function handleRelayListenFail(host, inst) {
@@ -63,8 +51,6 @@ function handleRelayListenFail(host, inst) {
 }
 
 function stopLanServer(host, id) {
-  const pending = host._lanPending && host._lanPending[id];
-  if (pending) { delete host._lanPending[id]; try { pending.close(() => {}); } catch {} }
   const server = host._lanServers && host._lanServers[id];
   if (!server) return;
   try { server.close(() => {}); } catch {}
@@ -93,4 +79,4 @@ function applyToken(host, instId) {
   return !!server;
 }
 
-module.exports = { startLanServer, stopLanServer, shutdown, applyToken, isListening };
+module.exports = { startLanServer, stopLanServer, shutdown, applyToken };

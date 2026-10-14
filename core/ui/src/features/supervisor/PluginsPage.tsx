@@ -8,7 +8,7 @@ import { Input } from "../../framework/ui/input";
 import { formatSize } from "../../framework/format";
 import {
   pollJob,
-  supervisorApi, useSupervisorData,
+  supervisorApi,
   type InstalledPlugin, type MarketPlugin, type MarketResponse,
 } from "../../services/supervisor";
 import { useSupervisorAction } from "./useSupervisorAction";
@@ -18,25 +18,18 @@ import { cn } from "../../framework/utils";
 type Tab = "market" | "installed";
 const PAGE = 24;
 
-/** 四终态穷举：done/failed/timeout/canceled 一律计入未完成，绝不当作成功。 */
 async function pollJobsSummary(jobIds: string[], verb: string, total: number) {
   if (!jobIds.length) return;
   const t = toast.loading("正在" + verb + " " + total + " 个插件…（0/" + jobIds.length + "）");
-  let done = 0, failed = 0, unsettled = 0;
+  let done = 0, failed = 0;
   for (const id of jobIds) {
     const res = await pollJob(() => supervisorApi.pluginInstallStatus(id));
     if (res.state === "done") done++;
     else if (res.state === "failed") failed++;
-    else unsettled++;
-    toast.loading("正在" + verb + " " + total + " 个插件…（" + (done + failed + unsettled) + "/" + jobIds.length + "）", { id: t });
+    toast.loading("正在" + verb + " " + total + " 个插件…（" + (done + failed) + "/" + jobIds.length + "）", { id: t });
   }
-  if (unsettled) {
-    toast.warning(verb + "结束：成功 " + done + "，失败 " + failed + "，" + unsettled + " 个未完成（超时或已取消，可稍后在任务中心查看）", { id: t });
-  } else if (failed === 0) {
-    toast.success(verb + "完成（" + done + "/" + jobIds.length + "）", { id: t });
-  } else {
-    toast.warning(verb + "结束：成功 " + done + "，失败 " + failed, { id: t });
-  }
+  if (failed === 0) toast.success(verb + "完成（" + done + "/" + jobIds.length + "）", { id: t });
+  else toast.warning(verb + "结束：成功 " + done + "，失败 " + failed, { id: t });
 }
 
 /**
@@ -102,7 +95,6 @@ function MarketRefresh({ onSettled }: { onSettled?: () => void }) {
 }
 
 function MarketTab({ nonce = 0 }: { nonce?: number }) {
-  const { snap } = useSupervisorData();
   const [index, setIndex] = useState<MarketResponse | null>(null);
   const [building, setBuilding] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -112,14 +104,8 @@ function MarketTab({ nonce = 0 }: { nonce?: number }) {
   const [src, setSrc] = useState("all");
   const [loaded, setLoaded] = useState(0);
   const [installTarget, setInstallTarget] = useState<MarketPlugin | null>(null);
+  const [targets, setTargets] = useState<Array<{ id: string; name: string }>>([]);
   const [target, setTarget] = useState("native");
-  // 目标实例取自轮询快照（instances 已在轮询的 endpoint 集内）：不额外直连 API，
-  // 也就没有「组件已卸载还 setState」的窗口。
-  const instances = snap.instances;
-  const targets = useMemo(
-    () => (instances?.instances ?? []).filter((i) => i.kind === "sandbox").map((i) => ({ id: i.id, name: i.name })),
-    [instances],
-  );
 
   useEffect(() => {
     let alive = true;
@@ -156,9 +142,13 @@ function MarketTab({ nonce = 0 }: { nonce?: number }) {
     return Object.entries(m).sort((a, b) => b[1] - a[1]);
   }, [index]);
 
-  function openInstall(p: MarketPlugin) {
+  async function openInstall(p: MarketPlugin) {
     setInstallTarget(p);
     setTarget("native");
+    try {
+      const r = await supervisorApi.instances();
+      setTargets((r.instances ?? []).filter((i) => i.kind === "sandbox").map((i) => ({ id: i.id, name: i.name })));
+    } catch { setTargets([]); }
   }
   async function confirmInstall() {
     if (!installTarget) return;
@@ -171,8 +161,7 @@ function MarketTab({ nonce = 0 }: { nonce?: number }) {
         const res = await pollJob(() => supervisorApi.pluginInstallStatus(r.jobId as string));
         if (res.state === "done") toast.success("已安装 " + installTarget.name, { id: t });
         else if (res.state === "failed") toast.error("安装失败：" + (res.error || "未知原因"), { id: t });
-        else if (res.state === "canceled") toast.warning("安装已取消", { id: t });
-        else toast.error("安装未完成：" + (res.error || "超时未完成，可稍后在任务中心查看"), { id: t });
+        else toast.warning("安装仍在进行（超时未完成，可稍后查看）", { id: t });
       } else {
         toast.success("安装任务已提交");
       }

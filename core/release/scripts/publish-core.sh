@@ -8,9 +8,6 @@ PUBLISH=0
 SCOPE="$(node -p "try{const p=require('./package.json');(p.npmPublish&&p.npmPublish.scope)||''}catch(e){''}")"
 MAIN_LICENSE="$(node -p "require('./package.json').license")"
 MAIN_REPO="$(node -p "try{const p=require('./package.json');(p.repository&&p.repository.url)||''}catch(e){''}")"
-# 子包的 Node 依赖下限与 description/README 承诺一律取自 package.json#engines.node
-# （其口径 = shared-constants runtime.minNode 单源推导，由 verify-versions.js 在发布路径上断言）。
-NODE_REQ="$(node -p "require('./package.json').engines.node")"
 [ -n "$SCOPE" ] || SCOPE="${DSH_CORE_SCOPE:-}"
 [ -n "$SCOPE" ] || SCOPE="@lob-ox"
 while [ $# -gt 0 ]; do
@@ -64,11 +61,11 @@ if [ -d "$SRC_DIR/ui-react" ]; then
 else
   echo "警告：launcher 产物缺 ui-react"
 fi
-export GEN_PKG_NAME="$PKG_NAME" GEN_VER="$VER" GEN_LICENSE="$MAIN_LICENSE" GEN_REPO="$MAIN_REPO" GEN_STAGE="$STAGE" GEN_PLAT="$PLAT" GEN_ARCH="$ARCH" GEN_OSTAG="$OS_TAG" GEN_NODE_REQ="$NODE_REQ"
-node -e 'const fs=require("fs"),e=process.env;const o={name:e.GEN_PKG_NAME,version:e.GEN_VER,description:"DSH lifecycle guard core (Node launcher) for "+e.GEN_OSTAG+"-"+e.GEN_ARCH+" — requires Node "+e.GEN_NODE_REQ+".",license:e.GEN_LICENSE,repository:{type:"git",url:e.GEN_REPO},os:[e.GEN_PLAT],cpu:[e.GEN_ARCH],bin:{"lobox":"bin/lobox"},files:["bin","core.cjs","ui-react","README.md"],engines:{node:e.GEN_NODE_REQ},keywords:["lobox","guard","launcher","core"]};fs.writeFileSync(e.GEN_STAGE+"/package.json",JSON.stringify(o,null,2)+String.fromCharCode(10))'
+export GEN_PKG_NAME="$PKG_NAME" GEN_VER="$VER" GEN_LICENSE="$MAIN_LICENSE" GEN_REPO="$MAIN_REPO" GEN_STAGE="$STAGE" GEN_PLAT="$PLAT" GEN_ARCH="$ARCH" GEN_OSTAG="$OS_TAG"
+node -e 'const fs=require("fs"),e=process.env;const o={name:e.GEN_PKG_NAME,version:e.GEN_VER,description:"DSH lifecycle guard core (Node launcher) for "+e.GEN_OSTAG+"-"+e.GEN_ARCH+" — requires Node >=18.",license:e.GEN_LICENSE,repository:{type:"git",url:e.GEN_REPO},os:[e.GEN_PLAT],cpu:[e.GEN_ARCH],bin:{"lobox":"bin/lobox"},files:["bin","core.cjs","ui-react","README.md"],keywords:["lobox","guard","launcher","core"]};fs.writeFileSync(e.GEN_STAGE+"/package.json",JSON.stringify(o,null,2)+String.fromCharCode(10))'
 cat > "$STAGE/README.md" <<EOF
 
-DSH lifecycle guard core — Node launcher 形态（esbuild bundle + node 启动脚本，需 Node `$NODE_REQ`）。
+DSH lifecycle guard core — Node launcher 形态（esbuild bundle + node 启动脚本，需 Node ≥18）。
 本包仅面向 $OS_TAG-$ARCH （npm os/cpu 平台过滤）。
 
 \`\`\`bash
@@ -136,12 +133,10 @@ reconcile_latest_tag() {
 if [ "$PUBLISH" = 1 ]; then
   REMOTE_SPEC=''
   if REMOTE_SPEC="$(npm view "$PKG_NAME@$VER" --json --registry="$REGISTRY" 2>/dev/null | tr -d '\r')"; then
-    # 单次 pack 同时给出 unpackedSize 与 shasum ⇒ 两个度量必然来自同一件物，
-    # 不再打两次包、也不再另算 sha1（此前的浪费与「靠 npm 确定性才同源」的侥幸一并消除）。
-    LOCAL_METRICS="$(npm pack --json --registry="$REGISTRY" 2>/dev/null | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{try{const j=JSON.parse(b);const p=Array.isArray(j)?j[0]:j;process.stdout.write(JSON.stringify({size:p.unpackedSize,sha:p.shasum,tgz:p.filename}))}catch(e){process.stdout.write("{}")}})' || true)"
-    LOCAL_SIZE="$(node -e 'try{process.stdout.write(String((JSON.parse(process.env.LOCAL_METRICS||"{}").size??""))}catch(e){}}')"
-    LOCAL_SHA1="$(node -e 'try{process.stdout.write(String((JSON.parse(process.env.LOCAL_METRICS||"{}").sha??""))}catch(e){}}')"
-    LOCAL_TGZ="$(node -e 'try{process.stdout.write(String((JSON.parse(process.env.LOCAL_METRICS||"{}").tgz??""))}catch(e){}}')"
+    LOCAL_SIZE="$(npm pack --dry-run --json --registry="$REGISTRY" 2>/dev/null | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{try{const j=JSON.parse(b);console.log((j[0]&&j[0].unpackedSize)||"")}catch(e){console.log("")}})' || true)"
+    LOCAL_TGZ="$(npm pack --json --registry="$REGISTRY" 2>/dev/null | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{try{const j=JSON.parse(b);process.stdout.write((Array.isArray(j)?j[0]:j).filename||"")}catch(e){}})' || true)"
+    LOCAL_SHA1=''
+    [ -n "$LOCAL_TGZ" ] && [ -f "$LOCAL_TGZ" ] && LOCAL_SHA1="$(TGZ="$LOCAL_TGZ" node -e 'const {createHash}=require("crypto"),{readFileSync}=require("fs");process.stdout.write(createHash("sha1").update(readFileSync(process.env.TGZ)).digest("hex"))' 2>/dev/null || true)"
     REMOTE_SIZE="$(RG="$REMOTE_SPEC" node -e 'try{const j=JSON.parse(process.env.RG);const s=j&&j.dist&&j.dist.unpackedSize;process.stdout.write(s==null?"":String(s))}catch(e){}')"
     REMOTE_SHA="$(RG="$REMOTE_SPEC" node -e 'try{const j=JSON.parse(process.env.RG);process.stdout.write((j&&j.dist&&j.dist.shasum)||"")}catch(e){}')"
     echo "== $PKG_NAME@$VER 已存在于 $REGISTRY → 内容强核对（未通过前绝不按成功跳过）=="

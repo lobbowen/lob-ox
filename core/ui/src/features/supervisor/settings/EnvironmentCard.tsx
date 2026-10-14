@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, RefreshCw, TriangleAlert } from "lucide-react";
 import { Button, RadioGroup, RadioGroupItem } from "../../../framework/ui";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../../../framework/ui/dialog";
@@ -115,28 +115,20 @@ export function EnvironmentCard() {
   const [last, setLast] = useState<EnvironmentSnapshotRead | null>(null);
   const [lastErr, setLastErr] = useState<string | null>(null);
 
-  // 同键合并：同一 force 的请求在途时直接复用那次 Promise，
-  // 打开与重新探测各自并发发请求会让一次 open 变两遍请求、StrictMode 下再翻倍。
-  const inflight = useRef<Map<boolean, Promise<void>>>(new Map());
-  const load = useCallback((force: boolean): Promise<void> => {
-    const prev = inflight.current.get(force);
-    if (prev) return prev;
-    const p = (async () => {
-      if (force) setProbeBusy(true);
-      try {
-        const r = await supervisorApi.environment(force);
-        setForm(r);
-        setErr(null);
-      } catch (e) {
-        setErr(String((e as Error).message || e));
-      }
-      setProbeBusy(false);
-      void supervisorApi.environmentLast()
-        .then((r) => { setLast(r); setLastErr(null); })
-        .catch((e) => { setLast(null); setLastErr(String((e as Error).message || e)); });
-    })().finally(() => { inflight.current.delete(force); });
-    inflight.current.set(force, p);
-    return p;
+  const load = useCallback(async (force: boolean) => {
+    if (force) setProbeBusy(true);
+    try {
+      const r = await supervisorApi.environment(force);
+      setForm(r);
+      setDraft(null);
+      setErr(null);
+    } catch (e) {
+      setErr(String((e as Error).message || e));
+    }
+    setProbeBusy(false);
+    void supervisorApi.environmentLast()
+      .then((r) => { setLast(r); setLastErr(null); })
+      .catch((e) => { setLast(null); setLastErr(String((e as Error).message || e)); });
   }, []);
 
   useEffect(() => {
@@ -151,8 +143,6 @@ export function EnvironmentCard() {
     setSaveBusy(false);
     if (!r || r.ok !== true) { setErr((r && r.error) || "偏好写入失败"); return; }
     setErr(null);
-    // 草稿只在写入成功后清空：重新探测不得丢弃用户正在做的选择。
-    setDraft(null);
     await load(true);
   };
 
