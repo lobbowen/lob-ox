@@ -45,6 +45,12 @@ pub async fn node_status(app: tauri::AppHandle, retry: Option<bool>) -> serde_js
         o["installed"] = serde_json::json!(installed);
         o["minOk"] = serde_json::json!(crate::node::meets_minimum(installed.as_deref()));
         o["minRequired"] = serde_json::json!(crate::node::min_node());
+        // 环境管理器最近一次「为何不可用」的具名原因（如「探测到的 Node v10.24.1 低于
+        // 最低要求 v22.12.0」）。UI 据此显示可执行的原因，而不是让用户猜。
+        o["problem"] = match crate::runtime_contract::last_problem() {
+            Some(p) => serde_json::json!(p),
+            None => serde_json::Value::Null,
+        };
         if let Some(latest) = &st.latest {
             o["outdated"] = serde_json::json!(crate::node::outdated(installed.as_deref(), latest));
         }

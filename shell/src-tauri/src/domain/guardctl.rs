@@ -181,7 +181,16 @@ pub(crate) fn ensure_core(app: &tauri::AppHandle) -> Result<(), LaunchError> {
     }
 
     let rt = crate::runtime_contract::ensure().ok_or_else(|| {
-        LaunchError::new("RUNTIME_MISSING", "Node 运行环境未就绪：无法解析 node/npm（请先完成环境准备）")
+        // 带上环境管理器给出的具体原因（版本过低 / 探测不到 / 自动安装失败），
+        // 而不是只说「未就绪」—— 后者让用户完全无从下手。
+        LaunchError::new(
+            "RUNTIME_MISSING",
+            format!(
+                "Node 运行环境不可用：{}",
+                crate::runtime_contract::last_problem()
+                    .unwrap_or_else(|| "无法解析 node/npm".to_string())
+            ),
+        )
     })?;
 
     step("正在校验内核与线上版本对齐…");

@@ -267,6 +267,72 @@ mod tests {
     }
 }
 
+/// 静默获取一个达标的 Node：选版 → 下载校验 → 解压提交 → 落契约。
+///
+/// 这是 `domain::install::run_install` 的无 UI 版本：两者的下载/校验/安装/提交步骤
+/// 逐步共用同一批函数（latest_lts / download_verified / install / finalize_install），
+/// 差别只有「是否往 UI 推 install_progress 事件」—— 自动路径没有 AppHandle 可用，
+/// 故进度写日志而不是事件。
+///
+/// 之所以不直接复用 run_install：它整体签名要求 &tauri::AppHandle（用于 stage/push），
+/// 而启动门 `runtime_contract::ensure()` 在内核拉起前调用，那时尚无 AppHandle。
+/// 把「获取 Node」拆成无 UI 的本体 + 带 UI 的包装，避免为了复用而把 AppHandle
+/// 一路传到启动关键路径上。
+pub fn auto_install_quiet() -> Option<crate::runtime_contract::NodeRuntime> {
+    let choice = match latest_lts() {
+        Ok(c) => c,
+        Err(e) => {
+            crate::update::log(&format!("[runtime] 自动获取 Node 失败（选版）: {e}"));
+            return None;
+        }
+    };
+    let version = choice.version.clone();
+    let file = choice.file.clone();
+    crate::update::log(&format!(
+        "[runtime] 自动获取 Node {}（镜像 {} {}ms）",
+        version,
+        choice.source,
+        choice.latency_ms
+    ));
+    let dl_dir = crate::env::supervisor_dir().join("dl");
+    let local = match download_verified(
+        &version,
+        &file,
+        &dl_dir,
+        Some(choice.source.as_str()),
+        &|done, _total| {
+            crate::update::log(&format!("[runtime] Node 下载进度 {:.1} MB", done as f64 / 1048576.0));
+        },
+    ) {
+        Ok(p) => p,
+        Err(e) => {
+            crate::update::log(&format!("[runtime] 自动获取 Node 失败（下载/校验）: {e}"));
+            return None;
+        }
+    };
+    let node_bin = match install(&local) {
+        Ok(p) => p,
+        Err(e) => {
+            crate::update::log(&format!("[runtime] 自动获取 Node 失败（解压提交）: {e}"));
+            return None;
+        }
+    };
+    // finalize_install 内含「装完复测版本 + meets_minimum」双重校验并写 runtime.json。
+    match finalize_install(&node_bin, &version, &local) {
+        Ok(rt) => {
+            crate::update::log(&format!("[runtime] Node {} 就绪", rt.version));
+            Some(rt)
+        }
+        Err((is_npm, e)) => {
+            crate::update::log(&format!(
+                "[runtime] 自动获取 Node 未通过验收（{}）: {}",
+                if is_npm { "npm" } else { "node" },
+                e
+            ));
+            None
+        }
+    }
+}
 pub fn npm_manual_hint(version: &str) -> String {
     format!(
         "Node.js {} 已安装，但配套的 npm（{}）仍不可用。请手动安装 Node 官方分发包（自带 npm）后重试：\

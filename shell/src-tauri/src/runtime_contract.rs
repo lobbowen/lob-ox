@@ -255,22 +255,94 @@ pub fn write(rt: &NodeRuntime) {
     }
 }
 
+/// 最近一次「环境为何不可用」的具名原因。
+/// 只有字符串（Mutex<Option<String>>）而非结构体：唯一消费方是启动门与 UI 的报错文案，
+/// 把它做成结构体等于为一个字段的传递引入新类型。上报方与读取方都在本 crate 内。
+static LAST_PROBLEM: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+fn set_problem(msg: String) {
+    if let Ok(mut g) = LAST_PROBLEM.lock() {
+        *g = Some(msg);
+    }
+}
+
+fn clear_problem() {
+    set_problem(String::new());
+}
+
+/// 最近一次环境不可用的原因（成功解析后为空）。
+/// 供调用方如实报错：既用于启动门的 LaunchError，也用于 node_status 让 UI 显示原因
+/// 而不是让用户面对一个无信息量的「启动失败」。
+pub fn last_problem() -> Option<String> {
+    LAST_PROBLEM
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .filter(|s| !s.is_empty())
+}
 pub fn read_node() -> Option<NodeRuntime> {
     let s = std::fs::read_to_string(path()).ok()?;
     let v: serde_json::Value = serde_json::from_str(&s).ok()?;
     from_meta(&v)
 }
 
+/// 启动门：解析出**可用**的 Node/npm 契约。这是全产品唯一决定「用哪个 Node 拉起内核」的地方。
+///
+/// 架构约定（此前被违反，是真机「内核进不去」的根因）：
+///   探测 → 判定 → 获取 三段必须在此汇聚。`nodeprobe` 只负责把版本号送到 UI，
+///   `node::meets_minimum` 只负责把判定结果送到 UI，`domain::install::run_install`
+///   只在用户主动跑安装向导时触发 —— 三者各自正确但互不相连，于是本函数长期只做
+///   「文件在不在」的检查，把任何 PATH 上的 Node（包括 v10 这类远低于 min_node 的）
+///   直接固化进 runtime.json，随后用它加载用了现代语法的 core.cjs，进程在解析阶段崩掉。
+///
+/// 现在的判定顺序：
+///   1. runtime.json 记录且文件在位 → 仍须过 meets_minimum，达标才用（快路径不变）
+///   2. 否则探测系统 Node → 达标则固化
+///   3. 探测到但不达标，或根本探测不到 → 静默自动获取（复用 run_install 的既有闭环）
+///   4. 获取失败 → 返回 None，并把**具体原因**写进 last_problem()，
+///      供上层如实报错；绝不静默采纳一个不达标的版本。
 pub fn ensure() -> Option<NodeRuntime> {
+    // 1) 记录路径：文件在位**且版本达标**才直接采纳。
     if let Some(rt) = read_node() {
         if rt.node.is_file() && rt.npm.is_file() {
-            return Some(rt);
+            if crate::node::meets_minimum(Some(rt.version.as_str())) {
+                return Some(rt);
+            }
+            set_problem(format!(
+                "已记录的 Node {} 低于最低要求 {}（记录路径 {}）",
+                rt.version,
+                crate::node::min_node(),
+                rt.node.display()
+            ));
         }
     }
-    let (node, version) = crate::env::probe_system_node().or_else(crate::node::probe_after)?;
-    let rt = derive(&node, &version)?;
-    write(&rt);
-    Some(rt)
+
+    // 2) 探测系统 Node。探测本身不保证版本达标（nodeprobe::try_probe 只问「你几岁」）
+    //    —— 门槛必须在这里补，否则这就是当初把 v10 当成「环境就绪」放行的那一行。
+    if let Some((node, version)) = crate::env::probe_system_node().or_else(crate::node::probe_after) {
+        if crate::node::meets_minimum(Some(version.as_str())) {
+            if let Some(rt) = derive(&node, &version) {
+                write(&rt);
+                clear_problem();
+                return Some(rt);
+            }
+        }
+        set_problem(format!(
+            "探测到的 Node {} 低于最低要求 {}",
+            version,
+            crate::node::min_node()
+        ));
+    } else {
+        set_problem(format!(
+            "未探测到可用的 Node/npm（最低要求 {}）",
+            crate::node::min_node()
+        ));
+    }
+
+    // 3) 不达标/探测不到：静默自动获取。复用 domain::install::run_install 的既有闭环
+    //    （latest_lts -> download_verified -> install -> finalize_install），
+    //    不新建第二套下载逻辑 —— 那正是「重复实现」的来源。
+    crate::node::auto_install_quiet()
 }
 
 pub fn env_path(node_bin_dir: &Path) -> String {
