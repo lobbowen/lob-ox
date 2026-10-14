@@ -6,7 +6,7 @@ const path = require('node:path');
 function owns(pathname) {
   return pathname === '/changelog' || pathname.startsWith('/guard/') || pathname === '/autostart'
     || pathname.startsWith('/settings/') || pathname.startsWith('/self-update/')
-    || pathname === '/env/native' || pathname === '/env/status' || pathname === '/env/node-lts'
+    || pathname === '/env/native' || pathname === '/env/status'
     || pathname === '/env/open-url' || pathname === '/env/environment'
     || pathname === '/env/environment/last'
     || pathname === '/ports' || pathname === '/shutdown';
@@ -166,9 +166,6 @@ function handle(ctx) {
     if (req.method === 'GET' && pathname === '/env/status') {
       if (!originAllowed(req)) return ctx.rejectCrossOrigin(ctx);
       return Promise.resolve(sup.envStatus()).then((r) => send(200, r)).catch((e) => send(500, { ok: false, error: e.message }));
-    }
-    if (req.method === 'GET' && pathname === '/env/node-lts') {
-      return sup.nodeLtsStatus().then((r) => send(200, r)).catch((e) => send(500, { ok: false, error: e.message }));
     }
     if (req.method === 'GET' && pathname === '/env/environment') {
       if (!originAllowed(req)) return ctx.rejectCrossOrigin(ctx);

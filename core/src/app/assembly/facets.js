@@ -25,7 +25,7 @@ const FACETS = [
   { name: 'domain-actions/router', mod: require('../domain-actions/router'), factory: 'createRouterActions' },
   { name: 'domain-actions/lan', mod: require('../domain-actions/lan'), factory: 'createLanActions' },
   { name: 'settings/env', mod: require('../settings/env') },
-  { name: 'settings/node-lts', mod: require('../settings/node-lts') },
+
   { name: 'settings/versions', mod: require('../settings/versions') },
   { name: 'settings/access', mod: require('../settings/access') },
   { name: 'settings/browser', mod: require('../settings/browser') },

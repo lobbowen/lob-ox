@@ -59,6 +59,22 @@ pub fn service() -> &'static dyn ServiceControl {
 }
 
 impl Platform for Impl {
+    fn extract_archive(&self, archive: &std::path::Path, dest: &std::path::Path) -> Result<std::path::PathBuf, String> {
+        // zip 优先走 tar.exe（系统自带且更快），失败再回 Expand-Archive。
+        // 两个都试是必要的：tar.exe 在精简版 Windows 上可能缺失。
+        let _ = std::fs::remove_dir_all(dest);
+        if extract_with_tar(archive, dest).is_ok() {
+            return Ok(dest.to_path_buf());
+        }
+        let _ = std::fs::remove_dir_all(dest);
+        if extract_with_expand_archive(archive, dest).is_ok() {
+            return Ok(dest.to_path_buf());
+        }
+        Err(format!("
+            "解包归档失败（{}）：tar.exe 与 Expand-Archive 均失败",
+            archive.display()
+        "))
+    }
     fn name(&self) -> &'static str {
         NAME
     }

@@ -401,6 +401,13 @@ pub trait Platform: Send + Sync {
         
     fn is_local_fixed_dir(&self, dir: &std::path::Path) -> bool;
 
+    /// 把归档解开到 dest（目录）。
+    ///
+    /// 抽到 trait 是为了让运行时引擎复用既有平台解包能力，而不是在引擎里
+    /// 重写一套平台分支 —— 否则新增运行时时平台差异会被复制第二遍。
+    /// 返回解出后可执行文件所在目录。
+    fn extract_archive(&self, archive: &std::path::Path, dest: &std::path::Path) -> Result<std::path::PathBuf, String>;
+
     fn node_candidate_paths(&self) -> Vec<std::path::PathBuf>;
 
         
@@ -709,5 +716,73 @@ mod launch_spec_tests {
             c.args(["-c", "echo dsh-mark-out; echo dsh-mark-err >&2"]);
         }
         c.stdin(std::process::Stdio::null()).stdout(out).stderr(err).spawn().expect("spawn 标记子进程")
+    }
+}
+/// 写 Windows 用户级环境变量（等价 setx，但不经命令行故不截断）。
+///
+/// HKCU\\Environment 是用户环境变量的唯一真源；改完需要广播 WM_SETTINGCHANGE，
+/// 否则已运行的程序（含本进程之外的 IDE）不会感知到。
+pub fn set_windows_user_env(key: &str, value: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        #[link(name = "advapi32")]
+        extern "system" {
+            fn RegOpenKeyExW(h: *mut core::ffi::c_void, sub: *const u16, opts: u32, sam: u32, out: *mut *mut core::ffi::c_void) -> i32;
+            fn RegSetValueExW(h: *mut core::ffi::c_void, name: *const u16, reserved: u32, ty: u32, data: *const u8, cb: u32) -> i32;
+            fn RegCloseKey(h: *mut core::ffi::c_void) -> i32;
+        }
+        const HKEY_CURRENT_USER: *mut core::ffi::c_void = 0x80000001u32 as *mut core::ffi::c_void;
+        const KEY_SET_VALUE: u32 = 0x0002;
+        const REG_EXPAND_SZ: u32 = 2;
+        unsafe {
+            let sub: Vec<u16> = "Environment\\0".encode_utf16().collect();
+            let mut hk: *mut core::ffi::c_void = core::ptr::null_mut();
+            let rc = RegOpenKeyExW(HKEY_CURRENT_USER, sub.as_ptr(), 0, KEY_SET_VALUE, &mut hk);
+            if rc != 0 {
+                return Err(format!("打开 HKCU\\Environment 失败: {}", rc));
+            }
+            let name: Vec<u16> = key.encode_utf16().chain(std::iter::once(0)).collect();
+            let wide: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
+            let bytes = (wide.len() * 2) as u32;
+            let rc = RegSetValueExW(hk, name.as_ptr(), 0, REG_EXPAND_SZ, wide.as_ptr() as *const u8, bytes);
+            RegCloseKey(hk);
+            if rc != 0 {
+                return Err(format!("写入用户环境变量 {} 失败: {}", key, rc));
+            }
+            Ok(())
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        Err("set_windows_user_env 只在 Windows 可用".to_string())
+    }
+}
+
+/// Unix：把 bin 目录以 export PATH 追加到 shell profile。
+///
+/// 必须**追加**而非覆盖 —— 直接写 PATH= 会抹掉用户已有的全部条目。
+/// 幂等：已存在则跳过，重复安装不会把 profile 撑大。
+pub fn append_unix_path_export(bin_dir: &Path) -> Result<(), String> {
+    #[cfg(not(windows))]
+    {
+        let home = crate::env::home();
+        let line = format!("export PATH=\"{}:$PATH\"", bin_dir.display());
+        for name in [".bashrc", ".zshrc", ".profile"] {
+            let f = home.join(name);
+            if let Ok(cur) = std::fs::read_to_string(&f) {
+                if cur.lines().any(|l| l.contains(&line)) {
+                    continue;
+                }
+            }
+            use std::io::Write;
+            let mut out = std::fs::OpenOptions::new().create(true).append(true).open(&f)
+                .map_err(|e| format!("打开 {} 失败: {}", f.display(), e))?;
+            writeln!(out, "\n# added by lobox runtime manager\n{}", line).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+    #[cfg(windows)]
+    {
+        Err("append_unix_path_export 只在 Unix 可用".to_string())
     }
 }

@@ -17,6 +17,9 @@ pub fn service() -> &'static dyn ServiceControl {
 }
 
 impl Platform for Impl {
+    fn extract_archive(&self, _a: &std::path::Path, _d: &std::path::Path) -> Result<std::path::PathBuf, String> {
+        Err("当前平台不支持归档解包".to_string())
+    }
     fn name(&self) -> &'static str {
         NAME
     }

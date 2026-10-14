@@ -20,6 +20,18 @@ pub fn service() -> &'static dyn ServiceControl {
 }
 
 impl Platform for Impl {
+    fn extract_archive(&self, archive: &std::path::Path, dest: &std::path::Path) -> Result<std::path::PathBuf, String> {
+        let _ = std::fs::remove_dir_all(dest);
+        std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+        let mut cmd = Command::new("tar");
+        cmd.args(["-xzf"]).arg(archive).arg("-C").arg(dest);
+        let out = crate::bounded::run(&mut cmd, std::time::Duration::from_secs(300))
+            .map_err(|e| e.to_string())?;
+        if out.code != 0 {
+            return Err(format!("tar 解压失败({}): {}", out.code, out.stderr.trim()));
+        }
+        Ok(dest.to_path_buf())
+    }
     fn name(&self) -> &'static str {
         NAME
     }
