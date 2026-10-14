@@ -31,8 +31,8 @@ pub struct RuntimeSpec {
     pub display_name: &'static str,
     /// 安装根目录（专属，不与 npm prefix 等他方地盘混用）。
     pub install_root: PathBuf,
-    /// 解析版本用的上游索引（JSON）。
-    pub index_url: &'static str,
+    /// 解析版本用的上游索引路径，**相对镜像根**（不是完整 URL：probe_all 会自己拼接）。
+    pub index_path: &'static str,
 }
 
 /// 某运行时的版本信息（来自上游索引或本机探测）。

@@ -8,8 +8,14 @@ use super::{InstalledRuntime, RuntimeSpec, RuntimeVersion};
 use crate::platform::external_path;
 use std::path::{Path, PathBuf};
 
-/// 上游版本索引（Node 官方 dist）。
-pub const INDEX_URL: &str = "https://nodejs.org/dist/index.json";
+/// 上游版本索引路径。
+///
+/// 必须是**相对于镜像根**的路径，不能是完整 URL：mirror::probe_all 自己做
+/// `format!("{}/{}", src, path)` 拼接。传完整 URL 会拼成
+/// `https://mirror.nju.edu.cn/nodejs-release/https://nodejs.org/dist/index.json`
+/// 这种无效地址 —— 真机症状是「全部镜像不可达」，与网络无关。
+/// 镜像根见 mirror::NODE_PRESETS（如 .../nodejs-release、.../dist），故取 index.json。
+pub const INDEX_PATH: &str = "index.json";
 
 /// Node 专属安装根：**用户目录下专属区域**，不占用 npm 全局 prefix。
 ///
@@ -27,7 +33,7 @@ pub fn spec() -> Vec<RuntimeSpec> {
         id: "node",
         display_name: "Node.js",
         install_root: install_root(),
-        index_url: INDEX_URL,
+        index_path: INDEX_PATH,
     }]
 }
 
@@ -179,7 +185,7 @@ pub struct Selection {
 /// 而不是等到下载完才知道 —— 这也避免与 install_latest 内部重复一次选版。
 pub fn select_latest() -> Result<Selection, String> {
     let m = crate::mirror::load();
-    let probes = crate::mirror::probe_all(&m.node, super::node::INDEX_URL);
+    let probes = crate::mirror::probe_all(&m.node, super::node::INDEX_PATH);
     let hit = probes
         .into_iter()
         .find(|p| p.ok)
