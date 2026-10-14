@@ -278,57 +278,35 @@ mod tests {
 /// 而启动门 `runtime_contract::ensure()` 在内核拉起前调用，那时尚无 AppHandle。
 /// 把「获取 Node」拆成无 UI 的本体 + 带 UI 的包装，避免为了复用而把 AppHandle
 /// 一路传到启动关键路径上。
+/// 开机自动获取一个可用的 Node（静默，无用户确认）。
+///
+/// 委托 runtime::node::install_latest —— 底座负责全部流程：
+/// 选最新 LTS -> 下载校验 -> 解包 staging -> 切换到专属目录 -> 接入用户 PATH。
+///
+/// 与此前在此处内联实现的差别：
+///   - 落点从 npm 全局 prefix 改为 %LOCALAPPDATA%/lobox/runtime/node（专属目录），
+///     不再与用户所有全局 npm 包混放，也不再撞上正在运行的 node.exe；
+///   - 换装走 engine::swap，旧装被占用时备份失败即报错且不删旧装；
+///   - 落定后把 bin 目录接入用户级 PATH，使新终端/IDE 直接可用；
+///   - 新增运行时时本函数无需改动 —— 它只认 runtime 这一个入口。
 pub fn auto_install_quiet() -> Option<crate::runtime_contract::NodeRuntime> {
-    let choice = match latest_lts() {
-        Ok(c) => c,
-        Err(e) => {
-            crate::update::log(&format!("[runtime] 自动获取 Node 失败（选版）: {e}"));
-            return None;
-        }
-    };
-    let version = choice.version.clone();
-    let file = choice.file.clone();
-    crate::update::log(&format!(
-        "[runtime] 自动获取 Node {}（镜像 {} {}ms）",
-        version,
-        choice.source,
-        choice.latency_ms
-    ));
-    let dl_dir = crate::env::supervisor_dir().join("dl");
-    let local = match download_verified(
-        &version,
-        &file,
-        &dl_dir,
-        Some(choice.source.as_str()),
-        &|done, _total| {
-            crate::update::log(&format!("[runtime] Node 下载进度 {:.1} MB", done as f64 / 1048576.0));
+    match crate::runtime::node::install_latest() {
+        Ok(inst) => match crate::runtime_contract::adopt_installed(&inst) {
+            Ok(rt) => {
+                crate::update::log(&format!(
+                    "[runtime] Node {} 已就绪（{}）",
+                    inst.version,
+                    inst.bin_dir.display()
+                ));
+                Some(rt)
+            }
+            Err(e) => {
+                crate::update::log(&format!("[runtime] 契约落盘失败: {}", e));
+                None
+            }
         },
-    ) {
-        Ok(p) => p,
         Err(e) => {
-            crate::update::log(&format!("[runtime] 自动获取 Node 失败（下载/校验）: {e}"));
-            return None;
-        }
-    };
-    let node_bin = match install(&local) {
-        Ok(p) => p,
-        Err(e) => {
-            crate::update::log(&format!("[runtime] 自动获取 Node 失败（解压提交）: {e}"));
-            return None;
-        }
-    };
-    // finalize_install 内含「装完复测版本 + meets_minimum」双重校验并写 runtime.json。
-    match finalize_install(&node_bin, &version, &local) {
-        Ok(rt) => {
-            crate::update::log(&format!("[runtime] Node {} 就绪", rt.version));
-            Some(rt)
-        }
-        Err((is_npm, e)) => {
-            crate::update::log(&format!(
-                "[runtime] 自动获取 Node 未通过验收（{}）: {}",
-                if is_npm { "npm" } else { "node" },
-                e
-            ));
+            crate::update::log(&format!("[runtime] 自动获取 Node 失败: {}", e));
             None
         }
     }

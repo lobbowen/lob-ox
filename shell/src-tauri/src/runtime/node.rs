@@ -145,10 +145,7 @@ pub fn pick_latest_lts(raw: &str) -> Option<(String, String)> {
 ///   - 换装走 engine::swap，备份失败时**不删除旧装**并给出可执行的处置说明；
 ///   - 落定后把 bin 目录接入**用户级 PATH**，使新终端/IDE 直接可用；
 ///   - 产出 InstalledRuntime 供契约落盘，不再只改子进程 PATH。
-pub fn install_latest(
-    app: Option<&tauri::AppHandle>,
-) -> Result<InstalledRuntime, String> {
-    let _ = app;
+pub fn install_latest() -> Result<InstalledRuntime, String> {
     // 1) 选版
     let raw = crate::mirror::probe_all(&crate::mirror::load().node, super::node::INDEX_URL)
         .into_iter()

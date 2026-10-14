@@ -541,3 +541,45 @@ mod toolchain_tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 }
+
+/// 把底座落定的安装态采纳为契约，并返回可直接用于 spawn 的 NodeRuntime。
+///
+/// 这一步是「运行时管理器」与「内核启动」之间的唯一衔接点：
+/// 底座只管把 Node 装到专属目录并接进用户 PATH，不认识 runtime.json；
+/// 而内核 spawn 必须绑定一份确定的 node/npm 契约。两者在这里对接，
+/// 因此 runtime.json 仍是环境事实的**单一来源**，不会因为底座就多出一份状态。
+///
+/// 写入前会**复测版本**并校验 meets_minimum：落定成功不等于装的东西可用
+/// （例如解包出的目录结构异常、node 能跑但版本过低）。
+pub fn adopt_installed(
+    inst: &crate::runtime::InstalledRuntime,
+) -> Result<NodeRuntime, String> {
+    let node = inst.executable.clone();
+    if !node.is_file() {
+        return Err(format!("落定后未找到 node 可执行：{}", node.display()));
+    }
+    let bin_dir = inst.bin_dir.clone();
+    // 复测：不信「装完了」，实测这一份到底是多少版本。
+    let version = crate::env::node_version(&node)
+        .unwrap_or_else(|| inst.version.trim_start_matches('v').to_string());
+    if !crate::node::meets_minimum(Some(version.as_str())) {
+        return Err(format!(
+            "落定后实测 Node {} 低于最低要求 {}",
+            version,
+            crate::node::min_node()
+        ));
+    }
+    let (npm, npm_prefix) = probe_npm(&node, &bin_dir)
+        .ok_or_else(|| npm_search_summary(&bin_dir))?;
+    let rt = NodeRuntime {
+        node,
+        node_bin_dir: bin_dir,
+        npm,
+        npm_prefix,
+        version,
+        npm_version: None,
+    };
+    write(&rt);
+    clear_problem();
+    Ok(rt)
+}
