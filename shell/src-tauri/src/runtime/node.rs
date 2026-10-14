@@ -213,6 +213,7 @@ pub fn install_latest(progress: &Progress) -> Result<InstalledRuntime, String> {
     // 不该反过来报「Node 未能就绪」把一次成功的安装说成失败 ——
     // 真机就因此卡在这一步，前面的选版/下载/解包/换装全部白做。
     // 降级为告警 + 照常返回，用户可自行把该目录加入 PATH。
+    // on_path 反映的是「本次是否发生变更」，不是「是否最终在 PATH 里」——
     let path_changed = match super::ensure_on_user_path(&bin_dir) {
         Ok(changed) => changed,
         Err(e) => {
