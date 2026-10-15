@@ -400,8 +400,19 @@ jobs:
           else
             gh release create "$TAG" --title "桌面壳 $VER" --generate-notes
           fi
-          gh release upload "$TAG" $FILES --clobber
-          echo "::notice::Release 就绪：$TAG"
+          # 逐个上传而非一次性传全部：gh release upload 默认并发，
+          # 大文件（dmg/exe 各 100MB 量级）并发时会撞上 Release 资源尚未就绪，
+          # 得到 uploads.github.com 的 404（真机 1.0.34 即如此：前 3 个成功、第 4 个失败）。
+          # 单文件串行 + 失败即报，不留下半份 Release。
+          RC=0
+          for f in $FILES; do
+            if ! gh release upload "$TAG" "$f" --clobber; then
+              echo "::error::上传失败：$f"
+              RC=1
+            fi
+          done
+          if [ "$RC" -ne 0 ]; then exit "$RC"; fi
+          echo "::notice::Release 就绪：$TAG（$(echo "$FILES" | wc -w | tr -d ' ') 个附件）"
       - name: 发布后自证（通道字节 = 本次构建产物）
         shell: bash
         run: |
