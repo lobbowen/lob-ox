@@ -1,3 +1,8 @@
+          if [ -z "$RID" ]; then
+            echo "::error::tag 指向的提交在 main 上找不到已全绿的 shell-build run"
+            echo "::error::请先确认 main 的 CI 已通过再打 tag；本次不发布"
+            exit 1
+          fi
 name: shell-build
 
 on:
@@ -214,6 +219,11 @@ jobs:
     outputs:
       run_id: ${{ steps.pick.outputs.run_id }}
     steps:
+      # 本 job 的所有 run 步骤受全局 defaults.run.working-directory: shell 约束，
+      # 故必须先 checkout —— 否则 shell/ 目录不存在，bash 进程起不来
+      # （报 no such file or directory）。gate job 早已踩过并留了同样的注释。
+      - uses: actions/checkout@v4
+
       - name: pick
         id: pick
         shell: bash
@@ -224,7 +234,12 @@ jobs:
         run: |
           set -euo pipefail
           RID=$(gh api "repos/$REPO/actions/runs?branch=main&per_page=100" --jq ".workflow_runs[] | select(.conclusion==\"success\" and .name==\"shell-build\" and .head_sha==\"$SHA\") | .id" | head -1)
-          if [ -z "$RID" ]; then RID=""; fi
+          RID=${RID:-}
+          if [ -z "$RID" ]; then
+            echo "::error::tag 指向的提交在 main 上找不到已全绿的 shell-build run"
+            echo "::error::请先确认 main 的 CI 已通过再打 tag；本次不发布"
+            exit 1
+          fi
           echo "run_id=$RID" >> "$GITHUB_OUTPUT"
 
   gate:
