@@ -249,3 +249,20 @@ pub fn install_latest(progress: &Progress) -> Result<InstalledRuntime, String> {
         updated_at: crate::node::now_iso(),
     })
 }
+
+/// 判断已装版本是否**不在当前 LTS 线上**。
+///
+/// 与 outdated（纯版本号比较）互补：真机装过 v26 —— 那是 Node 的非 LTS 偶数线，
+/// 版本号比任何 LTS 都「新」，于是 outdated(v26, v24.21.0) 为 false，
+/// 结果永远停在 v26、再也升不到 LTS。
+/// 生产环境要装的是 LTS 线，所以「装了非 LTS」本身就是需要纠正的状态，
+/// 与其版本号新旧无关。
+pub fn off_lts_line(installed: &str, latest_lts: &str) -> bool {
+    let i = installed.trim().trim_start_matches('v');
+    let l = latest_lts.trim().trim_start_matches('v');
+    let major = |v: &str| v.split('.').next().unwrap_or("").parse::<i64>().unwrap_or(-1);
+    if major(i) < 0 || major(l) < 0 {
+        return false;
+    }
+    major(i) != major(l)
+}

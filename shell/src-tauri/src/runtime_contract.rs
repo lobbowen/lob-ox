@@ -369,7 +369,13 @@ pub fn ensure_with_upgrade() -> Option<NodeRuntime> {
             return cur;
         }
     };
-    if !crate::node::outdated(Some(rt.version.as_str()), &choice.version) {
+    // 两类情形都要纠正：
+    //  1) 落后于最新 LTS（版本号更旧）；
+    //  2) 压根不在 LTS 线上（如真机装过的 v26）—— 它版本号更大，
+    //     单靠 outdated 判不出来，会被永久当成「已是最新」。
+    let behind = crate::node::outdated(Some(rt.version.as_str()), &choice.version);
+    let off_line = crate::runtime::node::off_lts_line(&rt.version, &choice.version);
+    if !behind && !off_line {
         return cur;
     }
     crate::update::log(&format!(
