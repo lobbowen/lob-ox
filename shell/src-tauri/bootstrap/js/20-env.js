@@ -1,7 +1,7 @@
 (function (NS) {
     
   function applyToolchain(st) {
-    if (!st || st.__timeout || st.probing || st.busy) return;
+    if (!st || st.probing || st.busy) return;
     var t = NS.emptyToolchain();
     t.node = st.installed || null;
     t.npm = st.npmVersion || null;
@@ -10,7 +10,7 @@
 
     
   function readEnv() {
-    return NS.withTimeout(NS.core.invoke('node_status'), 15000, '环境查询无响应').then(function (st) {
+    return NS.invoke('node_status', {}, 15000).then(function (st) {
       var o = st || {};
       applyToolchain(o);
       return o;
@@ -42,19 +42,16 @@
       function poll() {
         if (settled) return;
                 
+        // 查询无响应不再是「成功 resolve 出一个哨兵对象」，而是 reject：
+        // catch 里按超时处理并继续轮询（探测有预算，预算内失败不等于探测失败）。
         NS.readEnv().then(function (st) {
           if (settled) return;
-          if (st.__timeout) {
-            if (Date.now() >= deadline) { settled = true; NS.failEnvTimeout(NS.lastEnv || {}); resolve(null); return; }
-            NS.status('正在检测系统环境…（查询无响应，重试中）');
-            setTimeout(poll, 400);
-            return;
-          }
           NS.lastEnv = st;
           if (st.probeError) {
             settled = true;
             NS.envStuck = st.stuck || null;
-            NS.fail('环境探测失败：' + st.probeError + ' · 已探明：' + (NS.probeSummary(st) || '无任何维度结论'));
+            NS.renderFault(NS.fault('net.probe_timeout', st.probeError, 'error',
+        '可尝试切换镜像源，或点「强制重装 Node」后重试。已探明：' + (NS.probeSummary(st) || '无任何维度结论')));
             NS.$('btnForceNode').style.display = '';
             resolve(null);
             return;
@@ -77,8 +74,18 @@
           if (p && p.then) { p.then(function () { resolve(null); }, function () { resolve(null); }); } else { resolve(null); }
         }).catch(function (e) {
           if (settled) return;
+          var f = NS.normalizeFault(e);
+          // 单次查询无响应（预算内）不等于探测失败：预算未耗尽就继续轮询，
+          // 耗尽才判超时。此前靠 __timeout 哨兵区分这两者，现在按 Fault.code 判。
+          if (f.code === 'client.timeout' && Date.now() < deadline) {
+            NS.status('正在检测系统环境…（查询无响应，重试中）');
+            setTimeout(poll, 400);
+            return;
+          }
           settled = true;
-          NS.fail('环境检测异常：' + NS.errText(e));
+          if (f.code === 'client.timeout') { NS.failEnvTimeout(NS.lastEnv || {}); resolve(null); return; }
+          NS.renderFault(f);
+          resolve(null);
           resolve(null);
         });
       }
@@ -105,10 +112,10 @@
           
           
       NS.status('正在完备探测系统 Node…');
-      return NS.withTimeout(NS.core.invoke('system_node_ready'), 30000, '完备探测无响应').then(function (full) {
+      return NS.invoke('system_node_ready', {}, 30000).then(function (full) {
         var f = full || {};
             
-        NS.core.invoke('boot_trace', { line: 'afterEnv 决定前有界轮询 installed=' + st.installed + ' probing=' + st.probing + '；完备探测 installed=' + f.installed + ' minOk=' + f.minOk + ' npmOk=' + f.npmOk + ' nodePath=' + f.nodePath }).catch(function () {});
+        NS.invoke('boot_trace', { line: 'afterEnv 决定前有界轮询 installed=' + st.installed + ' probing=' + st.probing + '；完备探测 installed=' + f.installed + ' minOk=' + f.minOk + ' npmOk=' + f.npmOk + ' nodePath=' + f.nodePath }).catch(function () {});
         if (f.installed && f.minOk !== false && f.npmOk === true) {
           NS.status('环境就绪 · Node ' + NS.versionLabel(f.installed) + '（系统自带，已复用）');
           return NS.stepNodeDone();
@@ -119,7 +126,7 @@
             : (f.minOk === false ? ('Node.js ' + f.installed + ' 低于最低要求（' + (f.minRequired || 'v22.12') + '）')
               : ('缺少/不可用的 npm' + (f.npmWhy ? '（' + f.npmWhy + '）' : '')));
           NS.install.begin('node', why + ' · 正在补全运行环境…');
-          return NS.core.invoke('start_node_install').then(function () { return NS.stepNodeWait('node'); });
+          return NS.invoke('start_node_install', {}, 120000).then(function () { return NS.stepNodeWait('node'); });
         });
       }).catch(function (e) {
         NS.fail('系统 Node 完备探测失败：' + NS.errText(e));
@@ -131,7 +138,7 @@
       NS.setStep(0);
       return NS.probeMirrorThen(function () {
         NS.install.begin('node', 'Node.js ' + st.installed + ' 低于最低要求（' + (st.minRequired || 'v22.12') + '）· 正在升级…');
-        return NS.core.invoke('start_node_install').then(function () { return NS.stepNodeWait('node'); });
+        return NS.invoke('start_node_install', {}, 120000).then(function () { return NS.stepNodeWait('node'); });
       });
     }
         
@@ -142,7 +149,7 @@
         NS.install.begin('npm', '检测到缺少/不可用的 npm'
           + (st.npmWhy ? '（' + st.npmWhy + '）' : '')
           + ' · 正在补全工具链…');
-        return NS.core.invoke('start_node_install').then(function () { return NS.stepNodeWait('npm'); });
+        return NS.invoke('start_node_install', {}, 120000).then(function () { return NS.stepNodeWait('npm'); });
       });
     }
     return NS.stepNodeDone();
@@ -155,7 +162,7 @@
       var done = false;
       var t = setInterval(function () {
         NS.readEnv().then(function (st) {
-          if (st.__timeout) return;
+          if (!st || st.probing) return;
                     
           if (!st.busy && st.error) { if (!done) { done = true; clearInterval(t); resolve(failOnMissingNpm(kind, st.error)); } return; }
           if (!st.busy && st.installed && st.minOk !== false && st.npmOk === true) { if (!done) { done = true; clearInterval(t); resolve(NS.stepNodeDone()); } }

@@ -2,7 +2,8 @@
   NS.$('btnUpdRetry').addEventListener('click', function () {
     NS.hideUpdChoice();
     NS.status('正在重试桌面版本更新…');
-    NS.stepShellApply().catch(function (e) { NS.showUpdRetry('重试异常：' + NS.errText(e)); });
+    // stepShellApply 内部已把失败转成降级提示（不再抛），这里的 catch 只是兜底。
+    NS.stepShellApply().catch(function (e) { NS.renderFault(e); });
   });
   NS.$('btnMirror').addEventListener('click', function () {
     var shown = NS.$('mirrorBox').style.display !== 'none';
