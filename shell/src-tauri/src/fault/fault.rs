@@ -103,37 +103,6 @@ impl serde::Serialize for Fault {
     }
 }
 
-/// 从 ShellError 归一。保留 kind 作为 code 的来源，不丢信息。
-impl From<crate::error::ShellError> for Fault {
-    fn from(e: crate::error::ShellError) -> Fault {
-        use crate::error::ShellError;
-        // 各变体字段不同（Network 有 url 无 cause、Unsupported 只有 capability/platform），
-        // 故逐变体取详情而不是假设存在统一的 cause 字段。
-        let (code, detail) = match &e {
-            ShellError::Probe { stage, cause, elapsed_ms } => (
-                code::PROBE_TIMEOUT,
-                format!("阶段 {} · {}", stage, cause),
-            ),
-            ShellError::Network { url, cause } => (code::NETWORK_FAILED, format!("{} · {}", url, cause)),
-            ShellError::Install { platform, cause } => (code::INSTALL_FAILED, format!("{} · {}", platform, cause)),
-            ShellError::Service { action, cause } => (code::KERNEL_EXITED, format!("{} · {}", action, cause)),
-            ShellError::Contract { file, cause } => (code::CONTRACT_INVALID, format!("{} · {}", file, cause)),
-            ShellError::Ipc { cause } => (code::IPC_PARAM_INVALID, cause.clone()),
-            ShellError::Unsupported { capability, platform } => (
-                code::UNSUPPORTED,
-                format!("{} 在 {}", capability, platform),
-            ),
-        };
-        let f = Fault::new(code, detail);
-        // Probe 变体带耗时，进 data 让 hint 能把它带进话术（旧实现硬编码 hint 丢了这个）。
-        match &e {
-            ShellError::Probe { elapsed_ms, .. } => f.with("elapsed_ms", (*elapsed_ms as u64).into()),
-            ShellError::Network { url, .. } => f.with("url", url.clone().into()),
-            ShellError::Contract { file, .. } => f.with("file", file.clone().into()),
-            _ => f,
-        }
-    }
-}
 /// 从 LaunchError 归一。
 ///
 /// LaunchError 的 8 个 code 是核心里程碑级的可操作性区分

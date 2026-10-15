@@ -72,15 +72,6 @@
     try { if (NS.core) NS.invoke('shell_set_phase', { phase: p }, 5000).catch(function () {}); } catch (e) {}
   }
 
-  function errText(e) {
-    if (e === null || e === undefined) return '未知错误';
-    if (typeof e === 'string') return e;
-    if (e.kind) {
-      var detail = e.cause || e.stage || e.kind;
-      return e.hint ? (detail + '；' + e.hint) : detail;
-    }
-    return String(e.message || e);
-  }
 
   // 引导中止的呈现入口。**实现收为 renderFault 的薄封装**：
   // 此前 fail() 只显示、不写日志、不置 phase，而 showFatal 写日志置 phase、
@@ -162,7 +153,6 @@
   NS.hideFail = hideFail;
   NS.install = { begin: installBegin, text: installText, done: installDone, fail: installFail, meter: installMeter };
   NS.phase = phase;
-  NS.errText = errText;
   NS.fail = fail;
   NS.diagText = diagText;
   NS.probeList = probeList;

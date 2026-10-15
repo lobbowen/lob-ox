@@ -129,7 +129,7 @@
           return NS.invoke('start_node_install', {}, 120000).then(function () { return NS.stepNodeWait('node'); });
         });
       }).catch(function (e) {
-        NS.fail('系统 Node 完备探测失败：' + NS.errText(e));
+        NS.renderFault(NS.normalizeFault(e));
         return null;
       });
     }

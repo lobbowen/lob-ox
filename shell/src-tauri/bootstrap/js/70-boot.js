@@ -18,7 +18,7 @@
     }).catch(function () {});
     NS.$('btnForceNode').style.display = 'none';
     NS.startMirrorWarmup();
-    NS.stepEnv().catch(function (e) { NS.fail('引导异常：' + NS.errText(e)); });
+    NS.stepEnv().catch(function (e) { NS.renderFault(NS.normalizeFault(e)); });
   }
 
   NS.boot = boot;

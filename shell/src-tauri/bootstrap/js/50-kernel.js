@@ -87,7 +87,7 @@
       }
       return NS.wait(15000).then(function () { return coreApplyPoll(n + 1); });
     }).catch(function (e) {
-      NS.fail('内核安装超时且状态查询失败：' + NS.errText(e));
+      NS.renderFault(NS.normalizeFault(e));
       return false;
     });
   }
