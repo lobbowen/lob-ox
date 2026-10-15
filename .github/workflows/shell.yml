@@ -272,7 +272,11 @@ jobs:
     #   tag 推送        -> 复用 resolve_build_run 查出的、同一提交已全绿的 run（不重编译）；
     #   dispatch+from_run -> 复用显式指定的 run；
     #   两者都无（仅 main 的常规 CI）-> 不发布。
-    if: startsWith(github.ref, 'refs/tags/shell-') || inputs.from_run != ''
+    # always() 是必需的：needs 链上 build 在 tag 路径下是 skipped，
+    # 而 GitHub 会把「依赖里出现 skipped」连带传播 —— 不加它，publish 会被一起跳过，
+    # tag run 显示 success 却什么都没发布（这正是首次验证时看到的现象）。
+    # 后半段仍是发布条件本身，两者取与：既不被跳过，也不该发的时候不发。
+    if: always() && (startsWith(github.ref, 'refs/tags/shell-') || inputs.from_run != '')
     outputs:
       ver: ${{ needs.version.outputs.ver }}
     runs-on: ubuntu-latest
