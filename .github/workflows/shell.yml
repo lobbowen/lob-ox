@@ -216,8 +216,41 @@ jobs:
   # tag 指向的提交，main 上必定已经跑过一次 shell-build（tag 只在验证通过后才打），
   # 那次 run 的产物就是这次要发布的东西 —— 同一份源码不必再编一遍。
   # 本 job 只做一件事：把那个 run id 找出来交给 publish。
+  resolve_build_run:
+    if: startsWith(github.ref, 'refs/tags/shell-')
+    runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ steps.pick.outputs.run_id }}
+    steps:
+      - name: 定位 tag 对应提交在 main 上的已全绿 run
+        id: pick
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh api repos/$REPO/actions/runs -f branch=main -f per_page=100 > "$RUNNER_TEMP/runs.json"
+          RID=$(python3 "$RUNNER_TEMP/pick.py")
+          echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+          echo "PICKED=$RID" >> "$GITHUB_OUTPUT"
+      - name: 准备筛选脚本
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/pick.py" <<'PYEOF'
+          import json, os, sys
+          data = json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "runs.json")))
+          want = os.environ["SHA"]
+          for r in data.get("workflow_runs", []):
+              if r.get("conclusion") == "success" and r.get("name") == "shell-build" and r.get("head_sha") == want:
+                  print(r["id"])
+                  sys.exit(0)
+          print("")
+          PYEOF
+
   gate:
-    needs: [version, build]
+    needs: [version, build, resolve_build_run]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -229,7 +262,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          RID="${{ inputs.from_run }}"
+          RID="${{ inputs.from_run }}"; [ -n "$RID" ] || RID="${{ needs.resolve_build_run.outputs.run_id }}"
           if [ -n "$RID" ]; then
             echo "复用 run $RID 的产物，跳过构建 —— 通过"
             exit 0
@@ -245,7 +278,7 @@ jobs:
           echo "构建矩阵已全绿 —— 通过"
 
   publish:
-    needs: [version, gate]
+    needs: [version, gate, resolve_build_run]
     # 三条发布路径，全部以「产物来自哪次构建」为准：
     #   tag 推送        -> 本 run 构建并发布（唯一路径）；
     #   dispatch+from_run -> 复用显式指定的 run；
@@ -270,17 +303,17 @@ jobs:
       # 产物取自哪一次构建：from_run 指定时跨 run 取上一次已全绿的 build 产物（不重建）；
       # 未指定时取本次 run 自己的产物（tag 路径）。artifact 名即 matrix.artifact（平台名）。
       - name: 下载全部平台产物（本次 run）
-        if: inputs.from_run == ''
+        if: resolve_build_run.outputs.run_id == '' && inputs.from_run == ''
         uses: actions/download-artifact@v4
         with:
           path: shell/dist/artifacts
 
       - name: 下载全部平台产物（复用 run ${{ inputs.from_run }}）
-        if: inputs.from_run != ''
+        if: resolve_build_run.outputs.run_id != '' || inputs.from_run != ''
         uses: actions/download-artifact@v4
         with:
           path: shell/dist/artifacts
-          run-id: ${{ inputs.from_run }}
+          run-id: ${{ inputs.from_run != '' && inputs.from_run || needs.resolve_build_run.outputs.run_id }}
           pattern: '*'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
