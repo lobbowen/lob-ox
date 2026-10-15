@@ -15,5 +15,11 @@
 //! **不合并、不重命名** —— 它们是排障时的既有词汇表。
 //!
 pub mod code;
-pub mod probe;
 pub mod fault;
+pub mod probe;
+
+// 重导出：模块内另有 code / fault / probe 三个子模块，
+// 不重导出的话调用方只能写 crate::fault::fault::Fault（同名嵌套），
+// 反而比原来四套并存更难用。这里让 Fault / Probe 留在 fault:: 命名空间下。
+pub use fault::Fault;
+pub use probe::Probe;

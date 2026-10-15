@@ -22,8 +22,8 @@ use super::fault::Fault;
 pub enum Probe<T> {
     /// 有界探测尚未完成。不是失败 —— 探测有预算，超预算前仍在进行是正常的。
     Pending {
-        /// 已用掉的探测预算（毫秒）。
-        pub elapsed_ms: u64,
+        /// 已用掉的探测预算（毫秒）。枚举变体字段与其变体共享可见性，不能再加 pub。
+        elapsed_ms: u64,
     },
     /// 已得出结论。
     Settled(T),

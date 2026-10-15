@@ -203,6 +203,12 @@ impl ShellError {
 
 /// 壳侧命令的唯一返回契约。
 
+/// 壳侧命令的唯一返回契约。
+///
+/// 此前是 `Result<T, ShellError>`，与 LaunchError / 裸 String / ok:false JSON 四套并存。
+/// 现统一为 `Fault`（fault::Fault），它把 code / level / 参数化 hint 收在一处。
+pub type ShellResult<T> = Result<T, crate::fault::Fault>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
