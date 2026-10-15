@@ -28,7 +28,7 @@ pub fn run(
         match try_one(cand, req, on_progress) {
             Ok(fetched) => return Ok(fetched),
             Err(e) => {
-                crate::update::log(&format!("[transfer] 源 {} 不可用: {}", cand.label, e));
+                crate::telemetry::event::warn("transfer.source_unavailable", "transfer", serde_json::json!({ "source": cand.label, "error": e.to_string() }));
                 last = Some(e);
             }
         }

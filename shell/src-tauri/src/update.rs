@@ -44,21 +44,51 @@ pub fn guard_log_file() -> Option<std::fs::File> {
     fs::OpenOptions::new().create(true).append(true).open(&p).ok()
 }
 
+/// 记录一条**无级别**的历史日志。
+///
+/// 这是迁移期的兼容入口，不是新代码应该用的东西 —— 没有 level 的事件
+/// 无法让消费侧决定处置，正是本次重构要消除的东西。
+/// 新增记录一律走 `telemetry::event::{info,warn,error,fatal}`。
+///
+/// 旧的实现是「读全文 + 保留尾部 + fs::write 非原子重写」，既不原子也可能
+/// 截到半个多字节字符边界（还按 char 计数却按字节判阈值）。现改为：
+///  · 结构化事件落 telemetry 事件流（seq 单调、rename 轮转、原子 meta）；
+///  · 同时写一行纯文本到 shell.log，保持既有排障习惯（grep 文本）可用。
 pub fn log(line: &str) {
+    crate::telemetry::event::record(
+        "shell.legacy_log",
+        crate::telemetry::Level::Info,
+        "update",
+        serde_json::json!({ "text": line }),
+    );
+    append_human_line(line);
+}
+
+/// 向 shell.log 追加一行人类可读文本。
+///
+/// 与事件流并存：事件流供机器 grep 与诊断面板，shell.log 供人直接 tail。
+/// 轮转交给事件流统一处理，这里只在超过上限时按行截断，避免无限增长。
+fn append_human_line(line: &str) {
     let dir = state_dir();
     let _ = fs::create_dir_all(&dir);
     let p = log_path();
     if let Ok(md) = fs::metadata(&p) {
         if md.len() > 1024 * 1024 {
             if let Ok(s) = fs::read_to_string(&p) {
-                let n = s.chars().count();
-                let keep: String = s.chars().skip(n.saturating_sub(512 * 1024)).collect();
-                let _ = fs::write(&p, keep);
+                let mut lines: Vec<&str> = s.lines().collect();
+                let drop = lines.len() / 4;
+                if drop > 0 {
+                    lines.drain(0..drop);
+                    // 逐行拼接，天然不会截断到字符边界。
+                    let mut keep = lines.join("\n");
+                    keep.push('\n');
+                    let _ = crate::atomic_write::write(&p, &keep);
+                }
             }
         }
     }
     if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&p) {
-        let _ = writeln!(f, "[{}] {}", now_secs(), line);
+        let _ = writeln!(f, "[{}] {}", now_iso_human(), line);
     }
 }
 
@@ -206,4 +236,12 @@ mod tests {
         assert_eq!(id["phase"], serde_json::json!("shell-update-check"));
         assert_eq!(id["version"], serde_json::json!("1.2.3"), "set_phase 不得抹掉 version");
     }
+}
+
+/// 人类可读时间戳，与 telemetry 事件流的 ts 同形（ISO-8601 UTC）。
+///
+/// 此前 shell.log 用 Unix 秒（`[1792055101]`），与内核事件的 ISO 串无法直接
+/// 排序比对，排障时要人工换算。
+pub fn now_iso_human() -> String {
+    crate::telemetry::event::now_iso()
 }

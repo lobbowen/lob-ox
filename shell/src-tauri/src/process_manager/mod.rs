@@ -168,10 +168,10 @@ pub fn spawn_healer(pm: std::sync::Arc<ProcessManager>) {
                 // last_will 在此被真正消费：startup_failure 的负载刚在启动窗口内退出，
                 // 先落日志再重拉（它不是稳定性的证据，别让日志读成「运行一段时间后崩溃」）。
                 if let Some(w) = &cand.last_will {
-                    crate::update::log(&format!(
-                        "[heal] {} 上次退出: code={:?} signal={:?} startup_failure={}",
-                        desc.id, w.code, w.signal, w.startup_failure
-                    ));
+                    crate::telemetry::event::warn("heal.prev_exit", "process_manager", serde_json::json!({
+                        "id": desc.id, "code": format!("{:?}", w.code),
+                        "signal": format!("{:?}", w.signal), "startup_failure": w.startup_failure
+                    }));
                 }
                 let mut cmd = std::process::Command::new(&desc.spawn_cmd[0]);
                 for a in desc.spawn_cmd.iter().skip(1) {
@@ -189,16 +189,13 @@ pub fn spawn_healer(pm: std::sync::Arc<ProcessManager>) {
                 }
                 match cmd.spawn() {
                     Ok(child) => {
-                        crate::update::log(&format!(
-                            "[heal] 重拉 {} (pid={}, 优先级={:?})",
-                            desc.id,
-                            child.id(),
-                            desc.priority
-                        ));
+                        crate::telemetry::event::info("heal.respawned", "process_manager", serde_json::json!({
+                            "id": desc.id, "pid": child.id(), "priority": format!("{:?}", desc.priority)
+                        }));
                         pm.adopt_spawned(desc, child.id());
                     }
                     Err(e) => {
-                        crate::update::log(&format!("[heal] 重拉 {} 失败: {}", desc.id, e));
+                        crate::telemetry::event::warn("heal.respawn_failed", "process_manager", serde_json::json!({ "id": desc.id, "error": e.to_string() }));
                         pm.note_heal_failure(&desc.id);
                     }
                 }

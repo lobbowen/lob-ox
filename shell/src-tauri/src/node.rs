@@ -32,10 +32,10 @@ pub fn latest_lts() -> Result<LtsChoice, String> {
     let mut mm = crate::mirror::load();
     mm.selected_node = Some(sel.source.clone());
     if let Err(e) = crate::mirror::save(&mm) {
-        crate::update::log(&format!("镜像配置写入失败（不影响本次安装）: {}", e));
+        crate::telemetry::event::warn("node.mirror_save_failed", "node", serde_json::json!({ "error": e.to_string() }));
     }
     if let Err(e) = crate::mirror::export_to_kernel(&mm) {
-        crate::update::log(&format!("导出内核镜像偏好失败（不影响本次安装）: {}", e));
+        crate::telemetry::event::warn("node.mirror_export_failed", "node", serde_json::json!({ "error": e.to_string() }));
     }
     Ok(LtsChoice {
         version: sel.version,
@@ -85,7 +85,7 @@ pub fn download_verified(
             )
             .map_err(|e| format!("{} 的 SHASUMS256.txt 读取失败: {}", base, e))?,
             Err(e) => {
-                crate::update::log(&format!("[node] 源 {} 的 SHASUMS256.txt 不可用: {}", base, e));
+                crate::telemetry::event::warn("node.shasums_unavailable", "node", serde_json::json!({ "base": base, "error": e.to_string() }));
                 continue;
             }
         };
@@ -94,10 +94,7 @@ pub fn download_verified(
         }) {
             Some(e) => e,
             None => {
-                crate::update::log(&format!(
-                    "[node] {} 的 SHASUMS256.txt 中没有 {} 的条目，该源跳过",
-                    base, file
-                ));
+                crate::telemetry::event::info("node.shasums_entry_missing", "node", serde_json::json!({ "base": base, "file": file }));
                 continue;
             }
         };
@@ -105,14 +102,13 @@ pub fn download_verified(
         let req = crate::transfer::Request::new(&dst).verify(expect);
         match crate::transfer::fetch(&cands, &req, &|d, t| on_bytes(d, t)) {
             Ok(got) => {
-                crate::update::log(&format!(
-                    "[node] 已取回 {}（{} 字节，源 {}）",
-                    file, got.bytes, got.source.unwrap_or_default()
-                ));
+                crate::telemetry::event::info("node.archive_fetched", "node", serde_json::json!({
+                    "file": file, "bytes": got.bytes, "source": got.source
+                }));
                 return Ok(got.path);
             }
             Err(e) => {
-                crate::update::log(&format!("[node] 源 {} 的归档不可用: {}", base, e));
+                crate::telemetry::event::warn("node.archive_unavailable", "node", serde_json::json!({ "base": base, "error": e.to_string() }));
             }
         }
     }
@@ -204,20 +200,18 @@ pub fn auto_install_quiet() -> Option<crate::runtime_contract::NodeRuntime> {
     match crate::runtime::node::install_latest(&crate::runtime::node::Progress::default()) {
         Ok(inst) => match crate::runtime_contract::adopt_installed(&inst) {
             Ok(rt) => {
-                crate::update::log(&format!(
-                    "[runtime] Node {} 已就绪（{}）",
-                    inst.version,
-                    inst.bin_dir.display()
-                ));
+                crate::telemetry::event::info("runtime.node_ready", "runtime", serde_json::json!({
+                    "version": inst.version, "binDir": inst.bin_dir.display().to_string()
+                }));
                 Some(rt)
             }
             Err(e) => {
-                crate::update::log(&format!("[runtime] 契约落盘失败: {}", e));
+                crate::telemetry::event::warn("runtime.contract_persist_failed", "runtime", serde_json::json!({ "error": e.to_string() }));
                 None
             }
         },
         Err(e) => {
-            crate::update::log(&format!("[runtime] 自动获取 Node 失败: {}", e));
+            crate::telemetry::event::warn("runtime.node_acquire_failed", "runtime", serde_json::json!({ "error": e.to_string() }));
             None
         }
     }

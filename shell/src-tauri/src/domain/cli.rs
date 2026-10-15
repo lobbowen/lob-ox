@@ -166,18 +166,16 @@ pub(crate) fn cli_run_guard() -> i32 {
         let rt_diag = crate::runtime_contract::ensure();
         let cands = crate::domain::coreloc::locate_core_candidates(None);
         let picked = crate::domain::coreloc::pick_best(cands.clone()).map(|(p, _)| p);
-        crate::update::log(&format!(
-            "[run-guard] 诊断: runtime={} 候选数={} 选中={}",
-            if rt_diag.is_some() { "ok" } else { "缺失/失效" },
-            cands.len(),
-            picked.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "无".to_string())
-        ));
+        crate::telemetry::event::info("cli.guard_diagnosis", "cli", serde_json::json!({
+            "runtime": if rt_diag.is_some() { "ok" } else { "缺失/失效" },
+            "candidates": cands.len(),
+            "picked": picked.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "无".to_string())
+        }));
         for c in &cands {
-            crate::update::log(&format!(
-                "[run-guard] 候选 {} 版本={}",
-                c.display(),
-                crate::core::installed_version(c).unwrap_or_else(|| "取不到".to_string())
-            ));
+            crate::telemetry::event::info("cli.guard_candidate", "cli", serde_json::json!({
+                "path": c.display().to_string(),
+                "version": crate::core::installed_version(c).unwrap_or_else(|| "取不到".to_string())
+            }));
         }
     }
     let Some((rt, guard)) = crate::domain::guardctl::resolve_local(None) else {

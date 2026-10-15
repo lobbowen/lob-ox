@@ -365,7 +365,7 @@ pub fn ensure_with_upgrade() -> Option<NodeRuntime> {
     let choice = match crate::node::latest_lts() {
         Ok(c) => c,
         Err(e) => {
-            crate::update::log(&format!("[runtime] 查询最新 LTS 失败，沿用现有 Node {}: {}", rt.version, e));
+            crate::telemetry::event::warn("runtime.lts_query_failed", "runtime_contract", serde_json::json!({ "version": rt.version, "error": e.to_string() }));
             return cur;
         }
     };
@@ -378,10 +378,9 @@ pub fn ensure_with_upgrade() -> Option<NodeRuntime> {
     if !behind && !off_line {
         return cur;
     }
-    crate::update::log(&format!(
-        "[runtime] 已装 Node {} 落后于最新 LTS {}，静默升级",
-        rt.version, choice.version
-    ));
+    crate::telemetry::event::info("runtime.behind_lts", "runtime_contract", serde_json::json!({
+        "installed": rt.version, "latest": choice.version
+    }));
     // 升级失败就保留现有达标版本：它仍能跑内核，比没有环境强。
     crate::node::auto_install_quiet().or(Some(rt))
 }

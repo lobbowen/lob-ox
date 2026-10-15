@@ -236,26 +236,20 @@ where
     let id = install_id();
     
     if id.is_none() && opt_in && !local_hit {
-        crate::update::log(
-            "灰度名单：本机读不到 installId（内核尚未启动过？也未设 DSH_CANARY_ID），\
-             本轮只能按主机名兜底匹配；壳不会自行生成 installId（那是内核 install-id.js 的职责）",
-        );
+        crate::telemetry::event::warn("channel.install_id_missing", "release_channel", serde_json::json!({
+            "note": "本机读不到 installId，本轮按主机名兜底匹配"
+        }));
     }
     match canary_machine_with(local_hit, opt_in, id.as_deref(), &hostnames(), fetch) {
         Ok(Some(hit)) => {
-            crate::update::log(&format!(
-                "灰度名单命中（依据={}{}）",
-                hit.via,
-                hit.note
-                    .as_deref()
-                    .map(|n| format!("；名单备注：{}", n))
-                    .unwrap_or_default()
-            ));
+            crate::telemetry::event::info("channel.canary_hit", "release_channel", serde_json::json!({
+                "via": hit.via, "note": hit.note
+            }));
             true
         }
         Ok(None) => false,
   Err(e) => {
-            crate::update::log(&format!("灰度名单包不可用（按非灰度处理）：{}", e));
+            crate::telemetry::event::warn("channel.canary_list_unavailable", "release_channel", serde_json::json!({ "error": e.to_string() }));
             false
         }
     }

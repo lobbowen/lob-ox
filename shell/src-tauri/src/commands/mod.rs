@@ -183,10 +183,10 @@ pub async fn system_node_ready() -> serde_json::Value {
     // 故把判定依据本身写进壳日志 —— 下次复现时直接读事实，不再推断。
     {
         let why = npm_why.clone().unwrap_or_else(|| "无".to_string());
-        crate::update::log(&format!(
-            "system_node_ready 判定: installed={} nodePath={} npmOk={} npmWhy={}",
-            version, path.display(), npm_ok, why
-        ));
+        crate::telemetry::event::info("env.node_ready_verdict", "commands", serde_json::json!({
+            "version": version, "nodePath": path.display().to_string(),
+            "npmOk": npm_ok, "npmWhy": why
+        }));
     }
     serde_json::json!({
         "installed": version,
@@ -203,7 +203,7 @@ pub async fn system_node_ready() -> serde_json::Value {
 /// 结论自相矛盾（下载时间早于决定安装的时间），因为没有**判定当时**的事实记录。
 #[tauri::command]
 pub fn boot_trace(line: String) {
-    crate::update::log(&format!("[boot-trace] {}", line));
+    crate::telemetry::event::info("boot.trace", "boot", serde_json::json!({ "line": line }));
 }
 
 /// 互斥锁中毒恢复的**统一约定**：全部 `RunState` 加锁点用 `.unwrap_or_else(|e| e.into_inner())`。锁内是普通状态快照（不承载跨字段不变式），中毒后仍可用 —— 一次 panic 不应让整个应用的功能不可恢复地失效。
@@ -605,10 +605,9 @@ pub fn shell_panel_url() -> serde_json::Value {
         s.values().any(|st| st.pid.is_some()
             && st.phase == crate::process_manager::state_machine::Phase::Running)
     };
-    crate::update::log(&format!(
-        "壳框架就绪（主帧导航完成），面板 URL: {} · 进程表服役判定={}",
-        url, serving
-    ));
+    crate::telemetry::event::info("shell.frame_ready", "commands", serde_json::json!({
+        "panelUrl": url, "serving": serving
+    }));
     serde_json::json!({ "url": url, "serving": serving })
 }
 
@@ -713,7 +712,7 @@ pub fn mirror_set(kind: String, urls: Vec<String>) -> ShellResult<serde_json::Va
     if kind == "npm" {
         let _ = crate::mirror::export_to_kernel(&m);
     }
-    crate::update::log(&format!("镜像配置已更新 {}: {}", kind, list.join(", ")));
+    crate::telemetry::event::info("mirror.updated", "commands", serde_json::json!({ "kind": kind, "sources": list }));
     Ok(serde_json::json!({ "ok": true, "kind": kind, "urls": list }))
 }
 
@@ -742,7 +741,7 @@ pub async fn shell_update_check(app: tauri::AppHandle) -> ShellResult<serde_json
     let updater = match crate::shell_updater(&app, SHELL_CHECK_TIMEOUT) {
         Ok(u) => u,
         Err(msg) => {
-            crate::update::log(&format!("桌面更新检查失败：{}", msg));
+            crate::telemetry::event::warn("shell_update.check_failed", "commands", serde_json::json!({ "error": msg }));
             return Ok(shell_plan(&cur, None, false, Some(msg), String::new(), String::new()));
         }
     };
@@ -755,12 +754,12 @@ pub async fn shell_update_check(app: tauri::AppHandle) -> ShellResult<serde_json
     match checked {
         Err(_) => {
             let msg = format!("检查超时（{} 秒无响应，可能网络不可达）", SHELL_CHECK_TIMEOUT.as_secs());
-            crate::update::log("桌面更新检查超时（网络不可达？）");
+            crate::telemetry::event::warn("shell_update.check_timeout", "commands", serde_json::json!({}));
             Ok(shell_plan(&cur, None, false, Some(msg), String::new(), String::new()))
         }
         Ok(Ok(Some(u))) => {
             let latest = u.version.clone();
-            crate::update::log(&format!("桌面更新发现新版本 {}（当前 {}）", latest, cur));
+            crate::telemetry::event::info("shell_update.available", "commands", serde_json::json!({ "latest": latest, "current": cur }));
             Ok(shell_plan(
                 &cur,
                 Some(latest),
@@ -771,12 +770,12 @@ pub async fn shell_update_check(app: tauri::AppHandle) -> ShellResult<serde_json
             ))
         }
         Ok(Ok(None)) => {
-            crate::update::log(&format!("桌面更新已是最新（{}）", cur));
+            crate::telemetry::event::info("shell_update.up_to_date", "commands", serde_json::json!({ "current": cur }));
             Ok(shell_plan(&cur, None, false, None, String::new(), String::new()))
         }
         Ok(Err(e)) => {
             let msg = format!("{}", e);
-            crate::update::log(&format!("桌面更新检查失败：{}", msg));
+            crate::telemetry::event::warn("shell_update.check_failed", "commands", serde_json::json!({ "error": msg }));
             Ok(shell_plan(&cur, None, false, Some(msg), String::new(), String::new()))
         }
     }
@@ -813,7 +812,7 @@ pub async fn shell_update_apply(app: tauri::AppHandle) -> ShellResult<serde_json
     let target = u.version.clone();
 
     let candidates = crate::mirror::artifact_candidates(&u.download_url, &u.version);
-    crate::update::log(&format!("桌面更新开始下载 {}（{} 个候选源）", target, candidates.len()));
+    crate::telemetry::event::info("shell_update.download_start", "commands", serde_json::json!({ "target": target, "candidates": candidates.len() }));
     let mut failures: Vec<String> = Vec::new();
     let mut downloaded: Option<Vec<u8>> = None;
     for (idx, url) in candidates.iter().enumerate() {
@@ -842,26 +841,26 @@ pub async fn shell_update_apply(app: tauri::AppHandle) -> ShellResult<serde_json
             Ok(Err(e)) => {
                 if !worth_next_source(&e) {
                     let msg = format!("下载失败: {}", e);
-                    crate::update::log(&format!("桌面更新{}（源 {}）", msg, host));
+                    crate::telemetry::event::warn("shell_update.source_failed", "commands", serde_json::json!({ "note": msg, "source": host }));
                     return Err(crate::fault::Fault::new(crate::fault::code::TRANSFER_FAILED, msg));
                 }
                 failures.push(format!("{}：{}", host, e));
             }
             Ok(Ok(bytes)) => {
                 if !failures.is_empty() {
-                    crate::update::log(&format!("桌面更新改由 {} 取回（前面 {} 个源失败）", host, failures.len()));
+                    crate::telemetry::event::info("shell_update.source_fallback", "commands", serde_json::json!({ "source": host, "failedBefore": failures.len() }));
                 }
                 downloaded = Some(bytes);
                 break;
             }
         }
         if idx + 1 < candidates.len() {
-            crate::update::log(&format!("桌面更新换下一个源：{}", failures.last().unwrap_or(&String::new())));
+            crate::telemetry::event::info("shell_update.next_source", "commands", serde_json::json!({ "reason": failures.last().cloned().unwrap_or_default() }));
         }
     }
     let Some(bytes) = downloaded else {
         let msg = format!("下载失败（{} 个源都没取到安装包）：{}", candidates.len(), failures.join("；"));
-        crate::update::log(&format!("桌面更新{}", msg));
+        crate::telemetry::event::warn("shell_update.failed", "commands", serde_json::json!({ "note": msg }));
         return Err(crate::fault::Fault::new(crate::fault::code::TRANSFER_FAILED, msg));
     };
 
@@ -872,22 +871,22 @@ pub async fn shell_update_apply(app: tauri::AppHandle) -> ShellResult<serde_json
         format!("下载完成（{:.1} MB）· 正在安装…", downloaded_bytes as f64 / 1048576.0),
         Some(1.0),
     );
-    crate::update::log(&format!("桌面更新下载完成（{} 字节），开始安装 {}", downloaded_bytes, target));
+    crate::telemetry::event::info("shell_update.download_done", "commands", serde_json::json!({ "bytes": downloaded_bytes, "target": target }));
 
         // Windows：install 启动安装程序后 std::process::exit(0)，**不会返回**；Linux/macOS：返回后由引导页调用 shell_restart 重启进入新版本。
     if let Err(e) = u.install(bytes) {
         let msg = format!("安装失败: {}", e);
-        crate::update::log(&format!("桌面更新{}", msg));
+        crate::telemetry::event::warn("shell_update.failed", "commands", serde_json::json!({ "note": msg }));
         return Err(crate::fault::Fault::new(crate::fault::code::TRANSFER_FAILED, msg));
     }
-    crate::update::log(&format!("桌面更新安装完成 {}", target));
+    crate::telemetry::event::info("shell_update.install_done", "commands", serde_json::json!({ "target": target }));
     Ok(serde_json::json!({ "ok": true, "installed": target }))
 }
 
 #[tauri::command]
 pub fn shell_restart(app: tauri::AppHandle) {
     crate::update::set_phase("restarting");
-    crate::update::log("桌面更新重启以应用新版本");
+    crate::telemetry::event::info("shell_update.restarting", "commands", serde_json::json!({}));
     app.restart();
 }
 

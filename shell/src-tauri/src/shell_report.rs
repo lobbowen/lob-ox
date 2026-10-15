@@ -123,7 +123,7 @@ pub fn publish(out: &Outcome, deps: &Snapshot) {
     *g = Some(Instant::now());
     drop(g);
     if let Err(why) = post(&payload(out, deps)) {
-        crate::update::log(&format!("投放环境观测报告失败（内核按「壳还没报过」处理，不影响引导）：{}", why));
+        crate::telemetry::event::warn("report.deliver_failed", "shell_report", serde_json::json!({ "why": why }));
     }
 }
 

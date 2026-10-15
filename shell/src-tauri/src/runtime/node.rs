@@ -131,7 +131,8 @@ impl Progress {
         if let Some(f) = self.on_stage.as_ref() {
             f(msg, done, total);
         } else {
-            crate::update::log(msg);
+            // 没有 UI 回调时（CLI / 静默安装）也留痕：进度本身就是排障依据。
+            crate::telemetry::event::info("runtime.stage", "runtime", serde_json::json!({ "msg": msg }));
         }
     }
 }
@@ -217,10 +218,9 @@ pub fn install_latest(progress: &Progress) -> Result<InstalledRuntime, String> {
     let path_changed = match super::ensure_on_user_path(&bin_dir) {
         Ok(changed) => changed,
         Err(e) => {
-            crate::update::log(&format!(
-                "[runtime] Node 已装好，但写入用户 PATH 失败（{}）。",
-                e
-            ));
+            crate::telemetry::event::warn("runtime.path_write_failed", "runtime", serde_json::json!({
+                "error": e.to_string()
+            }));
             progress.stage(
                 &format!(
                     "Node 已就绪；未能自动加入用户 PATH（{}），可手动添加 {}",
@@ -234,12 +234,10 @@ pub fn install_latest(progress: &Progress) -> Result<InstalledRuntime, String> {
         }
     };
     progress.stage("正在校验 npm…", 0, None);
-    crate::update::log(&format!(
-        "[runtime] node {} 已落定 {}（用户 PATH {}）",
-        sel.version,
-        root.display(),
-        if path_changed { "已接入，重启终端后生效" } else { "已在" }
-    ));
+    crate::telemetry::event::info("runtime.node_settled", "runtime", serde_json::json!({
+        "version": sel.version, "root": root.display().to_string(),
+        "pathChanged": path_changed
+    }));
     Ok(InstalledRuntime {
         spec_id: "node".to_string(),
         version: sel.version.clone(),

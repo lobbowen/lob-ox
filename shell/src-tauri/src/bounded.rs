@@ -169,12 +169,12 @@ pub fn kill_tree_pid(pid: u32) -> KillOutcome {
                 if o.code == Some(128) {
                     KillOutcome::AlreadyGone
                 } else {
-                    crate::update::log(&format!("[kill] pid={} taskkill 失败: {}", pid, o.stderr.trim()));
+                    crate::telemetry::event::warn("process.taskkill_failed", "bounded", serde_json::json!({ "pid": pid, "stderr": o.stderr.trim() }));
                     KillOutcome::Failed
                 }
             }
             Err(e) => {
-                crate::update::log(&format!("[kill] pid={} taskkill 调用失败: {}", pid, e));
+                crate::telemetry::event::warn("process.taskkill_error", "bounded", serde_json::json!({ "pid": pid, "error": e.to_string() }));
                 KillOutcome::Failed
             }
         };

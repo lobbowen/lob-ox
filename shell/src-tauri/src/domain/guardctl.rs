@@ -56,18 +56,18 @@ pub(crate) fn shutdown_all() {
         // 且 core 行每次退出必然走一次（register_core 造的正是 Running + pid=None）。
         match pid {
             Some(p) => {
-                crate::update::log(&format!("[shell] 停止 {} (pid={})", id, p));
+                crate::telemetry::event::info("process.stopped", "guardctl", serde_json::json!({ "id": id, "pid": p }));
                 match crate::bounded::kill_tree_pid(p) {
                     o if o.is_success() => {}
-                    o => crate::update::log(&format!("[shell] 停止 {} (pid={}) 未成功: {:?}", id, p, o)),
+                    o => crate::telemetry::event::warn("process.stop_incomplete", "guardctl", serde_json::json!({ "id": id, "pid": p, "outcome": format!("{:?}", o) })),
                 }
             }
             None => {
-                crate::update::log(&format!("[shell] 跳过 {}：进程表无 pid（不整表停机）", id));
+                crate::telemetry::event::info("process.stop_skipped", "guardctl", serde_json::json!({ "id": id, "reason": "进程表无 pid" }));
             }
         }
     }
-    crate::update::log("[shell] 进程表已全部停机");
+    crate::telemetry::event::info("process.all_stopped", "guardctl", serde_json::json!({}));
 }
 
 /// 服务管理器路径（P4 建立定义 -> P5 请求启动）的阶段产物。不变量由结构强制：`started` 只可能在 `defined` 为 `Ok` 时才是 `Some` —— 定义失败时那条出边是关闭的。丢掉 `ensure_defined` 的错误再无条件 `start()`，报错就只剩「/Run 失败（退出码 1）」，真实失败点可能在更早的 P4。
@@ -163,7 +163,7 @@ fn resolve_local_kernel(
 pub(crate) fn ensure_core(app: &tauri::AppHandle) -> Result<(), LaunchError> {
     let step = |s: &str| {
         let _ = app.emit("core_progress", serde_json::json!({ "status": s }));
-        crate::update::log(s);
+        crate::telemetry::event::info("guard.step", "guardctl", serde_json::json!({ "status": s }));
     };
 
     // 进程表判据：壳自己 spawn 并持有句柄的内核（pid 已知）才算在服役。
@@ -221,9 +221,9 @@ pub(crate) fn ensure_started(
 ) -> Result<(), LaunchError> {
         // 开机自启登记（唯一用途）：让 OS 在登录时把壳拉起来，拉起内核本身不借 OS 通道。
     if let Err(e) = crate::platform::service().ensure_defined(spec) {
-        crate::update::log(&format!("开机自启登记失败（不阻断启动）: {}", e));
+        crate::telemetry::event::warn("guard.autostart_failed", "guardctl", serde_json::json!({ "error": e.to_string() }));
     } else {
-        crate::update::log("开机自启登记已就位");
+        crate::telemetry::event::info("guard.autostart_ready", "guardctl", serde_json::json!({}));
     }
 
         // 正式路径：壳自己拉起内核并持有进程（进程所有权归壳，自愈由机箱进程表按优先级驱动）。
@@ -231,7 +231,7 @@ pub(crate) fn ensure_started(
     match crate::platform::service().spawn_daemon(spec) {
         Ok(mut child) => {
             let pid = child.id();
-            crate::update::log(&format!("已拉起内核 pid={}", pid));
+            crate::telemetry::event::info("guard.core_spawned", "guardctl", serde_json::json!({ "pid": pid }));
             let (verdict, exited) = await_daemon(DAEMON_READY_BUDGET, &mut child);
             if verdict == Readiness::Ready {
                 register_core_spawned(app, pid);

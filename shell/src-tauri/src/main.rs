@@ -93,9 +93,15 @@ fn shell_updater(
 }
 
 fn main() {
+    // 引导期痕迹。走 telemetry 而非裸日志：这些行是「卡在哪一步」的唯一证据，
+    // 崩溃现场（boot-trace fatal）就是从这里来的。
     macro_rules! bt {
         ($($a:tt)*) => {
-            crate::update::log(&format!("[boot] {}", format!($($a)*)));
+            crate::telemetry::event::info(
+                "boot.step",
+                "boot",
+                serde_json::json!({ "line": format!($($a)*) }),
+            );
         };
     }
     bt!("main enter");

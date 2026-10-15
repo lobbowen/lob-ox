@@ -74,7 +74,7 @@ pub fn agent() -> &'static ureq::Agent {
         if let Some(u) = proxy_url() {
             match ureq::Proxy::new(&u) {
                 Ok(p) => { b = b.proxy(p); }
-                Err(e) => { crate::update::log(&format!("代理地址无效，已忽略（{}）: {}", u, e)); }
+                Err(e) => { crate::telemetry::event::warn("mirror.proxy_invalid", "mirror", serde_json::json!({ "url": u, "error": e.to_string() })); }
             }
         } else {
             b = b.try_proxy_from_env(true);
@@ -276,17 +276,17 @@ pub fn record_npm_measurements(probes: &[Probe]) {
         Vec::new()
     };
     if let Err(e) = save(&m) {
-        crate::update::log(&format!("逐源测速结果落盘失败（不影响本次引导）: {}", e));
+        crate::telemetry::event::warn("mirror.measure_persist_failed", "mirror", serde_json::json!({ "error": e.to_string() }));
     }
     if let Err(e) = export_to_kernel(&m) {
-        crate::update::log(&format!("重投镜像契约失败（下次启动或改目录时再投）: {}", e));
+        crate::telemetry::event::warn("mirror.reproject_failed", "mirror", serde_json::json!({ "error": e.to_string() }));
     }
 }
 
 pub fn export_on_boot() {
     let m = load();
     if let Err(e) = export_to_kernel(&m) {
-        crate::update::log(&format!("启动导出镜像契约失败（不影响引导）: {}", e));
+        crate::telemetry::event::warn("mirror.export_failed", "mirror", serde_json::json!({ "error": e.to_string() }));
     }
 }
 
@@ -507,7 +507,7 @@ pub fn warmup_async() {
         });
     if let Err(e) = spawned {
         WARMING.store(false, std::sync::atomic::Ordering::SeqCst);
-        crate::update::log(&format!("镜像预热线程未能启动（{}）：本轮 registry 维度无从判定", e));
+        crate::telemetry::event::warn("mirror.warmup_thread_failed", "mirror", serde_json::json!({ "error": e.to_string() }));
     }
 }
 

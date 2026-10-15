@@ -102,10 +102,7 @@ pub fn reconcile_once(shell_version: &str) -> Vec<(&'static str, Outcome)> {
     if !needs_reconcile(shell_version) {
         return out;
     }
-    crate::update::log(&format!(
-        "[state-reconcile] 版本戳变化（当前 {}）→ 开始对账状态根",
-        shell_version
-    ));
+    crate::telemetry::event::info("reconcile.started", "state_reconcile", serde_json::json!({ "version": shell_version }));
     let entries: Vec<(&'static str, fn() -> Outcome)> = vec![
         ("api-port", reconcile_api_port),
         ("runtime-node", reconcile_runtime_node),
@@ -113,12 +110,12 @@ pub fn reconcile_once(shell_version: &str) -> Vec<(&'static str, Outcome)> {
     ];
     for (name, f) in entries {
         let o = f();
-        crate::update::log(&format!("[state-reconcile] {}: {}", name, o.note()));
+        crate::telemetry::event::info("reconcile.entry", "state_reconcile", serde_json::json!({ "name": name, "note": o.note() }));
         out.push((name, o));
     }
     match write_stamp(shell_version) {
-        Ok(()) => crate::update::log(&format!("[state-reconcile] 版本戳已更新为 {}", shell_version)),
-        Err(e) => crate::update::log(&format!("[state-reconcile] 版本戳写入失败（下轮将重试）：{}", e)),
+        Ok(()) => crate::telemetry::event::info("reconcile.version_stamped", "state_reconcile", serde_json::json!({ "version": shell_version })),
+        Err(e) => crate::telemetry::event::warn("reconcile.version_stamp_failed", "state_reconcile", serde_json::json!({ "error": e.to_string() })),
     }
     out
 }
