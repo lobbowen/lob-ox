@@ -1,4 +1,3 @@
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -58,34 +57,7 @@ pub(crate) fn http_get_bytes_progress(
     Ok(buf)
 }
 
-fn platform_artifact(version: &str) -> Option<crate::platform::NodeArtifact> {
-    crate::platform::current().node_artifact(version)
-}
 
-fn best_from_index(raw: &str) -> Option<(String, String)> {
-    let idx: Value = serde_json::from_str(raw).ok()?;
-    let arr = idx.as_array()?;
-    let mut best: Option<(String, String)> = None;
-    for item in arr {
-        let lts = item.get("lts");
-        let is_lts = match lts { Some(v) => !v.is_null(), None => false };
-        if !is_lts { continue; }
-        let ver = item.get("version").and_then(|v| v.as_str()).unwrap_or("");
-        if ver.is_empty() || !ver.starts_with('v') { continue; }
-        let art = match platform_artifact(&ver[1..]) { Some(a) => a, None => continue };
-        let file = art.file;
-        let tag = art.tag;
-        let has = item.get("files").and_then(|v| v.as_array())
-            .map(|a| a.iter().any(|x| x.as_str().map(|s| s == file || (s == tag)).unwrap_or(false)))
-            .unwrap_or(false);
-        if !has { continue; }
-        // 版本比较统一走 core::semver_cmp（完整 semver，含 prerelease）。
-        // 原 version_gt 只比前三段数字，会把 22.12.0-rc.1 与 22.12.0 视为相等。
-        let newer = best.as_ref().map(|b| crate::core::semver_cmp(ver, &b.0) > 0).unwrap_or(true);
-        if newer { best = Some((ver.to_string(), file)); }
-    }
-    best
-}
 
 pub struct LtsChoice {
     pub version: String,
@@ -95,57 +67,41 @@ pub struct LtsChoice {
     pub probes: Vec<(String, bool, u128)>,
 }
 
+/// 解析上游索引，返回当前可用的最新 LTS。
+///
+/// 委托 runtime::node::select_latest —— LTS 判定只有一处实现。
+///
+/// 此前本文件另有一份 best_from_index 做同样的事，而它的 LTS 判定写成
+/// `Some(v) => !v.is_null()`，**漏了 JSON false**。Node 索引里非 LTS 线（奇数大版本，
+/// 如 v26）的 lts 值是 false 而非缺失，于是「最新 LTS」被选成 v26 ——
+/// 真机日志：[runtime] 选用镜像 .../nodejs-release，官方最新 LTS v26.11.1，
+/// 而 nodejs.org 上 v26.11.1 的 lts 确实是 false。
+/// 两份判据分叉正是这轮事故的成因，故此处只保留一份。
 pub fn latest_lts() -> Result<LtsChoice, String> {
-    let mirrors = crate::mirror::load();
-    let probes = crate::mirror::probe_all(&mirrors.node, "index.json");
+    let m = crate::mirror::load();
+    let probes = crate::mirror::probe_all(&m.node, crate::runtime::node::INDEX_PATH);
     let diag: Vec<(String, bool, u128)> = probes
         .iter()
         .map(|p| (p.source.clone(), p.ok, p.latency_ms))
         .collect();
-
-  let mut best: Option<(String, String, u128, String)> = None; 
-    for p in &probes {
-        if !p.ok { continue; }
-        let Some(body) = &p.body else { continue };
-        let Some((ver, file)) = best_from_index(body) else { continue };
-        let better = match &best {
-            None => true,
-            Some((bv, _, _, _)) => crate::core::semver_cmp(&ver, bv) > 0,
-        };
-        if better {
-            best = Some((ver, file, p.latency_ms, p.source.clone()));
-        }
+    let sel = crate::runtime::node::select_latest()?;
+    // 选定镜像仍写回偏好，供后续下载优先使用。
+    let mut mm = crate::mirror::load();
+    mm.selected_node = Some(sel.source.clone());
+    if let Err(e) = crate::mirror::save(&mm) {
+        crate::update::log(&format!("镜像配置写入失败（不影响本次安装）: {}", e));
     }
-    match best {
-        Some((version, file, latency_ms, source)) => {
-            let mut m = crate::mirror::load();
-            m.selected_node = Some(source.clone());
-            if let Err(e) = crate::mirror::save(&m) {
-                crate::update::log(&format!("镜像配置写入失败（不影响本次安装）: {}", e));
-            }
-  
-            if let Err(e) = crate::mirror::export_to_kernel(&m) {
-                crate::update::log(&format!("导出内核镜像偏好失败（不影响本次安装）: {}", e));
-            }
-            Ok(LtsChoice { version, file, source, latency_ms, probes: diag })
-        }
-        None => {
-            let detail = probes
-                .iter()
-                .map(|p| {
-                    if p.ok {
-                        format!("{}:{}ms", p.source, p.latency_ms)
-                    } else {
-                        format!("{}:失败({})", p.source, p.error.as_deref().unwrap_or("无详情"))
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("; ");
-            Err(format!("全部 Node 镜像均不可用或无可用 LTS（{}）", detail))
-        }
+    if let Err(e) = crate::mirror::export_to_kernel(&mm) {
+        crate::update::log(&format!("导出内核镜像偏好失败（不影响本次安装）: {}", e));
     }
+    Ok(LtsChoice {
+        version: sel.version,
+        file: sel.file,
+        source: sel.source,
+        latency_ms: sel.latency_ms,
+        probes: diag,
+    })
 }
-
 pub fn download_verified(
     version: &str,
     file: &str,
