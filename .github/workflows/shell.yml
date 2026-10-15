@@ -209,6 +209,7 @@ jobs:
   # gate：tag 路径下确保 build 矩阵已跑完（from_run 路径下 build 被跳过，gate 直接通过）。
   # 用它而不是把 build 写进 publish.needs —— needs 里的 job 被 if 跳过会把下游一并 skip。
   resolve_build_run:
+    if: startsWith(github.ref, 'refs/tags/shell-')
     runs-on: ubuntu-latest
     outputs:
       run_id: ${{ steps.pick.outputs.run_id }}
@@ -216,7 +217,16 @@ jobs:
       - name: pick
         id: pick
         shell: bash
-        run: echo "run_id=12345" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          RID=$(gh api "repos/$REPO/actions/runs?branch=main&per_page=100" --jq ".workflow_runs[] | select(.conclusion==\"success\" and .name==\"shell-build\" and .head_sha==\"$SHA\") | .id" | head -1)
+          if [ -z "$RID" ]; then RID=""; fi
+          echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+
   gate:
     needs: [version, build, resolve_build_run]
     if: always()
