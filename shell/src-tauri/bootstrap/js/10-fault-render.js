@@ -52,7 +52,9 @@
     if (level === 'warn') {
       show('degraded');
       setText('degradedText', describe(f));
-      try { NS.status('部分功能不可用：' + (f.detail || f.code)); } catch (e) {}
+      // 本页（shell.html）只做桥转发，没有 status/镜像 UI —— 显式判存在，
+      // 免得依赖 TypeError 被 catch 吞掉、掩盖真实问题。
+      try { if (NS.status) NS.status('部分功能不可用：' + (f.detail || f.code)); } catch (e) {}
       // 网络类降级仍要给镜像设置入口 —— 与 fail() 的既有行为一致。
       if (/network|net\.|mirror|网络|镜像/i.test(f.code || '')) {
         try { if (NS.showMirror) NS.showMirror(); } catch (e) {}
@@ -70,7 +72,7 @@
     show('fail');
     setText('failMsg', describe(f));
     hide('degraded');
-    try { NS.status('启动未完成'); } catch (e) {}
+    try { if (NS.status) NS.status('启动未完成'); } catch (e) {}
     if (/network|net\.|mirror|网络|镜像/i.test(f.code || '')) {
       try { if (NS.showMirror) NS.showMirror(); } catch (e) {}
     }

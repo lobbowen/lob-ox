@@ -1,6 +1,6 @@
 (function (NS) {
   function startMirrorWarmup() {
-    try { NS.core.invoke('mirror_warmup').catch(function () {}); } catch (e) {}
+    try { NS.invoke('mirror_warmup', {}, 5000).catch(function () {}); } catch (e) {}
     var tries = 0;
         
     var MAX_TRIES = 100;
@@ -8,7 +8,7 @@
     NS.warmTimer = setInterval(function () {
       tries++;
       if (tries > MAX_TRIES) { clearInterval(NS.warmTimer); NS.warmTimer = null; return; }
-      NS.core.invoke('mirror_cached').then(function (m) {
+      NS.invoke('mirror_cached', {}, 10000).then(function (m) {
         if (!m || !m.ready) return;
         NS.warmMirror = m;
         if (!NS.lastMirror) NS.lastMirror = { mirror: m.nodeBest, latencyMs: m.nodeLatencyMs, probes: m.npmProbes };
@@ -32,7 +32,7 @@
 
   function probeMirrorThen(fn) {
     NS.status('正在测速并选择最佳镜像源…');
-    return NS.withTimeout(NS.core.invoke('node_latest'), 45000, '镜像测速超时').then(function (m) {
+    return NS.invoke('node_latest', {}, 45000).then(function (m) {
       if (m && !m.__timeout && !m.__error && m.ok) {
         NS.lastMirror = m;
         var host = String(m.mirror || '').replace(/^https?:\/\//, '').split('/')[0];
@@ -52,7 +52,7 @@
 
   function loadMirror() {
     NS.$('mirrorHint').textContent = '正在探测各镜像延迟…';
-    return NS.core.invoke('mirror_status').then(function (r) {
+    return NS.invoke('mirror_status', {}, 15000).then(function (r) {
       r = r || {};
       NS.$('mirrorNode').value = (r.node || []).join(', ');
       NS.$('mirrorNpm').value = (r.npm || []).join(', ');

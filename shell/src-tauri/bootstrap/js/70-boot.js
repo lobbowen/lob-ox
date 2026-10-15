@@ -13,7 +13,7 @@
         
     NS._alignRetried = false;
     NS.coreApplyPending = false;
-    NS.core.invoke('shell_bridge_contract').then(function (c) {
+    NS.invoke('shell_bridge_contract', {}, 10000).then(function (c) {
       NS.bridge = c || null;
     }).catch(function () {});
     NS.$('btnForceNode').style.display = 'none';

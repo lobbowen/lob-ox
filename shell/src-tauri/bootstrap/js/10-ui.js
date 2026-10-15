@@ -67,23 +67,9 @@
     fail((INSTALL_FAIL_PREFIX[kind] || '安装失败：') + (text || '未知'));
   }
 
-  function withTimeout(promise, ms, onTimeoutMsg) {
-    return new Promise(function (resolve) {
-      var done = false;
-      var t = setTimeout(function () {
-        if (done) return; done = true;
-        resolve({ __timeout: true, error: onTimeoutMsg || '操作超时（无响应）' });
-      }, ms);
-      promise.then(function (v) {
-        if (done) return; done = true; clearTimeout(t); resolve(v);
-      }, function (e) {
-        if (done) return; done = true; clearTimeout(t); resolve({ __error: String(e) });
-      });
-    });
-  }
 
   function phase(p) {
-    try { if (NS.core) NS.core.invoke('shell_set_phase', { phase: p }).catch(function () {}); } catch (e) {}
+    try { if (NS.core) NS.invoke('shell_set_phase', { phase: p }, 5000).catch(function () {}); } catch (e) {}
   }
 
   function errText(e) {
@@ -96,15 +82,14 @@
     return String(e.message || e);
   }
 
-  function fail(msg) {
-    NS.lastError = msg;
-    NS.status('启动未完成');
-    NS.$('failMsg').textContent = msg;
-    NS.$('fail').style.display = '';
-        
-    if (/网络|镜像|下载|不可达|network|mirror/i.test(String(msg))) {
-      NS.showMirror();
-    }
+  // 引导中止的呈现入口。**实现收为 renderFault 的薄封装**：
+  // 此前 fail() 只显示、不写日志、不置 phase，而 showFatal 写日志置 phase、
+  // 却只显示一次且不退出 —— 两套对「什么算致命」判断互相矛盾，
+  // 调用方（10 处）各自挑一套，于是行为取决于挑了哪个。
+  // 镜像自动展开由 renderFault 承担（网络类失败直接把镜像设置框推到用户面前）。
+  function fail(msg, code) {
+    NS.renderFault(NS.fault(code || 'boot.step_failed', String(msg), 'fatal',
+      '请查看诊断信息；若持续如此请检查网络、镜像源与内核安装状态。'));
   }
 
     
@@ -176,7 +161,6 @@
   NS.wait = wait;
   NS.hideFail = hideFail;
   NS.install = { begin: installBegin, text: installText, done: installDone, fail: installFail, meter: installMeter };
-  NS.withTimeout = withTimeout;
   NS.phase = phase;
   NS.errText = errText;
   NS.fail = fail;

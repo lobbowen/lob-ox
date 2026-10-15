@@ -19,8 +19,8 @@
     if (!node.length && !npm.length) { NS.$('mirrorHint').textContent = '请至少填写一项镜像地址'; return; }
     NS.$('mirrorHint').textContent = '正在保存…';
     var jobs = [];
-    if (node.length) jobs.push(NS.core.invoke('mirror_set', { kind: 'node', urls: node }));
-    if (npm.length) jobs.push(NS.core.invoke('mirror_set', { kind: 'npm', urls: npm }));
+    if (node.length) jobs.push(NS.invoke('mirror_set', { kind: 'node', urls: node }, 15000));
+    if (npm.length) jobs.push(NS.invoke('mirror_set', { kind: 'npm', urls: npm }, 15000));
     Promise.all(jobs).then(function () {
       NS.$('mirrorHint').textContent = '已保存，正在重新开始引导…';
       return NS.wait(500);
@@ -51,7 +51,7 @@
     NS.phase('node');
     NS.status('已跳过环境检测 · 正在准备安装 Node.js…');
     NS.probeMirrorThen(function () {
-      return NS.core.invoke('start_node_install').then(function () { return NS.stepNodeWait(); });
+      return NS.invoke('start_node_install', {}, 120000).then(function () { return NS.stepNodeWait(); });
     });
   });
   NS.$('btnDiag').addEventListener('click', function () {
