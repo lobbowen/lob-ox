@@ -231,7 +231,11 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          RID=$(gh api "repos/$REPO/actions/runs?branch=main&per_page=100" -H "Accept: application/vnd.github+json" --jq '[.workflow_runs[] | select(.conclusion=="success" and .name=="shell-build" and .head_sha==$ENV{SHA})][0].id // empty')
+          # 取 main 上最近 100 次 run 的快照，再筛出「同一提交、已全绿、shell-build」的那次。
+          # 筛选放在单行 python -c 里：多行会让块标量的缩进层级变得不可靠，
+          # 而本机 js-yaml 与 GitHub 解析器在这点上的宽容度并不一致。
+          gh api "repos/$REPO/actions/runs?branch=main&per_page=100" -H "Accept: application/vnd.github+json" > "$RUNNER_TEMP/runs.json"
+          RID=$(python3 -c "import json,os; d=json.load(open(os.environ['RUNNER_TEMP']+'/runs.json')); s=os.environ['SHA']; print(next((str(r['id']) for r in d.get('workflow_runs',[]) if r.get('conclusion')=='success' and r.get('name')=='shell-build' and r.get('head_sha')==s), ''))")
           if [ -z "$RID" ]; then
             echo "::error::tag 指向的提交在 main 上找不到已全绿的 shell-build run"
             echo "::error::请先让 main 的 CI 通过再打 tag；本次不发布（避免发布未经构建验证的产物）"

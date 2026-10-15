@@ -177,6 +177,10 @@ pub fn spawn_healer(pm: std::sync::Arc<ProcessManager>) {
                 for a in desc.spawn_cmd.iter().skip(1) {
                     cmd.arg(a);
                 }
+                // 必须过 bounded::prepare：它在 Windows 上加 CREATE_NO_WINDOW。
+                // 少了这一步，每次重拉内核都会弹出一个控制台窗口 —— 而 heal 在
+                // 内核起不来时会在数秒内反复重拉，于是表现为「Node 窗口无限弹出」。
+                crate::bounded::prepare(&mut cmd);
                 // 应用负载自带的 env 覆盖：沙箱实例靠它把 HOME/APPDATA/XDG_* 指到
                 // 自己的数据目录。缺了它，heal 拉起的进程与内核拉起的进程行为不同——
                 // 前者写真实用户目录，破坏数据隔离。
