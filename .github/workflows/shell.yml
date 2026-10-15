@@ -248,7 +248,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # 产物来自哪次构建，三条路径优先级：显式 from_run > tag 时 resolve_build_run 查出的
+          # 同一提交已全绿 run > 本 run 自己构建。
           RID="${{ inputs.from_run }}"
+          if [ -z "$RID" ]; then RID="${{ needs.resolve_build_run.outputs.run_id }}"; fi
           if [ -n "$RID" ]; then
             echo "复用 run $RID 的产物，跳过构建 —— 通过"
             exit 0
@@ -266,7 +269,7 @@ jobs:
   publish:
     needs: [version, gate, resolve_build_run]
     # 三条发布路径，全部以「产物来自哪次构建」为准：
-    #   tag 推送        -> 本 run 构建并发布（唯一路径）；
+    #   tag 推送        -> 复用 resolve_build_run 查出的、同一提交已全绿的 run（不重编译）；
     #   dispatch+from_run -> 复用显式指定的 run；
     #   两者都无（仅 main 的常规 CI）-> 不发布。
     if: startsWith(github.ref, 'refs/tags/shell-') || inputs.from_run != ''
