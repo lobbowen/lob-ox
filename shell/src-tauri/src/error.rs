@@ -201,7 +201,7 @@ impl ShellError {
     }
 }
 
-pub type ShellResult<T> = Result<T, ShellError>;
+/// 壳侧命令的唯一返回契约。
 
 #[cfg(test)]
 mod tests {

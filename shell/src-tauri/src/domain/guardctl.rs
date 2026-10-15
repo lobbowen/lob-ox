@@ -9,7 +9,7 @@ use tauri::{Emitter, Manager};
 
 
 #[derive(Debug, Clone)]
-pub(crate) struct LaunchError {
+pub struct LaunchError {
     pub code: &'static str,
     pub message: String,
 }

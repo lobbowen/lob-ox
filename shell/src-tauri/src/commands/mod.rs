@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use tauri::Manager;
 
-use crate::error::{ShellError, ShellResult};
+use crate::error::ShellResult;
 use crate::RunState;
 // 安装/下载进度的**唯一**语义层：本层只决定「在哪一步说什么话」，事件形态与措辞渲染都在 domain::install 里，命令层不得自行 emit install_*。
 use crate::domain::install::{self, InstallKind};
@@ -119,21 +119,29 @@ pub fn mirror_cached() -> serde_json::Value {
 }
 
 #[tauri::command]
-pub async fn node_latest() -> serde_json::Value {
-    match tauri::async_runtime::spawn_blocking(crate::node::latest_lts).await {
-        Ok(Ok(c)) => serde_json::json!({
-            "ok": true,
-            "version": c.version,
-            "file": c.file,
-            "mirror": c.source,
-            "latencyMs": c.latency_ms,
-            "probes": c.probes.iter().map(|(s, ok, ms)| serde_json::json!({
-                "source": s, "ok": ok, "latencyMs": ms
-            })).collect::<Vec<_>>(),
-        }),
-        Ok(Err(e)) => serde_json::json!({ "ok": false, "error": e }),
-        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
-    }
+pub async fn node_latest() -> ShellResult<serde_json::Value> {
+    use crate::fault::{code, Fault};
+    // 查不到最新 LTS 是真失败（网络/镜像全不可达），走 Err(Fault)；
+    // 此前用 { ok:false, error } 内嵌，前端必须先判 ok 才知道成没成。
+    let c = match tauri::async_runtime::spawn_blocking(crate::node::latest_lts).await {
+        Ok(Ok(c)) => c,
+        Ok(Err(e)) => {
+            return Err(Fault::new(code::NETWORK_FAILED, e)
+                .with("stage", "查询最新 LTS".into()))
+        }
+        Err(e) => {
+            return Err(Fault::new(code::IPC_PARAM_INVALID, e.to_string()))
+        }
+    };
+    Ok(serde_json::json!({
+        "version": c.version,
+        "file": c.file,
+        "mirror": c.source,
+        "latencyMs": c.latency_ms,
+        "probes": c.probes.iter().map(|(s, ok, ms)| serde_json::json!({
+            "source": s, "ok": ok, "latencyMs": ms
+        })).collect::<Vec<_>>(),
+    }))
 }
 
 #[tauri::command]
@@ -230,9 +238,12 @@ pub fn start_node_install(state: tauri::State<Mutex<RunState>>, app: tauri::AppH
                 install::done(&handle, InstallKind::Npm, serde_json::json!(rt.npm_version));
             }
             Err(f) => {
-                // f.kind 已是安装侧判定的 kind（env/install），此处转成 ShellError 以带上
+                // f.kind 已是安装侧判定的 kind（env/install），此处转成 Fault 以带上
                 // 与前端一致的 kind/hint 文案，而不是裸 message。
-                let se = ShellError::Install { platform: std::env::consts::OS.to_string(), cause: f.message.clone() };
+                let se = crate::fault::Fault::new(
+                    crate::fault::code::INSTALL_FAILED,
+                    format!("{} · {}", std::env::consts::OS, f.message),
+                );
                 s.error = Some(se.to_string());
                 s.status = "环境就绪前置失败".into();
                 drop(s);
@@ -278,7 +289,7 @@ pub async fn core_plan(app: tauri::AppHandle) -> ShellResult<serde_json::Value> 
     .flatten();
     let pkg = crate::core::package_name()?;
     let latest = tauri::async_runtime::spawn_blocking(move || crate::core::latest_pick(&pkg))
-        .await.map_err(|e| ShellError::ipc(e.to_string()))?;
+        .await.map_err(|e| crate::fault::Fault::new(crate::fault::code::IPC_PARAM_INVALID, e.to_string()))?;
     Ok(crate::core::build_plan(installed, latest))
 }
 
@@ -308,14 +319,18 @@ fn fetch_kernel_tgz(
 /// 抽成独立函数：启动门 2（`core_apply`）与面板请求（`kernel_update_apply`）**共用同一实现** —— 内核包只能经这一处写入，符合「单写入者」契约。
 async fn core_apply_inner(app: tauri::AppHandle) -> ShellResult<serde_json::Value> {
     let _ = crate::runtime_contract::ensure();
-    let pkg = crate::core::package_name().map_err(|e| ShellError::contract("core 契约", e))?;
+    let pkg = crate::core::package_name().map_err(|e| {
+        crate::fault::Fault::new(crate::fault::code::CONTRACT_INVALID, format!("core 契约 · {}", e))
+    })?;
     let prefix = crate::domain::coreloc::locate_core(&app).and_then(|b| crate::core::global_prefix_for(&b));
     let origins = crate::core::registry_origins();
         // 目标版本由选版算法决定（契约：rollback / canary / latest / versions 兜底）—— 本命令**不做版本比较、不接受调用方指定版本**：目标高于本机就是升级、低于本机就是回退，同一个写入路径，避免「升级与回退两套逻辑」再次分叉。
     let target = {
         let p = pkg.clone();
         let r = tauri::async_runtime::spawn_blocking(move || crate::core::latest_version(&p))
-            .await.map_err(|e| ShellError::network(&crate::core::registry_origins().join(","), e.to_string()))?;
+            .await.map_err(|e| {
+        crate::fault::Fault::new(crate::fault::code::NETWORK_FAILED, format!("registry · {}", e))
+    })?;
         match r {
             Ok((v, _)) => v,
             Err(e) => return Ok(serde_json::json!({"ok": false, "stage": "resolve", "error": e})),
@@ -372,7 +387,7 @@ async fn core_apply_inner(app: tauri::AppHandle) -> ShellResult<serde_json::Valu
             }
         }
         Err(last)
-    }).await.map_err(|e| ShellError::ipc(e.to_string()))?;
+    }).await.map_err(|e| crate::fault::Fault::new(crate::fault::code::IPC_PARAM_INVALID, e.to_string()))?;
     Ok(match res {
                 // 安装成功后：回读**确切位置**并写 core.json —— 位置单一事实源。必须先回读再报成功：否则「装上了却定位不到」（nvm/自定义 prefix）会被静默跳过，后续启动定位不到内核，用户只看到「起不来」。
         Ok((origin, out)) => {
@@ -455,23 +470,24 @@ pub async fn kernel_update_apply(app: tauri::AppHandle) -> ShellResult<serde_jso
         // 重启阶段的失败按真实 kind 归类：spawn_blocking panic 是内部调用错误，
         // 而 ensure_core 的 LaunchError 是**服务操作**失败（拉起/就绪/版本对齐）。
         // 此前两者都压成裸字符串，10-ui.js 的 errText 按 kind 分支因此永远走不到分支。
+        // 两种失败（LaunchError 与 spawn_blocking panic）统一成 Fault 载荷下发：
+        // code/level/detail/hint 全在一处，面板不需要壳侧再拼话术，也不会丢字段。
         Ok(Err(e)) => {
-            let se = ShellError::service("内核重启", e.message.clone());
+            let f: crate::fault::Fault = e.into();
             Ok(serde_json::json!({
                 "ok": false, "stage": "restart",
-                "kind": se.kind_label(),
-                "hint": se.hint(),
-                "code": e.code,
-                "error": e.message,
+                "fault": f,
                 "detail": install_out,
             }))
         }
-        Err(e) => Ok(serde_json::json!({
-            "ok": false, "stage": "restart",
-            "kind": ShellError::ipc(e.to_string()).kind_label(),
-            "error": e.to_string(),
-            "detail": install_out,
-        })),
+        Err(e) => {
+            let f = crate::fault::Fault::new(crate::fault::code::JOIN_ERROR, e.to_string());
+            Ok(serde_json::json!({
+                "ok": false, "stage": "restart",
+                "fault": f,
+                "detail": install_out,
+            }))
+        }
     }
 }
 
@@ -510,26 +526,13 @@ pub async fn guard_start(app: tauri::AppHandle) -> ShellResult<serde_json::Value
             ),
         )),
     };
-    Ok(match r {
-        Ok(()) => serde_json::json!({"ok": true}),
-                // code：结构化阶段；error 保持**字符串**——前端多处做 `'...' + e` 拼接。
-                // kind/hint：与 ShellError 的 6 个变体同源，否则 10-ui.js 的 errText
-                // 按 kind 分支永远只落到 ipc 兜底，守卫启动失败被读成「前后端版本不一致」。
-        Err(e) => {
-            let se = match e.code {
-                "KERNEL_MISSING" | "RUNTIME_MISSING" => ShellError::contract("内核契约", e.message.clone()),
-                "KERNEL_SPAWN_FAILED" | "KERNEL_EXITED" | "DAEMON_EXITED_UNREADY" | "READY_TIMEOUT" | "LAUNCH_SPEC_FAILED" => {
-                    ShellError::service("守卫启动", e.message.clone())
-                }
-                _ => ShellError::ipc(e.message.clone()),
-            };
-            serde_json::json!({
-                "ok": false, "code": e.code,
-                "kind": se.kind_label(), "hint": se.hint(),
-                "error": e.message,
-            })
-        }
-    })
+    // 守卫拉不起是**命令失败**，直接 Err(Fault)。
+    //
+    // 此前把 LaunchError 的 code 手工映射到 ShellError 的 kind，两处都会失真：
+    //   · KERNEL_MISSING -> contract「删除配置文件后重启」，而内核缺失时没有配置文件可删；
+    //   · 其余一律 service，前端按 kind 分支拿不到真实阶段。
+    // Fault 词表已把 LaunchError 的 8 个 code 并入，转换由 From 负责，无需手工映射。
+    r.map(|()| serde_json::json!({ "started": true }))
 }
 
 /// 守卫就绪探针：引导页据此决定进面板。判据本身**不在这里**：`guardctl::ready` 是全仓唯一的就绪实现，本命令只如实转述。必须 async：探测最长数秒且被高频轮询，必须放阻塞线程池。
@@ -552,36 +555,46 @@ const GUARD_READY_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from
 
 #[tauri::command]
 pub fn win_ctl(app: tauri::AppHandle, action: String) -> ShellResult<()> {
-    // 窗口动作失败按真实语义归类：主窗口不存在是**能力不可用**（Unsupported），
-    // 而非内部调用错误；10-ui.js 按 kind 分支，误分类会让用户读到错误的处置建议。
-    let win = app.get_webview_window("main").ok_or_else(|| ShellError::unsupported("win_ctl", std::env::consts::OS))?;
+    use crate::fault::{code, Fault};
+    // 窗口动作失败必须按**真实后果**分级，不能一律当 ipc：
+    //   · 主窗口不存在      -> 能力不可用（warn）
+    //   · ACL 拒绝（能力未授权）-> warn：仅该功能失效，其余照常
+    //   · 未知动作          -> 调用方错误（error）
+    //
+    // 此前 drag 的 ACL 拒绝被归成 `ipc`（提示「前后端版本不一致，请更新」），
+    // 而它本该是 warn。误分级的直接后果：一次拖不动标题栏经 unhandledrejection
+    // 升级为 fatal，壳退出后反复重启 —— 真机上的无限重启即源于此。
+    let win = app.get_webview_window("main").ok_or_else(|| {
+        Fault::new(code::UNSUPPORTED, "主窗口不存在")
+    })?;
+    // ACL 拒绝在 Tauri 侧的报错文案固定含这两段，据此识别权限问题而非参数错误。
+    let map_err = |what: &str, e: tauri::Error| -> Fault {
+        let msg = e.to_string();
+        if msg.contains("not allowed by ACL") || msg.contains("not in the allowlist") {
+            Fault::new(code::CAPABILITY_DENIED, format!("{}：{}", what, msg))
+        } else {
+            Fault::new(code::IPC_PARAM_INVALID, format!("{}：{}", what, msg))
+        }
+    };
     match action.as_str() {
-        "minimize" => win.minimize().map_err(|e| ShellError::ipc(e.to_string())),
+        "minimize" => win.minimize().map_err(|e| map_err("最小化", e)),
         "toggle-maximize" => {
             if win.is_maximized().unwrap_or(false) {
-                win.unmaximize().map_err(|e| ShellError::ipc(e.to_string()))
+                win.unmaximize().map_err(|e| map_err("还原窗口", e))
             } else {
-                win.maximize().map_err(|e| ShellError::ipc(e.to_string()))
+                win.maximize().map_err(|e| map_err("最大化窗口", e))
             }
         }
-        "maximize" => win.maximize().map_err(|e| ShellError::ipc(e.to_string())),
-        "unmaximize" => win.unmaximize().map_err(|e| ShellError::ipc(e.to_string())),
-        "hide" => {
-            let _ = win.hide();
-            Ok(())
-        }
-        "drag" => {
-                        // 显式窗口拖动（Linux WebKitGTK drag-region 属性常不生效的可靠替代）：前端标题栏拖动区 mousedown 时 invoke win_ctl drag，走 Rust start_dragging。
-            win.start_dragging().map_err(|e| ShellError::ipc(e.to_string()))
-        }
-        _ => Err(format!("不支持的窗口动作: {}（minimize/toggle-maximize/maximize/unmaximize/hide/drag）", action).into()),
+        "maximize" => win.maximize().map_err(|e| map_err("最大化窗口", e)),
+        "unmaximize" => win.unmaximize().map_err(|e| map_err("还原窗口", e)),
+        "hide" => win.hide().map_err(|e| map_err("隐藏窗口", e)),
+        "drag" => win.start_dragging().map_err(|e| map_err("拖动窗口", e)),
+        other => Err(Fault::new(
+            code::IPC_PARAM_INVALID,
+            format!("不支持的窗口动作: {}（minimize/toggle-maximize/maximize/unmaximize/hide/drag）", other),
+        )),
     }
-}
-
-/// 返回控制面板 URL **与此刻能不能投**：由壳框架主动索取，避免 shell:goto-panel 早于 listener 注册而丢失。`serving` 必须与 URL 同出：主帧加载是唯一必然发生的面板导航，只拿 URL 不判据就会把「拒绝连接」的引擎错误页交给用户；而 iframe 被拒不触发 error 事件，前端无从重试。
-// R7-架构：serving 判据改为进程表（壳持有的内核在跑才算能投）。
-// 原 panel_view 的 serving_state 依赖 /session/status，那套会话语义已删除。
-#[tauri::command]
+}#[tauri::command]
 pub fn shell_panel_url() -> serde_json::Value {
     let url = crate::env::api_base_url();
     let serving = {
@@ -643,13 +656,13 @@ pub async fn mirror_status() -> ShellResult<serde_json::Value> {
         crate::mirror::probe_all(&m.node, "index.json")
     })
     .await
-    .map_err(|e| ShellError::ipc(e.to_string()))?;
+    .map_err(|e| crate::fault::Fault::new(crate::fault::code::IPC_PARAM_INVALID, e.to_string()))?;
     let npm_probes = tauri::async_runtime::spawn_blocking(|| {
         let m = crate::mirror::load();
         crate::mirror::probe_all(&m.npm, "")
     })
     .await
-    .map_err(|e| ShellError::ipc(e.to_string()))?;
+    .map_err(|e| crate::fault::Fault::new(crate::fault::code::IPC_PARAM_INVALID, e.to_string()))?;
         // 这一轮是**刚测出来的**逐源结论，必须落盘并重投契约：只在面板上显示的话，内核选源时仍按上一轮（可能已过期）的证据走，「面板一个源、下载另一个源」就是这么分叉的。
     crate::mirror::record_npm_measurements(&npm_probes);
     let fmt = |v: Vec<crate::mirror::Probe>| {
@@ -712,7 +725,8 @@ fn shell_plan(
     date: String,
 ) -> serde_json::Value {
     let mut extra = serde_json::Map::new();
-    extra.insert("ok".into(), serde_json::json!(err.is_none()));
+    // 不再内嵌 ok：命令成败由 Result 表达，plan 只描述「更新计划」本身。
+    // 此前 plan 与命令结果混在一个对象里，前端要先判 ok 才知道有没有出故障。
     extra.insert("current".into(), serde_json::json!(cur));
     extra.insert("notes".into(), serde_json::json!(notes));
     extra.insert("date".into(), serde_json::json!(date));
@@ -778,10 +792,16 @@ pub async fn shell_update_apply(app: tauri::AppHandle) -> ShellResult<serde_json
     let updater = crate::shell_updater(&app, SHELL_DOWNLOAD_TIMEOUT)?;
     let found = match tokio::time::timeout(SHELL_CHECK_TIMEOUT, updater.check()).await {
         Err(_) => {
-            return Ok(serde_json::json!({ "ok": false, "error": "检查超时（可能网络不可达）" }));
+            return Err(crate::fault::Fault::new(
+            crate::fault::code::NETWORK_FAILED,
+            "检查桌面更新超时（可能网络不可达）",
+        ));
         }
         Ok(Err(e)) => {
-            return Ok(serde_json::json!({ "ok": false, "error": format!("检查失败: {}", e) }));
+            return Err(crate::fault::Fault::new(
+            crate::fault::code::NETWORK_FAILED,
+            format!("检查桌面更新失败: {}", e),
+        ));
         }
         Ok(Ok(f)) => f,
     };
@@ -821,7 +841,7 @@ pub async fn shell_update_apply(app: tauri::AppHandle) -> ShellResult<serde_json
                 if !worth_next_source(&e) {
                     let msg = format!("下载失败: {}", e);
                     crate::update::log(&format!("桌面更新{}（源 {}）", msg, host));
-                    return Ok(serde_json::json!({ "ok": false, "error": msg }));
+                    return Err(crate::fault::Fault::new(crate::fault::code::TRANSFER_FAILED, msg));
                 }
                 failures.push(format!("{}：{}", host, e));
             }
@@ -840,7 +860,7 @@ pub async fn shell_update_apply(app: tauri::AppHandle) -> ShellResult<serde_json
     let Some(bytes) = downloaded else {
         let msg = format!("下载失败（{} 个源都没取到安装包）：{}", candidates.len(), failures.join("；"));
         crate::update::log(&format!("桌面更新{}", msg));
-        return Ok(serde_json::json!({ "ok": false, "error": msg }));
+        return Err(crate::fault::Fault::new(crate::fault::code::TRANSFER_FAILED, msg));
     };
 
     let downloaded_bytes = bytes.len() as u64;
@@ -856,7 +876,7 @@ pub async fn shell_update_apply(app: tauri::AppHandle) -> ShellResult<serde_json
     if let Err(e) = u.install(bytes) {
         let msg = format!("安装失败: {}", e);
         crate::update::log(&format!("桌面更新{}", msg));
-        return Ok(serde_json::json!({ "ok": false, "error": msg }));
+        return Err(crate::fault::Fault::new(crate::fault::code::TRANSFER_FAILED, msg));
     }
     crate::update::log(&format!("桌面更新安装完成 {}", target));
     Ok(serde_json::json!({ "ok": true, "installed": target }))
