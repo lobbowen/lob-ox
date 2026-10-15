@@ -54,10 +54,22 @@
       return NS.invoke('start_node_install', {}, 120000).then(function () { return NS.stepNodeWait(); });
     });
   });
+  // 诊断信息 = 内存快照 + **结构化事件流**。
+  // 此前只有内存快照：刷新即清零，看不到跨会话历史，也没有任何级别与来源标注。
+  // telemetry_tail 补上后者 —— 用户复制出去的是事实（带时间戳/级别/来源），不是推断。
   NS.$('btnDiag').addEventListener('click', function () {
-    var t = NS.diagText();
-    try { if (navigator.clipboard) navigator.clipboard.writeText(t); } catch (e) {}
-    NS.status('诊断信息已复制：' + t);
+    var snapshot = NS.diagText();
+    NS.status('正在收集事件…');
+    NS.invoke('telemetry_tail', { limit: 200 }, 15000).then(function (r) {
+      var events = (r && r.text) ? r.text : '(事件流读不到)';
+      var text = snapshot + '\n\n--- 壳侧事件流（' + ((r && r.seq) || 0) + ' 条为止）---\n' + events;
+      try { if (navigator.clipboard) navigator.clipboard.writeText(text); } catch (e) {}
+      NS.status('诊断信息已复制（含事件流 ' + ((r && r.seq) || 0) + ' 条）');
+    }).catch(function (e) {
+      // 事件流读不到也要把内存快照给出去，不能因为附加信息失败就连基本诊断都没有。
+      try { if (navigator.clipboard) navigator.clipboard.writeText(snapshot); } catch (e2) {}
+      NS.status('诊断信息已复制（事件流读取失败：' + NS.faultText(e) + '）');
+    });
   });
   if (NS.evt) {
     // Rust 发的是 core_progress（guardctl.rs 的 step()）；监听 guard_progress 是死的，

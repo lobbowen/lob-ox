@@ -596,7 +596,20 @@ pub fn win_ctl(app: tauri::AppHandle, action: String) -> ShellResult<()> {
             format!("不支持的窗口动作: {}（minimize/toggle-maximize/maximize/unmaximize/hide/drag）", other),
         )),
     }
-}#[tauri::command]
+}/// 诊断读口：取壳侧结构化事件的末尾若干条。
+///
+/// 此前诊断信息只能由前端从内存变量拼 —— 刷新即清零，也看不到跨会话的历史，
+/// 更拿不到任何带级别与来源的记录（shell.log 更是零读口）。
+/// 这里把 telemetry 事件流暴露出去，让「复制诊断信息」给出的是事实而非推断。
+#[tauri::command]
+pub fn telemetry_tail(limit: Option<usize>) -> serde_json::Value {
+    let n = limit.unwrap_or(200).clamp(1, 5000);
+    serde_json::json!({
+        "text": crate::telemetry::view::export_text(n),
+        "seq": crate::telemetry::sink::current_seq(),
+    })
+}
+#[tauri::command]
 pub fn shell_panel_url() -> serde_json::Value {
     let url = crate::env::api_base_url();
     let serving = {
