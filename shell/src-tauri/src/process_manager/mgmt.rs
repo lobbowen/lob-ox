@@ -37,13 +37,13 @@ pub async fn run(state: Arc<ProcessManager>) {
     // 否则后起的 --run-guard 子进程会把壳的端口覆盖成自己的，内核上报随即
     // 全部落进这张没人查询、没人 heal 的临时表。
     if let Some(pid) = live_contract_owner() {
-        eprintln!("[mgmt] 契约已有在世所有者 pid={}，本进程不接管管理端点", pid);
+        crate::telemetry::event::info("mgmt.owner_alive", "process_manager", serde_json::json!({ "pid": pid }));
         return;
     }
     let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("[mgmt] bind 127.0.0.1:0 失败: {e}");
+            crate::telemetry::event::error("mgmt.bind_failed", "process_manager", serde_json::json!({ "addr": "127.0.0.1:0", "error": format!("{}", e) }));
             return;
         }
     };
@@ -52,13 +52,13 @@ pub async fn run(state: Arc<ProcessManager>) {
     if let Ok(mut guard) = state.ports.lock() {
         let _ = guard.register_sole("guard-mgmt", port);
     }
-    eprintln!("[mgmt] guard-mgmt 监听 127.0.0.1:{port}");
+    crate::telemetry::event::info("mgmt.listening", "process_manager", serde_json::json!({ "port": port }));
     // 端口回灌内核（壳写内核读，单向）：内核 daemon 与 GUI 壳是两个独立进程
     //   （--run-guard 走 exec 替换，壳进程不再存在），故不能用父传子 env，改走落盘契约。
     // 令牌根不可得 → 不写契约文件：内核读不到端点即静默降级，
     // 而挂着可预测凭据的端点可被本机任意进程用来执行任意 spawn_cmd。
     if let Err(e) = export_port(port) {
-        eprintln!("[mgmt] 契约未落盘，管理端点不可用: {e}");
+        crate::telemetry::event::warn("mgmt.contract_not_persisted", "process_manager", serde_json::json!({ "error": format!("{}", e) }));
     }
     loop {
         let (stream, _addr) = match listener.accept().await {
@@ -73,7 +73,7 @@ pub async fn run(state: Arc<ProcessManager>) {
                 async move { handle(st, req).await }
             });
             if let Err(e) = http1::Builder::new().serve_connection(io, svc).await {
-                eprintln!("[mgmt] 连接错误: {e}");
+                crate::telemetry::event::warn("mgmt.connect_error", "process_manager", serde_json::json!({ "error": format!("{}", e) }));
             }
         });
     }

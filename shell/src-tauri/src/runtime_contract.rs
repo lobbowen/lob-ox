@@ -251,7 +251,7 @@ pub fn write(rt: &NodeRuntime) {
     let p = path();
     let body = serde_json::to_string_pretty(&meta(rt)).unwrap_or_default();
     if let Err(e) = crate::atomic_write::write(&p, &(body + "\n")) {
-        eprintln!("[runtime_contract] 落盘失败: {e}");
+        crate::telemetry::event::warn("contract.runtime_persist_failed", "runtime_contract", serde_json::json!({ "error": format!("{}", e) }));
     }
 }
 

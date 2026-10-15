@@ -31,7 +31,7 @@ pub fn write(c: &InstalledCore) {
     let body = serde_json::to_string_pretty(&meta).unwrap_or_default();
     // 原子提交收口到 atomic_write：失败即清理 tmp，不再各自实现。
     if let Err(e) = crate::atomic_write::write(&p, &(body + "\n")) {
-        eprintln!("[core_contract] 落盘失败: {e}");
+        crate::telemetry::event::warn("contract.core_persist_failed", "core_contract", serde_json::json!({ "error": format!("{}", e) }));
     }
 }
 

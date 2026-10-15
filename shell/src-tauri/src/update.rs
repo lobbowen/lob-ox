@@ -126,7 +126,7 @@ fn write_json(p: &Path, v: &serde_json::Value) {
     let body = serde_json::to_string_pretty(v).unwrap_or_default();
     // 收口到 atomic_write：此前 rename 失败会泄漏 .tmp。
     if let Err(e) = crate::atomic_write::write(p, &body) {
-        eprintln!("[update] 落盘 {} 失败: {e}", p.display());
+        crate::telemetry::event::warn("identity.persist_failed", "update", serde_json::json!({ "path": p.display().to_string(), "error": format!("{}", e) }));
     }
 }
 

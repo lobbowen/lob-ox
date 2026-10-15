@@ -3,9 +3,8 @@
     NS.setStep(2);
     NS.phase('kernel');
     NS.status('正在检查内核版本…');
-    return NS.withTimeout(NS.core.invoke('core_plan'), NS.CORE_PLAN_BUDGET_MS, '内核版本检查超时（网络不可达？）').then(function (p) {
-      if (p && p.__timeout) { NS.fail('内核版本检查超时（网络不可达？）'); return null; }
-      if (p && p.__error) { NS.fail('内核版本检查异常：' + p.__error); return null; }
+    // 超时与失败统一走 catch（Fault），不再 resolve 出 __timeout 哨兵对象。
+    return NS.invoke('core_plan', {}, NS.CORE_PLAN_BUDGET_MS).then(function (p) {
       NS.lastPlan = p || {};
       if (!p.installed) {
         NS.install.begin('kernel', '未安装内核 · 正在安装标准产品包…' + (NS.mirrorText() ? '（源 ' + NS.mirrorText() + '）' : ''));
@@ -24,7 +23,12 @@
       NS.status('内核已是最新（v' + p.installed + '）' + (mt ? ' · 源 ' + mt : ''));
       NS.coreVersion = p.installed;
       return NS.wait(300).then(NS.stepCoreDone);
-    }).catch(function (e) { NS.fail('内核版本检查失败：' + NS.errText(e)); });
+    }).catch(function (e) {
+      // 内核查不到版本就装不上，无从降级 —— 一律按阻断处理，
+      // 话术由 Fault.hint 给出（不再是前端拼的固定句）。
+      NS.renderFault(e);
+      return null;
+    });
   }
 
   function coreApply() {
@@ -45,27 +49,31 @@
 
   function coreApplyOnce() {
         
-    return NS.withTimeout(NS.core.invoke('core_apply'), NS.coreApplyBudgetMs(), '内核安装超时（已中止等待）').then(function (r) {
-      if (r && r.__timeout) return coreApplyPoll(0);
-      if (r && r.__error) { NS.fail('内核安装异常：' + r.__error); return false; }
+    return NS.invoke('core_apply', {}, NS.coreApplyBudgetMs()).then(function (r) {
       if (!r || r.ok !== true) {
         NS.fail('内核' + ((NS.lastPlan && NS.lastPlan.installed) ? '更新' : '安装') + '失败：' + ((r && r.error) || '未知错误'));
         return false;
       }
       NS.coreVersion = r.version;
-      return NS.core.invoke('core_status').then(function (st) {
+      return NS.invoke('core_status', {}, NS.CORE_APPLY_BUDGET_MS).then(function (st) {
         st = st || {};
         if (st.version === r.version) return NS.stepCoreDone();
         NS.fail('内核已安装 v' + r.version + '，但检测到的是 v' + (st.version || '未知') + '（安装前缀不一致）');
         return false;
       });
-    }).catch(function (e) { NS.fail('内核安装异常：' + NS.errText(e)); return false; });
+    }).catch(function (e) {
+      // 安装超时不等于失败：后端可能仍在装。此时转为轮询状态，
+      // 由 coreApplyPoll 判定它到底装完没有（此前靠 __timeout 哨兵做同一件事）。
+      if (e && e.code === 'client.timeout') return coreApplyPoll(0);
+      NS.renderFault(e);
+      return false;
+    });
   }
 
   function coreApplyPoll(n) {
     var plan = NS.lastPlan || {};
     var target = plan.installed ? (plan.latest || null) : null;
-    return NS.core.invoke('core_status').then(function (st) {
+    return NS.invoke('core_status', {}, NS.CORE_APPLY_BUDGET_MS).then(function (st) {
       st = st || {};
       if (st.version && (!target || st.version === target)) {
         NS.coreVersion = st.version;

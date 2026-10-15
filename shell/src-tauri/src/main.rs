@@ -152,10 +152,10 @@ fn main() {
             match outcome {
                 crate::state_reconcile::Outcome::Unchanged => {}
                 crate::state_reconcile::Outcome::Rewritten(why) => {
-                    eprintln!("[state-reconcile] {} 已重写: {}", name, why);
+                    crate::telemetry::event::info("reconcile.rewritten", "state_reconcile", serde_json::json!({ "name": name, "why": why }));
                 }
                 crate::state_reconcile::Outcome::Skipped(why) => {
-                    eprintln!("[state-reconcile] {} 需关注: {}", name, why);
+                    crate::telemetry::event::warn("reconcile.needs_attention", "state_reconcile", serde_json::json!({ "name": name, "why": why }));
                 }
             }
         }
