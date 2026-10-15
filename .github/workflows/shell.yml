@@ -392,13 +392,15 @@ jobs:
           fi
           echo "待上传文件："
           echo "$FILES"
-          # 已存在则只补传缺失的附件（重复运行不会覆盖已有资产）。
+          # 必须「先建后传」：gh release create 不接受文件参数 ——
+          # 它会对尚未存在的 Release 调上传接口，得到
+          # HTTP 404 (uploads.github.com/.../releases/<id>/assets)。
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "::notice::Release $TAG 已存在，补传附件"
-            gh release upload "$TAG" $FILES --clobber
           else
-            gh release create "$TAG" --title "桌面壳 $VER" --generate-notes $FILES
+            gh release create "$TAG" --title "桌面壳 $VER" --generate-notes
           fi
+          gh release upload "$TAG" $FILES --clobber
           echo "::notice::Release 就绪：$TAG"
       - name: 发布后自证（通道字节 = 本次构建产物）
         shell: bash
