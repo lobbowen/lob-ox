@@ -127,7 +127,7 @@ impl From<crate::error::ShellError> for Fault {
         let f = Fault::new(code, detail);
         // Probe 变体带耗时，进 data 让 hint 能把它带进话术（旧实现硬编码 hint 丢了这个）。
         match &e {
-            ShellError::Probe { elapsed_ms, .. } => f.with("elapsed_ms", *elapsed_ms as u64),
+            ShellError::Probe { elapsed_ms, .. } => f.with("elapsed_ms", (*elapsed_ms as u64).into()),
             ShellError::Network { url, .. } => f.with("url", url.clone().into()),
             ShellError::Contract { file, .. } => f.with("file", file.clone().into()),
             _ => f,
@@ -153,5 +153,38 @@ impl From<crate::domain::guardctl::LaunchError> for Fault {
             _ => code::JOIN_ERROR,
         };
         Fault::new(c, e.message)
+    }
+}
+// ── 通用转换 ──────────────────────────────────────────────────────
+//
+// 壳内大量路径返回裸 String（platform/*.rs 全部如此），并在命令层用 `?` 直接上抛。
+// 此前这些 `?` 落到 ShellError（它有 From<String>），换到 Fault 后必须补齐同样能力，
+// 否则每个平台错误都要手写 map_err —— 那正是要消除的散落转换。
+impl From<String> for Fault {
+    fn from(detail: String) -> Fault {
+        Fault::new(code::UNKNOWN, detail)
+    }
+}
+
+impl From<&str> for Fault {
+    fn from(detail: &str) -> Fault {
+        Fault::new(code::UNKNOWN, detail)
+    }
+}
+
+impl From<std::io::Error> for Fault {
+    fn from(e: std::io::Error) -> Fault {
+        Fault::new(code::CONTRACT_INVALID, format!("文件系统 · {}", e))
+    }
+}
+
+impl From<tauri::Error> for Fault {
+    fn from(e: tauri::Error) -> Fault {
+        let msg = e.to_string();
+        if msg.contains("not allowed by ACL") || msg.contains("not in the allowlist") {
+            Fault::new(code::CAPABILITY_DENIED, msg)
+        } else {
+            Fault::new(code::IPC_PARAM_INVALID, msg)
+        }
     }
 }

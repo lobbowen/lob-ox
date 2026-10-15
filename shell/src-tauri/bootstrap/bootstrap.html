@@ -98,6 +98,17 @@
 </head>
 <body>
   <!-- 致命错误横幅（不变量 F2/F3）：全局 onerror / unhandledrejection 与启动自检显示它。默认隐藏；一旦显示即说明界面已无法继续，并给出可复制的具体原因。 -->
+  <!-- 降级提示：功能失效但应用继续。level=warn 的 Fault 落这里，
+     不阻断引导、不退出。此前前端没有任何这类表达路径，
+     所有错误一律按致命处理 —— 一个拖不动标题栏就会杀掉整个应用。 -->
+<div id="degraded" style="display:none;position:fixed;left:0;right:0;top:0;z-index:9998;
+     background:#78350f;color:#fff;padding:10px 14px;font:13px/1.5 system-ui,sans-serif;
+     border-bottom:2px solid #d97706">
+    <b>部分功能不可用</b>：<span id="degradedText"></span>
+    <button id="degradedClose" title="收起" aria-label="收起"
+            style="float:right;background:transparent;border:1px solid #fbbf24;color:#fff;
+                   border-radius:4px;padding:0 8px;cursor:pointer">×</button>
+  </div>
   <div id="fatal" style="display:none;position:fixed;left:0;right:0;top:0;z-index:9999;
        background:#7f1d1d;color:#fff;padding:10px 14px;font:13px/1.5 system-ui,sans-serif;
        border-bottom:2px solid #dc2626">
@@ -167,7 +178,9 @@
     </div>
 <!-- 引导脚本按职责拆分为 9 个文件：原为 802 行单块脚本，一处语法错会导致**全页不执行**（已真实发生）。现每个文件独立语法检查；80-init 必须最后加载。 -->
   <script src="js/00-runtime.js"></script>
-  <script src="js/10-ui.js"></script>
+<script src="js/10-fault.js"></script>
+<script src="js/10-fault-render.js"></script>
+<script src="js/10-ui.js"></script>
   <script src="js/20-env.js"></script>
   <script src="js/30-mirror.js"></script>
   <script src="js/40-shell-update.js"></script>

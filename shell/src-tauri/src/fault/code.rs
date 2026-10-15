@@ -23,6 +23,9 @@ const fn c(id: &'static str, level: Level) -> Code {
     Code { id, level }
 }
 
+/// 无法归类的失败。**不判 fatal** —— 认不出来的故障不该让系统自杀。
+pub const UNKNOWN: Code = c("unknown", Level::Error);
+
 // ── 环境（Node / 契约）────────────────────────────────────────────
 pub const RUNTIME_MISSING: Code = c("env.runtime_missing", Level::Fatal);
 pub const NODE_UNUSABLE: Code = c("env.node_unusable", Level::Fatal);

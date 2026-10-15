@@ -26,11 +26,18 @@
     }).then(function () {
       NS.hideFail();
       NS.$('mirrorBox').style.display = 'none';
-      NS.boot();
+    NS.boot();
     }).catch(function (e) {
       NS.$('mirrorHint').textContent = '保存失败：' + e;
     });
   });
+  // IPC 可用性检查放在启动时刻而非 00-runtime 加载时：那时故障层已就位，
+  // 且这才是真正要发起第一次调用的时刻。
+  if (!NS.core || !NS.core.invoke) {
+    NS.renderFault(NS.fault('ipc.unavailable', 'Tauri IPC 不可用', 'fatal',
+      '本页面必须在主帧中加载。请完全退出后重新启动桌面壳。'));
+    return;
+  }
   NS.$('btnRetry').addEventListener('click', function () {
     NS.$('btnForceNode').style.display = 'none';
     NS.boot();

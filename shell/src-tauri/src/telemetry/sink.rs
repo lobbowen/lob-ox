@@ -84,9 +84,9 @@ impl State {
         }
         let from = size.saturating_sub(8192);
         let Ok(mut f) = std::fs::File::open(&self.file) else { return 0 };
-        use std::io::Read;
+        use std::io::{Read, Seek, SeekFrom};
         let mut buf = vec![0u8; (size - from) as usize];
-        if f.read_exact_at(&mut buf, from).is_err() {
+        if f.seek(SeekFrom::Start(from)).and_then(|_| f.read_exact(&mut buf)).is_err() {
             return 0;
         }
         let text = String::from_utf8_lossy(&buf);

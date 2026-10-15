@@ -532,7 +532,9 @@ pub async fn guard_start(app: tauri::AppHandle) -> ShellResult<serde_json::Value
     //   · KERNEL_MISSING -> contract「删除配置文件后重启」，而内核缺失时没有配置文件可删；
     //   · 其余一律 service，前端按 kind 分支拿不到真实阶段。
     // Fault 词表已把 LaunchError 的 8 个 code 并入，转换由 From 负责，无需手工映射。
-    r.map(|()| serde_json::json!({ "started": true }))
+    // LaunchError -> Fault 的转换由 From 提供（词表已合并，见 fault.rs）。
+    r.map_err(crate::fault::Fault::from)
+        .map(|()| serde_json::json!({ "started": true }))
 }
 
 /// 守卫就绪探针：引导页据此决定进面板。判据本身**不在这里**：`guardctl::ready` 是全仓唯一的就绪实现，本命令只如实转述。必须 async：探测最长数秒且被高频轮询，必须放阻塞线程池。
