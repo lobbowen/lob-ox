@@ -21,6 +21,7 @@ mod update_plan;
 mod release_channel;
 mod state_reconcile;
 mod process_manager;
+mod transfer;
 mod runtime;
 
 use std::sync::Mutex;

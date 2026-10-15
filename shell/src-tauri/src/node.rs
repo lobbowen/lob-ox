@@ -1,61 +1,4 @@
-use sha2::{Digest, Sha256};
-use std::io::Read;
 use std::path::{Path, PathBuf};
-
-const HTTP_TOTAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
-
-fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
-    http_get_bytes_progress(url, None, None)
-}
-
-pub(crate) fn http_get_bytes_progress(
-    url: &str,
-    total_hint: Option<u64>,
-    on_bytes: Option<&dyn Fn(u64, Option<u64>)>,
-) -> Result<Vec<u8>, String> {
-  
-    let resp = crate::mirror::agent()
-        .get(url)
-        .timeout(HTTP_TOTAL_TIMEOUT)
-        .call()
-        .map_err(|e| format!("下载失败 {}: {}", url, e))?;
-    let total = resp
-        .header("content-length")
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .or(total_hint)
-        .filter(|t| *t > 0);
-    let mut buf = Vec::with_capacity(total.unwrap_or(0).min(64 * 1024 * 1024) as usize);
-  
-    let cap = total.map(|t| t.saturating_add(1024 * 1024)).unwrap_or(512 * 1024 * 1024);
-    let mut reader = resp.into_reader();
-    let mut chunk = [0u8; 64 * 1024];
-    let report_every = total.map(|t| (t / 100).max(1)).unwrap_or(512 * 1024);
-    let mut next_report = 0u64;
-    loop {
-        let n = reader.read(&mut chunk).map_err(|e| format!("读取响应失败: {}", e))?;
-        if n == 0 {
-            break;
-        }
-        buf.extend_from_slice(&chunk[..n]);
-        if buf.len() as u64 > cap {
-            return Err(format!(
-                "下载中断 {}：响应体已超过上限 {} 字节（声称总量 {:?}）",
-                url, cap, total
-            ));
-        }
-        if let Some(cb) = on_bytes {
-            let got = buf.len() as u64;
-            if got >= next_report {
-                next_report = got + report_every;
-                cb(got, total);
-            }
-        }
-    }
-    if let Some(cb) = on_bytes {
-        cb(buf.len() as u64, total);
-    }
-    Ok(buf)
-}
 
 
 
@@ -102,6 +45,10 @@ pub fn latest_lts() -> Result<LtsChoice, String> {
         probes: diag,
     })
 }
+/// 取回 Node 官方归档并校验 SHA256。
+///
+/// 下载与回退交给 transfer::fetch（与内核、桌面壳同一条通路）；
+/// 本函数只保留 Node 特有的两件事：SHASUMS256.txt 的摘要怎么取、以及产物落哪。
 pub fn download_verified(
     version: &str,
     file: &str,
@@ -109,7 +56,6 @@ pub fn download_verified(
     preferred: Option<&str>,
     on_bytes: &dyn Fn(u64, Option<u64>),
 ) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(dl_dir).map_err(|e| e.to_string())?;
     let mirrors = crate::mirror::load();
     let mut order: Vec<String> = Vec::new();
     if let Some(p) = preferred {
@@ -122,42 +68,55 @@ pub fn download_verified(
             order.push(s.clone());
         }
     }
-    let mut last_err: Option<String> = None;
+    let dst = dl_dir.join(file);
     for base in &order {
-        let base: &str = base.as_str();
-        let file_url = format!("{}/{}/{}", base, version, file);
-        let data = match http_get_bytes_progress(&file_url, None, Some(on_bytes)) {
-            Ok(d) => d,
-            Err(e) => { last_err = Some(e); continue; }
-        };
-        let digest = hex::encode(Sha256::digest(&data));
-    
-        let sums = match http_get_bytes(&format!("{}/{}/SHASUMS256.txt", base, version)) {
-            Ok(bytes) => match String::from_utf8(bytes) {
-                Ok(s) => s,
-                Err(e) => { last_err = Some(format!("SHASUMS 读取失败: {}", e)); continue; }
-            },
-            Err(e) => { last_err = Some(format!("SHASUMS 下载失败: {}", e)); continue; }
+        let base = base.as_str();
+        // 摘要来自同源的 SHASUMS256.txt：与归档一起发布，取不到即视为该源不可用。
+        let sums = match crate::transfer::fetch(
+            &[crate::transfer::source::under(base, version, "SHASUMS256.txt")],
+            &crate::transfer::Request::new(
+                crate::transfer::staging_dir().join(format!("{}-SHASUMS256.txt", version)),
+            )
+            .timeout(std::time::Duration::from_secs(30)),
+            &|_, _| {},
+        ) {
+            Ok(_) => std::fs::read_to_string(
+                crate::transfer::staging_dir().join(format!("{}-SHASUMS256.txt", version)),
+            )
+            .map_err(|e| format!("{} 的 SHASUMS256.txt 读取失败: {}", base, e))?,
+            Err(e) => {
+                crate::update::log(&format!("[node] 源 {} 的 SHASUMS256.txt 不可用: {}", base, e));
+                continue;
+            }
         };
         let expect = match sums.lines().find_map(|l| {
-            let l = l.trim();
-            if l.ends_with(&format!("  {}", file)) {
-                let h = l.split_whitespace().next().unwrap_or("");
-                if h.len() == 64 { Some(h.to_string()) } else { None }
-            } else { None }
+            crate::transfer::verify::Expectation::from_shasums_line(l, file)
         }) {
-            Some(h) => h,
-            None => { last_err = Some(format!("SHASUMS256.txt 中未找到条目 {}", file)); continue; }
+            Some(e) => e,
+            None => {
+                crate::update::log(&format!(
+                    "[node] {} 的 SHASUMS256.txt 中没有 {} 的条目，该源跳过",
+                    base, file
+                ));
+                continue;
+            }
         };
-        if digest != expect {
-            last_err = Some(format!("SHA256 校验失败：期望 {} 实得 {}（拒绝安装）", expect, digest));
-            continue;
+        let cands = vec![crate::transfer::source::under(base, version, file)];
+        let req = crate::transfer::Request::new(&dst).verify(expect);
+        match crate::transfer::fetch(&cands, &req, &|d, t| on_bytes(d, t)) {
+            Ok(got) => {
+                crate::update::log(&format!(
+                    "[node] 已取回 {}（{} 字节，源 {}）",
+                    file, got.bytes, got.source.unwrap_or_default()
+                ));
+                return Ok(got.path);
+            }
+            Err(e) => {
+                crate::update::log(&format!("[node] 源 {} 的归档不可用: {}", base, e));
+            }
         }
-        let dst = dl_dir.join(file);
-        std::fs::write(&dst, &data).map_err(|e| e.to_string())?;
-        return Ok(dst);
     }
-    Err(last_err.unwrap_or_else(|| "下载失败".into()))
+    Err(format!("全部 {} 个 Node 源均未取得可用归档", order.len()))
 }
 
 pub fn outdated(installed: Option<&str>, latest: &str) -> bool {

@@ -405,28 +405,29 @@ pub fn dist_cache_path(pkg: &str, version: &str) -> PathBuf {
         .join(format!("{}-{}.tgz", dist_slug(pkg), dist_slug(version)))
 }
 
+/// 取回内核 npm 包并按 registry 元数据校验。
+///
+/// 下载与回退交给 transfer::fetch（与环境、桌面壳同一条通路）；
+/// 本函数只保留 npm 包特有的两件事：摘要来自 registry 的 integrity（SHA512-base64），
+/// 以及落定后要交回「是否真的验过摘要」给调用方写契约。
 pub fn fetch_dist(
     dist: &DistInfo,
     dst: &Path,
     on_bytes: &dyn Fn(u64, Option<u64>),
 ) -> Result<(u64, bool), String> {
-    use sha2::{Digest, Sha512};
-    let data = crate::node::http_get_bytes_progress(&dist.tarball, dist.size, Some(on_bytes))?;
+    let mut req = crate::transfer::Request::new(dst);
     if let Some(t) = dist.size {
-        if data.len() as u64 != t {
-            return Err(format!("取回不完整：该源声明 {} 字节，实得 {} 字节", t, data.len()));
-        }
+        req = req.expect_size(t);
     }
     if let Some(want) = &dist.sha512 {
-        if hex::encode(Sha512::digest(&data)) != hex::encode(want) {
-            return Err("SHA512 校验失败（该源的包内容与其元数据不符，拒绝安装）".to_string());
-        }
+        req = req.verify(crate::transfer::verify::Expectation::Sha512(hex::encode(want)));
     }
-    if let Some(parent) = dst.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建 {} 失败: {}", parent.display(), e))?;
-    }
-    std::fs::write(dst, &data).map_err(|e| format!("写入 {} 失败: {}", dst.display(), e))?;
-    Ok((data.len() as u64, dist.sha512.is_some()))
+    let cands = [crate::transfer::source::Candidate::new(
+        dist.tarball.clone(),
+        "npm registry",
+    )];
+    let got = crate::transfer::fetch(&cands, &req, &|d, t| on_bytes(d, t))?;
+    Ok((got.bytes, dist.sha512.is_some()))
 }
 
 pub fn is_node_install_prefix(p: &Path) -> bool {
