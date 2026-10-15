@@ -62,9 +62,7 @@ jobs:
           # 在 main 的历史里找最近一次已全绿的 shell-build run。
           # tag 打在已验证过的提交上，那次 run 的产物就是要发布的东西，
           # 无需也不应再编一遍。
-          RID=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=main&per_page=100" \
-                 -H "Accept: application/vnd.github+json" \
-                 --jq '[.workflow_runs[] | select(.conclusion=="success" and .name=="shell-build")][0].id // empty')
+          RID=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=main&per_page=100" -H "Accept: application/vnd.github+json" --jq '[.workflow_runs[] | select(.conclusion=="success" and .name=="shell-build")][0].id // empty')
           if [ -z "$RID" ]; then
             echo "::error::找不到可复用的已全绿 main run；请改用 workflow_dispatch + from_run 指定"
             exit 1
