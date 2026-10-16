@@ -57,8 +57,25 @@ pub async fn run(state: Arc<ProcessManager>) {
     //   （--run-guard 走 exec 替换，壳进程不再存在），故不能用父传子 env，改走落盘契约。
     // 令牌根不可得 → 不写契约文件：内核读不到端点即静默降级，
     // 而挂着可预测凭据的端点可被本机任意进程用来执行任意 spawn_cmd。
-    if let Err(e) = export_port(port) {
-        crate::telemetry::event::warn("mgmt.contract_not_persisted", "process_manager", serde_json::json!({ "error": format!("{}", e) }));
+    match export_port(port) {
+        ContractWrite::Written => {}
+        ContractWrite::NotWritten(e) => {
+            crate::telemetry::event::warn("mgmt.contract_not_persisted", "process_manager", serde_json::json!({ "error": e }));
+            crate::update::log(&format!("[mgmt] 端口契约未落盘，管理端点不可用: {}", e));
+            return;
+        }
+        ContractWrite::PermissionNotSet(e) => {
+            // 权限未收口 ≠ 端点不可用：字节已落盘（atomic_write 的 Ok 分支），
+            // 内核读得到端口与令牌，控制面可用。此处 return 会让 Windows 上
+            // 每次启动都因「无 POSIX 权限位」而放弃管理端点——那是功能回退，
+            // 比权限敞开更严重（后者只是同机其他用户可能读到 token，前者是功能全无）。
+            // 处置：端点照起，权限事实如实落事件与日志，由运维按需加固。
+            crate::telemetry::event::warn("mgmt.contract_permission", "process_manager", serde_json::json!({ "error": e }));
+            crate::update::log(&format!(
+                "[mgmt] guard-mgmt.json 已写入但权限未收口（{}）——管理端点继续启动，请按需收口 ACL",
+                e
+            ));
+        }
     }
     loop {
         let (stream, _addr) = match listener.accept().await {
@@ -176,14 +193,28 @@ fn token_eq(got: &str, want: &str) -> bool {
     }
     diff == 0
 }
-fn export_port(port: u16) -> Result<(), String> {
+/// 契约落盘的三种结局。用 enum 而非 `Result`：三种结局的可操作结论完全不同
+/// （落盘可用 / 没写进去 / 写进去了但权限没收口），压成两个槽位会让
+/// 「权限未设」被读成「没写」或反之。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContractWrite {
+    Written,
+    NotWritten(String),
+    PermissionNotSet(String),
+}
+
+fn export_port(port: u16) -> ContractWrite {
     let path = crate::env::supervisor_dir().join("guard-mgmt.json");
+    let token = match mgmt_token(port) {
+        Ok(t) => t,
+        Err(e) => return ContractWrite::NotWritten(format!("令牌根不可得: {}", e)),
+    };
     let body = match serde_json::to_string_pretty(&serde_json::json!({
         "schema": 1,
         "role": "guard-mgmt",
         "host": "127.0.0.1",
         "port": port,
-        "token": mgmt_token(port)?,
+        "token": token,
         "pid": std::process::id(),
         "at": std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -191,10 +222,17 @@ fn export_port(port: u16) -> Result<(), String> {
             .unwrap_or(0),
     })) {
         Ok(b) => b,
-        Err(e) => return Err(format!("端口契约序列化失败: {e}")),
+        Err(e) => return ContractWrite::NotWritten(format!("端口契约序列化失败: {}", e)),
     };
-    // 原子提交收口到 atomic_write（失败即清理 tmp）。
-    crate::atomic_write::write(&path, &(body + "\n")).map_err(|e| format!("端口契约落盘失败: {e}"))
+    // 原子提交 + 属主可读收口。mode 由本调用点给出：写给内核读，
+    // 同机其他用户不应可读（文件含 mgmt token）。
+    match crate::atomic_write::write_private(&path, &(body + "\n"), 0o600) {
+        Err(e) => ContractWrite::NotWritten(e),
+        Ok(crate::atomic_write::Outcome::Written) => ContractWrite::Written,
+        Ok(crate::atomic_write::Outcome::PermissionNotSet { mode, reason }) => {
+            ContractWrite::PermissionNotSet(format!("阶段 {}：{}（文件已落盘但权限未达 0o600）", mode, reason))
+        }
+    }
 }
 
 // 错误类型用 Infallible：内核上报表单是「尽力而为」的控制面，任一环节失败都就地转成 4xx/5xx 响应，

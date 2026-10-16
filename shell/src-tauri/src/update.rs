@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 pub fn state_dir() -> PathBuf {
     if let Some(p) = test_state_dir_override() {
@@ -177,9 +178,46 @@ pub fn init_identity(version: &str) -> serde_json::Value {
     id
 }
 
+/// 相位变更记录。**不静默去重**：同一相位连续重复时仍写一行，
+/// 但标注重复次数与首次时间 —— 排障需要的是「它在抖」（A→error→A→error
+/// 交替时频率本身就是诊断依据），把重复整条抹掉会把这个信息一起抹掉。
+/// 只有「与上次完全相同且已写过」才折叠为计数行。
 pub fn set_phase(phase: &str) {
     write_identity_for(&serde_json::json!({ "phase": phase }));
-    log(&format!("阶段 → {}", phase));
+    let line = {
+        let mut last = phase_ledger().lock().unwrap_or_else(|e| e.into_inner());
+        let now = now_iso_human();
+        match &last.phase {
+            Some(p) if p == phase => {
+                last.count = last.count.saturating_add(1);
+                format!("阶段 → {}（第 {} 次，首次 {}）", phase, last.count + 1, last.first_at)
+            }
+            _ => {
+                last.phase = Some(phase.to_string());
+                last.count = 0;
+                last.first_at = now.clone();
+                format!("阶段 → {}", phase)
+            }
+        }
+    };
+    log(&line);
+}
+
+struct PhaseLedger {
+    phase: Option<String>,
+    count: u64,
+    first_at: String,
+}
+
+impl Default for PhaseLedger {
+    fn default() -> Self {
+        PhaseLedger { phase: None, count: 0, first_at: String::new() }
+    }
+}
+
+fn phase_ledger() -> &'static Mutex<PhaseLedger> {
+    static L: std::sync::OnceLock<Mutex<PhaseLedger>> = std::sync::OnceLock::new();
+    L.get_or_init(|| Mutex::new(PhaseLedger::default()))
 }
 
 pub fn identity_snapshot() -> serde_json::Value {
