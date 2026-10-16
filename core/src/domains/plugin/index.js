@@ -10,10 +10,11 @@ const { createLayers } = require('./layers');
 const ops = require('./ops');
 const updater = require('./updater');
 const { PluginMarket } = require('./market');
+const { DSH_PRODUCT } = require('../agent/model');
 
 class PluginManager {
   constructor(opts) {
-    this.dshBin = opts.dshBin || 'dsh';
+    this.dshBin = opts.dshBin || DSH_PRODUCT.binName;
     this.profileName = opts.profileName || 'web';
     this.profileDir = opts.profileDir;
     this.overlayFile = opts.overlayFile;

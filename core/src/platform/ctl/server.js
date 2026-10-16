@@ -15,6 +15,9 @@ const LOOPBACK_ORIGIN_RE = /^https?:\/\/(?:127\.0\.0\.1|\[::1\]|localhost)(?::\d
 // baseUrl，使内核成为带真实凭据的 SSRF 放大器。
 // 修为机箱令牌鉴权：令牌由壳在 spawn daemon 时经环境变量 DSH_CTL_TOKEN 注入，
 // 内核自身与壳驱动 ctl，面板从不直连。与 mgmt 端点同一范式。
+// 令牌头名与 mgmt 面（shared-constants bridge.mgmtTokenHeader）不同名是设计——
+// 两个机箱令牌面、两份凭据，混用会让一个面的泄漏波及其余面。头名的唯一定义在本文件，
+// 调用方（platform/service/log/tail.js 的 ctlCall）从这里取，不再各写一份。
 const CTL_TOKEN_HEADER = 'x-lobox-ctl-token';
 
 // 请求体上限，与 api/transport/body.js 的 collectBody 同一范式（1MB）。
@@ -143,4 +146,4 @@ function createCtlServer({ target, allowMethods, logger, events } = {}) {
   return server;
 }
 
-module.exports = { createCtlServer, isMethodAllowed, ctlSourceProblem };
+module.exports = { createCtlServer, isMethodAllowed, ctlSourceProblem, CTL_TOKEN_HEADER };

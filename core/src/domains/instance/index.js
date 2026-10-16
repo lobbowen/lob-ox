@@ -9,6 +9,7 @@ const { createUpgrade } = require('./upgrade');
 const { createOps } = require('./ops');
 const service = require('../../platform/os/service').current();
 const defaultResstats = require('../../platform/os/resstats');
+const { DSH_PRODUCT } = require('../agent/model');
 
 class InstanceManager {
   constructor(opts) {
@@ -16,7 +17,7 @@ class InstanceManager {
     this.logger = opts.logger || console;
     this.events = opts.events || null;
     this.dist = opts.dist || null;
-    this.dshBin = opts.dshBin || 'dsh';
+    this.dshBin = opts.dshBin || DSH_PRODUCT.binName;
     this.service = opts.service || service;
     this.tokens = opts.tokenService || null;
     this.tasks = opts.tasks || null;

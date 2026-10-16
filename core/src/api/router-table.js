@@ -28,4 +28,10 @@ function assertSurfaceOwned(domains) {
 
 const API_DOMAINS_ORPHANS = assertSurfaceOwned(API_DOMAINS);
 
-module.exports = { API_DOMAINS, API_DOMAINS_ORPHANS };
+function assertNoOrphanSurface() {
+  if (!API_DOMAINS_ORPHANS.length) return;
+  throw new Error('api/router-table: SURFACE 登记表中以下路径没有任何 API 域 owns（新增路由忘记登记归属域）：'
+    + API_DOMAINS_ORPHANS.join(', '));
+}
+
+module.exports = { API_DOMAINS, API_DOMAINS_ORPHANS, assertNoOrphanSurface };

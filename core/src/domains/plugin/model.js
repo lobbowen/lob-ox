@@ -1,8 +1,9 @@
 'use strict';
 
 const path = require('node:path');
+const { DSH_PRODUCT } = require('../agent/model');
 
-const PROTECTED = new Set(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']);
+const PROTECTED = new Set(DSH_PRODUCT.protectedPkgs);
 
 const MAX_JOBS = 50;
 

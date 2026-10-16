@@ -32,6 +32,13 @@ const HELPERS = [
   'SetRestartAt',
 ];
 
+function assertHelpersBound(host) {
+  const unresolved = HELPERS.filter((n) => typeof host['_m' + n] !== 'function');
+  if (unresolved.length) {
+    throw new Error('app/main/process: HELPERS 指向不存在的方法: ' + unresolved.map((n) => '_m' + n).join(', '));
+  }
+}
+
 function depsOf(host) {
   let d = DEPS.get(host);
   if (!d) {
@@ -48,19 +55,16 @@ function depsOf(host) {
     };
     // HELPERS 与 installFieldHelpers（state/field-tables.js）是两套独立的命名来源，
     // 靠字符串拼接对齐。任何一侧漏改，都只会在首次调用时 TypeError。
-    // 这里在建 deps 时就地校验，把「启动无声通过、运行期炸」提前到装配期。
-    const unresolved = HELPERS.filter((n) => typeof host['_m' + n] !== 'function');
-    if (unresolved.length) {
-      throw new Error('app/main/process: HELPERS 指向不存在的方法: ' + unresolved.map((n) => '_m' + n).join(', '));
-    }
+    // 装配期已由 assertHelpersBound 兜底（app/assembly/facets.js 调用）；
+    // 这里保留同一条判据，覆盖「未走装配路径直接构造 deps」的调用形态。
+    assertHelpersBound(host);
     for (const n of HELPERS) d['m' + n] = (...a) => host['_m' + n](...a);
     DEPS.set(host, d);
   }
   return d;
 }
 
-module.exports = {
-  methods: {
+const methods = {
   spawnCommand() {
     const d = depsOf(this);
     return native.nativeCommand(d.config(), d.pluginManager());
@@ -314,5 +318,6 @@ module.exports = {
     }
     d.state().write();
   }
-  },
 };
+
+module.exports = { methods, assertHelpersBound, HELPERS };

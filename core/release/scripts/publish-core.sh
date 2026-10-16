@@ -64,6 +64,8 @@ if [ -d "$SRC_DIR/ui-react" ]; then
 else
   echo "警告：launcher 产物缺 ui-react"
 fi
+# 更新日志不走发布拷贝：src/shared/changelog.json 经 esbuild 编译期内联进 core.cjs
+# （api/domains/guard.js 用 require 引入），运行时零文件依赖 ⇒ 无路径断链风险。
 export GEN_PKG_NAME="$PKG_NAME" GEN_VER="$VER" GEN_LICENSE="$MAIN_LICENSE" GEN_REPO="$MAIN_REPO" GEN_STAGE="$STAGE" GEN_PLAT="$PLAT" GEN_ARCH="$ARCH" GEN_OSTAG="$OS_TAG" GEN_NODE_REQ="$NODE_REQ"
 node -e 'const fs=require("fs"),e=process.env;const o={name:e.GEN_PKG_NAME,version:e.GEN_VER,description:"DSH lifecycle guard core (Node launcher) for "+e.GEN_OSTAG+"-"+e.GEN_ARCH+" — requires Node "+e.GEN_NODE_REQ+".",license:e.GEN_LICENSE,repository:{type:"git",url:e.GEN_REPO},os:[e.GEN_PLAT],cpu:[e.GEN_ARCH],bin:{"lobox":"bin/lobox"},files:["bin","core.cjs","ui-react","README.md"],engines:{node:e.GEN_NODE_REQ},keywords:["lobox","guard","launcher","core"]};fs.writeFileSync(e.GEN_STAGE+"/package.json",JSON.stringify(o,null,2)+String.fromCharCode(10))'
 cat > "$STAGE/README.md" <<EOF

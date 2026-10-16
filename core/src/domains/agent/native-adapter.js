@@ -17,6 +17,7 @@ const status = require('./status');
 const entryOps = require('./ops/entry');
 const execUtil = require('../../platform/util/exec');
 const runtimeContract = require('../../platform/contract/runtime');
+const { DSH_PRODUCT } = require('./model');
 
 const NATIVE_ID = 'main';
 
@@ -79,7 +80,7 @@ class NativeAgentAdapter {
   _dshBin() {
     return (this.config && Array.isArray(this.config.command) && this.config.command[1])
       ? this.config.command[1]
-      : 'dsh';
+      : DSH_PRODUCT.binName;
   }
 
   binPath() {

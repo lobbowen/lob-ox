@@ -4,6 +4,7 @@ const path = require('node:path');
 const sandbox = require('../sandbox');
 // 安装日志过滤/环形缓冲与 agent 域共用一份实现（原两份各自硬编码同一正则与 60 行上限）。
 const { pushLog } = require('../../agent/ops/install');
+const { DSH_PRODUCT } = require('../../agent/model');
 
 function createDshInstall(deps) {
   const { store, dist, tasks, logger, instancesRoot, agents } = deps;
@@ -63,10 +64,10 @@ function createDshInstall(deps) {
       // 超时判据，且与真实安装结果脱节。相位态超时由 instance/lifecycle.js 的 installAt 检查兜底。
       const res = agents
         ? await agents.install(
-            { id: 'sandbox:' + inst.id, kind: 'sandbox', product: '@deepseek-ai/dsh', port: inst.port },
+            { id: 'sandbox:' + inst.id, kind: 'sandbox', product: DSH_PRODUCT.pkg, port: inst.port },
             { dist, prefix: installDir, version: latestVer, registry: pick.origin, onLine: pushLog }
           )
-        : await dist.runNpmInstall({ pkg: '@deepseek-ai/dsh', version: latestVer, prefix: installDir, registry: pick.origin, onLine: pushLog });
+        : await dist.runNpmInstall({ pkg: DSH_PRODUCT.pkg, version: latestVer, prefix: installDir, registry: pick.origin, onLine: pushLog });
       inst.state.installOk = res.ok;
       if (!res.ok) { inst.state.installError = res.error; logger.error('sandbox install failed for ' + inst.id + ': ' + res.error); }
       save();
@@ -91,7 +92,7 @@ function createDshInstall(deps) {
   function readInstalledVersion(inst) {
     if (!inst || inst.kind !== 'sandbox') return null;
     const installDir = sandbox.installDir(instancesRoot, inst);
-    return require('../../agent/ops/install').installedVersionAt(installDir, '@deepseek-ai/dsh');
+    return require('../../agent/ops/install').installedVersionAt(installDir, DSH_PRODUCT.pkg);
   }
 
   // latest 解析：委托 agent 域的 createLatestResolver（TTL 30000 同值，
@@ -99,7 +100,7 @@ function createDshInstall(deps) {
   const _resolver = dist ? require('../../agent/ops/install').createLatestResolver(dist, {}) : null;
   async function latestDsh() {
     if (!_resolver) return { ok: false, version: null, origin: null, attempts: [], error: 'dist 分发服务不可用' };
-    return _resolver('@deepseek-ai/dsh');
+    return _resolver(DSH_PRODUCT.pkg);
   }
 
   return { installSandbox, readInstalledVersion, latestDsh };

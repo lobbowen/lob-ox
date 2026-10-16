@@ -1,0 +1,32 @@
+[
+  {
+    "version": "0.0.22",
+    "date": "2026-10-16",
+    "sections": [
+      {
+        "title": "修复",
+        "items": [
+          "P0 内核 daemon 启动即崩：brand.js 的 LEGACY_HARNESS_DIR 已定义但未导出，state-root.js 直接取私有常量得到 undefined，传入 path.join 抛 ERR_INVALID_ARG_TYPE。改为经访问函数 legacyHarnessDir() 间接取得，与该文件「外部一律经函数间接取得」的既有范式一致",
+          "/guard/changelog 返回错误内容：原路径按源码态写成 ../../../CHANGELOG.md，esbuild 打包后 __dirname 变成包目录，解析到 npm prefix 根，恰好读到装机 Node 自带的 Node.js Changelog——用户点「更新日志」看到的是 Node.js 版本历史。改为 require 本 JSON 由 esbuild 编译期内联，运行时不再依赖任何文件路径",
+          "端口 skew 重试上限内 API 绑定持续失败时，ctl facade 缓存不随 rebind 失效，导致 router-daemon 换代后仍连旧端口（降级路径掩盖失效本身）",
+          "/pm/* 上报链无观测入口：失败不可分辨，排障时两侧日志均无痕迹。现按 8 类 problem + err.code 落事件（contract-file-missing 与 contract-owner-dead 分开，前者是壳没起、后者是壳崩过）",
+          "@deepseek-ai/dsh 包名与 dsh 可执行名散落装配层，收敛到 domains/agent/model.js 的 DSH_PRODUCT；同时删除 runNpmInstall 的包名兜底默认（未传参时会静默拿到错误包名）",
+          "GLOBAL_APP_DIRNAME 与 ctl 令牌头名走单一事实源（原各有一份副本）",
+          "SURFACE 登记表补装配期孤儿断言；HELPERS 字段对齐校验从懒触发提为装配期"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.0.7",
+    "date": "2026-10-09",
+    "sections": [
+      {
+        "title": "修复",
+        "items": [
+          "本版起让内核 CI（core-build-release）全绿——修复预存测试 flake 与两处真实回归、一处发布管线打包崩溃"
+        ]
+      }
+    ]
+  }
+]

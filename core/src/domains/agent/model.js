@@ -56,4 +56,18 @@ function nodeModulesDirOf(root, agent) {
   return isWindows ? path.join(install, 'node_modules') : path.join(install, 'lib', 'node_modules');
 }
 
-module.exports = { normalizeAgent, dataDirOf, installDirOf, tmpDirOf, nodeModulesDirOf, needsEnvIsolation };
+// 第一个 agent 产品的事实描述：DSH。包名 / 安装目录内的相对位置 / systemd 单元前缀 /
+// 可执行名。收敛自装配层散落的字面量。
+// 第二个 agent 产品真出现时再提炼通用形态——现在只做 DSH 一处收敛。
+// 边界：只收「产品事实」。进程匹配模式（pgrepList('dsh')、proc.matchGuard）故意宽于
+// 产品名——它还要匹配历史形态的进程，收敛会让宽松匹配依赖精确认知，故不收。
+const DSH_PRODUCT = Object.freeze({
+  pkg: '@deepseek-ai/dsh',
+  pkgSegments: Object.freeze(['@deepseek-ai', 'dsh']),
+  entryRel: Object.freeze(['lib', 'bin.js']),
+  unitPrefix: 'dsh-web@',
+  binName: 'dsh',
+  protectedPkgs: Object.freeze(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']),
+});
+
+module.exports = { normalizeAgent, dataDirOf, installDirOf, tmpDirOf, nodeModulesDirOf, needsEnvIsolation, DSH_PRODUCT };

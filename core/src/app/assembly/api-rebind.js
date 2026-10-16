@@ -8,6 +8,12 @@ function _rebindApiHost(host, createServer) {
       try { old.close(); } catch {}
       try { if (typeof old.closeAllConnections === 'function') old.closeAllConnections(); } catch {}
     }
+    // ctl facade 缓存必须随 API 重绑一起失效：facade 建时绑定的 ctl 端口来自
+    // config.routerCtlPort，而 rebind 意味着「配置已变、地址已变」。不清缓存的话，
+    // router-daemon 换代到新 ctl 端口后 guard 仍连旧端口，远程取数失败后走 catch
+    // 回退本地视图（facade/router.js:57-60）——降级会掩盖失效本身。
+    // 下一次 routerApi() 会按新端口重建（facade/router.js:87 的懒建语义）。
+    host._routerFacade = null;
     const bind = () => {
       if (bind._slowRetry && typeof host._exitIntended === 'function' && host._exitIntended()) {
         bind._slowRetry = false;

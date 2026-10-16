@@ -20,6 +20,7 @@ const { NativeAgentAdapter } = require('../../../domains/agent/native-adapter');
 const { BeatScheduler } = require('../../../app/control/synchrony');
 const { LifecycleManager } = require('../../../app/control/manager');
 const ports = require('../../../platform/service/ports').shared;
+const { DSH_PRODUCT } = require('../../../domains/agent/model');
 
 function composeDomains(host) {
     const swDir = path.dirname(host.config.stateFile);
@@ -61,8 +62,8 @@ function composeDomains(host) {
       dist: host.dist,
       tasks: host.tasks,
       tokenService: host.tokenService,
-      dshBin: host.config.command && host.config.command[1] ? host.config.command[1] : 'dsh',
-      
+      dshBin: host.config.command && host.config.command[1] ? host.config.command[1] : DSH_PRODUCT.binName,
+
       throttle: THROTTLE_DEFAULTS,
       // 沙箱实例的 DSH 安装/升级委托 agent 域——不为同一件事维护两套实现。
       agents: host.agents,
@@ -104,7 +105,7 @@ function composeDomains(host) {
       logger: host.logger,
     });
     host.pluginManager = new PluginManager({
-      dshBin: host.config.command && host.config.command[1] ? host.config.command[1] : 'dsh',
+      dshBin: host.config.command && host.config.command[1] ? host.config.command[1] : DSH_PRODUCT.binName,
       profileName: host.config.pluginsProfileName || 'web',
       profileDir: path.join(os.homedir(), '.dsh', 'profiles', host.config.pluginsProfileName || 'web'),
       overlayFile: path.join(path.dirname(host.config.stateFile), 'plugin-states.patch.yml'),

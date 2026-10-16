@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const { isWindows } = require('../../shared/platform');
 const agentSandboxEnv = require('../agent/runtime/sandbox-env').sandboxEnv;
+const { DSH_PRODUCT } = require('../agent/model');
 function root(rootDir, inst) { return path.join(rootDir, inst.id); }
 function dataDir(rootDir, inst) { return path.join(root(rootDir, inst), 'data'); }
 function installDir(rootDir, inst) { return path.join(root(rootDir, inst), 'install'); }
@@ -15,7 +16,7 @@ function nodeModulesDir(rootDir, inst) {
   return isWindows ? path.join(install, 'node_modules') : path.join(install, 'lib', 'node_modules');
 }
 function dshEntry(rootDir, inst) {
-  return path.join(nodeModulesDir(rootDir, inst), '@deepseek-ai', 'dsh', 'lib', 'bin.js');
+  return path.join(nodeModulesDir(rootDir, inst), ...DSH_PRODUCT.pkgSegments, ...DSH_PRODUCT.entryRel);
 }
 function tmpDir(rootDir, inst) { return path.join(root(rootDir, inst), 'tmp'); }
 function runPidFile(rootDir, inst) { return path.join(root(rootDir, inst), 'run.pid'); }

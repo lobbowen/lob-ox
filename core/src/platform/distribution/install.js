@@ -33,7 +33,8 @@ function runNpmInstall(opts) {
   const bad = (r) => ({ ok: false, error: null, output: [], exitCode: null, timedOut: false, aborted: false, ...r });
   const fail = (error) => Promise.resolve(bad({ error }));
   if (action !== 'install' && action !== 'uninstall') return fail('runNpmInstall: 未知 action（只接受 install/uninstall）: ' + action.slice(0, 40));
-  const pkg = o.pkg || '@deepseek-ai/dsh';
+  const pkg = o.pkg;
+  if (!pkg) return fail('runNpmInstall: 缺少 pkg（调用方必须显式指定；原为 DSH 兜底默认，已删——兜底会让未传参的调用方静默拿到错误包名）');
   if (action === 'install' && !o.version) return fail('runNpmInstall: 缺少 version（必须显式携带）');
   if (!PKG_NAME_RE.test(pkg)) return fail('runNpmInstall: 非法包名（字符集白名单不通过）: ' + String(pkg).slice(0, 80));
   if (action === 'install' && !VERSION_RE.test(String(o.version))) return fail('runNpmInstall: 非法版本号（须为严格 semver）: ' + String(o.version).slice(0, 80));

@@ -2,6 +2,7 @@
 const sandbox = require('./sandbox');
 const model = require('./model');
 const dshInstall = require('./ops/dsh-install');
+const { DSH_PRODUCT } = require('../agent/model');
 function taskLogger(task, tasks) {
   return (l) => { if (task) tasks.log(task.id, l); };
 }
@@ -82,7 +83,7 @@ function createUpgrade(deps) {
     if (inst.kind !== 'sandbox') return { ok: false, error: '仅沙箱实例支持版本检查' };
     if (!deps.agents) return { ok: false, error: 'agent 域未装配，无法执行版本检查' };
     const r = await deps.agents.checkUpdate(
-      { id: 'sandbox:' + id, kind: 'sandbox', product: '@deepseek-ai/dsh' },
+      { id: 'sandbox:' + id, kind: 'sandbox', product: DSH_PRODUCT.pkg },
       { dist, installed: readInstalledVersion(inst), prefix: sandbox.installDir(instancesRoot, inst) }
     );
     _updCache[inst.id] = { installed: (r && r.installed) || null, latest: (r && r.latest) || null, checkedAt: Date.now(), error: (r && r.error) || null };
@@ -103,12 +104,12 @@ function createUpgrade(deps) {
     };
     if (agents) {
       return agents.install(
-        { id: 'sandbox:' + inst.id, kind: 'sandbox', product: '@deepseek-ai/dsh', port: inst.port },
+        { id: 'sandbox:' + inst.id, kind: 'sandbox', product: DSH_PRODUCT.pkg, port: inst.port },
         opts
       );
     }
     return dist.runNpmInstall({
-      pkg: '@deepseek-ai/dsh', version, prefix, registry: opts.registry,
+      pkg: DSH_PRODUCT.pkg, version, prefix, registry: opts.registry,
       onLine: taskLogger(task, tasks),
     });
   }

@@ -2,6 +2,22 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const CHANGELOG = require('../../shared/changelog.json');
+
+// 结构化变更日志 → 纯文本。单一事实源是 JSON（机器读），这里是唯一的渲染出口。
+function renderChangelog(entries) {
+  const lines = ['lobox 内核更新日志', ''];
+  for (const e of entries || []) {
+    if (!e || !e.version) continue;
+    lines.push('[' + e.version + ']' + (e.date ? ' - ' + e.date : ''));
+    for (const sec of e.sections || []) {
+      if (sec && sec.title) lines.push('', '  ' + sec.title);
+      for (const item of (sec && sec.items) || []) lines.push('  - ' + item);
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
 
 function owns(pathname) {
   return pathname === '/changelog' || pathname.startsWith('/guard/') || pathname === '/autostart'
@@ -37,7 +53,11 @@ function handle(ctx) {
     }
     if (req.method === 'GET' && pathname === '/guard/changelog') {
       try {
-        const md = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'CHANGELOG.md'), 'utf8');
+        // 更新日志经 require 引入，esbuild 打包时编译期内联成字面量对象 ⇒ 运行时零文件依赖。
+        // 单一事实源 = src/shared/changelog.json（人读版 docs/lob-ox/CHANGELOG.md 由它派生）。
+        // 历史上的 fs.readFileSync(__dirname/../../../CHANGELOG.md) 有两层错：源码态路径在
+        // bundle 后逃出包外，且恰好命中装机 Node 自带的 Node.js Changelog——内容错比 404 更糟。
+        const md = renderChangelog(CHANGELOG);
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
         return res.end(md);
       } catch {

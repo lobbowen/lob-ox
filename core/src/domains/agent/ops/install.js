@@ -10,8 +10,8 @@
 // 差别只在 prefix 从哪来，而 prefix 的判据已经在 model.installDirOf 里回答过。
 // 故本模块不出现 if (kind === 'sandbox') 分支：调用方传入 prefix，本模块只执行。
 //
-// 另一处收拢：原两份实现各自硬编码 '@deepseek-ai/dsh'。
-// 本模块把包名改为入参（product.pkg），agent 域不绑定 DSH。
+// 包名由入参 product.pkg 指定，agent 域不绑定 DSH。调用方现从
+// domains/agent/model.js 的 DSH_PRODUCT 取（原装配层散落的字面量已收敛至该处）。
 
 const fs = require('node:fs');
 const path = require('node:path');

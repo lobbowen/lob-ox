@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 
 
@@ -16,6 +16,12 @@ const defaults = [
     at: 'corePackageName',
     values: {
       routerAutostart: false,
+    },
+  },
+  {
+    at: 'canary',
+    values: {
+      lanDaemon: false,
     },
   },
 ];

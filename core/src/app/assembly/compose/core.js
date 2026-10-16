@@ -15,6 +15,7 @@ const FORM_NPM_ROOT_TIMEOUT_MS = 4000;
 const { DistributionManager } = require('../../../platform/distribution/index');
 const shellDomain = require('../../../domains/shell/index');
 const { TaskRegistry } = require('../../../platform/service/tasks');
+const pmClient = require('../../../platform/contract/pm-client');
 const { IntentLedger } = require('../../../app/state/intents');
 // ctl 端口缺省值的唯一权威解析实现。此前本文件自己写了一份（且漏了 SHARED 声明，
 // 任何非数字 routerCtlPort/lanCtlPort 都会在组装期抛 ReferenceError），
@@ -154,6 +155,9 @@ function composeCore(host, rawConfig, configPath) {
     host.logger = logCore.logger;
     host.dshWriter = logCore.dshWriter;
     host.eventHub = logCore.reader || logCore.hub;
+    pmClient.setEventSink((type, data) => {
+      try { if (host.events && typeof host.events.append === 'function') host.events.append(type, data); } catch {}
+    });
     host.tokenService = new DshTokenService({ logger: host.logger, events: host.events });
     host.tokenService.attach('main', { file: path.join(path.dirname(host.config.stateFile), TOKEN_FILE_NAME) });
     host.tokenService.onChange((id, token) => {

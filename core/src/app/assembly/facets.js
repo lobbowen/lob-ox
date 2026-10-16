@@ -1,6 +1,8 @@
 'use strict';
 
 const { installCollaborators } = require('./collaborators');
+const apiRouterTable = require('../../api/router-table');
+const hostMainProcess = require('../main/process');
 
 const FACETS = [
   { name: 'assembly/bootstrap', mod: require('./bootstrap'), hostFirst: true },
@@ -82,6 +84,8 @@ function installFacets(host, deps) {
     if (f.mod.accessors) installAccessors(host, f.mod.accessors);
   }
   installCollaborators(host, { validate: true });
+  apiRouterTable.assertNoOrphanSurface();
+  hostMainProcess.assertHelpersBound(host);
 }
 
 module.exports = { FACETS, installFacets };

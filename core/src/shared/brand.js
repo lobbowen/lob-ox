@@ -130,6 +130,11 @@ function legacyStateRoot(platform, env, home) {
   return path.join(path.dirname(stateRoot(platform, env, home)), LEGACY_PRODUCT_NAME);
 }
 
+// 旧版（改名前的 Harness）的宿主内目录名，如 `.dsh`。
+// 与 STATE_* 同族：外部一律经本函数间接取得，不导出裸常量——
+// 否则单点改名要追着全仓常量改，且漏改处只会拿到 undefined。
+function legacyHarnessDir() { return LEGACY_HARNESS_DIR; }
+
 // 注：TAURI_IDENTIFIER / STATE_* / LEGACY_HARNESS_DIR 等是模块私有实现细节，
 // 外部一律经由 stateRoot() / legacyStateRoot() / macosGuardLabel() / macosGuiLabel()
 // 这些函数间接取得——否则单点改名要追着全仓常量改。
@@ -164,4 +169,5 @@ module.exports = {
   corePackageName,
   stateRoot,
   legacyStateRoot,
+  legacyHarnessDir,
 };

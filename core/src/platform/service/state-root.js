@@ -27,10 +27,10 @@ function legacyStateRoot() {
 }
 
 function legacySupervisorDir() {
-  return path.join(os.homedir(), BRAND.LEGACY_HARNESS_DIR, BRAND.STATE_SUPERVISOR_SUBDIR);
+  return path.join(os.homedir(), BRAND.legacyHarnessDir(), BRAND.STATE_SUPERVISOR_SUBDIR);
 }
 function legacyShellDir() {
-  return path.join(os.homedir(), BRAND.LEGACY_HARNESS_DIR, BRAND.STATE_SHELL_SUBDIR);
+  return path.join(os.homedir(), BRAND.legacyHarnessDir(), BRAND.STATE_SHELL_SUBDIR);
 }
 
 function legacyProductRoot(opts) {

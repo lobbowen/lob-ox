@@ -3,6 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const SHARED = require('../../shared/shared-constants');
+const { DSH_PRODUCT } = require('../../domains/agent/model');
 
 function candidateNames(base, platform) {
   const win = (platform || process.platform) === 'win32';
@@ -35,7 +37,9 @@ function firstExecutable(dir, base, platform) {
   return null;
 }
 
-const GLOBAL_APP_DIRNAME = 'lobox';
+// R21：工具链落点常量必须与壳侧 env.rs 逐字相同。真相在 shared-constants 的
+// state.dirName（壳侧 brand.rs 经 shared_str 读同一键），此处不再自带副本。
+const GLOBAL_APP_DIRNAME = SHARED.state.dirName;
 const GLOBAL_BIN_DIRNAME = 'bin';
 
 function globalInstallRoot(platform, home, env) {
@@ -56,7 +60,7 @@ function standardDirs(platform, home, env) {
   const dirs = [];
   if (pl === 'win32') {
     if (e.APPDATA) dirs.push(path.join(e.APPDATA, 'npm'));
-    if (e.LOCALAPPDATA) dirs.push(path.join(e.LOCALAPPDATA, 'Programs', 'lobox'));
+    if (e.LOCALAPPDATA) dirs.push(path.join(e.LOCALAPPDATA, 'Programs', GLOBAL_APP_DIRNAME));
     dirs.push(path.join(h, '.local', 'bin'));
   } else {
     dirs.push(path.join(h, '.local', 'bin'));
@@ -120,10 +124,8 @@ function npmBin(opts) {
   return 'npm.cmd';
 }
 
-const DSH_PKG = ['@deepseek-ai', 'dsh'];
-
 function dshJsIn(prefix) {
-  return path.join(prefix, 'node_modules', ...DSH_PKG, 'lib', 'bin.js');
+  return path.join(prefix, 'node_modules', ...DSH_PRODUCT.pkgSegments, ...DSH_PRODUCT.entryRel);
 }
 
 function shimJsTarget(hit) {
