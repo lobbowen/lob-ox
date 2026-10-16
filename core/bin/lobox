@@ -251,6 +251,34 @@ function cmdDaemon() {
     console.error('[supervisor] 配置解析失败:', cfgPath, e.message);
     process.exit(1);
   }
+  // 守卫单实例保护：拿不到自己的锁就退出，不让第二份 Supervisor 起来。
+  //
+  // 为什么必须有：cmdDaemon 此前**没有任何一道门**——每次 `lobox daemon` 都会
+  // 直接 new Supervisor() 并 start()。于是壳的 healer 重拉 / 用户手跑 / 服务管理器
+  // 独立拉起，都能在无人干预下产生第二份守卫。两份 Supervisor 各自持有独立的
+  // state.json 写路径、独立的 restartCount / startupFailCount / heal_budget
+  // （都在各自进程内存里），互不可见 ⇒ 控制权分裂、节流失效。
+  //
+  // 分层现状：壳侧 mgmt.rs 有 live_contract_owner() 防 guard-mgmt 双所有权；
+  // 内核 signals.js 有 refuse adopt 防「两个守卫抢同一个 DSH」；
+  // **唯独守卫自己没有防双实例的机制**——三层里空的是中间这层。
+  //
+  // 复用 app/daemons/identity.js 的 acquireLock（router/lan daemon 已在用的同一原语），
+  // 不另造一套：独占创建 / 持有者存活则拒 / 持有者死则回收 / 自己重复获取幂等。
+  const guardLockPath = path.join(SUPERVISOR_DIR, 'guard.lock');
+  const lockPrims = require('../src/app/daemons/identity')._lockPrimitives;
+  if (!lockPrims.acquireLock(guardLockPath)) {
+    const holder = lockPrims.lockPid(guardLockPath);
+    // 非零退出：壳的 guardctl.await_daemon 把 code 0 判成 ExitedCleanly ⇒ 报
+    // DAEMON_EXITED_UNREADY（「干净退出但未就绪」），那是 LaunchError 且会触发重拉。
+    // 非零 ⇒ KERNEL_EXITED，壳至少知道「它退出了」而非「启动失败但原因不明」。
+    console.error('[supervisor] 已有守卫实例在跑（lock=' + guardLockPath
+      + ' holder=' + (holder || '?') + '），本实例退出（不双管家并存）');
+    process.exit(1);
+  }
+  const releaseGuardLock = () => {
+    try { lockPrims.releaseLock(guardLockPath); } catch {}
+  };
   // 静态 require（esbuild 可跟随，使内核完整打入 bundle/打包态）——不能再用 path.join 动态拼接，
   // 否则打包产物只含 CLI 壳、daemon 运行期仍依赖发行目录旁置的 src/。
   const { Supervisor } = require('../src/supervisor');
@@ -272,8 +300,9 @@ function cmdDaemon() {
   //   子进程与端口残留成孤儿。故等 Promise settle 后再 exit 并加 8s 兜底超时；重复信号第二次直接强退。
   let _exiting = false;
   function gracefulExit(code) {
-    if (_exiting) { process.exit(code); }
+    if (_exiting) { releaseGuardLock(); process.exit(code); }
     _exiting = true;
+    releaseGuardLock();
     const bail = setTimeout(() => {
       console.error('[supervisor] shutdown 超时（8s），强制退出');
       process.exit(code);
