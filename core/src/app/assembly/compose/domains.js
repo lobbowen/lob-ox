@@ -97,6 +97,27 @@ function composeDomains(host) {
             host.logger && host.logger.warn && host.logger.warn('eventHub.sync: ' + ((e && e.message) || e));
           }
         });
+        // E-1：沙箱实例监督此前**全仓零调用点**。lifecycle.supervise() 是完整的
+        // （相位上报 + 状态机推进 + 资源采样），却没有任何东西驱动它——而壳的
+        // heal_candidates 只捞「desired=running 且 phase=failed」的条目，内核不发
+        // 相位壳就永远看不到沙箱的中间态。后果是沙箱自愈从未生效：崩了没人报 failed，
+        // 壳也就无从重拉，而 UI / 契约表 / 注释都假定它在工作。
+        // 与上方 event-hub-sync 同族（装配链完整、缺一处驱动），故用同一范式接上。
+        // 节流在 lifecycle 内部（probe 自带平台探测成本），此处只做「遍历全部实例」。
+        host._beatScheduler.afterTick('sandbox-supervise', () => {
+          try {
+            const mgr = host.instances;
+            if (!mgr || typeof mgr.all !== 'function') return;
+            for (const inst of mgr.all()) {
+              if (!inst || inst.kind === 'native') continue;
+              try { mgr.supervise(inst.id); } catch (e) {
+                host.logger && host.logger.warn && host.logger.warn('supervise ' + inst.id + ': ' + ((e && e.message) || e));
+              }
+            }
+          } catch (e) {
+            host.logger && host.logger.warn && host.logger.warn('sandbox-supervise: ' + ((e && e.message) || e));
+          }
+        });
       }
     }
     host._lan = null;

@@ -115,7 +115,7 @@ function createLifecycle(deps) {
       pmClient.register({
         id: 'sandbox:' + inst.id,
         spawn_cmd: cmdArr,
-        priority: 3,   // Sandbox：见 shell/src-tauri/src/process_manager/state_machine.rs
+        priority: 'sandbox',   // 壳只认字符串枚举名（core/router/lan/sandbox），数字一律按 Plugin
         env,
       });
       pmClient.setDesired('sandbox:' + inst.id, 'running');
@@ -284,7 +284,26 @@ function createLifecycle(deps) {
           if (!st.running) {
             runtime.delete(inst.id);
             state.usage = null;
-            
+            // 进程退出的上报点。**必须发在这里**（观测到 running 转假的那一刻），
+            // 而不是 setStopped 之后：setStopped 是「状态机认为它停了」，
+            // 而 record-exit 的语义是「进程真的退出了」。壳侧 state_machine.rs
+            // 的 last_will.startup_failure 要用它区分「启动即失败」与「运行中崩溃」，
+            // 按状态机推测会把这个字段变成另一种错（从恒 false 变成按相位猜的 false）。
+            //
+            // 沙箱实例由 systemd startTransient 拉起，内核**不持有 child 句柄**
+            // ⇒ 没有 child.on('exit') 可挂，probe 观测是唯一的退出证据来源。
+            // 退出码/信号拿不到（systemd 管着），传 null；壳侧已按 Option 处理。
+            //
+            // startupFailure 的判据：**不是当前相位**（此刻已是 RUNNING，按相位判恒 false），
+            // 而是「本次启动有没有活过启动窗口」。state.startAt 在 _systemdStart 写入、
+            // setRunning 不清、enterStartingWaiting 才清 ⇒ 此刻仍保留本次启动的时间戳。
+            // 判据与 state-machine.js:74-76 的 restart() 同一语义（那边用它决定重启策略，
+            // 这边用它告诉壳「该次退出是否算稳定性证据」）——同一事实，两处消费，不各自猜。
+            // 拿不到 startAt（老状态/异常路径）时按「不是启动失败」报：宁可少报一次
+            // 启动失败，也不要把运行中崩溃谎报成启动失败（后者会让壳的重拉决策更激进）。
+            const startupFailure = (typeof state.startAt === 'number' && state.startAt > 0)
+              && (Date.now() - state.startAt < stateMachine.STARTUP_WINDOW_MS);
+            pmClient.recordExit('sandbox:' + inst.id, null, null, startupFailure === true);
             // 进程退出只做相位投影。是否重拉由壳的进程表决定
             //（heal_candidates：desired=running 且 phase=failed）——那是进程所有权的
             // 唯一判据。此前这里还有一套 guardian.shouldGuard(inst) 判据，

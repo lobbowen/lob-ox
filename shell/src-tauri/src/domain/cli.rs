@@ -158,10 +158,21 @@ pub(crate) fn cli_service_plan() -> i32 {
 }
 
 pub(crate) fn cli_run_guard() -> i32 {
-    
-    
-    
-    
+    // 本路径**没有**可用的「是否已有活守卫」判据。曾在此加过一道单守卫门
+    // （读 supervisor/guard.lock 的 pid + pid_alive），已撤。撤的原因：
+    //   · guard.lock 在全仓没有任何写入方 —— bin/lobox:237 的 R7 注释明言
+    //     「已删除：守卫锁」，state-root.js:61 只读它（detectLegacyInstall）。
+    //     本机实测锁内容是一个 13:40 就死掉的 pid，此后再无人维护。
+    //   · 壳自己的进程表（process_manager::handle().states）是进程内内存
+    //     HashMap，无持久化；而 --run-guard 是独立进程（main.rs:141 早于
+    //     Tauri setup），它的 states 恒为空。
+    //   · /healthz 探活被 R7 明确否弃（guardctl.rs:158-162：启动判据已从
+    //     healthz 改为进程表）。
+    // ⇒ 这道门读到死 pid 就放行，等于每来一个 --run-guard 都放行，
+    //   双守卫照常发生。空转的门比没有门更危险（让人以为已防住），故撤。
+    //
+    // 「防双持归壳」在第三条路上从未兑现，且当前无判据可用。这个缺口已记账，
+    // 待有真正的单守卫状态载体（写方在读方之前先存在）再实现。
     {
         let rt_diag = crate::runtime_contract::ensure();
         let cands = crate::domain::coreloc::locate_core_candidates(None);

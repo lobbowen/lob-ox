@@ -656,10 +656,42 @@ pub fn pm_status(app: tauri::AppHandle) -> serde_json::Value {
             })
         })
         .collect();
+    // 管理端点所有权的可观测位。mgmt::run 里 owner_alive 事件此前零消费 ——
+    // 本机曾出现 guard-mgmt.json 的 pid 是死进程而无人知晓，端点看似在听
+    // 实则无人上报（端点启动 ≠ 端点被消费）。这里把同一判据暴露给查询侧。
+    // 与 owner_alive 事件同源（读契约 pid + bounded::pid_alive），不另立判据。
+    let owner = mgmt_contract_owner_view();
+    let owner_dead = owner
+        .as_ref()
+        .and_then(|o| o.get("alive").and_then(|a| a.as_bool()))
+        .map(|alive| !alive)
+        .unwrap_or(false);
+    if owner_dead {
+        crate::telemetry::event::warn(
+            "mgmt.owner_dead_on_query",
+            "commands",
+            serde_json::json!({ "owner": owner.clone() }),
+        );
+    }
     serde_json::json!({
         "workloads": workloads,
         "ports": ports.to_json(),
+        "mgmtOwner": owner,
     })
+}
+
+/// 管理端点契约的所有者现状。`alive: false` 表示契约里的 pid 已不在世
+/// —— 端点要么没起，要么起了也没有内核能对接上。
+fn mgmt_contract_owner_view() -> Option<serde_json::Value> {
+    let path = crate::env::supervisor_dir().join("guard-mgmt.json");
+    let text = std::fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let pid = v.get("pid")?.as_u64()? as u32;
+    Some(serde_json::json!({
+        "pid": pid,
+        "alive": crate::bounded::pid_alive(pid),
+        "port": v.get("port").and_then(|p| p.as_u64()),
+    }))
 }
 
 #[tauri::command]
