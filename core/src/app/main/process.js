@@ -256,7 +256,7 @@ const methods = {
     //   ④ router/providers/restart.js      started/wasRunning 判 + b.note() 限流器 → 反代实例
     // 本处（③）与 ① 判据同构、共享 guardian.bumpStartupFailure 原语，只差窗口参数
     // （60s vs 10min）与对象（主 DSH vs 沙箱）——那是唯一一对「改一处会漏改另一处」的，
-    // 动任一处必须同时看另一处。本处判的是壳拉起的守护对象（spawn 持有 child 句柄）。
+    // 动任一处必须同时看另一处。本处判的是壳拉起的内核对象（spawn 持有 child 句柄）。
     const startupFailure = (opts && opts.startupFailure !== undefined)
       ? opts.startupFailure === true
       : (!manual && phase === 'STARTING');
