@@ -106,10 +106,10 @@ pub(crate) fn cli_service_plan() -> i32 {
         .or_else(crate::core::locate_core_for_cli);
     match &guard {
         Some(p) => {
-            println!("守卫可执行    = {}", p.display());
-            println!("守卫存在      = {}", if p.is_file() { "是" } else { "否" });
+            println!("内核可执行    = {}", p.display());
+            println!("内核存在      = {}", if p.is_file() { "是" } else { "否" });
         }
-        None => println!("守卫可执行    = （未定位到，请先安装内核）"),
+        None => println!("内核可执行    = （未定位到，请先安装内核）"),
     }
 
     
@@ -122,7 +122,7 @@ pub(crate) fn cli_service_plan() -> i32 {
             }
             Err(e) => println!("将写入的定义  = 装不出来：{}", e),
         },
-        _ => println!("将写入的定义  = （守卫或 node 契约未就绪，建立时会先解析）"),
+        _ => println!("将写入的定义  = （内核或 node 契约未就绪，建立时会先解析）"),
     }
 
     let apply = std::env::args().any(|a| a == "--service-apply");
@@ -132,7 +132,7 @@ pub(crate) fn cli_service_plan() -> i32 {
         return 0;
     }
     let Some(g) = guard else {
-        eprintln!("无法建立：未定位到守卫可执行文件（先安装内核）");
+        eprintln!("无法建立：未定位到内核可执行文件（先安装内核）");
         return 2;
     };
     let Some(rt) = crate::runtime_contract::ensure() else {
@@ -158,6 +158,26 @@ pub(crate) fn cli_service_plan() -> i32 {
 }
 
 pub(crate) fn cli_run_guard() -> i32 {
+    // 一次性凭据校验（J-2 第 3 项）：只有被壳的 spawn_daemon 拉起时才带这个环境变量。
+    // 手跑 `lobox-shell --run-guard` 拿不到它 ⇒ 拒绝启动 ⇒ 双守卫少一条成因。
+    //
+    // 这不是「防恶意」——本机任意进程照样能读到自己环境里的值——而是「防无意」：
+    // 用户/脚本手跑一条命令就多起一个内核，是最常见的多实例来源。真正的授权边界
+    // 仍靠 mgmt 端点的 peer token（那对着内核），此处只挡「没经壳的手跑」。
+    //
+    // 验完即从本进程环境移除：后续 exec_guard 拉起的守卫不该继承这个凭据
+    // （它是 spawn 方与 cli_run_guard 之间的，不是给内核的）。
+    if std::env::var(crate::platform::spawn_token_env()).is_err() {
+        crate::telemetry::event::warn(
+            "cli.guard_token_missing",
+            "cli",
+            serde_json::json!({ "pid": std::process::id() }),
+        );
+        crate::update::log("[run-guard] 缺少一次性凭据：本入口只接受由桌面壳拉起的启动（fail-closed）");
+        eprintln!("[run-guard] 缺少一次性凭据：请通过桌面壳启动，不要直接运行本命令");
+        return 2;
+    }
+    std::env::remove_var(crate::platform::spawn_token_env());
     // 本路径**没有**可用的「是否已有活守卫」判据。曾在此加过一道单守卫门
     // （读 supervisor/guard.lock 的 pid + pid_alive），已撤。撤的原因：
     //   · guard.lock 在全仓没有任何写入方 —— bin/lobox:237 的 R7 注释明言
@@ -190,7 +210,7 @@ pub(crate) fn cli_run_guard() -> i32 {
         }
     }
     let Some((rt, guard)) = crate::domain::guardctl::resolve_local(None) else {
-        eprintln!("[run-guard] 本地检测失败：未找到可用的 node 或内核守卫");
+        eprintln!("[run-guard] 本地检测失败：未找到可用的 node 或内核");
         return 1;
     };
     eprintln!("[run-guard] node={} guard={}", rt.node.display(), guard.display());

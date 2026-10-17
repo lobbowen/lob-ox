@@ -27,13 +27,21 @@ pub trait ServiceControl: Send + Sync {
     
     
     fn spawn_daemon(&self, spec: &crate::platform::LaunchSpec) -> Result<std::process::Child, String> {
+        // 一次性凭据（J-2 第 3 项）：每次 spawn 新生成，失败即拒。
+        // 不用进程级单例——同一个壳会 spawn 多次，单例会让第二次复用同一值。
+        let token = crate::platform::spawn_token()?;
         let mut cmd = std::process::Command::new(&spec.shell);
         cmd.arg("--run-guard")
-            .env("DSH_SUPERVISOR_HOME", &spec.state_root);
+            // 变量名必须走 brand::env_state_root()：内核侧 state-root.js:12 读的是
+            // 同一份 shared-constants.json 的同一个键。字面量写在这里 = 绕过单源，
+            // 改一侧漏一侧时壳设的名字与内核读的名字不一致，内核读不到状态根，
+            // 全套状态文件静默漂到默认位置且无任何信号。
+            .env(crate::brand::env_state_root(), &spec.state_root)
+            .env(crate::platform::spawn_token_env(), &token);
         crate::platform::guard_stdio(&mut cmd);
         crate::bounded::prepare(&mut cmd);
         cmd.spawn().map_err(|e| {
-            format!("直接拉起守卫失败: {}（{} --run-guard）", e, spec.shell.display())
+            format!("直接拉起内核失败: {}（{} --run-guard）", e, spec.shell.display())
         })
     }
 }

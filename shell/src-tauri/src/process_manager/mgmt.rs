@@ -262,6 +262,12 @@ async fn handle(
     if port == 0 || !token_eq(got_token, want_token.as_str()) {
         return Ok(reply(StatusCode::UNAUTHORIZED, "mgmt token mismatch"));
     }
+    let ua = req
+        .headers()
+        .get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
     let body = match req.into_body().collect().await {
         Ok(c) => c.to_bytes(),
         Err(_) => Bytes::new(),
@@ -281,6 +287,21 @@ async fn handle(
     // 一律回 200，而 pm-client.js 的 post 对任何 2xx 返回 true 并吞掉——
     // 两层都报「成功」而状态从未改变（例如 core 上报 installing 会被静默丢弃）。
     // 这里改为：解析失败返回 4xx 并带明确原因。
+    //
+    // GET /pm/status 是壳侧唯一的对外读口（此前 mgmt 端点 GET=0，壳的进程表没有
+    // 任何探针够得着的读接口）。它让「一个文件连真机产品做完整检测」成为可能：
+    // 内核侧有 179 个 HTTP 路由可探，壳侧此前一个都没有。
+    //
+    // 鉴权与 POST 同一条路（上面的 token 校验在 match 之前，GET 自动继承），
+    // 不另开免鉴权的读口——那等于把进程表暴露给本机任意进程。
+    if method.as_str() == "GET" && path.as_str() == "/pm/status" {
+        // 读口也要留痕：禁静默。否则「谁在什么时候探过壳」无从回答，
+        // 而这个读口一旦被滥用（轮询/扫描），唯一的证据就是这条事件。
+        crate::telemetry::event::info("mgmt.status_read", "process_manager", serde_json::json!({
+            "peer": ua
+        }));
+        return Ok(reply(StatusCode::OK, &status_json(state)));
+    }
     match (method.as_str(), path.as_str()) {
         ("POST", "/pm/register") => match parse_desc(&json) {
             Some(desc) => {
@@ -347,6 +368,59 @@ async fn handle(
         }
         _ => Ok(reply(StatusCode::NOT_FOUND, "not found")),
     }
+}
+
+/// 进程表的对外读口。**字段裁剪是刻意的**：
+///
+/// `WorkloadState` 里有 `spawn_cmd`（含内核可执行完整路径）与 `env`（可能带
+/// 数据目录/令牌），这些不暴露给读口 —— 排障要回答的是「内核在不在、什么相位、
+/// 壳拉起的还是认领的、上次怎么死的」，不是「它的命令行是什么」。
+/// 真要 spawn_cmd 的场景（复现一次拉起）走 CLI，不走网络读口。
+///
+/// `mgmtOwner` 一并给出：它回答「这个端点本身还有没有 owner」，
+/// 与 `pm_status` 命令同一判据（读契约 pid + pid_alive）。
+fn status_json(state: &ProcessManager) -> String {
+    let workloads = {
+        let s = state.states.lock().unwrap_or_else(|e| e.into_inner());
+        let v: Vec<serde_json::Value> = s
+            .values()
+            .map(|st| {
+                serde_json::json!({
+                    "id": st.id,
+                    "phase": format!("{:?}", st.phase),
+                    "desired": format!("{:?}", st.desired),
+                    "pid": st.pid,
+                    // 壳拉起的（false）与认领的（true）必须可分：双守卫并存时
+                    // 两者的处置完全不同，而这个区别此前只存在于内存里。
+                    "adopted": st.adopted,
+                    "healFailures": st.heal_failures,
+                    "lastWill": st.last_will.as_ref().map(|w| serde_json::json!({
+                        "code": w.code, "signal": w.signal, "startupFailure": w.startup_failure
+                    })),
+                })
+            })
+            .collect();
+        v
+    };
+    let owner = {
+        let path = crate::env::supervisor_dir().join("guard-mgmt.json");
+        let text = std::fs::read_to_string(&path).ok();
+        let parsed: Option<serde_json::Value> = text.as_deref().and_then(|t| serde_json::from_str(t).ok());
+        parsed.and_then(|v| {
+            let pid = v.get("pid")?.as_u64()? as u32;
+            Some(serde_json::json!({
+                "pid": pid,
+                "alive": crate::bounded::pid_alive(pid),
+                "port": v.get("port").and_then(|p| p.as_u64()),
+            }))
+        })
+    };
+    serde_json::to_string(&serde_json::json!({
+        "schema": 1,
+        "workloads": workloads,
+        "mgmtOwner": owner,
+    }))
+    .unwrap_or_else(|_| "{\"schema\":1,\"error\":\"serialize failed\"}".to_string())
 }
 
 

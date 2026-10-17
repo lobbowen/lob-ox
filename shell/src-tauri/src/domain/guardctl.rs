@@ -1,4 +1,4 @@
-//! 守卫的启停与就绪判定（生命周期所有权的调用方）。铁律：壳**自己**是守卫生命周期的所有者 ——
+//! 内核的启停与就绪判定（生命周期所有权的调用方）。铁律：壳**自己**是内核生命周期的所有者 ——
 //! 服务管理器是产品自身的监控器（见 `platform::service`），进程由本产品持有，**不向**
 //! systemd / launchd / 任务计划程序投递任何东西，也不存在「用系统通道投递」的选项。
 //! 阶段序列 P0 契约 -> P1 对齐 -> P3 定位 -> P4 登记 -> P5 启动 -> P6 就绪；P1 是 P5 的前置（磁盘内核必须等于线上最新，否则拒绝启动）。所有等待都有上限，退出也要能在受管对象无响应时走完。
@@ -23,7 +23,7 @@ impl LaunchError {
 
 
 
-/// `--run-guard` 的本地检测（不触网）：解析可运行的 node + 守卫（取本地最高版本）。服务定义只指向稳定入口，故每次启动重新检测，node 迁移（nvm/volta/fnm）与内核升级后自动适配；线上对齐（P1）仍由壳在创建/启动服务前把关，此处只做本地解析，离线也能启动。
+/// `--run-guard` 的本地检测（不触网）：解析可运行的 node + 内核（取本地最高版本）。服务定义只指向稳定入口，故每次启动重新检测，node 迁移（nvm/volta/fnm）与内核升级后自动适配；线上对齐（P1）仍由壳在创建/启动服务前把关，此处只做本地解析，离线也能启动。
 pub fn resolve_local(resource_dir: Option<std::path::PathBuf>) -> Option<(crate::runtime_contract::NodeRuntime, std::path::PathBuf)> {
     // --run-guard 是真正 spawn 内核的入口，走同一条启动门补齐逻辑（达标 + 升到最新 LTS）。
     let rt = crate::runtime_contract::ensure_with_upgrade()?;
@@ -36,6 +36,7 @@ pub fn resolve_local(resource_dir: Option<std::path::PathBuf>) -> Option<(crate:
 
 // R7-架构：停机不再走「/session/stop 握手 + 轮询 sessionState + service().stop()」三段式。
 // 那套是守卫所有权语义：守卫是「唯一监管者」，要等它自己拆完服务链再让外部停。
+// （「守卫」是内核被接管前的历史命名，本段保留它是为了说明这套语义为何被废。）
 // 进程管理时代壳直接持有进程句柄（adopt_spawned），停机就是停进程表里的每个对象，
 // 没有握手、没有让出端口的等待预算、没有 GUARD_STOP_FAILED 这条路径。
 pub(crate) fn shutdown_all() {
@@ -75,43 +76,49 @@ pub(crate) fn shutdown_all() {
 /// 这是进程所有权归壳的体现 —— 表里没有内核，自愈就无从谈起。
 /// spawn_cmd 必须指向**真实**内核可执行入口（与 spawn 路径解析出的 spec.guard 一致）。
 /// 空 Vec 会被 spawn_healer 跳过，core 就永远不可 heal——这不是保守，是静默失去自愈。
-/// 解析失败时退回到「本进程 --run-guard」：那是已验证可用的内核启动入口。
+/// 解析不出时返回空 Vec（不退回 `<self_exe> --run-guard`）：见 core_spawn_cmd 的说明。
 fn core_desc() -> crate::process_manager::state_machine::WorkloadDesc {
-    let spawn_cmd = match crate::runtime_contract::ensure() {
-        Some(rt) => {
-            let guard = crate::domain::coreloc::pick_best(
-                crate::domain::coreloc::locate_core_candidates(None),
-            )
-            .map(|(p, _)| p)
-            .or_else(|| crate::core_contract::read().map(|c| c.bin));
-            match guard {
-                Some(g) => {
-                    let g = crate::domain::coreloc::normalize_guard(g, crate::core::package_name().ok().as_deref());
-                    vec![rt.node.to_string_lossy().into_owned(), g.to_string_lossy().into_owned(), "daemon".to_string()]
-                }
-                None => fallback_core_spawn_cmd(),
-            }
-        }
-        None => fallback_core_spawn_cmd(),
-    };
     crate::process_manager::state_machine::WorkloadDesc {
         id: "core".to_string(),
-        spawn_cmd,
+        spawn_cmd: core_spawn_cmd(),
         priority: crate::process_manager::state_machine::Priority::Core,
         env: Vec::new(),
     }
 }
 
-/// runtime/node 尚不可解析时的内核启动入口：本进程 --run-guard。
-/// 与 platform::service::spawn_daemon 的默认实现同一条路径。
-fn fallback_core_spawn_cmd() -> Vec<String> {
-    match crate::platform::self_exe() {
-        Ok(exe) => vec![exe.to_string_lossy().into_owned(), "--run-guard".to_string()],
-        Err(_) => Vec::new(),
-    }
+/// 内核 spawn 命令的**唯一**产出点：`<node> <guard> daemon`。
+///
+/// 曾经有两个分支：正常分支首元素 `rt.node`，fallback 退化成
+/// `<self_exe> --run-guard`（首元素是壳自己）。两者不同形 ⇒ healer 同时存在两种
+/// spawn 形态，runtime 解析不稳时在两者间来回切，每切一次就多拉起一个 daemon
+/// —— 本机 3 daemon 的第二种成因。
+///
+/// 现在收成一个函数、一种形状。解析不出时返回空 Vec：`spawn_healer` 见到
+/// `spawn_cmd.is_empty()` 会 continue，core 暂不可 heal 但不会多拉一个进程。
+/// 静默失去自愈与多拉一个 daemon 之间，后者更糟（它直接造成双守卫并存）。
+fn core_spawn_cmd() -> Vec<String> {
+    let Some(rt) = crate::runtime_contract::ensure() else {
+        return Vec::new();
+    };
+    let guard = crate::domain::coreloc::pick_best(crate::domain::coreloc::locate_core_candidates(None))
+        .map(|(p, _)| p)
+        .or_else(|| crate::core_contract::read().map(|c| c.bin));
+    let Some(g) = guard else {
+        return Vec::new();
+    };
+    let g = crate::domain::coreloc::normalize_guard(g, crate::core::package_name().ok().as_deref());
+    vec![
+        rt.node.to_string_lossy().into_owned(),
+        g.to_string_lossy().into_owned(),
+        "daemon".to_string(),
+    ]
 }
 
 /// 内核已在服役（壳未持有其句柄，例如 exec 替换或已存在实例）：登记为 running，pid 未知。
+///
+/// 这是「认领」：pid 为空 ⇒ `already` 判据（只认 `pid.is_some()`）不会把它当成
+/// 「壳拉起的在役内核」，下次启动仍会走完整启动序列 —— 那是对的，因为壳没有它的
+/// 句柄，停不起也管不了。但条目本身要能在排障时认出是认领来的（`adopted = true`）。
 fn register_core(app: &tauri::AppHandle) {
     if let Some(pm) = app.try_state::<std::sync::Arc<crate::process_manager::ProcessManager>>() {
         pm.register_workload(core_desc());
@@ -121,6 +128,8 @@ fn register_core(app: &tauri::AppHandle) {
 }
 
 /// 壳自持路径：壳 spawn 出内核进程，把 pid 一并登记（进程所有权归壳）。
+/// `adopted = false`（壳持有句柄），故 `already` 判据认它 —— 同一壳再次启动时
+/// 不会重复拉起，这正是「防双持」在壳在场两条路上生效的方式。
 fn register_core_spawned(app: &tauri::AppHandle, pid: u32) {
     if let Some(pm) = app.try_state::<std::sync::Arc<crate::process_manager::ProcessManager>>() {
         pm.adopt_spawned(core_desc(), pid);
@@ -159,6 +168,7 @@ fn resolve_local_kernel(
 // 原逻辑三段：port_open → serving_state（/healthz + /session/status）→ 停等让出端口。
 // 那整套是守卫所有权语义（守卫是唯一监管者，壳要等它让端口），也正是打死进程管理路径的地方：
 // 端口被外部占用时壳会先花 15 秒等它让，再报 GUARD_STOP_FAILED，而进程管理本可直接认领或重启。
+// （「守卫」是内核被接管前的历史命名，本段保留它是为了说明这套语义为何被废。）
 // 现在唯一判据是进程表：表里有 running 的内核 → 已在服役；否则走正常启动序列。
 pub(crate) fn ensure_core(app: &tauri::AppHandle) -> Result<(), LaunchError> {
     let step = |s: &str| {
@@ -169,16 +179,27 @@ pub(crate) fn ensure_core(app: &tauri::AppHandle) -> Result<(), LaunchError> {
     // 进程表判据：壳自己 spawn 并持有句柄的内核（pid 已知）才算在服役。
     // 不探端口——端口被别的进程占是端口层的事，归 PortAuthority + heal 处理，
     // 不该在启动路径上阻塞 15 秒再失败。
+    //
+    // `pid.is_some()` 这一条同时是「来源分流」：认领条目（register_core）pid 为空，
+    // 不会进这个分支 ⇒ 下次启动仍走完整序列去把它接管成壳持有的。若这里放开关到
+    // 「phase == Running 就算」，认领条目会让壳以为自己在管它，实际停不起也管不了。
     let pm = crate::process_manager::handle();
-    let already = {
+    let (already, adopted_only) = {
         let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
-        s.values().any(|st| st.pid.is_some()
-            && st.phase == crate::process_manager::state_machine::Phase::Running)
+        let mine = s.values().any(|st| st.pid.is_some()
+            && st.phase == crate::process_manager::state_machine::Phase::Running);
+        let claimed = !mine
+            && s.values().any(|st| st.adopted
+                && st.phase == crate::process_manager::state_machine::Phase::Running);
+        (mine, claimed)
     };
     if already {
         step("内核已在服役（进程表登记）· 跳过启动");
         register_core(app);
         return Ok(());
+    }
+    if adopted_only {
+        step("检测到已在运行的内核（非本壳拉起）· 尝试接管");
     }
 
     // 启动门走 ensure_with_upgrade：开机既要保证「达标」，也要把已达标但落后于
@@ -263,7 +284,7 @@ pub(crate) fn ensure_started(
 }
 
 /// 兜底直拉后的子进程结局。压成 (Readiness, Option<i32>) 会让两种截然不同的
-/// 现场共用同一条话术：干净退出的守卫本该立刻报「已退出且未就绪」，
+/// 现场共用同一条话术：干净退出的内核本该立刻报「已退出且未就绪」，
 /// 却要烧满 60 秒预算后被说成「仍在运行」。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExitState {
@@ -300,7 +321,7 @@ fn await_daemon(
     // 用无初值声明 + 循环内首赋值即可消除两难。
     let mut last;
     // 记住子进程是否已退出：退出码 0 在 Windows 上是**正常**的 detach 结局
-    // （入口先拉出 node 再退出），不能就此早停——守卫可能仍在起。
+    // （入口先拉出 node 再退出），不能就此早停——内核可能仍在起。
     // 但必须记住，否则预算用尽时只能说「仍在运行」，把「它早就退了」谎报成还在跑。
     let mut exited: Option<ExitState> = None;
     loop {
@@ -345,7 +366,7 @@ fn guard_log_tail() -> String {
 
 const DAEMON_READY_BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// 守卫就绪判据的**唯一**实现产物：`GET /healthz` 返回 2xx —— 唯一算「就绪」的形态。
+/// 内核就绪判据的**唯一**实现产物：`GET /healthz` 返回 2xx —— 唯一算「就绪」的形态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Readiness {
     Ready,
@@ -365,7 +386,7 @@ impl Readiness {
     }
 }
 
-/// 裸 TCP 可达判定 —— **只**用于「不再可达 = 进程已停」这类否定问题（重启前的等待）。就绪与否**不得**用它回答（那是 [`ready`] 的活）：端口能连只说明有人在听，守卫在绑定端口与真正可服务之间还有一大段启动过程。
+/// 裸 TCP 可达判定 —— **只**用于「不再可达 = 进程已停」这类否定问题（重启前的等待）。就绪与否**不得**用它回答（那是 [`ready`] 的活）：端口能连只说明有人在听，内核在绑定端口与真正可服务之间还有一大段启动过程。
     /// 就绪判据第一步：回环端口是否可连。与 localhttp::connect_local 同源
     /// （同一句 127.0.0.1 + to_socket_addrs + connect_timeout），此前这里另写一份，只有超时不同。
     pub(crate) fn port_open(port: u16) -> bool {

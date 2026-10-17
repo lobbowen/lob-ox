@@ -246,13 +246,3 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-pub fn npm_manual_hint(version: &str) -> String {
-    format!(
-        "Node.js {} 已安装，但配套的 npm（{}）仍不可用。请手动安装 Node 官方分发包（自带 npm）后重试：\
-         https://nodejs.org/dist/{}/ ；若本机 Node 为裁剪分发/解包不完整，请删除其安装目录后重新运行本安装。",
-        version,
-        crate::platform::current().npm_exe_name(),
-        version
-    )
-}
-

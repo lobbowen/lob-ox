@@ -17,7 +17,6 @@
 //!     transfer::fetch(&Request { .. }, &mut |done, total| { .. })
 //! 而下载源列表、超时、校验算法都由调用方声明 —— 差异留在参数里，不留在分支里。
 
-pub mod artifact;
 pub mod fetch;
 pub mod source;
 pub mod verify;

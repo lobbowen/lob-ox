@@ -77,6 +77,14 @@ pub struct WorkloadState {
     pub spawn_cmd: Vec<String>,
     pub env: Vec<(String, String)>,
     pub pid: Option<u32>,
+    /// 这条目是「壳拉起的」还是「壳认领的」。
+    ///
+    /// 认领（`register_core`：内核已在服役但壳没句柄）与自持（`register_core_spawned`）
+    /// 都写 phase=Running，但** pid 一个有值一个为空**。启动判据 `already` 只看
+    /// `pid.is_some()`，所以认领条目不会误判成「已在服役」——那是对的。
+    /// 但这个标记让排障能回答「这个 Running 是我拉起来的，还是我看到它在那儿」，
+    /// 双守卫并存时这两个答案的处置完全不同。
+    pub adopted: bool,
     pub last_transition: Instant,
     pub last_will: Option<LastWill>,
     /// 自愈连续失败计数：达到 priority.heal_burst() 后停手。
@@ -93,6 +101,7 @@ impl WorkloadState {
             spawn_cmd: d.spawn_cmd.clone(),
             env: d.env.clone(),
             pid: None,
+            adopted: false,
             last_transition: Instant::now(),
             last_will: None,
             heal_failures: 0,

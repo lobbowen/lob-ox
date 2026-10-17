@@ -176,6 +176,80 @@ impl LaunchSpec {
     }
 }
 
+/// `--run-guard` 的一次性凭据（J-2 第 3 项）。
+///
+/// 背景：`--run-guard` 是三条 spawn 路收敛的入口，但它自身**不验任何凭据** ——
+/// 本机任意进程都能跑 `lobox-shell --run-guard` 拉一个内核起来（双守卫的第三种
+/// 成因，也是「删 Lобot 任务计划」之前必须先补的阻挡）。
+///
+/// 设计约束（架构侧给的）：
+///   · **每次 spawn 新生成，不能学 `mgmt.rs` 的 `OnceLock` 进程级单例** ——
+///     同一个壳会 spawn 多次，进程级单例会让第二次复用同一值，退化成「设了就算」；
+///   · 熵源复用 `mgmt.rs` 的范式（`BCryptGenRandom` / `/dev/urandom`）+ 常量时间比较；
+///   · **fail-closed**：取不到熵就拒绝启动，不退化成可预测种子。
+///
+/// 传递方式：经环境变量交给子进程，`cli_run_guard` 收下即验、验完即从环境移除。
+pub fn spawn_token() -> Result<String, String> {
+    let mut seed = [0u8; 32];
+    let mut ok = false;
+    unsafe {
+        #[cfg(target_os = "windows")]
+        {
+            extern "system" {
+                fn BCryptGenRandom(hAlgorithm: *mut core::ffi::c_void, pbBuffer: *mut u8, cbBuffer: u32, dwFlags: u32) -> i32;
+            }
+            const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x00000002;
+            ok = BCryptGenRandom(
+                core::ptr::null_mut(),
+                seed.as_mut_ptr(),
+                seed.len() as u32,
+                BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+            ) == 0;
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+                use std::io::Read;
+                ok = f.read_exact(&mut seed).is_ok();
+            }
+        }
+    }
+    if !ok {
+        return Err("系统熵源不可用：拒绝以可预测种子派生 --run-guard 凭据（fail-closed）".to_string());
+    }
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(seed);
+    h.update(b"lobox-run-guard:");
+    h.update(std::process::id().to_string().as_bytes());
+    Ok(hex::encode(&h.finalize()[..24]))
+}
+
+/// 凭据经哪个环境变量传给子进程。
+///
+/// 名字**不在** `shared-constants.json` 里 —— 那是跨语言契约的存放处，而这个
+/// 凭据只在壳与它自己 spawn 的壳之间流动（`spawn_daemon` 设、`cli_run_guard` 收），
+/// 内核不读它。放进 shared 会让内核侧也多读一个与它无关的键（D9 的划分标准）。
+/// 故定义为壳内常量，与 `mgmt.rs` 的 `MGMT_TOKEN_HEADER_CELL` 同一条理由。
+pub fn spawn_token_env() -> &'static str {
+    "DSH_RUN_GUARD_TOKEN"
+}
+
+/// 常量时间比较。与 `mgmt.rs` 的 `token_eq` 同一形态（不导入私有项，此处自持一份
+/// 短实现：两个 &str 的长度都可能不同，先比长度会泄漏长度信息，故仍走定长缓冲）。
+pub fn token_eq_generic(got: &str, want: &str) -> bool {
+    let g = got.as_bytes();
+    let w = want.as_bytes();
+    if g.len() != w.len() {
+        return false;
+    }
+    let mut acc: u8 = 0;
+    for i in 0..g.len() {
+        acc |= g[i] ^ w[i];
+    }
+    acc == 0
+}
+
 pub fn service_exec_line(shell: &std::path::Path, args: &[&str]) -> String {
     let mut s = format!("\"{}\"", shell.display());
     for a in args {
@@ -314,11 +388,14 @@ pub fn exec_guard(spec: &LaunchSpec) -> Result<(), String> {
         c
     };
     cmd.env("PATH", &spec.env_path)
-        .env("DSH_SUPERVISOR_HOME", &spec.state_root);
+        // 变量名走 brand::env_state_root()（shared-constants.json 的 env.stateRoot），
+        // 与内核侧 state-root.js:12 读同一个键。字面量写这里是绕过跨语言单源：
+        // 两侧名字一旦不一致，内核读不到状态根，全套状态文件静默漂到默认位置。
+        .env(crate::brand::env_state_root(), &spec.state_root);
     guard_stdio(&mut cmd);
-    let mut child = cmd.spawn().map_err(|e| format!("启动守卫失败: {}", e))?;
-    let st = child.wait().map_err(|e| format!("等待守卫退出失败: {}", e))?;
-    if st.success() { Ok(()) } else { Err(format!("守卫退出码: {:?}", st.code())) }
+    let mut child = cmd.spawn().map_err(|e| format!("启动内核失败: {}", e))?;
+    let st = child.wait().map_err(|e| format!("等待内核退出失败: {}", e))?;
+    if st.success() { Ok(()) } else { Err(format!("内核退出码: {:?}", st.code())) }
 }
 
 pub trait Platform: Send + Sync {

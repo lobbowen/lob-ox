@@ -382,14 +382,11 @@ mod tests {
     use super::*;
 
     #[test]
-    
-    
-    #[test]
     fn a4_deprecated_ports_are_migrated() {
         for p in deprecated_api_ports() {
             assert!(
                 is_deprecated_api_port(*p),
-                "A-4 FAIL 弃用端口 {} 未被识别（存量用户升级后会撞上老产品守卫）",
+                "A-4 FAIL 弃用端口 {} 未被识别（存量用户升级后会撞上老产品内核）",
                 p
             );
         }
@@ -412,20 +409,20 @@ mod tests {
         HOME_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    #[test]
-    
-    
+    /// 弃用端口不得被采信。
+    ///
+    /// 守护的判据：`ports.json` 里登记的端口若在弃用名单上，`discovered_api_port()`
+    /// 必须返回 None —— 否则壳会用旧端口判服役、新端口导航，两侧对不上。
+    ///
+    /// 构造走 `DSH_SUPERVISOR_HOME`（`state_root()` 的第一优先，见本文件 `:128`），
+    /// **不碰 HOME/USERPROFILE**：那三个是全局环境，`cargo test` 多线程并行时
+    /// 与别的文件测试互相干扰（各文件的锁互不相识），而这个断言只需要「换一个
+    /// 状态根」，用最小侵入的那个键。
     #[test]
     fn a5_discovered_port_ignores_deprecated() {
-        let _g = home_env_lock();
-        let dir = std::env::temp_dir().join(format!("dsh-a5-home-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("dsh-a5-root-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("supervisor")).unwrap();
-        let saved = std::env::var_os("HOME");
-        let saved_ur = std::env::var_os("USERPROFILE");
-        std::env::set_var("HOME", &dir);
-        std::env::set_var("USERPROFILE", &dir);
-        
         let ports = serde_json::json!({
             "records": [{ "port": 36360u16, "role": "supervisor-api", "createdAt": 1u64 }]
         });
@@ -434,15 +431,13 @@ mod tests {
             serde_json::to_string(&ports).unwrap(),
         )
         .unwrap();
+        let key = crate::brand::env_state_root();
+        let saved = std::env::var_os(key);
+        std::env::set_var(key, &dir);
         let got = discovered_api_port();
-        
         match &saved {
-            Some(v) => std::env::set_var("HOME", v),
-            None => std::env::remove_var("HOME"),
-        }
-        match &saved_ur {
-            Some(v) => std::env::set_var("USERPROFILE", v),
-            None => std::env::remove_var("USERPROFILE"),
+            Some(v) => std::env::set_var(key, v),
+            None => std::env::remove_var(key),
         }
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
@@ -451,24 +446,21 @@ mod tests {
         );
     }
 
+    /// 默认端口常量与 URL 推导的**跨语言单源**不变量。
+    ///
+    /// 为什么值得一条测试：`default_api_port()` 的值必须等于 `net.apiPort`
+    /// （`shared-constants.json`），而 `api_base_url()` 必须按同一个常量生成。
+    /// 这三条断言守护的是「改一处而另一处不知情」这个跨侧漂移 —— 它无法靠
+    /// 类型系统防（常量是运行期从 JSON 读的），只能靠断言。
+    ///
+    /// 构造刻意不碰全局 HOME/USERPROFILE：本断言与 HOME 无关（前一条已覆盖
+    /// 「HOME 影响端口发现」），且 `cargo test` 多线程并行时改全局环境会与
+    /// 其他文件的测试互相干扰（各文件的锁互不相识）。
+    #[test]
     fn a3_default_port_constant_value_and_url_derivation() {
-        
-        
         assert_eq!(default_api_port(), 3736 * 10, "A-3 FAIL 默认端口常量值被改动");
-        
-        let _g = home_env_lock();
-        let saved = std::env::var_os("HOME");
-        let dir = std::env::temp_dir().join(format!("dsh-a3-home-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::env::set_var("HOME", &dir);
         let url = api_base_url();
         let port = api_port();
-        match &saved {
-            Some(p) => std::env::set_var("HOME", p),
-            None => std::env::remove_var("HOME"),
-        }
-        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
             url,
             format!("http://127.0.0.1:{}/", default_api_port()),
