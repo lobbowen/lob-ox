@@ -284,6 +284,16 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # 诊断步：release 被 skip 时无法从 job 级 if 反推原因，故在 job 内先打求值现场。
+      - name: 求值现场（诊断）
+        shell: bash
+        run: |
+          echo "  github.ref            = ${{ github.ref }}"
+          echo "  inputs.from_run       = '${{ inputs.from_run }}'"
+          echo "  inputs.ver            = '${{ inputs.ver }}'"
+          echo "  need_build (precheck) = '${{ needs.precheck.outputs.need_build }}'"
+          echo "  gate result           = ${{ needs.gate.result }}"
+
       - name: 收集各平台构建产物（本次 run）
         if: inputs.from_run == ''
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
