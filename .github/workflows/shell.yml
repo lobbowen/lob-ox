@@ -150,6 +150,10 @@ jobs:
       # 为什么需要：annotations 只给前 40 行且 head -40 会截断，而「哪个文件哪一行」
       # 的完整清单是修编译错的唯一依据。本机没有 cargo（我们反复标注「Rust 编译待 CI 证」），
       # 所以 CI 日志是我们唯一的编译器输出 —— 把它当 artifact 上传，比任何静态排查都快。
+      #
+      # ⚠ 本步是 `--bins` 红时**唯一**的 log 来源：`--bins` 无 continue-on-error，
+      #   它一红后续 step 全跳过（含 `--tests` 与它自己的上传）。故本步必须紧贴
+      #   `--bins` 之后，且 `if: failure()` 在 job 级判定 —— 只要本 job 红就触发。
       - name: 上传 cargo check 日志（失败时）
         if: failure()
         uses: actions/upload-artifact@v4
@@ -159,43 +163,47 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      # 测试代码编译检查（只报告，不 gate）。
+      # 测试代码编译检查（**已是 gate**：失败即拦发布）。
       #
       # 为什么必须单独一步：`cargo check --bins` **不编译 `#[cfg(test)]` 代码** ——
       # 那 27 个测试块是从未进过编译单元的代码，被测函数签名一改就静默腐烂，
       # 直到有人本机 cargo test 才炸，而开发机没有 cargo。
       #
-      # 为什么是 continue-on-error 而非 gate：这一批腐烂是「从未编译过」的必然结果，
-      # 不是新缺陷。第一次跑必然红，那个红的用途是拿回腐烂清单，不是拦发布。
-      # 清单清完、这里连续两轮全绿之后，再改成 gate（去掉 continue-on-error）。
+      # 演进记录（三级，每级的理由都留着，因为它解释了「为什么现在是 gate」）：
+      #   ① 首版 `continue-on-error: true` —— 那批腐烂是「从未编译过」的必然结果，
+      #      第一次跑必然红，红的用途是拿回腐烂清单，不是拦发布；
+      #   ② 清单实际为空（8b0b332a 与 749c9d5a 两轮共 8 个实例全 success、零 warning）
+      #      ⇒ 「先清再改 gate」的前置已达成，无事可清；
+      #   ③ 改为 gate：重启测试代码编译为发布闸门。
       #
-      # ⚠ 「连续两轮全绿后改 gate」不是愿望，是**有账的动作**：notice 输出会提醒，
-      #   但提醒不构成约束。真正的约束在 TEAM-LEDGER 的待办里记一条（本轮已记），
-      #   改 gate 时同步销账。否则 continue-on-error 会变成永久的 —— 那又与
-      #   「CI 绿 ≠ 问题解决」同族：一个永远不 gate 的检查步比没有它更危险，
-      #   因为它制造「有检查」的假象（与 self-check 的过度声称同构）。
+      # ⚠ 这个 gate 的真实风险不在测试本身，而在「将来有人改产品签名忘改测试」——
+      #   那时它会红，而那正是它该做的事（否则又回到「静默腐烂」）。
       #
       # 这不是 cargo test：只编译、不执行。用户否掉的是「cargo test 作为门禁步骤」，
       # 不是「编译检查」——执行断言仍需真机（与 STANDARDS 的 R1 一致）。
-      - name: 测试代码腐烂检查（cargo check --tests，只报告不 gate）
-        continue-on-error: true
+      - name: 测试代码腐烂检查（cargo check --tests，gate）
         shell: bash
         run: |
+          set -o pipefail
           LOG="${RUNNER_TEMP:-/tmp}/cargo-check-tests.log"
           cargo check --tests 2>&1 | tee "$LOG"
           RC=${PIPESTATUS[0]}
           if [ "$RC" -ne 0 ]; then
-            echo "::warning::测试代码有腐烂项（不阻断发布）。错误数与清单："
+            echo "::error::测试代码编译失败 —— 腐烂清单见 artifact 与本注解"
             grep -cE '^error(\[|:)' "$LOG" || true
-            grep -E '^error(\[|:)|^ *-->' "$LOG" | head -60 | while IFS= read -r l; do echo "::warning::$l"; done
-          else
-            echo "::notice::测试代码编译干净 —— 请把本步改成 gate（去掉 continue-on-error）并销 TEAM-LEDGER 的账"
+            grep -E '^error(\[|:)|^ *-->' "$LOG" | head -60 | while IFS= read -r l; do echo "::error::$l"; done
           fi
+          exit "$RC"
         working-directory: shell/src-tauri
 
-      # 腐烂清单同样要完整可读：continue-on-error 会让本步不红，但清单本身
-      # 是「改 gate 之前要清完的账」——没有完整清单就不知道该清什么。
-      # 注意 continue-on-error 的步 failure() 仍会触发，故 if: failure() 有效。
+      # gate 的失败日志同样要完整可读：它现在拦发布，那时的清单就是「为什么拦」的
+      # 唯一依据 —— 本机没有 cargo，CI 日志是我们唯一的编译器输出。
+      #
+      # ⚠ 覆盖边界（如实记，别指望它万能）：`--bins` 步没有 continue-on-error，
+      #   它一红后续 step 全部跳过 ⇒ 本上传步**不触发**。所以：
+      #     · `--bins` 红 ⇒ 看 `--bins` 自己的 log artifact（:153 那步）；
+      #     · `--bins` 绿但 `--tests` 红 ⇒ 本步上传，那是「产品能编译而测试腐烂」，
+      #       正是这个 gate 存在的理由。
       - name: 上传 cargo check --tests 日志
         if: failure()
         uses: actions/upload-artifact@v4

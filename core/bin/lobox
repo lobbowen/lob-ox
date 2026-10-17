@@ -542,7 +542,7 @@ function usage() {
   console.log('用法: lobox <command> [options]');
   console.log('');
   console.log('命令:');
-  console.log('  daemon [-c <config>]      启动守护进程（由桌面壳/服务管理器调用）');
+  console.log('  daemon [-c <config>]      启动内核进程（由桌面壳/服务管理器调用）');
   console.log('  status [-c <config>]      查看当前状态');
   console.log('  start [-c <config>]       设置 desired=running 并启动 DSH');
   console.log('  stop [-c <config>]        设置 desired=stopped 并停止 DSH');
