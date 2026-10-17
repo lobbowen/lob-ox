@@ -185,30 +185,52 @@ jobs:
           esac
           SPEC="@lob-ox/core-$OS_TAG-$ARCH@$VER"
           echo "  发布后自证目标: ${SPEC} registry=${REGISTRY}"
-          # registry 摄取与前置缓存有分钟级延迟 ⇒ 有限轮重试；
-          # 轮次用尽仍未确认即判红。⚠ 末尾不用 `[ ... ] && sleep`：那会让循环体以非零收尾、被 -e 炸掉。
-          PROBE_ATTEMPTS=5
-          PROBE_SLEEP_SEC=75
-          i=0
+
+          # 一轮探测：$1=标签（日志用），$2=轮数，$3=轮间隔秒。全局 rc 由本函数置位。
+          # 返回值：0=已确认；1=预算用尽仍未确认。
+          probe_budget() {
+            local label="$1" attempts="$2" sleep_s="$3"
+            local i=0 out
+            while [ "$i" -lt "$attempts" ]; do
+              i=$((i + 1))
+              if out="$(npm view "$SPEC" version --registry="$REGISTRY" --prefer-online 2>&1)"; then
+                out="${out//$'\r'/}"
+                case "$out" in
+                  *"$VER"*) echo "  [$label] registry 已确认 ${SPEC}（第 $i/$attempts 轮）"; rc=0; return 0 ;;
+                  *) echo "  [$label] 第 $i/$attempts 轮 npm view 返回与 $VER 不符: $out" ;;
+                esac
+              else
+                echo "  [$label] 第 $i/$attempts 轮 registry 尚无该版本（等 registry 摄取与缓存过期）"
+                printf '%s\n' "$out" | sed 's/^/    /'
+              fi
+              if [ "$i" -lt "$attempts" ]; then sleep "$sleep_s"; fi
+            done
+            return 1
+          }
+
+          # ⚠ 为什么这里要二次探测：这是「发布完成 → registry 可查」延迟的 race，已两次实证，
+          #   且在不同平台 ⇒ 不是某平台慢，是延迟本身不可预测：
+          #     0.0.22  linux-x64   自证放弃比实际发布晚 4 分 42 秒
+          #     0.0.25  darwin-x64  自证放弃比实际发布晚 67 秒
+          #   固定 5×75s 预算对三个平台够、对最慢那个不够。若只判红 ⇒ gate 红 ⇒ release job
+          #   skipped ⇒ GitHub Release 资产缺一角（0.0.25 就丢了 4 个 kernel 包）。
+          #
+          # ⚠ 边界一（预算有上限）：二次预算与首次同型（5×75s），总预算 10×75s。**不无限重试**——
+          #   一个永不失败的检查步比没有它更危险（§7.37：制造「有检查」的假象）。
+          # ⚠ 边界二（保留判红能力）：notice 与 error 的区分是「探到了」vs「真的探不到」，
+          #   不是「重试过了就放过」。防假绿的本意（publish 静默跳过被当成功）不丢。
           rc=1
-          while [ "$i" -lt "$PROBE_ATTEMPTS" ]; do
-            i=$((i + 1))
-            if OUT="$(npm view "$SPEC" version --registry="$REGISTRY" --prefer-online 2>&1)"; then
-              OUT="${OUT//$'\r'/}"
-              case "$OUT" in
-                *"$VER"*) echo "  registry 已确认 ${SPEC}"; rc=0; break ;;
-                *) echo "  第 $i/$PROBE_ATTEMPTS 轮 npm view 返回与 $VER 不符: $OUT" ;;
-              esac
-            else
-              echo "  第 $i/$PROBE_ATTEMPTS 轮 registry 尚无该版本（等 registry 摄取与缓存过期）"
-              printf '%s\n' "$OUT" | sed 's/^/    /'
-            fi
-            if [ "$i" -lt "$PROBE_ATTEMPTS" ]; then sleep "$PROBE_SLEEP_SEC"; fi
-          done
-          if [ "$rc" != 0 ]; then
-            echo "::error::发布后自证失败：${PROBE_ATTEMPTS} 轮后 registry 仍未确认 ${SPEC} - job 不得以此收场（产物并未真正发布）"
-            exit 1
+          if probe_budget "首次探测" 5 75; then
+            echo "  ✅ 发布后自证通过（首次预算内确认）"
+            exit 0
           fi
+          echo "  ⚠ 首次预算（5×75s）用尽仍未确认，进入独立二次预算重探——这不代表发布失败，是 registry 摄取延迟"
+          if probe_budget "二次探测" 5 75; then
+            echo "::notice::发布后自证在二次预算内确认 ${SPEC}——首次 5×75s 未赶上 registry 摄取延迟（已知 race：0.0.22 linux-x64 差 4m42s / 0.0.25 darwin-x64 差 67s）。发布本身成功，仅自证慢于延迟。"
+            exit 0
+          fi
+          echo "::error::发布后自证失败：首次 5×75s + 二次 5×75s 共 10 轮后 registry 仍未确认 ${SPEC} - job 不得以此收场（产物并未真正发布，或 registry 摄取延迟超过 12.5 分钟——后者需人工核 registry 实况后再决定重打 tag）"
+          exit 1
 
       # ⚠ upload-artifact 的 `path:` 相对 workspace 根，不受 defaults.run.working-directory 影响
       #    ⇒ 必须显式加 `core/` 前缀；artifact 内布局取匹配路径的最小公共祖先（= core/dist/launcher）。
