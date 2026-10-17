@@ -275,7 +275,9 @@ jobs:
 
   release:
     needs: [precheck, gate]
-    if: (startsWith(github.ref, 'refs/tags/core-') || inputs.from_run != '') && (inputs.from_run != '' || needs.precheck.outputs.need_build == 'true')
+    # 诊断期简化：单一条件。若本版 release 跑了 ⇒ 原复合条件的两半某一半在 job 级不可用；
+    # 若仍 skip ⇒ 问题在 needs 或 job 级 if 的整体机制，不在表达式拆分。
+    if: inputs.from_run != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
