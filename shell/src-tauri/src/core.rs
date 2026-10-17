@@ -104,6 +104,33 @@ fn encode_pkg(pkg: &str) -> String {
     pkg.chars().map(|c| if c == '/' { "%2F".to_string() } else { c.to_string() }).collect()
 }
 
+/// 单源诊断：把一个 probe 走到哪一步、为什么没成为候选，一次说清。
+///
+/// 为什么需要：`latest_pick` 此前是四层静默 `continue`（探测失败 / 无 body /
+/// JSON 失败 / select 失败），四类完全不同的失败被压成同一个 continue，
+/// 最终只报一句「全部镜像不可用或均无该包」。⇒ 本机曾出现「6 源探测全 ok、
+/// 壳的 registry.json 也记着 6 源全通，但 core_plan 拿不到 latest」，
+/// 而它为什么没消费，任何事件里都看不到 —— 因为 continue 不留痕。
+#[derive(Debug, Clone)]
+pub struct SourceDiag {
+    pub source: String,
+    /// `probe_error` / `no_body` / `bad_json` / `select_error` / `candidate`。
+    pub stage: &'static str,
+    pub latency_ms: Option<u128>,
+    /// 各阶段的原文：探测 error、JSON 解析 error、或 select 的 error。
+    pub detail: Option<String>,
+}
+
+impl SourceDiag {
+    fn line(&self) -> String {
+        let lat = self.latency_ms.map(|l| format!("{}ms", l)).unwrap_or_else(|| "-".into());
+        match &self.detail {
+            Some(d) => format!("{}[{}|{}] {}", self.source, self.stage, lat, d),
+            None => format!("{}[{}|{}]", self.source, self.stage, lat),
+        }
+    }
+}
+
 pub fn latest_pick(pkg: &str) -> Result<LatestPick, String> {
     if pkg.is_empty() { return Err("包名为空".into()); }
     let path = encode_pkg(pkg);
@@ -113,27 +140,92 @@ pub fn latest_pick(pkg: &str) -> Result<LatestPick, String> {
     let canary = canary_here();
 
     let mut cands: Vec<Candidate> = Vec::new();
+    // 每个源走到哪一步、为什么停下 —— 四层失败各记一类，不再静默 continue。
+    let mut diags: Vec<SourceDiag> = Vec::new();
     let mut reachable = 0usize;
     for p in &probes {
-        if !p.ok { continue; }
+        let lat = Some(p.latency_ms);
+        if !p.ok {
+            diags.push(SourceDiag {
+                source: p.source.clone(),
+                stage: "probe_error",
+                latency_ms: lat,
+                // Probe.error 早就有原文（mirror.rs:298），此前一个都没用。
+                detail: p.error.clone().or_else(|| Some("探测失败（无 error 原文）".into())),
+            });
+            continue;
+        }
         reachable += 1;
-        let Some(body) = &p.body else { continue };
-        let Ok(j) = serde_json::from_str::<Value>(body) else { continue };
-        let Ok(pick) = crate::release_channel::select(&j, canary) else { continue };
-        cands.push((pick.version, p.latency_ms, p.source.clone(), pick.via));
+        let Some(body) = &p.body else {
+            diags.push(SourceDiag {
+                source: p.source.clone(),
+                stage: "no_body",
+                latency_ms: lat,
+                detail: Some("响应成功但 body 为空".into()),
+            });
+            continue;
+        };
+        let Ok(j) = serde_json::from_str::<Value>(body) else {
+            diags.push(SourceDiag {
+                source: p.source.clone(),
+                stage: "bad_json",
+                latency_ms: lat,
+                detail: Some(format!("JSON 解析失败（body {} 字节，前 80 字符：{}）", body.len(), snippet(body))),
+            });
+            continue;
+        };
+        match crate::release_channel::select(&j, canary) {
+            Ok(pick) => {
+                cands.push((pick.version, p.latency_ms, p.source.clone(), pick.via));
+                diags.push(SourceDiag {
+                    source: p.source.clone(),
+                    stage: "candidate",
+                    latency_ms: lat,
+                    detail: Some(format!("via={}", pick.via)),
+                });
+            }
+            Err(e) => {
+                diags.push(SourceDiag {
+                    source: p.source.clone(),
+                    stage: "select_error",
+                    latency_ms: lat,
+                    detail: Some(e),
+                });
+            }
+        }
     }
 
     match pick_best(cands) {
         Some((version, _, source, via)) => Ok(LatestPick { version, origin: source, via: via.to_string() }),
         None => {
-            let detail = probes
-                .iter()
-                .map(|p| format!("{}:{}", p.source, if p.ok { format!("{}ms", p.latency_ms) } else { "不可达".into() }))
-                .collect::<Vec<_>>()
-                .join(", ");
-            Err(format!("全部镜像不可用或均无该包（可达 {} 个；{}）", reachable, detail))
+            // 分层诊断：探测层与解析/选择层分开列，才能回答「连不上」还是「解析不了」。
+            let stage_of = |want: &str| -> Vec<String> {
+                diags.iter().filter(|d| d.stage == want).map(|d| d.line()).collect()
+            };
+            let probe_lines = stage_of("probe_error");
+            let parse_lines = stage_of("bad_json")
+                .into_iter()
+                .chain(stage_of("no_body"))
+                .chain(stage_of("select_error"))
+                .collect::<Vec<_>>();
+            let mut msg = format!("全部镜像不可用或均无该包（可达 {} / {} 个源）", reachable, probes.len());
+            if !probe_lines.is_empty() {
+                msg.push_str(&format!("；探测层失败 {} 个：{}", probe_lines.len(), probe_lines.join(" ; ")));
+            }
+            if !parse_lines.is_empty() {
+                msg.push_str(&format!("；解析/选择层失败 {} 个：{}", parse_lines.len(), parse_lines.join(" ; ")));
+            }
+            if probe_lines.is_empty() && parse_lines.is_empty() {
+                msg.push_str("；所有源都成功探测，但无一成为候选（逻辑不可能，需人工核）");
+            }
+            Err(msg)
         }
     }
+}
+
+/// body 前 80 字符（按 char 边界截，避免半个多字节字符）。
+fn snippet(s: &str) -> String {
+    s.chars().take(80).collect::<String>().replace('\n', " ")
 }
 
 pub struct LatestPick {
@@ -492,7 +584,7 @@ pub fn build_plan(installed: Option<String>, latest: Result<LatestPick, String>)
         Ok(p) => (Some(p.version), Some(p.origin), None, Some(p.via)),
         Err(e) => (None, None, Some(e), None),
     };
-    let is_rollback = via.as_deref() == Some("rollback");
+    let is_rollback = via.as_deref() == Some(crate::release_channel::CH_ROLLBACK);
     let action = match (&installed, &latest_v) {
         (None, Some(_)) => "install",
         (Some(i), Some(l)) => {
@@ -526,32 +618,66 @@ pub fn plan_text() -> String {
     let pkg = match package_name() { Ok(p) => p, Err(e) => return format!("pkg_error={}", e) };
     let mut lines = vec![format!("package={}", pkg)];
     lines.push(format!("origins={}", registry_origins().join(",")));
+    // 装机版本（引导页分派 action 的另一半输入）。取不到时打 `unknown` 而不是省略 ——
+    // 省略会让「action=unknown」与「没测」同形。
+    let installed = installed_version_for_plan();
+    lines.push(format!("installed={}", installed.clone().unwrap_or_else(|| "none".into())));
     match latest_version(&pkg) {
         Ok((v, o)) => {
             lines.push(format!("latest={}", v));
             lines.push(format!("latest_origin={}", o));
             lines.push(format!("latest_via={}", decision_channel(&pkg)));
+            // action 是引导页的分水岭（50-kernel.js: !p.installed → install；
+            // p.action === 'upgrade' → core_apply）。此前 plan_text 从不打它
+            // ⇒ 无头入口完全黑箱。现在补上，让「IPC 拿到而 CLI 没拿到」这类
+            // 分歧能直接对着 action 看。
+            let action = plan_action(installed.as_deref(), Some(v.as_str()));
+            lines.push(format!("action={}", action));
         }
-        Err(e) => lines.push(format!("latest_error={}", e)),
+        Err(e) => {
+            lines.push(format!("latest_error={}", e));
+            lines.push(format!("action={}", plan_action(installed.as_deref(), None)));
+        }
     }
     lines.join(" | ")
 }
 
-fn decision_channel(pkg: &str) -> String {
-    let path = encode_pkg(pkg);
-    let origins = registry_origins();
-    let probes = crate::mirror::probe_all(&origins, &path);
-    let canary = canary_here();
-    let mut cands: Vec<Candidate> = Vec::new();
-    for p in &probes {
-        if !p.ok { continue; }
-        let Some(body) = &p.body else { continue };
-        let Ok(j) = serde_json::from_str::<Value>(body) else { continue };
-        if let Ok(pick) = crate::release_channel::select(&j, canary) {
-            cands.push((pick.version, p.latency_ms, p.source.clone(), pick.via));
+/// 装机版本（不触网）：只做本地定位。
+///
+/// 与 `core_plan` 命令里的定位同源（`coreloc::locate_core` + `installed_version`），
+/// 但这里不依赖 AppHandle ⇒ CLI 分支也能用。
+///
+/// 选择用 `pick_best`（最高版本）而不是 `candidates().next()`：后者拿到的是
+/// 候选列表第一个，而候选顺序不保证「最高版本」—— 那会让 `action` 判错
+/// （把已升级的判成 upgrade，或反之）。`pick_best` 是 `core_desc` 与
+/// `resolve_local_kernel` 共用的同一个选择器。
+fn installed_version_for_plan() -> Option<String> {
+    let bin = crate::domain::coreloc::pick_best(crate::domain::coreloc::locate_core_candidates(None))
+        .map(|(p, _)| p)
+        .or_else(|| crate::core_contract::read().map(|c| c.bin))?;
+    crate::core::installed_version(&bin)
+}
+
+/// 与 `build_plan` 的 action 判据同源（抽出来避免第三份复制）。
+fn plan_action(installed: Option<&str>, latest: Option<&str>) -> &'static str {
+    match (installed, latest) {
+        (None, Some(_)) => "install",
+        (Some(_), None) => "unknown",
+        (Some(i), Some(l)) => {
+            let cmp = semver_cmp(l, i);
+            if cmp > 0 { "upgrade" } else { "none" }
         }
+        (None, None) => "unknown",
     }
-    pick_best(cands).map(|c| c.3.to_string()).unwrap_or_else(|| "unknown".into())
+}
+
+/// 决策通道（`latest_via`）。
+///
+/// 此前这里是 `latest_pick` 的**逐行复制品**（同样的 probe_all + 四层静默 continue），
+/// 是「复制而非复用」的第 4 次发作。现在改为直接调 `latest_pick` —— 单一产出点，
+/// 顺带让这里的错误也带上分层诊断。
+fn decision_channel(pkg: &str) -> String {
+    latest_pick(pkg).map(|p| p.via).unwrap_or_else(|_| "unknown".into())
 }
 #[cfg(test)]
 mod tests {
