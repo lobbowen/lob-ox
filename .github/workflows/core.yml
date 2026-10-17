@@ -186,8 +186,8 @@ jobs:
           SPEC="@lob-ox/core-$OS_TAG-$ARCH@$VER"
           echo "  发布后自证目标: ${SPEC} registry=${REGISTRY}"
 
-          # 一轮探测：$1=标签（日志用），$2=轮数，$3=轮间隔秒。全局 rc 由本函数置位。
-          # 返回值：0=已确认；1=预算用尽仍未确认。
+          # 一轮探测：$1=标签（日志用），$2=轮数，$3=轮间隔秒。
+          # 返回值：0=已确认；1=预算用尽仍未确认。调用方只看返回值，不读全局变量。
           probe_budget() {
             local label="$1" attempts="$2" sleep_s="$3"
             local i=0 out
@@ -196,7 +196,7 @@ jobs:
               if out="$(npm view "$SPEC" version --registry="$REGISTRY" --prefer-online 2>&1)"; then
                 out="${out//$'\r'/}"
                 case "$out" in
-                  *"$VER"*) echo "  [$label] registry 已确认 ${SPEC}（第 $i/$attempts 轮）"; rc=0; return 0 ;;
+                  *"$VER"*) echo "  [$label] registry 已确认 ${SPEC}（第 $i/$attempts 轮）"; return 0 ;;
                   *) echo "  [$label] 第 $i/$attempts 轮 npm view 返回与 $VER 不符: $out" ;;
                 esac
               else
@@ -219,7 +219,6 @@ jobs:
           #   一个永不失败的检查步比没有它更危险（§7.37：制造「有检查」的假象）。
           # ⚠ 边界二（保留判红能力）：notice 与 error 的区分是「探到了」vs「真的探不到」，
           #   不是「重试过了就放过」。防假绿的本意（publish 静默跳过被当成功）不丢。
-          rc=1
           if probe_budget "首次探测" 5 75; then
             echo "  ✅ 发布后自证通过（首次预算内确认）"
             exit 0
@@ -275,9 +274,7 @@ jobs:
 
   release:
     needs: [precheck, gate]
-    # 诊断期简化：单一条件。若本版 release 跑了 ⇒ 原复合条件的两半某一半在 job 级不可用；
-    # 若仍 skip ⇒ 问题在 needs 或 job 级 if 的整体机制，不在表达式拆分。
-    if: inputs.from_run != ''
+    if: (startsWith(github.ref, 'refs/tags/core-') || inputs.from_run != '') && (inputs.from_run != '' || needs.precheck.outputs.need_build == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -285,16 +282,6 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      # 诊断步：release 被 skip 时无法从 job 级 if 反推原因，故在 job 内先打求值现场。
-      - name: 求值现场（诊断）
-        shell: bash
-        run: |
-          echo "  github.ref            = ${{ github.ref }}"
-          echo "  inputs.from_run       = '${{ inputs.from_run }}'"
-          echo "  inputs.ver            = '${{ inputs.ver }}'"
-          echo "  need_build (precheck) = '${{ needs.precheck.outputs.need_build }}'"
-          echo "  gate result           = ${{ needs.gate.result }}"
 
       - name: 收集各平台构建产物（本次 run）
         if: inputs.from_run == ''
