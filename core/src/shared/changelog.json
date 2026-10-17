@@ -2,11 +2,16 @@
   {
     "version": "0.0.25",
     "date": "2026-10-17",
-    "items": [
-      "死导出与半成品清理：execInHerit / nap / carrier 的 findOurs 导入 / _testProviders / _parse / _test 键 / _lockPrimitives（批三撤销残留，同文件四个锁函数保留）。验收同时查 5 个误删风险项——目标项与保留项紧邻（nap 与 NAP_MS 相差 2 行），只查归零会把「删多了」漏过去",
-      "更新日志补齐：0.0.23 与 0.0.24 两版发布时都没写条目，用户点「更新日志」看不到任何记录。0.0.23 条目如实写了「壳侧单守卫门未实现」——不让用户以为双守卫已被防住",
-      "CI 加对账断言：changelog.json 最新条目版本段 = package.json#version。判据取「最大版本」而非「首条」（补写历史条目写在最前不误报）。FAIL 文案把后果写进错误信息，免得未来有人为消红乱改版本号。该断言第一次运行就抓到一次真实忘写",
-      "cargo check --tests（continue-on-error: true）：那 120 个 Rust 测试函数从未进过编译单元（cargo check --bins 不编译 #[cfg(test)]），改了被测函数签名会静默腐烂。只编译不执行，第一次红的用途是拿回腐烂清单，连续两轮全绿后改成 gate"
+    "sections": [
+      {
+        "title": "修复",
+        "items": [
+          "死导出与半成品清理：execInherit / nap / carrier 的 findOurs 导入 / _testProviders / _parse / _test 键 / _lockPrimitives（批三撤销残留，同文件四个锁函数保留）。验收同时查 5 个误删风险项——目标项与保留项紧邻（nap 与 NAP_MS 相差 2 行），只查归零会把「删多了」漏过去",
+          "更新日志补齐：0.0.23 与 0.0.24 两版发布时都没写条目，用户点「更新日志」看不到任何记录。0.0.23 条目如实写了「壳侧单守卫门未实现」——不让用户以为双守卫已被防住",
+          "CI 加对账断言：changelog.json 最新条目版本段 = package.json#version。判据取「最大版本」而非「首条」（补写历史条目写在最前不误报）。FAIL 文案把后果写进错误信息，免得未来有人为消红乱改版本号。该断言第一次运行就抓到一次真实忘写",
+          "cargo check --tests（continue-on-error: true）：那 120 个 Rust 测试函数从未进过编译单元（cargo check --bins 不编译 #[cfg(test)]），改了被测函数签名会静默腐烂。只编译不执行，第一次红的用途是拿回腐烂清单，连续两轮全绿后改成 gate"
+        ]
+      }
     ]
   },
   {
