@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const spawner = require('./spawn');
 const procOS = require('./process');
 const pidlookup = require('./pidlookup');
-const { findOurs, portable } = require('./portable');
+const { portable } = require('./portable');
 const { judge: judgeIdentity } = require('./liveness');
 
 const ESCALATE_MS = 1500;

@@ -10,10 +10,6 @@ const OUTCOME = require('../../shared/outcome');
 const STOP_WAIT_CAP_MS = 3000;
 const NAP_MS = 150;
 
-function nap(ms) {
-  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch {  }
-}
-
 // M5：readPidFile 与 platform/os/liveness.js 的同名函数行为逐字相同，
 // 统一从 liveness 引入（单一判据源），本地不再保留副本。
 function matchesAnchors(pid, anchors) {
@@ -150,4 +146,4 @@ const portable = {
 
 };
 
-module.exports = { portable, findOurs, matchesAnchors, _test: { readPidFile, matchesAnchors, findOurs } };
+module.exports = { portable, findOurs, matchesAnchors };

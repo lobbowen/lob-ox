@@ -44,5 +44,4 @@ module.exports = {
   CapabilityError,
   kind: () => current().kind,
   PLATFORM,
-  _testProviders: { portable, NONE },
 };

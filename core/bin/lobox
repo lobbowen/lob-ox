@@ -12,14 +12,6 @@ const ex = require('../src/platform/util/exec');
 // systemctl / loginctl 是用户级操作，给足时间但**有上限**（挂起时如实报错而非卡死）。
 const CLI_SVC_TIMEOUT_MS = 30000;
 
-/** 执行外部命令并**继承** stdio（CLI 场景：用户要看到 systemctl 的实时输出）。
- *  失败时抛错（保持与原 execFileSync 相同的调用方语义：外层 try/catch 依赖它抛）。 */
-function execInherit(bin, args) {
-  const r = ex.runDetail(bin, args, { stdio: 'inherit', timeoutMs: CLI_SVC_TIMEOUT_MS });
-  if (!r.ok) throw new Error((r.error || (bin + ' 退出码 ' + r.code)) + (r.timedOut ? '（超时）' : ''));
-  return r;
-}
-
 // 包根解析：本文件有两种运行形态，__dirname 语义不同 —— 源码态 `node <repo>/bin/lobox`
 //   → `<repo>/bin`；发行态（esbuild 打成 core.cjs 后 require）→ `<pkg>`（core.cjs 旁）。
 //   硬写 `path.join(__dirname, '..')` 只覆盖源码态（发行态指向包外），故从 __dirname 逐级向上找含 package.json 的目录作包根。

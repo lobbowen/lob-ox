@@ -129,5 +129,4 @@ function sampleAsync(pid) {
 
 module.exports = {
   sampleAsync, aggregate,
-  _parse: { parseProcStat, parseProcStatusRss, parseCpuTimeMs, parsePsTable, parseCimJson },
 };
