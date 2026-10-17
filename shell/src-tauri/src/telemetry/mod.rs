@@ -18,7 +18,7 @@ pub mod event;
 pub mod sink;
 pub mod view;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// 事件级别。决定消费侧的处置方式，不是给日志上色。
 ///

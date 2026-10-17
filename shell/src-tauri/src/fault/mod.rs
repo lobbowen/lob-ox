@@ -22,4 +22,9 @@ pub mod probe;
 // 不重导出的话调用方只能写 crate::fault::fault::Fault（同名嵌套），
 // 反而比原来四套并存更难用。这里让 Fault / Probe 留在 fault:: 命名空间下。
 pub use fault::Fault;
+// Probe 是刻意声明的 API 面：它承载「有界探测未完成」这个第三态（T11 的 Probe 部分），
+// 当前零消费方是因为还没接线，不是因为多余。删掉这条重导出会在接线那天把它加回来，
+// 而那一删一加正是「半成品抽象」反复消耗的来源。故显式允许 dead_code 并注明理由
+// —— 范式同 brand.rs:228 的 macos label（零消费是单源已建成的证据，不是该删的证据）。
+#[allow(dead_code)]
 pub use probe::Probe;

@@ -145,6 +145,20 @@ jobs:
           exit "$RC"
         working-directory: shell/src-tauri
 
+      # 失败时把完整 cargo check 日志传上来。
+      #
+      # 为什么需要：annotations 只给前 40 行且 head -40 会截断，而「哪个文件哪一行」
+      # 的完整清单是修编译错的唯一依据。本机没有 cargo（我们反复标注「Rust 编译待 CI 证」），
+      # 所以 CI 日志是我们唯一的编译器输出 —— 把它当 artifact 上传，比任何静态排查都快。
+      - name: 上传 cargo check 日志（失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-check-log-${{ matrix.artifact }}
+          path: ${{ runner.temp }}/cargo-check.log
+          if-no-files-found: warn
+          retention-days: 7
+
       # 测试代码编译检查（只报告，不 gate）。
       #
       # 为什么必须单独一步：`cargo check --bins` **不编译 `#[cfg(test)]` 代码** ——
@@ -179,6 +193,17 @@ jobs:
           fi
         working-directory: shell/src-tauri
 
+      # 腐烂清单同样要完整可读：continue-on-error 会让本步不红，但清单本身
+      # 是「改 gate 之前要清完的账」——没有完整清单就不知道该清什么。
+      # 注意 continue-on-error 的步 failure() 仍会触发，故 if: failure() 有效。
+      - name: 上传 cargo check --tests 日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-check-tests-log-${{ matrix.artifact }}
+          path: ${{ runner.temp }}/cargo-check-tests.log
+          if-no-files-found: warn
+          retention-days: 7
 
       # Tauri CLI 预装一次并随 node 缓存留存：此前用 npx --yes @tauri-apps/cli@<ver>，
       # 每次 run 都要现拉一次包（--yes 也不会复用已装的那份）。

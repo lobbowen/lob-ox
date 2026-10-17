@@ -3,7 +3,7 @@
 //! 只描述「Node 是什么」：版本索引在哪、产物怎么选、解包后 bin 在哪。
 //! 引擎流程（下载/校验/切换/记录）在 runtime::engine 里，与本文件无关。
 
-use super::{InstalledRuntime, RuntimeSpec, RuntimeVersion};
+use super::{InstalledRuntime, RuntimeSpec};
 use crate::platform::external_path;
 use std::path::{Path, PathBuf};
 

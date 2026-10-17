@@ -130,6 +130,15 @@ use std::sync::OnceLock;
 
 static MGMT_TOKEN_ROOT: OnceLock<[u8; 32]> = OnceLock::new();
 
+/// 系统熵源。取 32 字节随机种子。
+///
+/// `pub` 是为了让 `platform::spawn_token` 复用同一份 FFI —— 那处曾复制一份
+/// `BCryptGenRandom` 声明，正是「复制而非复用」的病（与 `core_spawn_cmd` 同源）。
+/// 两侧都用它：本文件派生 mgmt 令牌根，`spawn_token` 派生一次性凭据。
+pub fn system_entropy_for_spawn() -> Option<[u8; 32]> {
+    system_entropy()
+}
+
 fn system_entropy() -> Option<[u8; 32]> {
     let mut seed = [0u8; 32];
     let mut ok = false;
@@ -300,7 +309,7 @@ async fn handle(
         crate::telemetry::event::info("mgmt.status_read", "process_manager", serde_json::json!({
             "peer": ua
         }));
-        return Ok(reply(StatusCode::OK, &status_json(state)));
+        return Ok(reply(StatusCode::OK, &status_json(&state)));
     }
     match (method.as_str(), path.as_str()) {
         ("POST", "/pm/register") => match parse_desc(&json) {

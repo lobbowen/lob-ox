@@ -21,7 +21,7 @@ pub mod fetch;
 pub mod source;
 pub mod verify;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// 一次取件请求。调用方声明「要什么、从哪下、怎么算校验」，
 /// 落定方式不在此列 —— 那由调用方拿到字节后自行完成。
