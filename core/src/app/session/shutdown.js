@@ -12,7 +12,7 @@ function abortInflightNpm(host, reason) {
       return 0;
     }
     if (n > 0) {
-      host.logger && host.logger.warn && host.logger.warn('[shutdown] 中止在途 npm 任务 ' + n + ' 个（' + reason + '）：本次安装/卸载未完成，可在守卫恢复后重新发起');
+      host.logger && host.logger.warn && host.logger.warn('[shutdown] 中止在途 npm 任务 ' + n + ' 个（' + reason + '）：本次安装/卸载未完成，可在内核恢复后重新发起');
       host.events && host.events.append('shutdown_npm_aborted', { count: n, reason });
     }
     return n;
@@ -84,7 +84,7 @@ async function shutdownAll(host) {
     host._setSessionState('stopped');
     host.writeState(true);
     host.events && host.events.append('session_stopped', {});
-    host.logger.info('[session] 被管对象已全部停止；等待外部所有者（壳/systemd）停止守卫进程');
+    host.logger.info('[session] 被管对象已全部停止；等待外部所有者（壳/systemd）停止内核进程');
     return { ok: true, sessionState: 'stopped' };
 }
 

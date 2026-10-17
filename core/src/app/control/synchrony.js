@@ -5,7 +5,7 @@
 // 缺陷 1（D.5-P1-17）timeoutMs 形同虚设：原实现 timeoutMs 缺省为 0，而 router 的三个
 //   beat 都没传，于是「防停摆」机制从未生效。tick 对每个 beat 顺序 await，一个慢
 //   beat（monitorInstanceHealth 逐 provider await，N 个实例最坏 3N 秒）会饿死 main
-//   beat——守卫的状态收敛、升级检查、被管对象监督全停摆。
+//   beat——内核的状态收敛、升级检查、被管对象监督全停摆。
 //
 // 缺陷 2（D.11-P0-12）onBeatDone 挂错对象：compose/domains.js 曾把 onBeatDone 赋给
 //   一个没有该属性的对象，而 BeatScheduler 自己持有的这个字段无人赋值，导致

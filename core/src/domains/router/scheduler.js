@@ -47,7 +47,7 @@ function createScheduler(deps) {
       // R2/D.5-P1-17：三个 beat 都必须显式声明 timeoutMs。此前都没传，而
       // BeatScheduler.tick 是顺序 await 且 _ticking 期间整拍跳过，router-lifecycle
       // 的 monitorInstanceHealth 逐 provider await（每实例 healthInstance 3s 超时），
-      // N 个 provider 最坏 3N 秒 > 5s 拍间隔，会饿死 main beat 导致守卫主循环停摆。
+      // N 个 provider 最坏 3N 秒 > 5s 拍间隔，会饿死 main beat 导致内核主循环停摆。
       // 现在 beat 之间独立竞速，timeout 只砍自己；取值按各自最坏耗时给。
       beat.register('router-maint', () => { refreshProxyUpdateInfo().catch(() => {}); probeIfDue(); ensureProxyInstances().catch(() => {}); }, { every: Math.max(1, Math.round(300000 / (d.tickMs || 5000))), timeoutMs: 120000 });
       beat.register('router-lifecycle', () => { monitorInstanceHealth().catch(() => {}); }, { every: Math.max(1, Math.round(30000 / (d.tickMs || 5000))), timeoutMs: 20000 });

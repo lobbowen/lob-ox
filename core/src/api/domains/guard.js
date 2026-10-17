@@ -175,7 +175,7 @@ function handle(ctx) {
         ok: false,
         code: 'KERNEL_UPDATE_SINGLE_WRITER',
         owner: 'desktop-shell',
-        error: '守卫重启由桌面壳经服务管理器执行（守卫从不重启自己）：更新内核请用桌面壳。',
+        error: '内核重启由桌面壳经服务管理器执行（内核从不重启自己）：更新内核请用桌面壳。',
       });
     }
 

@@ -30,7 +30,7 @@ module.exports = {
   },
 
   deps: {
-    dir: '实例根目录（守卫状态目录下的 instances/）',
+    dir: '实例根目录（内核状态目录下的 instances/）',
     logger: '日志器',
     events: '事件账本（可空）',
     dist: '统一分发（沙箱 npm 安装与 DSH 自升级共用镜像源）',

@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('node:fs');
 const { INSTANCE_STATES } = require('../model');
 const pidlook = require('../../../platform/os/pidlookup');
 const carrier = require('../../../platform/os/carrier');
@@ -46,9 +47,24 @@ function arbitrateStop(provider, inst, force) {
   }
   try { provider._terminatingPids.add(pid); } catch {}
   carrier.signalTermination(pid);
+  // pid 文件随「我们决定停它」而清。carrier.probe / liveness.judge 读它，
+  // 而 pidlookup.probeAlive 只看数字不看 cmdline ⇒ 主动停而不清，就与
+  // 「进程自己退了没人清」同罪：pid 一旦被复用（本机现场 7544 是
+  // EdgeWebView GPU 进程），那份死登记会把别人的进程判成我们的实例。
+  // 判据同 probe.js 的 close/error 路径：读出来不是本次的 pid 才不删，
+  // 避免删掉新一代实例刚写下的有效登记。
+  if (inst.pidFile) {
+    try {
+      const recorded = parseInt(fs.readFileSync(inst.pidFile, 'utf8'), 10);
+      if (!Number.isInteger(recorded) || recorded === pid) {
+        try { fs.unlinkSync(inst.pidFile); } catch {}
+      }
+    } catch { /* 文件不存在或读不出：都无需清 */ }
+  }
   inst.pid = null;
   inst.status = INSTANCE_STATES.COLD;
   inst.healthy = false;
+  inst.pidFile = null;
   provider._persist();
 }
 

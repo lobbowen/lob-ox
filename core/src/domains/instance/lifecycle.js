@@ -7,7 +7,7 @@ const sandbox = require('./sandbox');
 const stateMachine = require('./state-machine');
 const execPath = require('../../platform/os/exec-path');
 // 进程所有权归壳：沙箱实例拉起后必须上报到壳的进程表，否则壳的 heal 看不到它、
-// 停机时也不知道要停它。此前只有 ManagedRegistry（守卫遗物）会上报，
+// 停机时也不知道要停它。此前只有 ManagedRegistry（内核遗物）会上报，
 // 而那张表全仓零 register 调用——沙箱实例实际从不在任何进程表里。
 const pmClient = require('../../platform/contract/pm-client');
 function createLifecycle(deps) {
@@ -294,13 +294,24 @@ function createLifecycle(deps) {
             // ⇒ 没有 child.on('exit') 可挂，probe 观测是唯一的退出证据来源。
             // 退出码/信号拿不到（systemd 管着），传 null；壳侧已按 Option 处理。
             //
-            // startupFailure 的判据：**不是当前相位**（此刻已是 RUNNING，按相位判恒 false），
+            // ⚠️ 全仓共四处 startupFailure 判据（同名不同源，别对齐）：
+            //   ① instance/state-machine.js        相位判 + THROTTLE_DEFAULTS 10min/5 次 → 沙箱重启策略
+            //   ② instance/lifecycle.js（本处）    startAt 时间差 + STARTUP_WINDOW_MS 30s → 壳 last_will 上报
+            //   ③ app/main/process.js             相位判 + config.startupFailWindowMs(60s) → 主 DSH 重启策略
+            //   ④ router/providers/restart.js     started/wasRunning 判 + b.note() 限流器 → 反代实例
+            // 本处（②）是唯一**不汇入节流、只上报**的一处；另三处最终都汇到
+            // guardian.bumpStartupFailure（④ 经 makeBudget.note()）。
+            //
+            // 本处判据：**不是当前相位**（此刻已是 RUNNING，按相位判恒 false），
             // 而是「本次启动有没有活过启动窗口」。state.startAt 在 _systemdStart 写入、
             // setRunning 不清、enterStartingWaiting 才清 ⇒ 此刻仍保留本次启动的时间戳。
-            // 判据与 state-machine.js:74-76 的 restart() 同一语义（那边用它决定重启策略，
-            // 这边用它告诉壳「该次退出是否算稳定性证据」）——同一事实，两处消费，不各自猜。
             // 拿不到 startAt（老状态/异常路径）时按「不是启动失败」报：宁可少报一次
             // 启动失败，也不要把运行中崩溃谎报成启动失败（后者会让壳的重拉决策更激进）。
+            //
+            // 与 ① 的差异是**预期不是缺陷**：① 用相位、窗口 10min；本处用时间差、窗口 30s。
+            // T+10s 崩溃时本处报 true（没活过 30s），① 报 false（相位已 RUNNING）——
+            // 两者回答不同问题（「活过启动窗口吗」vs「相位还在启动态吗」），答案可以不同。
+            // 曾经这里注释声称与 ①「同一事实两处消费」，那个声称是错的——按它去对齐反而制造不一致。
             const startupFailure = (typeof state.startAt === 'number' && state.startAt > 0)
               && (Date.now() - state.startAt < stateMachine.STARTUP_WINDOW_MS);
             pmClient.recordExit('sandbox:' + inst.id, null, null, startupFailure === true);

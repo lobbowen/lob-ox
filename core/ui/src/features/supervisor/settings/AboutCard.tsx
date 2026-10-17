@@ -38,7 +38,7 @@ type ShellInfo = {
 
 const PRODUCT_NAME = "DeepSeek Harness 管家";
 const PRODUCT_DESC =
-  "独立于 Harness 运行的系统级守卫：负责启动、存活监测与故障自动重启被监管目标，" +
+  "独立于 Harness 运行的系统级内核：负责启动、存活监测与故障自动重启被监管目标，" +
   "提供生命周期管理、智能路由、远程控制与多实例沙箱的运维面板。";
 
 const fmt = (s?: string | null) => (s ? String(s).replace(/^v/i, "") : "—");
@@ -139,7 +139,7 @@ export function AboutCard() {
     if (!hasShellHost()) { toast.error("内核更新由桌面壳执行：请在桌面壳面板中操作。"); return; }
     if (!(await askConfirm({
       title: "发现内核新版本 " + fmt(ver?.latest) + "，是否立即更新？",
-      description: "内核将由桌面壳安装，并自动重启守卫。",
+      description: "内核将由桌面壳安装，并自动重启内核。",
       confirmText: "更新",
     }))) return;
     await run("upd", async () => {
@@ -147,8 +147,8 @@ export function AboutCard() {
       const r = await requestKernelUpdate(setCoreProg);
       if (!r.ok) { toast.error(r.error || "更新失败"); return; }
       const v = fmt(r.version || ver?.latest);
-      if (r.restartUncertain) toast.warning("内核已更新至 " + v + "，但守卫可能未自动重启，请手动确认。");
-      else toast.success("内核已更新至 " + v + "，守卫已重启。");
+      if (r.restartUncertain) toast.warning("内核已更新至 " + v + "，但内核可能未自动重启，请手动确认。");
+      else toast.success("内核已更新至 " + v + "，内核已重启。");
     }, { refresh: true, onDone: () => setCoreProg(null) });
   };
 

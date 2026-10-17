@@ -77,7 +77,7 @@ function setAutostart(on, deps) {
     const file = laFile(GUARD_LABEL);
     if (on) {
       if (!fs.existsSync(file)) {
-        errors.push('守卫服务定义缺失（' + file + '）：定义由桌面壳建立，请先启动一次桌面壳');
+        errors.push('内核服务定义缺失（' + file + '）：定义由桌面壳建立，请先启动一次桌面壳');
       } else {
         if (!macSetEnabled(GUARD_LABEL, true)) errors.push('launchctl enable 失败');
         if (!macLoaded(GUARD_LABEL) && !macBootstrap(file)) errors.push('launchctl bootstrap 失败');

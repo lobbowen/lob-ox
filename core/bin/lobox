@@ -205,22 +205,22 @@ function migrateStateRoot() {
   process.exit(1);
 }
 
-// ── 旧版检测：旧状态根存在 ⇒ 明确告警；旧守卫仍在跑 ⇒ 明确报错并退出（防双守卫）──────
+// ── 旧版检测：旧状态根存在 ⇒ 明确告警；旧内核仍在跑 ⇒ 明确报错并退出（防新旧两份并存）──
 // 旧版（改名前的产品名，见 brand.LEGACY_PRODUCT_NAME）与新版本**状态根/锁/服务名互不相认**：
-//   两代同时运行会双写状态文件并竞态 spawn ⇒ 旧守卫活着时一律拒绝继续，绝不静默接管。
+//   两代同时运行会双写状态文件并竞态 spawn ⇒ 旧内核活着时一律拒绝继续，绝不静默接管。
 // 不迁移旧状态是已拍板决定（D-2/P-2）：本文件只**读**旧根的目录名与锁，绝不搬、绝不写。
 function legacyNotice(legacy) {
   return '旧版状态根 ' + legacy.root
     + '（' + legacy.supervisorDir + ' / ' + legacy.shellDir + '）'
-    + (legacy.lockPid ? '；旧守卫锁 ' + legacy.lockFile + '（pid ' + legacy.lockPid + '）' : '');
+    + (legacy.lockPid ? '；旧内核锁 ' + legacy.lockFile + '（pid ' + legacy.lockPid + '）' : '');
 }
 
-/** 检测旧安装；旧守卫仍在运行即明确报错并非零退出。返回检测结果（供事件记录）。 */
+/** 检测旧安装；旧内核仍在运行即明确报错并非零退出。返回检测结果（供事件记录）。 */
 function checkLegacyInstall() {
   const legacy = stateRoot.detectLegacyInstall();
   if (legacy.guardRunning) {
-    console.error('[legacy] 拒绝继续（防双守卫）：检测到旧版守卫仍在运行 —— ' + legacyNotice(legacy));
-    console.error('[legacy] 新旧两版不共存：请先卸载旧版本（停掉旧守卫：旧服务管理器/计划任务，或从旧面板退出），'
+    console.error('[legacy] 拒绝继续（防新旧两份并存）：检测到旧版内核仍在运行 —— ' + legacyNotice(legacy));
+    console.error('[legacy] 新旧两版不共存：请先卸载旧版本（停掉旧内核：旧服务管理器/计划任务，或从旧面板退出），'
       + '确认旧进程已退出后重试。');
     console.error('[legacy] 若旧版确已卸载、该锁只是残留，删除 ' + legacy.lockFile + ' 即可（本版不会替你删旧根里的任何文件）。');
     process.exit(1);
@@ -233,29 +233,32 @@ function checkLegacyInstall() {
   return legacy;
 }
 
-// R7-架构：内核是服务层进程，不再是「唯一监管者」守卫。
-// 已删除：守卫锁（guard.lock / O_EXCL 单实例 / 三证据让位 / 心跳续约 / 死亡抖动等待）。
-// 进程唯一性改由壳的进程管理保证：壳持有内核 pid 并登记进进程表，
-// 防双持与自愈由进程表驱动，内核不再自证唯一。
-// 这同时消除 GUARD_STOP_FAILED 的根因：内核不起锁，壳停它就是杀进程，
-// 不存在「会话已停但进程占着端口等外部所有者」这条中间态。
+// 术语说明（2026-10-16 用户澄清后重写）：
+// **「守卫」是 DSH 生命周期被进程管理接管之前的历史命名**，指本命令起的 Supervisor
+// 宿主进程。产品只有一个壳、一个内核，本进程就是**内核进程本身**，不借「守卫」
+// 这个旧角色定义自己。R7 那次重构删掉的是「守卫锁」那套机制（guard.lock /
+// O_EXCL 单实例 / 三证据让位 / 心跳续约 / 死亡抖动等待），动作有效；但「守卫」
+// 这个词作为命名残留了下来，现按用户定位统一改称「内核」。
+// 进程唯一性归壳的进程表（壳持有内核 pid 并登记进进程表，自愈由进程表驱动），
+// 内核不自证唯一——这也消除了 GUARD_STOP_FAILED 的根因：内核不起锁，壳停它就是
+// 杀进程，不存在「会话已停但进程占着端口等外部所有者」这条中间态。
 //
 // ⚠️ 已知缺口（2026-10-16 记账，**待壳侧补，内核不补**）：
-// 「防双持由壳的进程表保证」这句话只覆盖壳的三条 spawn 路径中的两条：
+// 「进程唯一性归壳」这句话只覆盖壳的三条 spawn 路径中的两条：
 //   - ensure_core / ensure_started（guardctl.rs:173-182）：有 `already` 检查，
 //     进程表已有 pid.is_some() && phase==Running 就跳过启动 ⇒ 拦得住
 //   - healer 重拉（process_manager/mod.rs:124-127）：有 pid 就 pid_alive 实探 ⇒ 拦得住
 //   - **cli_run_guard（cli.rs:181-217）：完全没有**——exec_guard 只 spawn + wait，
 //     既不查 already 也不登记 pid ⇒ 拦不住
-// 本机曾出现双守卫并存（两个 `lobox daemon`，命令行相同、只差 4 分钟），成因就是这第三条。
-// 另注：mgmt.rs 的 live_contract_owner 防的是 guard-mgmt.json 的所有权，**不是进程唯一性**，
-// 两者是两把不同的锁，勿混为一谈。
+// 本机曾出现内核进程多份并存（多个 `lobox daemon`，命令行相同、只差数分钟），
+// 成因就是这第三条。另注：mgmt.rs 的 live_contract_owner 防的是 guard-mgmt.json
+// 的所有权，**不是进程唯一性**，两者是两把不同的锁，勿混为一谈。
 //
-// 曾在内核侧加过守卫锁门（acquireLock guard.lock），已撤销。撤销理由：
-// ① 违反上面这条 R7 意图（内核不起锁）；
-// ② 致命场景——锁写了但进程被外部杀掉、回收逻辑没跑时，新守卫 acquireLock 失败 ⇒ exit(1)，
+// 曾在内核侧加过进程锁门（acquireLock guard.lock），已撤销。撤销理由：
+// ① 违反上面这条架构意图（内核不起锁）；
+// ② 致命场景——锁写了但进程被外部杀掉、回收逻辑没跑时，新内核 acquireLock 失败 ⇒ exit(1)，
 //    壳判 KERNEL_EXITED ⇒ heal 重拉 ⇒ 又失败 ⇒ Core 自愈预算（5 次）烧光 ⇒ 停手等人工。
-//    一道「防双持」的闸把正常换代变成「耗尽预算后需人工介入」，比双守卫严重。
+//    一道「防多份」的闸把正常换代变成「耗尽预算后需人工介入」，比多份并存严重。
 // 正确修法在壳侧 ③：让 cli_run_guard 也过 already 检查 / 登记 pid。
 function cmdDaemon() {
   const legacy = checkLegacyInstall();
@@ -304,7 +307,7 @@ function cmdDaemon() {
   }
   process.on('SIGTERM', () => { gracefulExit(0); });
   process.on('SIGINT', () => { gracefulExit(0); });
-  // uncaughtException：守卫尽量自愈；但短时间内反复异常说明内部状态已坏，
+  // uncaughtException：内核尽量自愈；但短时间内反复异常说明内部状态已坏，
   // 以非零退出交给 systemd 拉起（比带病运行更安全）。
   let excCount = 0;
   let excWindowStart = 0;
@@ -390,7 +393,7 @@ function finishControl(r) {
 }
 
 function cmdInstall() {
-  checkLegacyInstall(); // 旧守卫在跑时同样拒绝（防双守卫），旧根存在时明确告警
+  checkLegacyInstall(); // 旧内核在跑时同样拒绝（防新旧两份并存），旧根存在时明确告警
   migrateStateRoot();
   fs.mkdirSync(SUPERVISOR_DIR, { recursive: true });
   // 配置文件（内嵌默认模板；源码态与打包态一致，不再依赖仓库 config.json 外置文件）
@@ -488,14 +491,14 @@ function cmdSelfUpdate(action) {
       const s = await apiRequest('GET', '/self-update/status');
       if (s.error) return console.log('检查失败: ' + s.error);
       if (s.ok) {
-        console.log('守卫当前版本: ' + s.installed);
+        console.log('内核当前版本: ' + s.installed);
         console.log('最新版本:     ' + s.latest);
         console.log(s.updateAvailable ? '→ 有可用更新：请在桌面壳面板「关于」中点「更新」' : '已是最新。');
       }
       return;
     }
     if (action === 'apply') {
-      // 单写入者契约：内核包只能由桌面壳安装（守卫不自装）。
+      // 单写入者契约：内核包只能由桌面壳安装（内核不自装）。
       //   CLI 不代跑安装；接口 /self-update/apply 返回 410 KERNEL_UPDATE_SINGLE_WRITER。
       console.error('内核更新由桌面壳执行（单写入者契约）：请在桌面壳面板「关于」中点「更新」。');
       console.error('本命令不安装内核。');

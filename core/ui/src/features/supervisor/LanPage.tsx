@@ -92,7 +92,7 @@ export function LanPage() {
     if (!it) return;
     const v = tokenInput.trim();
     if (!v) { toast.error("令牌不能为空"); return; }
-    // 与守卫写入口同规：remoteToken 至少 8 位
+    // 与内核写入口同规：remoteToken 至少 8 位
     if (v.length < 8) { toast.error("远程访问令牌至少 8 位（公网暴露可被暴力枚举）"); return; }
     setTokenFor(null);
     if (it.current !== null && it.current === v) return;

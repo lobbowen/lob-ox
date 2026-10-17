@@ -49,7 +49,7 @@ module.exports = { methods: {
   routerProviders() {
     const d = depsOf(this);
     const presets = d.router().constructor.presets();
-    const local = () => ({ presets, providers: d.router().listProviders(), proxyApps: d.router().proxyApps(), _stale: true, _staleReason: 'daemon 失联/ctl 失败应急视图（守卫内嵌只读副本）' });
+    const local = () => ({ presets, providers: d.router().listProviders(), proxyApps: d.router().proxyApps(), _stale: true, _staleReason: 'daemon 失联/ctl 失败应急视图（内核内嵌只读副本）' });
     if (!d.routerDaemonActive()) return local();
     const rt = d.routerApi();
     return Promise.all([Promise.resolve(rt.listProviders()), Promise.resolve(rt.proxyApps())])

@@ -65,11 +65,11 @@ module.exports = {
         ctlPort: isLan ? d.ctl().lanPort() : d.ctl().routerPort(),
         cmdMark: isLan ? 'lan-daemon' : 'router-daemon',
         identityFile: path.join(dir, kind + '-daemon.identity.json'),
-        // R3 / 攻击链 A 的最后一环：守卫 spawn daemon 时生成并注入机箱令牌。
+        // R3 / 攻击链 A 的最后一环：内核 spawn daemon 时生成并注入机箱令牌。
         // ctl 面已加鉴权（platform/ctl/server.js），未配置 DSH_CTL_TOKEN 时该鉴权
         // 不启用——所以这里必须注入，否则生产环境 ctl 仍是只查形态的无认证面。
-        // 令牌由守卫进程内生成一次并缓存，同一守卫 spawn 的所有 daemon 共享；
-        // 守卫自身调用 ctl 时也读同一值（platform/service/log/tail.js 读 env）。
+        // 令牌由内核进程内生成一次并缓存，同一内核 spawn 的所有 daemon 共享；
+        // 内核自身调用 ctl 时也读同一值（platform/service/log/tail.js 读 env）。
         spawnEnv: () => {
           const env = { DSH_SUPERVISOR_CONFIG: cfgPath };
           if (!d.readCtlToken()) {
@@ -79,7 +79,7 @@ module.exports = {
           const tok = d.readCtlToken();
           if (tok) {
             env.DSH_CTL_TOKEN = tok;
-            // 守卫自身进程也要能看到同一令牌（它的 ctlCall 经 tail.js 读 env）。
+            // 内核自身进程也要能看到同一令牌（它的 ctlCall 经 tail.js 读 env）。
             process.env.DSH_CTL_TOKEN = tok;
           }
           return env;

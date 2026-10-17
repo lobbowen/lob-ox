@@ -70,7 +70,7 @@ function composeDomains(host) {
     });
     host.instances.load();
     host._migrateMainRecord();
-    // R8-进程管理：ManagedRegistry（守卫的受管对象表）已删除。
+    // R8-进程管理：ManagedRegistry（内核的受管对象表）已删除。
     // 它自己有 ports 管理、相位集合、持久化文件，与壳的 ProcessManager 职责完全重叠；
     // 且全仓零 register() 调用（registerAdapter 注册了回调但从无条目），
     // 那张表从来就是空的。沙箱实例改由 instance/lifecycle.js 直接

@@ -34,7 +34,7 @@ class InstanceStore {
     try {
       const st = fs.statSync(this.instancesFile);
       // R4：0 字节文件几乎总是掉电产物（writeDurable 之前 rename 已生效但内容未落盘），
-      // 不是「空状态」。静默按空状态继续会让守卫在没有实例的情况下运行，
+      // 不是「空状态」。静默按空状态继续会让内核在没有实例的情况下运行，
       // 而用户的实例记录实际还在上一次的备份里。保留现场并明确失败，交由调用方决定。
       if (st.size === 0) {
         const e = new Error('instances.json 为 0 字节（掉电或写入中断的产物，非空状态）');

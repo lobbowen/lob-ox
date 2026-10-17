@@ -66,7 +66,7 @@ function main() {
       logger.info('[router-daemon] ctl listening on 127.0.0.1:' + ctlPort);
     },
     onListenError: (e) => {
-      logger.error('[router-daemon] ctl listen failed (' + ctlPort + '): ' + e.message + '（守卫监督模式将无法转发 router 控制）');
+      logger.error('[router-daemon] ctl listen failed (' + ctlPort + '): ' + e.message + '（内核监督模式将无法转发 router 控制）');
     },
   });
 

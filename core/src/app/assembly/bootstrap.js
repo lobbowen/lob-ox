@@ -39,7 +39,7 @@ function _bootstrap(host) {
     beat.unregister('main');
     beat.unregister('upgrade-check');
     // R2：timeoutMs 必填（BeatScheduler.register 缺省会抛错）。取值按各自最坏耗时给：
-    //   main 是守卫状态收敛，一轮涉及进程探测与端口判断，给 60s；
+    //   main 是内核状态收敛，一轮涉及进程探测与端口判断，给 60s；
     //   upgrade-check 走网络查询 npm registry，给 120s。
     // 主状态收敛拍：真实实现是 host.main.converge()（controller._dshConverge）。
     // 此前写 host.tick() 而全仓无 tick 安装源，BeatScheduler 的同步 try/catch 吃掉
@@ -97,7 +97,7 @@ function _bootstrap(host) {
     };
     const envTimer = setTimeout(() => {
       try { host._refreshEnvironmentForm(); } catch (e) {
-        host.logger.warn && host.logger.warn('[environment] 启动刷新异常（不影响守卫主循环）: ' + ((e && e.message) || e));
+        host.logger.warn && host.logger.warn('[environment] 启动刷新异常（不影响内核主循环）: ' + ((e && e.message) || e));
       }
     }, ENV_FORM_STARTUP_DELAY_MS);
     if (envTimer && envTimer.unref) envTimer.unref();
@@ -133,7 +133,7 @@ function _refreshEnvironmentForm(host) {
       + ((f && f.browsers && f.browsers.length) || 0) + ' 个，分发依据 ' + ((f && f.pick && f.pick.how) || '?'));
     return f;
   }).catch((e) => {
-    host.logger.warn && host.logger.warn('[environment] 刷新失败（不影响守卫主循环）: ' + ((e && e.message) || e));
+    host.logger.warn && host.logger.warn('[environment] 刷新失败（不影响内核主循环）: ' + ((e && e.message) || e));
     return null;
   });
 }

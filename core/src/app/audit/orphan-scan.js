@@ -18,7 +18,7 @@ function orphanAudit(deps) {
     for (const d of daemons) {
       if (!d.active()) continue;
       if (!d.want() && !d.managed()) {
-        issues.push({ kind: d.kind, port: d.port, why: '端口被监听但本守卫期望停止且无管理锁（异主/残留 daemon）' });
+        issues.push({ kind: d.kind, port: d.port, why: '端口被监听但本内核期望停止且无管理锁（异主/残留 daemon）' });
       }
     }
     try {

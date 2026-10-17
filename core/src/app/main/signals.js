@@ -69,7 +69,7 @@ module.exports = {
     if (own && own.dshPid === pid && own.guardPid && own.guardPid !== process.pid
         && pidlook.isAlive && pidlook.isAlive(own.guardPid)) {
       d.logger() && d.logger().warn && d.logger().warn(
-        'refuse adopt pid=' + pid + '：归属凭据指向另一存活守卫 pid=' + own.guardPid + '（不双管家互杀）');
+        'refuse adopt pid=' + pid + '：归属凭据指向另一存活内核 pid=' + own.guardPid + '（不双管家互杀）');
       return false;
     }
     const cmd = pidlook.readCmdline(pid);

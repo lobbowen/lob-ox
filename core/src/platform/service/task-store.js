@@ -12,7 +12,7 @@ function loadTasks(file, onRecover) {
   for (const t of raw.tasks) {
     if (t.state === 'running' || t.state === 'pending') {
       t.state = 'failed';
-      t.error = t.error || '守卫重启，任务中断';
+      t.error = t.error || '内核重启，任务中断';
       t.finishedAt = Date.now();
       if (onRecover) onRecover(t);
     }

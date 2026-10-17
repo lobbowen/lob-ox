@@ -70,6 +70,16 @@ async function runReconcileThrottled(provider, allowStop) {
       // started 是与 ok 并列的事实字段：spawnInstance 的终态自带它，
       // 调用方读它而不是从 ok 反推（stoppedDuringShutdown 时 ok 为真但实例已被收走）。
       const started = !!(r && r.started === true);
+      // ⚠️ 全仓共四处 startupFailure 判据（同名不同源，别对齐）：
+      //   ① instance/state-machine.js        相位判 + THROTTLE_DEFAULTS 10min/5 次 → 沙箱重启策略
+      //   ② instance/lifecycle.js            startAt 时间差 + STARTUP_WINDOW_MS 30s → 壳 last_will 上报
+      //   ③ app/main/process.js             相位判 + config.startupFailWindowMs(60s) → 主 DSH 重启策略
+      //   ④ router/providers/restart.js（本处） started/wasRunning 判 + b.note() 限流器 → 反代实例
+      // 本处（④）判据形状与另三处都不同（布尔组合、无时间窗口）：判的是**反代实例
+      // 这一次拉起有没有成功**（`!started` = 根本没起来；`!wasRunning && !inst.pid`
+      // = 拉起后进程没留住），窗口在 b.note() 内部的限流器（PROXY_INSTANCE_THROTTLE）。
+      // 但 b.note() → makeBudget.note() → guardian.bumpStartupFailure，故本处与 ①③
+      // **共享同一节流原语**，只是参数来源不同。
       const startupFailure = !started || (!wasRunning && !inst.pid);
       b.note(startupFailure);
       if (started) {

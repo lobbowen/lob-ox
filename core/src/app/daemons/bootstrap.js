@@ -41,7 +41,7 @@ function initLog({ config, process: procName, logFileKey, eventFileKey, logFileN
 }
 
 // ctl server：绑 127.0.0.1 + 监听回调 + 监听失败只记日志不退出。
-// 两个 daemon 都把「守卫监督模式转发不了控制」这件事吞掉，故这里不 rethrow。
+// 两个 daemon 都把「内核监督模式转发不了控制」这件事吞掉，故这里不 rethrow。
 function startCtl({ target, allowMethods, port, label, logger, events, onListening, onListenError }) {
   const ctl = createCtlServer({ target, allowMethods, logger, events });
   ctl.listen(port, '127.0.0.1', () => {

@@ -317,18 +317,18 @@ export function EnvironmentCard() {
               {sections?.dsh?.data ? (
                 <div className="grid gap-0.5 text-xs text-muted-foreground">
                   <span>{entryText(sections?.dsh?.data?.dsh)} · {entryText(sections?.dsh?.data?.selfUpdate)}</span>
-                  <span>监控：{sections?.dsh?.data?.managed ? "守卫托管" : "未托管"}{sections?.dsh?.data?.phase ? " · " + sections.dsh.data.phase : ""}</span>
+                  <span>监控：{sections?.dsh?.data?.managed ? "内核托管" : "未托管"}{sections?.dsh?.data?.phase ? " · " + sections.dsh.data.phase : ""}</span>
                 </div>
               ) : null}
             </div>
 
             <div className="grid gap-1.5 rounded-md border border-border/60 px-3 py-2.5">
-              <span className="text-xs font-medium">启动既成事实（守卫这一拍真的跑过什么）</span>
+              <span className="text-xs font-medium">启动既成事实（内核这一拍真的跑过什么）</span>
               <span className="text-xs text-muted-foreground">{sectionState(sections?.startup)}</span>
               {startup ? (
                 <div className="grid gap-0.5 text-xs text-muted-foreground">
                   <span>
-                    守卫启动于 {typeof startup.bootAt === "number" ? new Date(startup.bootAt).toLocaleTimeString() : "未读出"}
+                    内核启动于 {typeof startup.bootAt === "number" ? new Date(startup.bootAt).toLocaleTimeString() : "未读出"}
                     ，环境表单首拍排在启动后 {startup.envDelayMs ?? "未读出"} 毫秒
                   </span>
                   <span>

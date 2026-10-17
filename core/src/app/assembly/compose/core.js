@@ -66,7 +66,7 @@ function composeCore(host, rawConfig, configPath) {
       },
     });
     platform.environment.registerSection('startup', {
-      label: '启动既成事实（守卫这一拍跑过什么）',
+      label: '启动既成事实（内核这一拍跑过什么）',
       probe: () => {
         const s = host._startupFacts;
         if (!s) return null;

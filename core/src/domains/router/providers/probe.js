@@ -115,7 +115,18 @@ async function spawnInstance(provider, inst) {
       onOutput: (c) => { c.stdout.on('data', (b) => pushLog(b, 'out')); c.stderr.on('data', (b) => pushLog(b, 'err')); },
     });
   }
-  catch (e) { return { ok: false, started: false, error: 'spawn 失败: ' + e.message }; }
+  catch (e) {
+    // carrier.start 的 pid 文件写在 spawn 成功之后（carrier.js:30-32），
+    // 故抛错时通常还没有文件；但 spawn 成功而 onOutput/后续抛错的窗口下会留下
+    // 一份死登记。按「读出来不是本次的 pid 才不删」的判据清，别误删新一代的登记。
+    if (pidFile) {
+      try {
+        const recorded = parseInt(fs.readFileSync(pidFile, 'utf8'), 10);
+        if (!Number.isInteger(recorded)) { try { fs.unlinkSync(pidFile); } catch {} }
+      } catch { /* 文件不存在或读不出：都无需清 */ }
+    }
+    return { ok: false, started: false, error: 'spawn 失败: ' + e.message };
+  }
   const child = handle.child;
   inst.pid = child.pid;
   inst.port = port;
@@ -134,11 +145,33 @@ async function spawnInstance(provider, inst) {
       inst.pid = null; inst.healthy = false;
       inst.status = INSTANCE_STATES.COLD;
     }
+    // pid 文件必须随进程退出而清：carrier.probe / liveness.judge 会读它，
+    // 而 pidlookup.probeAlive 只看数字不看 cmdline ⇒ 文件留着就是给 pid 复用
+    // 留门（本机现场：7544 是 EdgeWebView GPU 进程，被当成我们的反代实例）。
+    // 判据是「这个 pid 文件里的 pid 是不是我刚跑完的那个」——只在确实是
+    // 本次 spawn 的子进程退出时清。若文件已被改写（新一代实例已启动），
+    // 不动它，否则会删掉别人的有效登记（用一个 pid 复用修另一个）。
+    if (inst.pidFile && pidFile) {
+      try {
+        const recorded = parseInt(fs.readFileSync(pidFile, 'utf8'), 10);
+        if (!Number.isInteger(recorded) || recorded === child.pid) {
+          try { fs.unlinkSync(pidFile); } catch {}
+        }
+      } catch { /* 文件已不在：无需清 */ }
+    }
     if (provider.events) provider.events.append('proxy_instance_stopped', { app: provider.proxyAppId, port, code });
   });
   child.on('error', (err) => {
-    
+    // 同 close：spawn 后立刻出错（如 ENOENT）时进程从未活过，pid 文件是死登记。
     if (inst.pid === child.pid) { inst.pid = null; inst.healthy = false; inst.status = INSTANCE_STATES.COLD; }
+    if (inst.pidFile && pidFile) {
+      try {
+        const recorded = parseInt(fs.readFileSync(pidFile, 'utf8'), 10);
+        if (!Number.isInteger(recorded) || recorded === child.pid) {
+          try { fs.unlinkSync(pidFile); } catch {}
+        }
+      } catch { /* 文件已不在：无需清 */ }
+    }
     if (provider.events) provider.events.append('proxy_instance_failed', { app: provider.proxyAppId, port, error: err.message });
   });
   provider._persist();
