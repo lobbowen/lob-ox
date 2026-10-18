@@ -2,6 +2,7 @@
 
 const platform = require('../../platform/os/index');
 const pidlook = require('../../platform/os/pidlookup');
+const pmClient = require('../../platform/contract/pm-client');
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -127,6 +128,8 @@ class FrpManager {
       return { ok: false, error: 'frpc spawn failed: ' + ((e && e.message) || e), needInstall: true };
     }
     this.child = child;
+    // 壳退即全杀：请壳把 frpc 进程 assign 进它的 job。壳不在时静默跳过，不阻断。
+    if (child.pid) { try { pmClient.keepAlive(child.pid); } catch {  } }
     const pushLog = (line) => {
       line = String(line).trim();
       if (!line) return;

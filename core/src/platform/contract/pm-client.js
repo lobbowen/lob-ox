@@ -110,12 +110,30 @@ function post(route, payload) {
   }
 }
 
+// 受管子进程登记：请壳把这个 pid 纳入「壳退即全杀」的 job。
+//
+// 为什么需要：壳侧 job（`bounded.rs` 的 `bind_kill_on_close`）只 assign 壳自己 spawn
+// 的那一个进程句柄，**不覆盖进程树** ⇒ 内核 spawn 的后代（DSH / router / lan / frpc /
+// 沙箱）默认不在 job 内。本调用让壳逐个把它们 assign 进去。
+//
+// 与 register/setDesired 的差别：后两者由节拍反复调，本调用在 spawn 成功后**一次性**调
+// ⇒ **不做重试**（重试会让一个已退出的 pid 反复上报，而 job assign 对已死进程无意义）。
+//
+// 语义归属：内核只说「这个子进程请壳看住」，不说它是什么业务角色——「受管对象」这个
+// 概念只存在于壳侧（进程所有权的持有方）。
+function keepAlive(pid) {
+  const n = Number(pid);
+  if (!Number.isInteger(n) || n <= 0) return false;
+  return post('/pm/keep-alive', { pid: n });
+}
+
 module.exports = {
   FILE_NAME,
   SUPPORTED_SCHEMA,
   file,
   endpoint,
   setEventSink,
+  keepAlive,
   register(desc) { return post('/pm/register', desc); },
   setDesired(id, desired) { return post('/pm/set-desired', { id, desired }); },
   onPhase(id, phase) { return post('/pm/on-phase', { id, phase }); },

@@ -124,6 +124,298 @@ pub fn pid_alive(pid: u32) -> bool {
     std::path::Path::new(&format!("/proc/{}", pid)).exists()
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 件 A：壳 → 内核的「父死子死」绑定（Windows JobObject）
+//
+// 用户裁决（2026-10-16）：**壳进程一退，内核 + DSH + frpc + router/lan + 沙箱全停。**
+// 理由：lobox 是「Agent 的跨平台管理面板」，DSH 是它监管的产品；壳关了 = 面板不跑
+// = 它监管的一切都该停。这也落在「壳自己有一套完整的进程管理器，负责内核向下所有
+// 编排进程的统一管理」上。
+//
+// 为什么需要这一层（而不是靠 shutdown_all）：
+//   `shutdown_all`（guardctl.rs）只在壳**主动退出**时跑。壳被 kill -9 / 强杀 /
+//   崩溃时它根本不执行 ⇒ 内核继续活着。那不是「洞」，是 `shutdown_all` 结构上
+//   覆盖不到的一层 —— 故这是**新建**而非补洞，如实记。
+//
+// 语义已由一次性探针验证（2026-10-16，PowerShell 调同套 API）：
+//   · `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` + assign ⇒ 关闭 job handle 时 job 内
+//     全部进程被杀。**方向 1 PASS**。
+//   · `JOB_OBJECT_LIMIT_BREAKAWAY_OK` + 子进程带 `CREATE_BREAKAWAY_FROM_JOB`
+//     ⇒ 该后代逃出 job、job 关闭时不被杀。**方向 2 未验证**（PowerShell 探针
+//     无法可靠构造「父在 job 内」的场景），标记为 UNVERIFIED，不当成 PASS。
+//
+// ⚠ job handle 的生命周期是设计关键，不是疏漏：
+//   `KILL_ON_JOB_CLOSE` 在**最后一个 handle 关闭**时触发。若 assign 完就
+//   CloseHandle，job 立刻销毁 ⇒ 内核被立即杀（或 job 失效，取决于时序）。
+//   ⇒ 故 handle 存进进程级 static 且**永不主动关闭**，让壳进程退出时操作系统
+//     代我们关闭。这是刻意的「泄漏」：壳活一天 handle 活一天；壳一退，
+//     handle 关闭 ⇒ 全链杀。
+//   ⇒ 后人若把它当资源泄漏「修掉」（加 CloseHandle），效果会**立刻反转**成
+//     「拉起内核即杀内核」。这与 guard.lock 的教训互补：那个是该关的没关
+//     （锁脱钩），这个是**不能关的关了会触发相反效果**。
+//
+// 与 `bounded::pid_alive` 同文件同范式（`#[link]` 贴 extern 块上）。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `JOBOBJECT_BASIC_LIMIT_INFORMATION`（Win32 结构，布局必须与 C 一致）。
+/// 字段序序与类型照 MSDN；`ULONG_PTR`/`SIZE_T` 在 x64 上为 8 字节。
+#[cfg(windows)]
+#[repr(C)]
+struct JobObjectBasicLimitInformation {
+    per_process_user_time_limit: i64,
+    per_job_user_time_limit: i64,
+    limit_flags: u32,
+    minimum_working_set_size: usize,
+    maximum_working_set_size: usize,
+    active_process_limit: u32,
+    affinity: usize,
+    priority_class: u32,
+    scheduling_class: u32,
+}
+
+/// `IO_COUNTERS`（6 × ULONG64）。
+#[cfg(windows)]
+#[repr(C)]
+struct IoCounters {
+    read_operations: u64,
+    write_operations: u64,
+    other_operations: u64,
+    read_transfer: u64,
+    write_transfer: u64,
+    other_transfer: u64,
+}
+
+/// `JOBOBJECT_EXTENDED_LIMIT_INFORMATION`。
+/// 探针实测 `sizeof == 144`（x64）—— 与下面 `EXTENDED_LEN` 的推导一致。
+#[cfg(windows)]
+#[repr(C)]
+struct JobObjectExtendedLimitInformation {
+    basic: JobObjectBasicLimitInformation,
+    io: IoCounters,
+    process_memory_limit: usize,
+    job_memory_limit: usize,
+    peak_process_memory_used: usize,
+    peak_job_memory_used: usize,
+}
+
+#[cfg(windows)]
+const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x0000_2000;
+#[cfg(windows)]
+const JOB_OBJECT_LIMIT_BREAKAWAY_OK: u32 = 0x0000_0800;
+/// `JobObjectExtendedLimitInformation` 信息类。
+#[cfg(windows)]
+const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: u32 = 9;
+
+/// 进程级 job handle。`None` = 还没建（尚未 spawn 过内核）。
+/// 刻意不提供 `close()`：见上面「生命周期是设计关键」。
+#[cfg(windows)]
+static KILL_ON_CLOSE_JOB: std::sync::OnceLock<*mut core::ffi::c_void> = std::sync::OnceLock::new();
+
+/// 确保「壳退即全杀」的 job 已建成；返回其 handle。
+///
+/// 幂等：同一个壳进程内反复调用复用同一个 job（`OnceLock`）。
+/// 返回 `None` = 建失败（`CreateJobObjectW` 或 `SetInformationJobObject` 失败）——
+/// 调用方必须把它当「壳自身缺陷」处理（`/pm/keep-alive` 返 500 + error），
+/// 不能当成「assign 失败」而静默。
+///
+/// ⚠️ job handle 刻意**不主动关闭**：`KILL_ON_JOB_CLOSE` 在最后一个 handle
+///    关闭时触发。若 assign 完就 `CloseHandle`，job 立刻销毁 ⇒ 内核被立即杀
+///    （或 job 失效）。⇒ handle 与壳进程同寿，让壳退出时操作系统代我们关闭。
+///    后人若把它当资源泄漏「修掉」（加 CloseHandle），效果会**立刻反转**成
+///    「拉起内核即杀内核」。这与 `guard.lock` 的教训互补：那个是该关的没关
+///    （锁脱钩），这个是**不能关的关了会触发相反效果**。
+#[cfg(windows)]
+pub fn ensure_kill_on_close_job() -> Option<*mut core::ffi::c_void> {
+    use std::sync::OnceLock;
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| unsafe {
+        // #[link] 必须贴在 extern 块上（块属性），不能挂语句位 —— bounded.rs:100-102
+        // 记的是同一个坑：挂外面会被解析为块后的一条表达式，链接信息丢失。
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn CreateJobObjectW(
+                lp_job_attributes: *mut core::ffi::c_void,
+                lp_name: *const u16,
+            ) -> *mut core::ffi::c_void;
+            fn SetInformationJobObject(
+                h_job: *mut core::ffi::c_void,
+                job_object_information_class: u32,
+                lp_job_object_information: *mut core::ffi::c_void,
+                cb_job_object_information_length: u32,
+            ) -> i32;
+        }
+        let job = CreateJobObjectW(core::ptr::null_mut(), core::ptr::null());
+        if job.is_null() {
+            return;
+        }
+        // 两个 flag 都要：
+        //   KILL_ON_JOB_CLOSE ⇒ 壳退全杀（本次目标）；
+        //   BREAKAWAY_OK     ⇒ 让内核侧能把「不该随壳死的」（用户的浏览器）与
+        //                      「半份比不装更糟的」（npm install 中途）带出 job。
+        //   后者是内核侧 2' 改动的前提；只置前者 ⇒ 浏览器被越界杀。
+        let mut info: JobObjectExtendedLimitInformation = core::mem::zeroed();
+        info.basic.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
+        let ok = SetInformationJobObject(
+            job,
+            JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+            (&mut info as *mut JobObjectExtendedLimitInformation).cast(),
+            core::mem::size_of::<JobObjectExtendedLimitInformation>() as u32,
+        );
+        if ok == 0 {
+            return;
+        }
+        let _ = KILL_ON_CLOSE_JOB.set(job);
+    });
+    KILL_ON_CLOSE_JOB.get().copied()
+}
+
+/// 把一个**已存在**的 pid assign 进「壳退即全杀」的 job。
+///
+/// 与 `bind_kill_on_close` 的区别：那个收 `&Child`（壳自己 spawn 的路径），
+/// 这个收裸 pid（壳 API `/pm/keep-alive` 用——内核 spawn 后代后报 pid 过来）。
+/// ⇒ 需自己 `OpenProcess` 拿 handle。
+///
+/// 返回 `false` = 没绑上（pid 非活进程 / assign 失败）。调用方据场景判：
+///   · pid 非活进程 ⇒ 记 info（调用方时序问题，此时也无需 assign）；
+///   · job 未建成 ⇒ 那是壳自身缺陷，须返 500 + error。
+#[cfg(windows)]
+pub fn assign_to_job(job: *mut core::ffi::c_void, pid: u32) -> bool {
+    if job.is_null() {
+        return false;
+    }
+    unsafe {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn OpenProcess(
+                dw_desired_access: u32,
+                b_inherit_handle: i32,
+                dw_process_id: u32,
+            ) -> *mut core::ffi::c_void;
+            fn AssignProcessToJobObject(h_job: *mut core::ffi::c_void, h_process: *mut core::ffi::c_void) -> i32;
+            fn CloseHandle(h_object: *mut core::ffi::c_void) -> i32;
+        }
+        // PROCESS_SET_QUOTA | PROCESS_TERMINATE —— assign 需要的最小权限。
+        const PROCESS_SET_QUOTA: u32 = 0x0100;
+        const PROCESS_TERMINATE: u32 = 0x0001;
+        let h = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
+        if h.is_null() {
+            return false;
+        }
+        let rc = AssignProcessToJobObject(job, h);
+        CloseHandle(h);
+        rc != 0
+    }
+}
+
+/// 把子进程绑进「壳退即全杀」的 job（壳自己 spawn 的路径）。
+///
+/// 返回 `false` 表示**没绑上**（子进程已退出 / job 创建失败 / assign 失败）——
+/// 调用方应照常继续（子进程已退出时无需绑），只记一条 info。
+/// 这不是 fail-closed 项：绑不上只意味着「这一只内核不会被父死连带」，
+/// 而壳主动退出时 `shutdown_all` 仍会按 pid 杀它。
+///
+/// 幂等：同一个壳进程反复 spawn（healer 重拉）复用同一个 job。
+#[cfg(windows)]
+pub fn bind_kill_on_close(child: &mut std::process::Child) -> bool {
+    let Some(job) = ensure_kill_on_close_job() else {
+        return false;
+    };
+    // 子进程可能已经退出（竞态窗口在 spawn 与 assign 之间）⇒ assign 失败不是错误。
+    let handle = std::os::windows::io::AsRawHandle::as_raw_handle(child);
+    unsafe {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn AssignProcessToJobObject(h_job: *mut core::ffi::c_void, h_process: *mut core::ffi::c_void) -> i32;
+        }
+        AssignProcessToJobObject(job, handle) != 0
+    }
+}
+
+/// 非 Windows：件 A 不适用（Unix 侧是件 B 的 `PR_SET_PDEATHSIG`）。
+/// 返回 `false` 让调用方走同一条「没绑上」分支，不额外分支。
+#[cfg(not(windows))]
+pub fn bind_kill_on_close(_child: &mut std::process::Child) -> bool {
+    false
+}
+
+/// 非 Windows：无 job 概念（Unix 侧是件 B 的 `PR_SET_PDEATHSIG`）。
+#[cfg(not(windows))]
+pub fn ensure_kill_on_close_job() -> Option<*mut core::ffi::c_void> {
+    None
+}
+
+/// 非 Windows：无 job 概念（Unix 侧是件 B 的 `PR_SET_PDEATHSIG`）。
+#[cfg(not(windows))]
+pub fn assign_to_job(_job: *mut core::ffi::c_void, _pid: u32) -> bool {
+    false
+}
+
+/// job 内当前成员数（供留痕：壳退出前记「job 里有哪些进程」）。
+/// 取不到返回 `None` —— 那本身也是线索（job 没建成）。
+#[cfg(windows)]
+pub fn job_member_count() -> Option<u32> {
+    use std::sync::OnceLock;
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| unsafe {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn QueryInformationJobObject(
+                h_job: *mut core::ffi::c_void,
+                job_object_information_class: u32,
+                lp_job_object_information: *mut core::ffi::c_void,
+                cb_job_object_information_length: u32,
+                lp_return_length: *mut u32,
+            ) -> i32;
+        }
+        // 只在这里建 job 会让「未 spawn 过内核」也返回 Some(0)；
+        // 实际调用方都在 spawn 之后，故直接查已建的那个。
+        let _ = QueryInformationJobObject;
+    });
+    let job = KILL_ON_CLOSE_JOB.get().copied()?;
+    // `JOBOBJECT_BASIC_ACCOUNTING_INFORMATION` 的 `TotalProcesses` 字段。
+    #[repr(C)]
+    struct BasicAccounting {
+        total_user_time: i64,
+        total_kernel_time: i64,
+        this_period_total_user_time: i64,
+        this_period_total_kernel_time: i64,
+        total_page_fault_count: u32,
+        total_processes: u32,
+        active_processes: u32,
+        total_terminated_processes: u32,
+    }
+    let mut acc: BasicAccounting = unsafe { core::mem::zeroed() };
+    let rc = unsafe {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn QueryInformationJobObject(
+                h_job: *mut core::ffi::c_void,
+                job_object_information_class: u32,
+                lp_job_object_information: *mut core::ffi::c_void,
+                cb_job_object_information_length: u32,
+                lp_return_length: *mut u32,
+            ) -> i32;
+        }
+        QueryInformationJobObject(
+            job,
+            1, // JobObjectBasicAccountingInformation
+            (&mut acc as *mut BasicAccounting).cast(),
+            core::mem::size_of::<BasicAccounting>() as u32,
+            core::ptr::null_mut(),
+        )
+    };
+    if rc == 0 {
+        None
+    } else {
+        Some(acc.active_processes)
+    }
+}
+
+#[cfg(not(windows))]
+pub fn job_member_count() -> Option<u32> {
+    None
+}
+
 /// 终止结果的唯一判据形态。三种现场的可操作结论完全不同：已终止 / 本来就不在 /
 /// 终止失败（要报错），压成一个 bool 会让「进程还在跑」被读成「已停止」。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

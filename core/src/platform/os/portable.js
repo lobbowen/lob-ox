@@ -87,6 +87,12 @@ const portable = {
     if (opts.pidFile) {
       try { fs.writeFileSync(opts.pidFile, String(child.pid)); } catch {  }
     }
+    // 壳退即全杀：请壳把这个 pid assign 进它的 job。
+    // 平台层只说「有人要我看住它」，不说它是什么业务角色——业务语义由调用方传选项。
+    // 壳不在时静默跳过（pm-client.endpoint() 同一个判定），不阻断拉起。
+    if (opts.keepAlive) {
+      try { require('../contract/pm-client').keepAlive(child.pid); } catch {  }
+    }
     return true;
   },
 

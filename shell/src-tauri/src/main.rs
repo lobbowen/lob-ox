@@ -161,13 +161,10 @@ fn main() {
         }
     }
     bt!("building app");
-    let code = tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             domain::windowing::show_main(app);
         }))
-                
-                
-                
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(Mutex::new(RunState::default()))
@@ -326,16 +323,16 @@ fn main() {
         // `run_inner` → `child.wait()`（bounded.rs:512/538）⇒ 同步等 taskkill 完成，
         // 10s 超时兜底。故 `ExitRequested` 回调里同步调用不会让退出无限悬挂。
         .build(tauri::generate_context!())
-        .expect("error while building lobox-shell")
-        .run_return(|_app_handle, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                domain::guardctl::shutdown_all();
-            }
-        });
-    // `run_return` 的退出码是 Tauri 事件循环的既定退出码（含 `AppHandle::exit(code)`
-    // 传入的值）。原实现用 `Builder::run`（文档：进程由 Tauri 直接 `std::process::exit`，
-    // 不返回码），改 `run_return` 后码要由我们传出去，否则退出码恒 0。
-    // 当前 `shutdown_all` 不返回码（失败只留痕），故此处透传 Tauri 给的码，不自行改。
+        .expect("error while building lobox-shell");
+    let code = app.run_return(|_app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            domain::guardctl::shutdown_all();
+        }
+    });
+    // `run_return` 返回 Tauri 事件循环的既定退出码（含 `AppHandle::exit(code)` 传入的
+    // 值）。原实现用 `Builder::run`（文档：进程由 Tauri 直接 `std::process::exit`，不
+    // 返回码），改 `run_return` 后码由我们接收并传出，否则退出码恒 0。
+    // 当前 `shutdown_all` 不返回码（失败只留痕），故透传 Tauri 给的码，不自行改。
     bt!("main exit (run returned)");
     std::process::exit(code);
 }

@@ -6,6 +6,7 @@ const { LineBuffer } = require('../../platform/service/log/log');
 const native = require('../../platform/contract/native-command');
 const BRAND = require('../../shared/brand');
 const guardian = require('../../shared/guardian');
+const pmClient = require('../../platform/contract/pm-client');
 const { findManagedDshPort, applyMainPort } = require('./port-rederive');
 
 const DEPS = new WeakMap();
@@ -104,6 +105,9 @@ const methods = {
       return;
     }
     d.logger().info('spawn pid=' + child.pid + ' cmd=' + d.spawnCommand().join(' '));
+    // 壳退即全杀：请壳把这个 DSH 进程 assign 进它的 job。
+    // 壳不在时静默跳过（pm-client.endpoint() 的同一个判定），不阻断启动主路径。
+    if (child.pid) { try { pmClient.keepAlive(child.pid); } catch {  } }
     d.mSetChild(child);
     d.mSetAdopted(false);
     d.mSetAdoptPid(null);

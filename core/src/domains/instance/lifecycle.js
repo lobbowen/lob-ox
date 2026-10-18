@@ -6,6 +6,8 @@ const ports = require('../../platform/service/ports').shared;
 const sandbox = require('./sandbox');
 const stateMachine = require('./state-machine');
 const execPath = require('../../platform/os/exec-path');
+// DSH 产品事实（包名 / 可执行名 / 裸名命令头白名单）——与 api/domains/instances.js 共用单源。
+const { DSH_PRODUCT } = require('../agent/model');
 // 进程所有权归壳：沙箱实例拉起后必须上报到壳的进程表，否则壳的 heal 看不到它、
 // 停机时也不知道要停它。此前只有 ManagedRegistry（内核遗物）会上报，
 // 而那张表全仓零 register 调用——沙箱实例实际从不在任何进程表里。
@@ -56,6 +58,11 @@ function createLifecycle(deps) {
         ? execPath.commandEntryViolation(cmdArr, {
             roots: [sandbox.installDir(instancesRoot, inst)],
             files: execPath.knownDshEntries({ dshBin: deps.dshBin }),
+            // 裸名白名单与 api/domains/instances.js 同一份产品知识（DSH 的合法命令头，
+            // 单源在 domains/agent/model.js 的 DSH_PRODUCT.bareHeads）。
+            // 此前这条沙箱启动路径没传它 ⇒ 裸名 entry 在平台层一律放行，
+            // 连 `dsh.cmd` / `dsh.ps1` 这些 Windows 合法形态也没经过校验。
+            allowBareNames: DSH_PRODUCT.bareHeads,
           })
         : null;
       if (boundary) {
@@ -83,7 +90,7 @@ function createLifecycle(deps) {
       const ctx = sandbox.launchCtx(instancesRoot, deps.dshBin, inst);
       _cleanStaleUnit('dsh-web@' + inst.id, ctx);
       try {
-        service.startTransient({ unit: 'dsh-web@' + inst.id, cmd: cmdArr, env, workingDir, port: ctx.port, pidFile: ctx.pidFile, anchors: ctx.anchors });
+        service.startTransient({ unit: 'dsh-web@' + inst.id, cmd: cmdArr, env, workingDir, port: ctx.port, pidFile: ctx.pidFile, anchors: ctx.anchors, keepAlive: true });
       } catch (e) {
         const msg = 'systemd 启动失败: ' + (e.message || e);
         inst.state.lastError = msg;

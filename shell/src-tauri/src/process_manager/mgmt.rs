@@ -319,6 +319,79 @@ async fn handle(
             }
             None => Ok(reply(StatusCode::BAD_REQUEST, "register: id 缺失或不是字符串")),
         },
+        // 壳 API「谁进 job」：内核 spawn 一个**该随壳死**的后代后，把它的 pid
+        // 报给壳，由壳 assign 进「壳退即全杀」的 job。
+        //
+        // 为什么需要：探针实测 **job 内进程 spawn 的后代默认不在 job 内**
+        // （cmd 在 job 内，它 start 的孙进程在 job 关闭后仍活着）⇒ 光 assign
+        // 内核自己不够，必须逐个把该进的拉进来。
+        //
+        // 「不该进的」（用户的浏览器 / npm install 中途）**不调本 API** ⇒ 天然
+        // 不在 job 内（探针结论）⇒ 不需要 `ephemeral` 词表项。
+        //
+        // `role` 而非 `kind`：壳侧 `kind` 已被 `InstallKind`（安装目标，前端
+        // 契约冻结）与 telemetry `kind`（事件类型）占用，再造一个 kind 词表
+        // 会撞名。`role` 是壳侧既有词表（端口角色 `guard-mgmt`），此处是
+        // **进程角色**（不同面：`ports.json` vs 本入参），词表值不撞。
+        //
+        // 词表单值 `managed`：壳只决定「进不进 job」，区分是内核自己的事。
+        ("POST", "/pm/keep-alive") => {
+            // pid 缺失/非数字 ⇒ 真·参数问题（400），与 role 同类。
+            let Some(pid) = json.get("pid").and_then(|v| v.as_u64()).map(|p| p as u32) else {
+                return Ok(reply(StatusCode::BAD_REQUEST, "keep-alive: pid 缺失或不是数字"));
+            };
+            let Some(role) = json.get("role").and_then(|v| v.as_str()) else {
+                return Ok(reply(StatusCode::BAD_REQUEST, "keep-alive: role 缺失"));
+            };
+            if role != "managed" {
+                return Ok(reply(StatusCode::BAD_REQUEST, "keep-alive: role 必须是 managed"));
+            }
+            // job 未建成 ⇒ 两种可能，必须分开：
+            //   · Windows 上建失败（CreateJobObjectW/SetInformationJobObject 失败）
+            //     ⇒ **壳自身缺陷**，不能让调用方以为 assign 成功了；
+            //   · 非 Windows 上「无 job 概念」（Unix 侧是件 B 的 PR_SET_PDEATHSIG）
+            //     ⇒ 平台不支持，不是缺陷。若也返 500，等于每次调用都报假故障。
+            let Some(job) = crate::bounded::ensure_kill_on_close_job() else {
+                if cfg!(windows) {
+                    crate::telemetry::event::error(
+                        "mgmt.job_unavailable",
+                        "process_manager",
+                        serde_json::json!({ "pid": pid, "reason": "job 未建成（CreateJobObjectW/SetInformationJobObject 失败）" }),
+                    );
+                    return Ok(reply(StatusCode::INTERNAL_SERVER_ERROR, "keep-alive: job 未建成（壳自身缺陷）"));
+                }
+                crate::telemetry::event::info(
+                    "mgmt.job_unsupported",
+                    "process_manager",
+                    serde_json::json!({ "pid": pid, "reason": "本平台无 job 概念（Unix 侧归件 B 的 PR_SET_PDEATHSIG）" }),
+                );
+                return Ok(reply(StatusCode::OK, "ok (job unsupported on this platform)"));
+            }
+            if !crate::bounded::assign_to_job(job, pid) {
+                // 两种可能：pid 非活进程（调用方时序问题，此时也无需 assign）
+                // 或 assign 本身失败。用 pid_alive 区分，分别记 info / error。
+                if crate::bounded::pid_alive(pid) {
+                    crate::telemetry::event::error(
+                        "mgmt.job_assign_failed",
+                        "process_manager",
+                        serde_json::json!({ "pid": pid, "reason": "AssignProcessToJobObject 失败" }),
+                    );
+                    return Ok(reply(StatusCode::INTERNAL_SERVER_ERROR, "keep-alive: assign 失败"));
+                }
+                crate::telemetry::event::info(
+                    "mgmt.job_assign_skipped",
+                    "process_manager",
+                    serde_json::json!({ "pid": pid, "reason": "pid 非活进程（调用方时序问题，无需 assign）" }),
+                );
+                return Ok(reply(StatusCode::OK, "ok (pid not alive, skipped)"));
+            }
+            crate::telemetry::event::info(
+                "mgmt.job_assigned",
+                "process_manager",
+                serde_json::json!({ "pid": pid, "role": role }),
+            );
+            Ok(reply(StatusCode::OK, "ok"))
+        }
         ("POST", "/pm/set-desired") => {
             match json.get("id").and_then(|v| v.as_str()) {
                 None => Ok(reply(StatusCode::BAD_REQUEST, "set-desired: id 缺失或不是字符串")),

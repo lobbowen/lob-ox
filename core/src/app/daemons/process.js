@@ -5,6 +5,7 @@ const spawnOS = require('../../platform/os/spawn');
 const fs = require('node:fs');
 const path = require('node:path');
 const pidlook = require('../../platform/os/pidlookup');
+const pmClient = require('../../platform/contract/pm-client');
 const { writeDurable } = require('../../platform/util/fs');
 const { waitProcessExit, waitPortFree } = require('./process-wait');
 const { deriveCmdMarks } = require('./process-marks');
@@ -135,6 +136,10 @@ class DaemonLifecycle {
       return { mode: 'failed', error: 'daemon 未启动（脚本不可执行或 Node 不可用）', script: this.script };
     }
     this._writeIdentity(child.pid);
+    // 壳退即全杀：请壳把这个 daemon 进程 assign 进它的 job。
+    // 换代（reclaiming）路径也走本函数 ⇒ 每次都是新 pid，天然不重复。
+    // 壳不在时静默跳过，不阻断拉起。
+    if (child.pid) { try { pmClient.keepAlive(child.pid); } catch {  } }
     if (this.logger && this.logger.info) this.logger.info('[' + this.name + '] 已拉起独立 daemon pid=' + child.pid + '（spawn 窗口至 ' + new Date(this._spawnWindowUntil).toISOString() + '）');
     return { mode: 'started', pid: child.pid };
   }
