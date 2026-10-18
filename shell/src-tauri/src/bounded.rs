@@ -125,6 +125,226 @@ pub fn pid_alive(pid: u32) -> bool {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 件 1（重做）：关机/注销时的「会话结束」守卫（Windows）
+//
+// 背景（真机验收 FAIL 后用户重裁）：
+//   原形态用 `RunEvent::ExitRequested`，而真机验收证明它在 `taskkill`（无 /F）
+//   路径上**不触发**——`taskkill` 无 /F 对 GUI 进程（PE Subsystem=2，无控制台）
+//   发的是 `WM_CLOSE`，而 `WM_CLOSE` 与「用户点 X」**不可区分**（wParam/lParam
+//   都是 0、`GetMessageExtraInfo` 不带来源、发送方不可知）⇒ 形态 A 无解。
+//
+//   用户重裁：**只接 `WM_QUERYENDSESSION`（关机/注销），`taskkill` 放弃**。
+//   理由：`WM_QUERYENDSESSION` (0x0011) 只有关机/注销会发 ⇒ 天然无歧义
+//   ⇒ 无产品代价（不碰「关窗口 = 隐藏」特性）。
+//
+//   而 Tauri v2 **不转** `WM_QUERYENDSESSION`（`WindowEvent` 只有 8 个变体，
+//   `RunEvent` 那侧也没有会话结束类）⇒ 必须自己接。
+//
+// 形态 B（自建 message-only 窗口）而非 A（子类化 Tauri 主窗口）：
+//   A 要改 Tauri/webview2 **共用**的 WndProc，改错一个字节整个壳的窗口行为崩；
+//   B 自建 `HWND_MESSAGE` 窗口 ⇒ 不可见、不抢焦点、不进任务栏，且**不碰
+//   Tauri 的窗口** ⇒ 生命周期自己管（进程级 OnceLock 存 HWND）。
+//
+// 依赖：**不引入 `windows` / `windows-sys` crate**——它们在 lock 里（5 个
+// windows-sys 版本）但 **lock 不记 feature**，而 `CreateWindowExW` 等 API 的
+// feature（`Win32_UI_WindowsAndMessaging`）不可控 ⇒ 本机无 cargo 预知不了。
+// ⇒ 改用手写 `extern "system"` FFI（与 `pid_alive` / `bind_kill_on_close`
+//    同一范式，均已编译过）⇒ 零 feature 风险、零新增下载。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `WM_QUERYENDSESSION`：关机/注销前 Windows 询问「能否结束会话」。
+const WM_QUERYENDSESSION: u32 = 0x0011;
+/// `ENDSESSION_CLOSEAPP`：`lParam` 的常见值（应用要关自己）。
+const ENDSESSION_CLOSEAPP: u32 = 0x0000_0001;
+/// `HWND_MESSAGE`（(HWND)-1）：message-only 父窗口 ⇒ 子窗口不可见、不进任务栏。
+const HWND_MESSAGE: isize = -3;
+
+/// 会话结束回调：由 `install_end_session_guard` 的 WndProc 调。
+/// 用 `fn` 指针而非闭包 ⇒ 能塞进 `GWLP_USERDATA`（指针宽度）且无生命周期问题。
+static END_SESSION_HOOK: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+
+/// message-only 窗口的句柄（建失败 = `None`）。刻意不 `DestroyWindow`：
+/// 它与壳进程同寿（壳退 ⇒ 窗口随进程销毁，无需我们动手）。
+#[cfg(windows)]
+static END_SESSION_HWND: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
+
+/// 装「会话结束」守卫（Windows：建 message-only 窗口；非 Windows：无操作）。
+///
+/// `on_session_ending` 在收到 `WM_QUERYENDSESSION` 时被调（**同步**，见下面
+/// 关于 5 秒超时的说明）。
+///
+/// 幂等：同一进程内重复调用只建一次窗口（`OnceLock`）。
+/// 返回 `false` = 没装上（窗口创建失败）⇒ 调用方应记一条 warn，**不当成
+/// 致命错误**（关机时杀不掉内核是缺陷，但不该让壳起不来）。
+#[cfg(windows)]
+pub fn install_end_session_guard(on_session_ending: fn()) -> bool {
+    let _ = END_SESSION_HOOK.set(on_session_ending);
+    if END_SESSION_HWND.get().is_some() {
+        return true; // 已装
+    }
+    unsafe {
+        #[link(name = "user32")]
+        extern "system" {
+            fn RegisterClassW(lp_wnd_class: *const WndClassW) -> u16;
+            fn CreateWindowExW(
+                dw_ex_style: u32,
+                lp_class_name: *const u16,
+                lp_window_name: *const u16,
+                dw_style: u32,
+                x: i32,
+                y: i32,
+                n_width: i32,
+                n_height: i32,
+                h_wnd_parent: isize,
+                h_menu: isize,
+                h_instance: isize,
+                lp_param: *mut core::ffi::c_void,
+            ) -> isize;
+            fn DefWindowProcW(h_wnd: isize, msg: u32, w_param: usize, l_param: isize) -> isize;
+            fn GetMessageW(
+                lp_msg: *mut Msg,
+                h_wnd: isize,
+                w_msg_filter_min: u32,
+                w_msg_filter_max: u32,
+            ) -> i32;
+            fn DispatchMessageW(lp_msg: *const Msg) -> isize;
+        }
+        // 窗口类名：加一个产品专属前缀，避免与别人的类撞。
+        let class: Vec<u16> = "lobox-end-session-guard\0".encode_utf16().collect();
+        // ⚠️ `CreateWindowExW` 的 lpClassName 必须是**已注册的类**或预定义类名。
+        //    直接传一个未注册的自定义名 ⇒ CreateWindowExW 返回 0（类找不到）
+        //    ⇒ 守卫静默不生效（而我们只会记一条 warn，很容易被忽略）。
+        //    ⇒ 必须先 RegisterClassW。WNDCLASS 的 lpfnWndProc 置 null ⇒
+        //      Windows 用 DefWindowProc 兜底 ⇒ 而 WM_QUERYENDSESSION 由本函数
+        //      的消息循环自己判，不经 WndProc ⇒ 所以不需要自定义 WndProc。
+        let wc = WndClassW {
+            style: 0,
+            lpfn_wnd_proc: Some(minimal_wnd_proc),
+            cb_cls_extra: 0,
+            cb_wnd_extra: 0,
+            h_instance: 0,
+            h_icon: 0,
+            h_cursor: 0,
+            hbr_background: 0,
+            lpsz_menu_name: core::ptr::null(),
+            lpsz_class_name: class.as_ptr(),
+        };
+        if RegisterClassW(&wc) == 0 {
+            return false;
+        }
+        let hwnd = CreateWindowExW(
+            0,
+            class.as_ptr(),
+            class.as_ptr(),
+            0,       // 无样式（message-only 不需要 WS_ 样式）
+            0,
+            0,
+            0,
+            0,
+            HWND_MESSAGE,
+            0,
+            0,
+            core::ptr::null_mut(),
+        );
+        if hwnd == 0 {
+            return false;
+        }
+        let _ = END_SESSION_HWND.set(hwnd);
+        // 消息循环：本线程（调用方所在线程）跑。注意 GetMessageW 阻塞 ⇒
+        // **必须在专用线程里跑**，否则会卡住调用方（见 main.rs 的调用点）。
+        loop {
+            let mut msg: Msg = core::mem::zeroed();
+            let r = GetMessageW(&mut msg, hwnd, 0, 0);
+            if r == 0 || r == -1 {
+                break; // WM_QUIT 或错误
+            }
+            if msg.message == WM_QUERYENDSESSION {
+                // 先放行（Windows 只给 5 秒，见下），再跑停机。
+                DefWindowProcW(msg.hwnd, WM_QUERYENDSESSION, 1, ENDSESSION_CLOSEAPP as isize);
+                if let Some(f) = END_SESSION_HOOK.get() {
+                    f();
+                }
+                continue;
+            }
+            DispatchMessageW(&msg);
+        }
+        true
+    }
+}
+
+/// Win32 `MSG`（x64，逐字段照 MSDN，**字段序不能改**）：
+/// `hwnd(8) message(4) [pad4] wParam(8) lParam(8) time(4) pt_x(4) pt_y(4) [pad4]` = 48 字节。
+///
+/// ⚠️ 这里栽过一次：第一版按「我以为的顺序」写成
+///   `hwnd, message, _pad, time, pt_x, pt_y, l_param`（36 字节，**漏了 `wParam`**）
+/// ⇒ `GetMessageW` 按真实布局写 40+ 字节 ⇒ **栈缓冲区溢出**（Rust 的 `zeroed()`
+///   在栈上，而 `#[repr(C)]` 只保证字段序与各自对齐，**不保证与 Win32 语义对应**）。
+/// ⇒ 手写 Win32 结构体必须逐字段对 MSDN，不能凭印象。
+#[cfg(windows)]
+#[repr(C)]
+struct Msg {
+    hwnd: isize,
+    message: u32,
+    _pad0: u32, // message(4) → wParam(8) 的对齐填充
+    w_param: usize,
+    l_param: isize,
+    time: u32,
+    pt_x: i32,
+    pt_y: i32,
+    _pad1: u32, // pt_y(4) → 结构末尾 8 字节对齐
+}
+
+/// Win32 `WNDCLASSW`（`RegisterClassW` 入参）。
+///
+/// ⚠️ `lpfn_wnd_proc` **必须非 null**：MSDN 的 `WNDCLASS::lpfnWndProc` 类型是
+///    `WNDPROC`（非 Optional）⇒ 置 null 很可能让 `RegisterClassW` 返 0
+///    ⇒ message-only 窗口建不出来 ⇒ 守卫静默不生效。
+///    ⇒ 所以传真 WndProc（哪怕它只做 `DefWindowProcW` 转发）——本实现不需要
+///      自定义消息处理（`WM_QUERYENDSESSION` 由 `install_end_session_guard` 的
+///      消息循环自己判），但必须给一个合法的函数指针。
+#[cfg(windows)]
+#[repr(C)]
+struct WndClassW {
+    style: u32,
+    lpfn_wnd_proc: Option<unsafe extern "system" fn(isize, u32, usize, isize) -> isize>,
+    cb_cls_extra: i32,
+    cb_wnd_extra: i32,
+    h_instance: isize,
+    h_icon: isize,
+    h_cursor: isize,
+    hbr_background: isize,
+    lpsz_menu_name: *const u16,
+    lpsz_class_name: *const u16,
+}
+
+/// 最小 WndProc：全部转 `DefWindowProcW`。
+///
+/// 之所以还需要它：`WNDCLASS::lpfnWndProc` 非 Optional（见 `WndClassW` 的注释）。
+/// 之所以能这么小：`WM_QUERYENDSESSION` 不在 WndProc 里处理——它在
+/// `install_end_session_guard` 的消息循环里被判（那条路径先 `DefWindowProcW`
+/// 放行，再跑停机回调）。
+#[cfg(windows)]
+unsafe extern "system" fn minimal_wnd_proc(
+    hwnd: isize,
+    msg: u32,
+    w_param: usize,
+    l_param: isize,
+) -> isize {
+    #[link(name = "user32")]
+    extern "system" {
+        fn DefWindowProcW(h_wnd: isize, msg: u32, w_param: usize, l_param: isize) -> isize;
+    }
+    DefWindowProcW(hwnd, msg, w_param, l_param)
+}
+
+/// 非 Windows：会话结束走 SIGTERM（真信号）⇒ 由 `RunEvent::ExitRequested`
+/// 与 `app.exit()` 那条已推的路径覆盖 ⇒ 这里无操作。
+#[cfg(not(windows))]
+pub fn install_end_session_guard(_on_session_ending: fn()) -> bool {
+    false
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 件 A：壳 → 内核的「父死子死」绑定（Windows JobObject）
 //
 // 用户裁决（2026-10-16）：**壳进程一退，内核 + DSH + frpc + router/lan + 沙箱全停。**

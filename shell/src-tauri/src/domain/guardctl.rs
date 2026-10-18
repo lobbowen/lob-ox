@@ -42,6 +42,19 @@ pub fn resolve_local(resource_dir: Option<std::path::PathBuf>) -> Option<(crate:
 // 进程管理时代壳直接持有进程句柄（adopt_spawned），停机就是停进程表里的每个对象，
 // 没有握手、没有让出端口的等待预算、没有 GUARD_STOP_FAILED 这条路径。
 pub(crate) fn shutdown_all() {
+    shutdown_all_with_reason("shell_shutdown_all")
+}
+
+/// 停机 + 留痕带 `reason`。
+///
+/// 为什么要 `reason`：真机验收时要能**机械分流**「哪条路径触发的」——
+///   · `shell_shutdown_all`            ⇒ 主动退出（托盘 quit / 窗口 exit）
+///   · `session_ending`                ⇒ 关机/注销（`WM_QUERYENDSESSION`，件 1 重做）
+///   · `shell_shutdown_all_contract_fallback` ⇒ 契约文件兜底那条支
+/// 缺了它，验收时只知道「跑没跑」，不知道「该跑的那条为什么没跑」
+/// （上次件 1 FAIL 正是卡在这里：`kill_attempt` 0 命中，但无从判断是
+///   「钩子没触发」还是「触发了但杀不动」）。
+pub(crate) fn shutdown_all_with_reason(reason: &str) {
     let pm = crate::process_manager::handle();
     let ids: Vec<String> = {
         let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
@@ -73,7 +86,7 @@ pub(crate) fn shutdown_all() {
                     s.get(&id).map(|st| st.adopted).unwrap_or(false)
                 };
                 crate::telemetry::event::info("process.kill_attempt", "guardctl", serde_json::json!({
-                    "id": id, "pid": p, "reason": "shell_shutdown_all",
+                    "id": id, "pid": p, "reason": reason,
                     "adopted": adopted
                 }));
                 let outcome = crate::bounded::kill_tree_pid(p);
@@ -97,8 +110,7 @@ pub(crate) fn shutdown_all() {
                         crate::telemetry::event::info("process.kill_attempt", "guardctl", serde_json::json!({
                             "id": id, "pid": p, "reason": "shell_shutdown_all_contract_fallback",
                             "source": "guard-mgmt.json"
-                        }));
-                        let outcome = crate::bounded::kill_tree_pid(p);
+                        }));                        let outcome = crate::bounded::kill_tree_pid(p);
                         let ok = outcome.is_success();
                         crate::telemetry::event::info("process.kill_result", "guardctl", serde_json::json!({
                             "id": id, "pid": p, "ok": ok,

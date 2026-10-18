@@ -181,6 +181,21 @@ fn main() {
                 let pm = app.state::<std::sync::Arc<crate::process_manager::ProcessManager>>();
                 crate::process_manager::spawn_healer(pm.inner().clone());
             }
+            // 件 1（重做）：关机/注销守卫。形态 B——bounded 自建 message-only 窗口，
+            // 而它的消息循环是**阻塞**的（GetMessageW）⇒ 必须放专用线程，
+            // 否则会卡住 setup 后面的启动路径（壳起不来）。
+            // Unix 侧无操作（SIGTERM 是真信号，走 RunEvent::ExitRequested 那条）。
+            std::thread::spawn(|| {
+                if !crate::bounded::install_end_session_guard(|| {
+                    crate::domain::guardctl::shutdown_all_with_reason("session_ending");
+                }) {
+                    crate::telemetry::event::warn(
+                        "process.end_session_guard_unavailable",
+                        "main",
+                        serde_json::json!({ "reason": "message-only 窗口创建失败 ⇒ 关机/注销时杀不掉内核" }),
+                    );
+                }
+            });
             env::migrate_legacy();
                         
             // 唯一端口解析：托盘动作与 CloseRequested 共用（见 env::resolved_api_port）。
