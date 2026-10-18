@@ -57,7 +57,7 @@ function nodeModulesDirOf(root, agent) {
 }
 
 // 第一个 agent 产品的事实描述：DSH。包名 / 安装目录内的相对位置 / systemd 单元前缀 /
-// 可执行名。收敛自装配层散落的字面量。
+// 可执行名 / 裸名命令头白名单。收敛自装配层散落的字面量。
 // 第二个 agent 产品真出现时再提炼通用形态——现在只做 DSH 一处收敛。
 // 边界：只收「产品事实」。进程匹配模式（pgrepList('dsh')、proc.matchGuard）故意宽于
 // 产品名——它还要匹配历史形态的进程，收敛会让宽松匹配依赖精确认知，故不收。
@@ -67,6 +67,10 @@ const DSH_PRODUCT = Object.freeze({
   entryRel: Object.freeze(['lib', 'bin.js']),
   unitPrefix: 'dsh-web@',
   binName: 'dsh',
+  // 裸名命令头白名单：DSH 在 Windows 上有 .exe / .cmd / .ps1 三种合法形态，
+  // 另有 lobox 系列（本产品自己的入口）。供 commandEntryViolation 的
+  // allowBareNames 使用——**精确匹配**，不宽匹配（dsh-evil.exe 不是 dsh）。
+  bareHeads: Object.freeze(['dsh', 'dsh.exe', 'dsh.js', 'lobox', 'lobox.js', 'dsh.cmd', 'dsh.ps1']),
   protectedPkgs: Object.freeze(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']),
 });
 

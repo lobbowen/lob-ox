@@ -284,11 +284,25 @@ function cmdDaemon() {
   // 停内嵌 router/lan（反代实例、relay、frpc、端口释放）是异步的，`process.exit` 会让 stop 只跑同步前缀，
   //   子进程与端口残留成孤儿。故等 Promise settle 后再 exit 并加 8s 兜底超时；重复信号第二次直接强退。
   let _exiting = false;
-  function gracefulExit(code) {
+  // 内核侧退出留痕：三个时机（收到信号 / 未捕获异常 / 正常退出路径结束）。
+  // 为什么必须：此前 guard.log 只追加、无退出事件，「内核为什么没了」不可查询——
+  // 壳杀 / 孤儿回收 / 崩溃 / 人工停 四种可能全部无法证实（field-acceptance 实证）。
+  // 与壳侧「我杀没杀」是两个独立信源，对不上就是线索（壳说杀了、内核说没收到 ⇒ 信号没送达）。
+  // 落点是 guard.events.log（config.js:44 的 eventsFile），经 hub.sync() 聚合成
+  // state.aggregated.events.log 再经 /events 给壳 ⇒ 单一账本，不是两套。
+  // 每条都带 pid + 时间戳 + 原因：只记「退出了」与 beat 家族零日志同族（记了但没信息）。
+  function traceExit(kind, extra) {
+    try {
+      sup.events.append('kernel_' + kind, Object.assign({ pid: process.pid, at: Date.now() }, extra || {}));
+    } catch { /* 留痕失败不阻断退出流程——退出本身优先 */ }
+  }
+  function gracefulExit(code, reason) {
     if (_exiting) { process.exit(code); }
     _exiting = true;
+    traceExit('exit', { code, reason: reason || 'graceful' });
     const bail = setTimeout(() => {
       console.error('[supervisor] shutdown 超时（8s），强制退出');
+      traceExit('exit_timeout', { code, reason: reason || 'graceful' });
       process.exit(code);
     }, 8000);
     if (bail.unref) bail.unref();
@@ -297,8 +311,8 @@ function cmdDaemon() {
       .catch((e) => { console.error('[supervisor] shutdown 异常:', (e && e.message) || e); })
       .then(() => { clearTimeout(bail); process.exit(code); });
   }
-  process.on('SIGTERM', () => { gracefulExit(0); });
-  process.on('SIGINT', () => { gracefulExit(0); });
+  process.on('SIGTERM', () => { traceExit('signal', { signal: 'SIGTERM' }); gracefulExit(0, 'SIGTERM'); });
+  process.on('SIGINT', () => { traceExit('signal', { signal: 'SIGINT' }); gracefulExit(0, 'SIGINT'); });
   // uncaughtException：内核尽量自愈；但短时间内反复异常说明内部状态已坏，
   // 以非零退出交给 systemd 拉起（比带病运行更安全）。
   let excCount = 0;
@@ -306,7 +320,7 @@ function cmdDaemon() {
   process.on('uncaughtException', (e) => {
     console.error('[supervisor] uncaughtException:', (e && e.stack) || e);
     try {
-      sup.events.append('guard_uncaught_exception', { message: e && e.message });
+      sup.events.append('guard_uncaught_exception', { pid: process.pid, message: e && e.message });
     } catch {}
     const now = Date.now();
     if (now - excWindowStart > 60000) {
@@ -317,7 +331,7 @@ function cmdDaemon() {
     if (excCount >= 3) {
       console.error('[supervisor] 60s 内第 ' + excCount + ' 次未捕获异常，退出交由 systemd 拉起。');
       // 同样等 shutdown 完成；此处已有强退意图，故用优雅退出+超时兜底。
-      gracefulExit(1);
+      gracefulExit(1, 'uncaught-exception-burst');
     }
   });
   process.on('unhandledRejection', (e) => {
@@ -325,6 +339,16 @@ function cmdDaemon() {
   });
   sup.start();
   console.log('[supervisor] daemon started, pid=' + process.pid);
+  traceExit('started', { version: (typeof __DSH_VERSION__ !== 'undefined' ? __DSH_VERSION__ : null) });
+  // ⚠ 不在这里 process.exit：start() 是同步的（_apiStart + _bootstrap），
+  // 进程靠事件循环（timer / socket）保活。提前 exit 会立即杀掉刚起来的 daemon。
+  // 「跑完自己退了」这一形态由 start_returned 之外的路径覆盖：_bootstrap 内部
+  // 若让事件循环空转退出，process 的 'exit' 事件会兜底记一条（见下）。
+  process.on('exit', (code) => {
+    // 'exit' 事件里只能做同步操作：events.append 是同步写盘，可安全调用。
+    // 已记过 kernel_exit 的不重复记（gracefulExit 已记过）。
+    if (!_exiting) { traceExit('process_exit', { code }); }
+  });
 }
 
 function cmdStatus() {

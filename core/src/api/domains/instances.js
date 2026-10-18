@@ -80,7 +80,9 @@ function commandShapeError(command, dshBin) {
     if (/[\0\r\n]/.test(a)) return 'command 含非法字符（NUL/换行）';
   }
   const NODE_HEAD = new Set(['node', 'node.exe']);
-  const DSH_HEAD = new Set(['dsh', 'dsh.exe', 'dsh.js', 'lobox', 'lobox.js', 'dsh.cmd', 'dsh.ps1']);
+  // 裸名命令头白名单单源在 domains/agent/model.js 的 DSH_PRODUCT.bareHeads
+  // （DSH 的产品事实），本文件与 domains/instance/lifecycle.js 共用它，不各写一份。
+  const DSH_HEAD = new Set(DSH_PRODUCT.bareHeads);
   const DSH_ENTRY = new Set(['dsh', 'dsh.js', 'lobox', 'lobox.js']);
   const baseOf = (p) => String(p).split(/[\\/]/).pop().toLowerCase();
   const normPath = (p) => String(p).replace(/\\/g, '/');
@@ -100,6 +102,9 @@ function commandShapeError(command, dshBin) {
     requireAbsoluteEntry: true,
     files: execPath.knownDshEntries({ dshBin }),
     allowEntry: (entry) => isDshPackageEntry(entry) || DSH_ENTRY.has(baseOf(entry)) || isConfiguredDshBin(entry),
+    // 产品知识（哪些裸名是合法的 DSH 命令头）由本层传给平台层——平台层只提供校验机制，
+    // 不自己知道产品有哪些可执行。此前这段没有通道，裸名在平台层一律放行。
+    allowBareNames: DSH_PRODUCT.bareHeads,
   });
   if (!sharedErr) return null;
   if (NODE_HEAD.has(baseOf(command[0]))) {

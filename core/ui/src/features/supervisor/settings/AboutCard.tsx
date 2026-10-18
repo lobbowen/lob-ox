@@ -36,10 +36,11 @@ type ShellInfo = {
   error?: string | null;
 };
 
-const PRODUCT_NAME = "DeepSeek Harness 管家";
+const PRODUCT_NAME = "lobox 内核";
 const PRODUCT_DESC =
-  "独立于 Harness 运行的系统级内核：负责启动、存活监测与故障自动重启被监管目标，" +
-  "提供生命周期管理、智能路由、远程控制与多实例沙箱的运维面板。";
+  "独立运行的桌面壳内核：负责启动、存活监测与故障自动重启被监管目标，" +
+  "提供生命周期管理、智能路由、远程控制与多实例沙箱的运维面板。" +
+  "它与桌面壳是两个独立版本的产品 —— 桌面壳版本见上一行，内核版本见下一行。";
 
 const fmt = (s?: string | null) => (s ? String(s).replace(/^v/i, "") : "—");
 
@@ -47,19 +48,22 @@ export function AboutCard() {
   const [ver, setVer] = useState<VerInfo | null>(null);
   const [shell, setShell] = useState<ShellInfo | null>(null);
   const [logOpen, setLogOpen] = useState(false);
-  const [logKind, setLogKind] = useState<"dsh" | "guard">("dsh");
+  const [logKind, setLogKind] = useState<"core" | "dsh">("core");
   const [logText, setLogText] = useState("");
   // 壳中继的安装进度：否则界面长时间静止，用户重试会并发写同一 npm 全局包。
   const [coreProg, setCoreProg] = useState<KernelUpdateProgress | null>(null);
   const { busy, run } = useSupervisorAction();
   const askConfirm = useConfirm();
 
-  const openLog = useCallback(async (kind: "dsh" | "guard") => {
+  // kind 用 "core"（lobox 内核）与 "dsh"（被监管的 DeepSeek Harness）：
+  // 曾用 "guard" 指代内核 —— 那是历史命名，用户已确认「守卫不是产品」，
+  // 留着会让下一任读者以为还有一个叫守卫的东西。
+  const openLog = useCallback(async (kind: "core" | "dsh") => {
     setLogKind(kind);
     setLogText("");
     setLogOpen(true);
     try {
-      const text = kind === "dsh" ? await supervisorApi.dshChangelog() : await supervisorApi.guardChangelog();
+      const text = kind === "core" ? await supervisorApi.guardChangelog() : await supervisorApi.dshChangelog();
       setLogText(text || "（无内容）");
     } catch (e) {
       setLogText("加载失败：" + String(e));
@@ -217,18 +221,18 @@ export function AboutCard() {
           {PRODUCT_DESC}
         </p>
         <div className="flex items-center gap-2 border-t border-border/60 pt-3">
-          <Button size="chip" variant="outline" onClick={() => void openLog("dsh")}>
-            DSH 更新日志
+          <Button size="chip" variant="outline" onClick={() => void openLog("core")}>
+            lobox 内核更新日志
           </Button>
-          <Button size="chip" variant="outline" onClick={() => void openLog("guard")}>
-            管家更新日志
+          <Button size="chip" variant="outline" onClick={() => void openLog("dsh")}>
+            DeepSeek Harness 更新日志
           </Button>
         </div>
       </div>
       <Dialog open={logOpen} onOpenChange={setLogOpen}>
         <DialogContent className="max-w-[560px]">
           <DialogHeader>
-            <DialogTitle>{logKind === "dsh" ? "DeepSeek Harness 更新日志" : "管家更新日志"}</DialogTitle>
+            <DialogTitle>{logKind === "core" ? "lobox 内核更新日志" : "DeepSeek Harness 更新日志"}</DialogTitle>
           </DialogHeader>
           <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/30 p-3 text-xs leading-relaxed text-foreground">
             {logText || "加载中…"}

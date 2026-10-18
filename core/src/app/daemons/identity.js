@@ -59,7 +59,6 @@ function depsOf(host) {
 }
 
 module.exports = {
-  _lockPrimitives: { acquireLock, releaseLock, lockPid, pidAlive },
   methods: {
     _lanLockPath() { const d = depsOf(this); try { return path.join(path.dirname(d.config().stateFile), 'lan-daemon.lock'); } catch { return null; } },
     _lanManaged() { const d = depsOf(this); try { const p = d.lanLockPath(); return !!p && fs.existsSync(p); } catch { return false; } },

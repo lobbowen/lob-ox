@@ -3,6 +3,7 @@
 const os = require('node:os');
 const path = require('node:path');
 const SHARED = require('../../shared/shared-constants');
+const { DSH_PRODUCT } = require('../../domains/agent/model');
 
 
 function expandHome(p) {
@@ -50,7 +51,7 @@ const BASE_DEFAULTS = {
   notifyEnabled: true,
   corePackageName: null,
   pluginsProfileName: 'web',
-  packageName: '@deepseek-ai/dsh',
+  packageName: DSH_PRODUCT.pkg,
   canary: false,
   registries: [
     SHARED.runtime.npmDefaultRegistry,

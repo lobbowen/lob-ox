@@ -84,7 +84,7 @@
     var backToBootstrap = function () {
       try { window.location.replace('bootstrap.html'); } catch (e) {}
     };
-        // 有界等守卫就绪后再重载面板（内核更新后专用）。固定延时导航会把「新守卫还没听完端口」变成引擎自己的拒绝连接页，而 iframe 被拒不触发 error 事件、本页永不重试；URL 也必须现取，守卫可能因端口被占而顺延。
+        // 有界等内核就绪后再重载面板（内核更新后专用）。固定延时导航会把「新内核还没听完端口」变成引擎自己的拒绝连接页，而 iframe 被拒不触发 error 事件、本页永不重试；URL 也必须现取，内核可能因端口被占而顺延。
     var reloadPanelWhenReady = function (n) {
       if (!core) return;
       var retry = function () {
@@ -116,7 +116,7 @@
       });
       evt.listen('shell:goto-bootstrap', function () { backToBootstrap(); });
     }
-        // 面板加载失败兜底（守卫尚未就绪/瞬时错误）：同一 URL 最多重试 2 次（一次性 nonce 破缓存）
+        // 面板加载失败兜底（内核尚未就绪/瞬时错误）：同一 URL 最多重试 2 次（一次性 nonce 破缓存）
     frame.addEventListener('error', function () {
       if (!panelUrl || retried >= 2) return;
       retried++;
