@@ -351,22 +351,29 @@ async fn handle(
             //     ⇒ **壳自身缺陷**，不能让调用方以为 assign 成功了；
             //   · 非 Windows 上「无 job 概念」（Unix 侧是件 B 的 PR_SET_PDEATHSIG）
             //     ⇒ 平台不支持，不是缺陷。若也返 500，等于每次调用都报假故障。
-            let Some(job) = crate::bounded::ensure_kill_on_close_job() else {
-                if cfg!(windows) {
-                    crate::telemetry::event::error(
-                        "mgmt.job_unavailable",
+            //
+            // 用 match 而非 let-else：本机无 cargo，let-else 的 else 块分号/ diverging
+            // 要求曾在 CI 上制造 `expected ;, found if`（c73f241e 四平台全红），
+            // 而 match 的臂语义无歧义。
+            let job = match crate::bounded::ensure_kill_on_close_job() {
+                Some(j) => j,
+                None => {
+                    if cfg!(windows) {
+                        crate::telemetry::event::error(
+                            "mgmt.job_unavailable",
+                            "process_manager",
+                            serde_json::json!({ "pid": pid, "reason": "job 未建成（CreateJobObjectW/SetInformationJobObject 失败）" }),
+                        );
+                        return Ok(reply(StatusCode::INTERNAL_SERVER_ERROR, "keep-alive: job 未建成（壳自身缺陷）"));
+                    }
+                    crate::telemetry::event::info(
+                        "mgmt.job_unsupported",
                         "process_manager",
-                        serde_json::json!({ "pid": pid, "reason": "job 未建成（CreateJobObjectW/SetInformationJobObject 失败）" }),
+                        serde_json::json!({ "pid": pid, "reason": "本平台无 job 概念（Unix 侧归件 B 的 PR_SET_PDEATHSIG）" }),
                     );
-                    return Ok(reply(StatusCode::INTERNAL_SERVER_ERROR, "keep-alive: job 未建成（壳自身缺陷）"));
+                    return Ok(reply(StatusCode::OK, "ok (job unsupported on this platform)"));
                 }
-                crate::telemetry::event::info(
-                    "mgmt.job_unsupported",
-                    "process_manager",
-                    serde_json::json!({ "pid": pid, "reason": "本平台无 job 概念（Unix 侧归件 B 的 PR_SET_PDEATHSIG）" }),
-                );
-                return Ok(reply(StatusCode::OK, "ok (job unsupported on this platform)"));
-            }
+            };
             if !crate::bounded::assign_to_job(job, pid) {
                 // 两种可能：pid 非活进程（调用方时序问题，此时也无需 assign）
                 // 或 assign 本身失败。用 pid_alive 区分，分别记 info / error。
