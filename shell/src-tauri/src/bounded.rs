@@ -405,7 +405,9 @@ pub fn job_member_count() -> Option<u32> {
             ) -> i32;
         }
         QueryInformationJobObject(
-            job,
+            // `usize` 化的 job handle（见本文件 KILL_ON_CLOSE_JOB 的注释：static 要求
+            // Sync，裸指针既非 Send 也非 Sync）⇒ 进 FFI 前转回 `*mut c_void`。
+            job as *mut core::ffi::c_void,
             1, // JobObjectBasicAccountingInformation
             (&mut acc as *mut BasicAccounting).cast(),
             core::mem::size_of::<BasicAccounting>() as u32,
