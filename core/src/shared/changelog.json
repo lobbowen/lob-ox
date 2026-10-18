@@ -1,5 +1,39 @@
 [
   {
+    "version": "0.0.26",
+    "date": "2026-10-18",
+    "sections": [
+      {
+        "title": "修复",
+        "items": [
+          "内核进程退出留痕：此前 guard.log 只追加、无退出事件，「内核为什么没了」四种可能（壳杀/孤儿回收/崩溃/人工停）全部无法证实。新增六类事件（kernel_signal / kernel_exit / kernel_exit_timeout / kernel_started / kernel_process_exit，及 guard_uncaught_exception 补 pid），全部带 pid + 时间戳 + 原因",
+          "壳 API「谁进 job」：壳侧 JobObject 只 assign 壳自己 spawn 的那一个进程句柄，不覆盖进程树 ⇒ 内核 spawn 的后代默认不在 job 内。现由内核在 spawn 成功后调 /pm/keep-alive，壳逐个 assign。不调的（npm install / 浏览器 / 通知）天然不在 job 内"
+        ]
+      },
+      {
+        "title": "改进",
+        "items": [
+          "落点常量与状态根分成两个事实：GLOBAL_APP_DIRNAME（npm 全局 bin 目录）与 shared-constants 的 state.dirName（状态根）当前同值但语义不同，不再接单源——两棵不同的目录树、两个产品决策，改一个不该动另一个",
+          "版本比较归一化到 -1/0/1：与 Rust 侧 semver_cmp 返回语义逐字一致。此前 JS 返原始差值（如 -9），跨语言同一比较返回值量级不同",
+          "收敛单源：@deepseek-ai/dsh 的 bin 名（DSH_HEAD 与 DSH_PRODUCT.bareHeads 共用）、内核包名（packageName 走 DSH_PRODUCT.pkg）、DSH_HEAD 裸名命令头白名单"
+        ]
+      },
+      {
+        "title": "清理",
+        "items": [
+          "删除 core/test/ 22 个测试文件——本仓 NO-TESTS 纪律明文禁止，它们此前在源树里是失实资产",
+          "删除 _lockPrimitives 导出（批三撤销残留，同文件四个锁函数保留仍在使用）"
+        ]
+      },
+      {
+        "title": "术语",
+        "items": [
+          "「DeepSeek Harness 管家」→「lobox 内核」。用户确认产品只有一个壳一个内核，「守卫」是 DSH 生命周期被进程管理接管前的历史命名。用户第一眼看到的文案已全部改正"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.0.25",
     "date": "2026-10-17",
     "sections": [
