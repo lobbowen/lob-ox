@@ -63,12 +63,16 @@ pub(crate) fn shutdown_all() {
         //    前者该修、后者只是此刻无从下手）。
         match pid {
             Some(p) => {
+                // ⚠️ `serde_json::json!` 的 value 位只接受 expr，不接受块表达式
+                //    （`{ let s = ...; ... }`）——宏的匹配规则是 `$v:expr`，块匹配不上，
+                //    报 `unexpected end of macro invocation`。⇒ 先算出来再传。
+                let adopted = {
+                    let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
+                    s.get(&id).map(|st| st.adopted).unwrap_or(false)
+                };
                 crate::telemetry::event::info("process.kill_attempt", "guardctl", serde_json::json!({
                     "id": id, "pid": p, "reason": "shell_shutdown_all",
-                    "adopted": {
-                        let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
-                        s.get(&id).map(|st| st.adopted).unwrap_or(false)
-                    }
+                    "adopted": adopted
                 }));
                 let outcome = crate::bounded::kill_tree_pid(p);
                 let ok = outcome.is_success();
@@ -104,19 +108,24 @@ pub(crate) fn shutdown_all() {
                         }
                     }
                     None => {
+                        // ⚠️ `serde_json::json!` 的 value 位只接受 expr，不接受块表达式
+                        //    （宏匹配规则是 `$v:expr`）⇒ 先算出来再传。
+                        // 两个字段同源于进程表同一把锁 ⇒ 取一次锁算两个值，
+                        // 而不是在宏里各 lock 一次（那既是块表达式，也重复加锁）。
+                        let (adopted, had_spawn_cmd) = {
+                            let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
+                            match s.get(&id) {
+                                Some(st) => (st.adopted, !st.spawn_cmd.is_empty()),
+                                None => (false, false),
+                            }
+                        };
                         crate::telemetry::event::info("process.stop_skipped", "guardctl", serde_json::json!({
                             "id": id,
                             "reason": "进程表无 pid 且契约无在世 pid",
                             // 区分两种 None：壳从未拉起过它（adopted=true 且契约也没 pid）
                             // vs 壳拉起过但登记丢失（后者是缺陷）。
-                            "adopted": {
-                                let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
-                                s.get(&id).map(|st| st.adopted).unwrap_or(false)
-                            },
-                            "had_spawn_cmd": {
-                                let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
-                                s.get(&id).map(|st| !st.spawn_cmd.is_empty()).unwrap_or(false)
-                            }
+                            "adopted": adopted,
+                            "had_spawn_cmd": had_spawn_cmd
                         }));
                     }
                 }
