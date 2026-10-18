@@ -586,12 +586,17 @@ mod tests {
         // ⚠ 这些期望值必须与 regex_meta() 的实际清单一致，不能凭「哪个字符像元字符」写。
         //   本例初版把 `-` 当元字符写了 `lob\-ox`，而 regex_meta() 不含 `-` ⇒ 断言错了。
         //   「提纯后可对多种输入断言」的前提是期望值本身经过核对，否则只是把错误写进更多分支。
-        assert_eq!(strip_wmi_wildcards("*lobox*"), "lobox", "两端通配符必须剥掉");
-        assert_eq!(strip_wmi_wildcards("*lob-ox*"), "lob-ox", "- 不在 regex_meta() 内，不得转义");
-        assert_eq!(strip_wmi_wildcards("*a.b*"), "a\\.b", "点在 regex_meta() 内，必须转义");
-        assert_eq!(strip_wmi_wildcards("*a+b*"), "a\\+b", "+ 在 regex_meta() 内，必须转义");
-        assert_eq!(strip_wmi_wildcards("**"), "", "只剩通配符时得空串");
-        assert_eq!(strip_wmi_wildcards("plain"), "plain", "无通配符时原样");
+        //
+        // ⚠ 必须写 `super::` 而非裸调：测试模块是 `mod tests`，与 `strip_wmi_wildcards`
+        //   所在的外层模块是父子关系 ⇒ 裸调报 E0425「cannot find function in this scope」。
+        //   顺从本文件惯例（`:596`/`:607`/`:611` 全写 `super::`）。
+        //   **不加 `use super::*`**：那会让本模块所有裸调合法 ⇒ 用一次方便换掉一个 guard。
+        assert_eq!(super::strip_wmi_wildcards("*lobox*"), "lobox", "两端通配符必须剥掉");
+        assert_eq!(super::strip_wmi_wildcards("*lob-ox*"), "lob-ox", "- 不在 regex_meta() 内，不得转义");
+        assert_eq!(super::strip_wmi_wildcards("*a.b*"), "a\\.b", "点在 regex_meta() 内，必须转义");
+        assert_eq!(super::strip_wmi_wildcards("*a+b*"), "a\\+b", "+ 在 regex_meta() 内，必须转义");
+        assert_eq!(super::strip_wmi_wildcards("**"), "", "只剩通配符时得空串");
+        assert_eq!(super::strip_wmi_wildcards("plain"), "plain", "无通配符时原样");
         // 终值仍要成立：剥壳后不得残留 *（WMI 通配符在 awk 正则里是量词）。
         let p = super::unix_proc_match_pattern();
         assert!(!p.contains('*'), "不得残留 WMI 通配符: {}", p);
