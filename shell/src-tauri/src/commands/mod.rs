@@ -300,12 +300,18 @@ pub async fn core_plan(app: tauri::AppHandle) -> ShellResult<serde_json::Value> 
     // 「参数无效」，而真因（某个源 TLS 失败 / 某个源返回坏 JSON）被抹掉。
     // ⇒ 这是「内层做了诊断、外层一个错误码压平」的外层（内层是 latest_pick 的
     //   四层静默 continue，已在 core.rs 修好）。
-    // 错误码复用现成的（不新建）：JOIN_ERROR（panic/池关闭，先例 mod.rs:485）、
-    // NETWORK_FAILED（镜像/网络层失败，先例 mod.rs:332）。
+    //
+    // ⚠️ JoinError 才在这里 `?` 成 Fault；`latest_pick` 的 `Err` **不能在这里 ? 掉** ——
+    //    `build_plan(installed, latest)` 的第二参就是 `Result<LatestPick, String>`，
+    //    它要靠 `Err(e)` 把分层诊断写进 `plan.latest_error`（core.rs:583-586 的
+    //    `Err(e) => ... err: Some(e)`）。若在此处 `?` 掉，`build_plan` 的 Err 分支
+    //    永不可达 ⇒ 前端拿不到「探测层失败 N 个」的原文，只看到一个裸 Fault。
+    //    ⇒ 这也是 `Ok(latest)` 那种「包一下让编译过」的修法为什么是错的：
+    //      它编译过，但把唯一的上报路径静默关掉。
+    // 错误码复用现成的（不新建）：JOIN_ERROR（panic/池关闭，先例 mod.rs:485）。
     let latest = tauri::async_runtime::spawn_blocking(move || crate::core::latest_pick(&pkg))
         .await
-        .map_err(|e| crate::fault::Fault::new(crate::fault::code::JOIN_ERROR, e.to_string()))?
-        .map_err(|e| crate::fault::Fault::new(crate::fault::code::NETWORK_FAILED, e))?;
+        .map_err(|e| crate::fault::Fault::new(crate::fault::code::JOIN_ERROR, e.to_string()))?;
     Ok(crate::core::build_plan(installed, latest))
 }
 

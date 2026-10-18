@@ -21,7 +21,12 @@ use crate::process_manager::ProcessManager;
 
 /// 契约文件是否已被一个**在世**的进程持有。pid 只由本文件写入，
 /// 故读到的 pid 可直接判活（与 pm-client.js 的 endpoint() 同一判据）。
-fn live_contract_owner() -> Option<u32> {
+///
+/// `pub` 而非私有：`domain/guardctl.rs:92,206` 跨模块调它（`shutdown_all` 的
+/// 契约兜底 + `register_core` 的认领取 pid）。此前是 `fn` ⇒ E0603
+/// 「function is private」⇒ CI 两处报错。**跨模块调用要求符号 `pub`** ——
+/// 这是 Rust 的编译期守卫，本机无 cargo 时只能靠 grep 核（见 §36）。
+pub fn live_contract_owner() -> Option<u32> {
     let path = crate::env::supervisor_dir().join("guard-mgmt.json");
     let text = std::fs::read_to_string(path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&text).ok()?;

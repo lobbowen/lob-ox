@@ -3,8 +3,10 @@
 //! systemd / launchd / 任务计划程序投递任何东西，也不存在「用系统通道投递」的选项。
 //! 阶段序列 P0 契约 -> P1 对齐 -> P3 定位 -> P4 登记 -> P5 启动 -> P6 就绪；P1 是 P5 的前置（磁盘内核必须等于线上最新，否则拒绝启动）。所有等待都有上限，退出也要能在受管对象无响应时走完。
 
-use std::net::{TcpStream, ToSocketAddrs};
-use std::sync::atomic::{AtomicU32, Ordering};
+// `std::net::{TcpStream, ToSocketAddrs}` 与 `std::sync::atomic::{AtomicU32, Ordering}`
+// 已删：它们属于旧的「端口探测」实现，而件 1 把它换成了「进程表判据」
+// （`ensure_core` 的 mine/claimed，见本文件 ensure_core）。留着就是 unused warning，
+// 而本项目对 warning 的纪律是零（CI 的 cargo check --tests 是 gate）。
 use tauri::{Emitter, Manager};
 
 

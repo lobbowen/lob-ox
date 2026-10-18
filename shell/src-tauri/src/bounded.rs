@@ -206,10 +206,16 @@ const JOB_OBJECT_LIMIT_BREAKAWAY_OK: u32 = 0x0000_0800;
 #[cfg(windows)]
 const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: u32 = 9;
 
-/// 进程级 job handle。`None` = 还没建（尚未 spawn 过内核）。
+/// 进程级 job handle（**存 `usize` 而不是 `*mut c_void`**）。
+///
+/// 为什么：`static` 要求类型 `Sync`，而裸指针 `*mut c_void` 既非 `Send` 也非
+/// `Sync` ⇒ 编译报 `cannot be shared between threads`（E0308 家族）。
+/// 存 `usize`（`Send + Sync`）编译过，且 handle 的值跨线程不变（它只是个整数
+/// 标识），用时再 `as *mut c_void` 转回。
+/// `None` = 还没建（尚未 spawn 过内核）。
 /// 刻意不提供 `close()`：见上面「生命周期是设计关键」。
 #[cfg(windows)]
-static KILL_ON_CLOSE_JOB: std::sync::OnceLock<*mut core::ffi::c_void> = std::sync::OnceLock::new();
+static KILL_ON_CLOSE_JOB: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 
 /// 确保「壳退即全杀」的 job 已建成；返回其 handle。
 ///
@@ -225,7 +231,7 @@ static KILL_ON_CLOSE_JOB: std::sync::OnceLock<*mut core::ffi::c_void> = std::syn
 ///    「拉起内核即杀内核」。这与 `guard.lock` 的教训互补：那个是该关的没关
 ///    （锁脱钩），这个是**不能关的关了会触发相反效果**。
 #[cfg(windows)]
-pub fn ensure_kill_on_close_job() -> Option<*mut core::ffi::c_void> {
+pub fn ensure_kill_on_close_job() -> Option<usize> {
     use std::sync::OnceLock;
     static INIT: OnceLock<()> = OnceLock::new();
     INIT.get_or_init(|| unsafe {
@@ -264,7 +270,8 @@ pub fn ensure_kill_on_close_job() -> Option<*mut core::ffi::c_void> {
         if ok == 0 {
             return;
         }
-        let _ = KILL_ON_CLOSE_JOB.set(job);
+        // 存 usize（static 要 Sync，裸指针不是）⇒ 用时再转回 *mut c_void。
+        let _ = KILL_ON_CLOSE_JOB.set(job as usize);
     });
     KILL_ON_CLOSE_JOB.get().copied()
 }
@@ -279,10 +286,11 @@ pub fn ensure_kill_on_close_job() -> Option<*mut core::ffi::c_void> {
 ///   · pid 非活进程 ⇒ 记 info（调用方时序问题，此时也无需 assign）；
 ///   · job 未建成 ⇒ 那是壳自身缺陷，须返 500 + error。
 #[cfg(windows)]
-pub fn assign_to_job(job: *mut core::ffi::c_void, pid: u32) -> bool {
-    if job.is_null() {
+pub fn assign_to_job(job: usize, pid: u32) -> bool {
+    if job == 0 {
         return false;
     }
+    let job = job as *mut core::ffi::c_void;
     unsafe {
         #[link(name = "kernel32")]
         extern "system" {
@@ -327,7 +335,7 @@ pub fn bind_kill_on_close(child: &mut std::process::Child) -> bool {
         extern "system" {
             fn AssignProcessToJobObject(h_job: *mut core::ffi::c_void, h_process: *mut core::ffi::c_void) -> i32;
         }
-        AssignProcessToJobObject(job, handle) != 0
+        AssignProcessToJobObject(job as *mut core::ffi::c_void, handle) != 0
     }
 }
 
@@ -340,13 +348,13 @@ pub fn bind_kill_on_close(_child: &mut std::process::Child) -> bool {
 
 /// 非 Windows：无 job 概念（Unix 侧是件 B 的 `PR_SET_PDEATHSIG`）。
 #[cfg(not(windows))]
-pub fn ensure_kill_on_close_job() -> Option<*mut core::ffi::c_void> {
+pub fn ensure_kill_on_close_job() -> Option<usize> {
     None
 }
 
 /// 非 Windows：无 job 概念（Unix 侧是件 B 的 `PR_SET_PDEATHSIG`）。
 #[cfg(not(windows))]
-pub fn assign_to_job(_job: *mut core::ffi::c_void, _pid: u32) -> bool {
+pub fn assign_to_job(_job: usize, _pid: u32) -> bool {
     false
 }
 
