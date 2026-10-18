@@ -143,7 +143,14 @@ jobs:
           cargo check --bins 2>&1 | tee "$LOG"
           RC=${PIPESTATUS[0]}
           if [ "$RC" -ne 0 ]; then
+            # 先试结构化报错（error[Exxxx] + --> file:line），这是最常见形态。
             grep -E '^error(\[|:)|^ *-->' "$LOG" | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+            # 但失败不止一种形态：lock 不一致（Locking/Blocking/Updating）、依赖解析失败、
+            # 以及任何非 error[Exxxx] 形态 ⇒ 上面的 grep 一行都匹配不到，只剩 exit 101。
+            # ⇒ 无条件补打 log 尾部 40 行。这与 latest_pick 四层静默 continue 同族：
+            #   失败有多种形态，而提取层只认一种 ⇒ 制造「看不见真错」的盲区。
+            echo "::error::===== cargo check 失败，log 尾部 40 行（含非 error[] 形态）====="
+            tail -40 "$LOG" | while IFS= read -r l; do echo "::error::$l"; done
           fi
           exit "$RC"
         working-directory: shell/src-tauri
