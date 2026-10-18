@@ -1,4 +1,4 @@
-﻿use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use super::service::ServiceControl;
 use super::{Capabilities, LaunchSpec, Platform};
@@ -112,6 +112,6 @@ impl ServiceControl for Impl {
     // 此处对应的 stub 随之删除。
 
     fn stop(&self) -> Result<(), String> {
-        Err(format!("当前平台（{}）不支持守卫服务管理", std::env::consts::OS))
+        Err(format!("当前平台（{}）不支持内核服务管理", std::env::consts::OS))
     }
 }

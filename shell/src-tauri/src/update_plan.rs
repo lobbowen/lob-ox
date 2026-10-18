@@ -9,14 +9,13 @@ pub fn channel_of(version: Option<&str>) -> &'static str {
     }
 }
 
+/// 面板展示档位。映射收敛在 `release_channel::selected_channel_of`（CH_* 常量同文件），
+/// 此处不再自持一份四值 match —— 那正是被清掉的重复词表。
+///
+/// 与 `channel_of`（版本号后缀档位）语义不同，别顺手统一：一个看 dist-tags，
+/// 一个看版本号后缀；合并不是收敛是混淆。
 pub fn selected_channel_of(via: &str) -> &'static str {
-    match via {
-        "rollback" => "rollback",
-        "canary" => "canary",
-        "latest" => "latest",
-        "versions" => "fallback",
-        _ => "latest",
-    }
+    crate::release_channel::selected_channel_of(via)
 }
 
 pub fn unified(

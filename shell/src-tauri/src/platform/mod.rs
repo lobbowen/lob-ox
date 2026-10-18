@@ -185,38 +185,15 @@ impl LaunchSpec {
 /// 设计约束（架构侧给的）：
 ///   · **每次 spawn 新生成，不能学 `mgmt.rs` 的 `OnceLock` 进程级单例** ——
 ///     同一个壳会 spawn 多次，进程级单例会让第二次复用同一值，退化成「设了就算」；
-///   · 熵源复用 `mgmt.rs` 的范式（`BCryptGenRandom` / `/dev/urandom`）+ 常量时间比较；
+///   · 熵源复用 `mgmt.rs` 的 `system_entropy`（`BCryptGenRandom` / `/dev/urandom`），
+///     **不在此处复制一份 FFI** —— 那正是本项目最反复出现的病（复制而非复用）；
 ///   · **fail-closed**：取不到熵就拒绝启动，不退化成可预测种子。
 ///
 /// 传递方式：经环境变量交给子进程，`cli_run_guard` 收下即验、验完即从环境移除。
 pub fn spawn_token() -> Result<String, String> {
-    let mut seed = [0u8; 32];
-    let mut ok = false;
-    unsafe {
-        #[cfg(target_os = "windows")]
-        {
-            extern "system" {
-                fn BCryptGenRandom(hAlgorithm: *mut core::ffi::c_void, pbBuffer: *mut u8, cbBuffer: u32, dwFlags: u32) -> i32;
-            }
-            const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x00000002;
-            ok = BCryptGenRandom(
-                core::ptr::null_mut(),
-                seed.as_mut_ptr(),
-                seed.len() as u32,
-                BCRYPT_USE_SYSTEM_PREFERRED_RNG,
-            ) == 0;
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-                use std::io::Read;
-                ok = f.read_exact(&mut seed).is_ok();
-            }
-        }
-    }
-    if !ok {
-        return Err("系统熵源不可用：拒绝以可预测种子派生 --run-guard 凭据（fail-closed）".to_string());
-    }
+    let seed = crate::process_manager::mgmt::system_entropy_for_spawn().ok_or_else(|| {
+        "系统熵源不可用：拒绝以可预测种子派生 --run-guard 凭据（fail-closed）".to_string()
+    })?;
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
     h.update(seed);
@@ -233,21 +210,6 @@ pub fn spawn_token() -> Result<String, String> {
 /// 故定义为壳内常量，与 `mgmt.rs` 的 `MGMT_TOKEN_HEADER_CELL` 同一条理由。
 pub fn spawn_token_env() -> &'static str {
     "DSH_RUN_GUARD_TOKEN"
-}
-
-/// 常量时间比较。与 `mgmt.rs` 的 `token_eq` 同一形态（不导入私有项，此处自持一份
-/// 短实现：两个 &str 的长度都可能不同，先比长度会泄漏长度信息，故仍走定长缓冲）。
-pub fn token_eq_generic(got: &str, want: &str) -> bool {
-    let g = got.as_bytes();
-    let w = want.as_bytes();
-    if g.len() != w.len() {
-        return false;
-    }
-    let mut acc: u8 = 0;
-    for i in 0..g.len() {
-        acc |= g[i] ^ w[i];
-    }
-    acc == 0
 }
 
 pub fn service_exec_line(shell: &std::path::Path, args: &[&str]) -> String {
@@ -339,8 +301,14 @@ pub fn managed_stop_script() -> String {
     )
 }
 
-pub fn unix_proc_match_pattern() -> String {
-    let raw = crate::brand::proc_match_guard();
+/// 去掉 WMI 通配符外壳并转义正则元字符。**纯函数**：同样的输入永远得同样的输出，
+/// 不读环境、不读文件、不读 shared-constants —— 故可被 CI 直接断言
+/// （X7：`unix_proc_match_pattern_strips_wmi_wildcards` 测的就是它）。
+///
+/// 为什么单独提出来：`unix_proc_match_pattern()` 把「读 proc_match_guard」与
+/// 「变换」耦在一起，测试只能验「读出来再变换」的终值，无法验变换本身在各种
+/// 输入下的行为（例如 `*` 在中间、连续 `*`、元字符相邻）。提纯后变换可独立断言。
+pub fn strip_wmi_wildcards(raw: &str) -> String {
     let core = raw.trim_matches('*');
     let mut out = String::new();
     for c in core.chars() {
@@ -350,6 +318,10 @@ pub fn unix_proc_match_pattern() -> String {
         out.push(c);
     }
     out
+}
+
+pub fn unix_proc_match_pattern() -> String {
+    strip_wmi_wildcards(crate::brand::proc_match_guard())
 }
 
 fn regex_meta() -> [char; 14] {
@@ -394,6 +366,19 @@ pub fn exec_guard(spec: &LaunchSpec) -> Result<(), String> {
         .env(crate::brand::env_state_root(), &spec.state_root);
     guard_stdio(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("启动内核失败: {}", e))?;
+    // 件 A：绑进「壳退即全杀」的 job。
+    //
+    // ⚠️ 本路径的特殊性：`exec_guard` 是 `--run-guard` 中间跳，它 `child.wait()`
+    // 同步等入口退出（Windows 上稳定入口先 detach 再退，故 wait 会返回）。
+    // 真正常驻的 daemon 由 `--run-guard` 内部再 spawn —— 那一跳**不在本 job 内**。
+    // ⇒ 本处的绑定只覆盖「入口进程自己」，不覆盖 daemon。
+    //   daemon 的覆盖要靠件 C（去掉 DETACHED_PROCESS）+ 内核侧 spawn 继承 job，
+    //   或内核侧自己建 job。**这是已知的覆盖缺口，如实记**（见 §23.4 件 C）。
+    if !crate::bounded::bind_kill_on_close(&mut child) {
+        crate::telemetry::event::info("process.job_bind_skipped", "platform", serde_json::json!({
+            "pid": child.id(), "reason": "assign_failed_or_child_gone", "path": "exec_guard"
+        }));
+    }
     let st = child.wait().map_err(|e| format!("等待内核退出失败: {}", e))?;
     if st.success() { Ok(()) } else { Err(format!("内核退出码: {:?}", st.code())) }
 }
@@ -595,6 +580,19 @@ mod tests {
         
     #[test]
     fn unix_proc_match_pattern_strips_wmi_wildcards() {
+        // 测纯函数本身，不依赖 brand::proc_match_guard() 的运行期读取。
+        // 提纯前这里只能验「读出来再变换」的终值；现在变换本身可对多种输入断言。
+        //
+        // ⚠ 这些期望值必须与 regex_meta() 的实际清单一致，不能凭「哪个字符像元字符」写。
+        //   本例初版把 `-` 当元字符写了 `lob\-ox`，而 regex_meta() 不含 `-` ⇒ 断言错了。
+        //   「提纯后可对多种输入断言」的前提是期望值本身经过核对，否则只是把错误写进更多分支。
+        assert_eq!(strip_wmi_wildcards("*lobox*"), "lobox", "两端通配符必须剥掉");
+        assert_eq!(strip_wmi_wildcards("*lob-ox*"), "lob-ox", "- 不在 regex_meta() 内，不得转义");
+        assert_eq!(strip_wmi_wildcards("*a.b*"), "a\\.b", "点在 regex_meta() 内，必须转义");
+        assert_eq!(strip_wmi_wildcards("*a+b*"), "a\\+b", "+ 在 regex_meta() 内，必须转义");
+        assert_eq!(strip_wmi_wildcards("**"), "", "只剩通配符时得空串");
+        assert_eq!(strip_wmi_wildcards("plain"), "plain", "无通配符时原样");
+        // 终值仍要成立：剥壳后不得残留 *（WMI 通配符在 awk 正则里是量词）。
         let p = super::unix_proc_match_pattern();
         assert!(!p.contains('*'), "不得残留 WMI 通配符: {}", p);
         assert!(p.contains("lobox"), "必须保留产品名字面量: {}", p);

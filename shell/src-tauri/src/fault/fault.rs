@@ -61,7 +61,7 @@ impl Fault {
                 Some(ms) => format!("内核在 {} ms 内未就绪（{}）。端口可能未打开，或 /healthz 未响应。", ms, d),
                 None => format!("内核未就绪（{}）。", d),
             },
-            "kernel.join_error" => format!("守卫启动任务异常：{}", d),
+            "kernel.join_error" => format!("内核启动任务异常：{}", d),
             "net.probe_timeout" => match num("elapsed_ms") {
                 Some(ms) => format!("探测超时（>{} ms，阶段：{}）。可检查网络与代理设置后重试。", ms, d),
                 None => format!("探测超时（阶段：{}）。可检查网络与代理设置后重试。", d),

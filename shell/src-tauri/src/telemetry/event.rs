@@ -39,7 +39,7 @@ pub fn record(kind: &str, level: Level, scope: &str, data: serde_json::Value) {
     let seq = super::sink::append(&ev);
     if seq.is_none() {
         // 记录本身失败不能再递归记录（会无限自放大），
-        // 退回 stderr 让守卫的原始输出通道承担。
+        // 退回 stderr 让内核的原始输出通道承担。
         eprintln!("[telemetry] 事件落盘失败 kind={}", kind);
     }
 }

@@ -93,6 +93,18 @@ pub fn probe_system_node() -> Option<(PathBuf, String)> {
 }
 
 pub const GLOBAL_BIN_DIRNAME: &str = "bin";
+
+/// 全局安装目录名（Windows 上 `%APPDATA%\<name>\bin` 的那一段）。
+///
+/// **不接 `brand::state_dir_name()`**：两者当前同值 `"lobox"` 但语义不同 ——
+/// 那个是「状态根叫什么」（用户数据目录），这个是「npm 全局包装在哪」（可执行目录）。
+/// 同一个值不同语义，收敛要求不同（§3.2.2 的判据第三次应用）；接过去会让
+/// 「改状态目录名」顺带改掉安装目录，而那是两个产品决策。
+///
+/// **保持 const 不改成 fn+OnceLock**：它是编译期已知的壳内事实，无常量上下文需求，
+/// 也没有跨语言消费方（内核不读它）。`OnceLock` 只会增加间接性而没有收益 ——
+/// 与 `default_api_port()` 不同：那个的值来自运行期读 JSON，const 形态做不到。
+/// 为改而改正是本项目反复出现的病（半成品抽象做清理决策的反面）。
 pub const GLOBAL_APP_DIRNAME: &str = "lobox";
 
 pub fn global_install_root() -> PathBuf {
@@ -395,18 +407,6 @@ mod tests {
             "A-4 FAIL 默认端口自身落在弃用名单里 ⇒ 每次启动都会被迁走"
         );
         assert!(!is_deprecated_api_port(37361), "A-4 FAIL 正常端口被误判为弃用");
-    }
-
-    
-    
-    
-    
-    
-    
-    static HOME_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn home_env_lock() -> std::sync::MutexGuard<'static, ()> {
-        HOME_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// 弃用端口不得被采信。

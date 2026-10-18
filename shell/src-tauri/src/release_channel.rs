@@ -5,6 +5,23 @@ pub const CH_CANARY: &str = "canary";
 pub const CH_LATEST: &str = "latest";
 pub const CH_VERSIONS: &str = "versions";
 
+/// 面板展示档位：把「内核自报的 via（dist-tag 名）」译成 UI 用的通道名。
+///
+/// 收敛点：此前 `update_plan::selected_channel_of` 自己抄了一份四值 match，
+/// 而 `CH_*` 常量就在本文件 —— 同一份词表两处维护，改一侧漏一侧。
+/// 现在映射只此一份，`update_plan` 调它。
+///
+/// 与 `update_plan::channel_of`（版本号后缀档位 canary/beta/rc/latest）**语义不同**，
+/// 别顺手统一：那个看版本号后缀，这个看 dist-tags；合并不是收敛是混淆。
+pub fn selected_channel_of(via: &str) -> &'static str {
+    match via {
+        CH_ROLLBACK => "rollback",
+        CH_CANARY => "canary",
+        CH_VERSIONS => "fallback",
+        _ => "latest",
+    }
+}
+
 pub const CANARY_ALLOWLIST_PKG: &str = "@lob-ox/canary-allowlist";
 
 const CFG_CANARY: &str = "canary";

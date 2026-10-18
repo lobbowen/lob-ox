@@ -55,20 +55,86 @@ pub(crate) fn shutdown_all() {
         // 只按本表持有的 pid 精确停止：pid 为 None（core 行恰好如此）时什么都不做。
         // 此前在此退化为 service().stop() 整表杀——那会连带停掉非本产品的 node，
         // 且 core 行每次退出必然走一次（register_core 造的正是 Running + pid=None）。
+        //
+        // 留痕（field-acceptance 查出的缺口）：此前这里只记「停了/没停」，
+        // 而本机 5 个内核怎么死的四种可能全部无法证实，因为产品不记录进程退出。
+        // ⇒ kill 前后各一条，带 pid + 原因 + 结果；None 支要记**为什么**没 pid
+        //   （「壳没拉起它」与「认领时契约里没在世 pid」是两个不同原因，
+        //    前者该修、后者只是此刻无从下手）。
         match pid {
             Some(p) => {
-                crate::telemetry::event::info("process.stopped", "guardctl", serde_json::json!({ "id": id, "pid": p }));
-                match crate::bounded::kill_tree_pid(p) {
-                    o if o.is_success() => {}
-                    o => crate::telemetry::event::warn("process.stop_incomplete", "guardctl", serde_json::json!({ "id": id, "pid": p, "outcome": format!("{:?}", o) })),
+                crate::telemetry::event::info("process.kill_attempt", "guardctl", serde_json::json!({
+                    "id": id, "pid": p, "reason": "shell_shutdown_all",
+                    "adopted": {
+                        let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
+                        s.get(&id).map(|st| st.adopted).unwrap_or(false)
+                    }
+                }));
+                let outcome = crate::bounded::kill_tree_pid(p);
+                let ok = outcome.is_success();
+                crate::telemetry::event::info("process.kill_result", "guardctl", serde_json::json!({
+                    "id": id, "pid": p, "ok": ok,
+                    "outcome": format!("{:?}", outcome),
+                    "signal": outcome_label(&outcome),
+                }));
+                if !ok {
+                    crate::telemetry::event::warn("process.stop_incomplete", "guardctl", serde_json::json!({ "id": id, "pid": p, "outcome": format!("{:?}", outcome) }));
                 }
             }
             None => {
-                crate::telemetry::event::info("process.stop_skipped", "guardctl", serde_json::json!({ "id": id, "reason": "进程表无 pid" }));
+                // 进程表无 pid 时不再无条件跳过：从契约文件再拿一次（与件 1 同源）。
+                // 此前这里只发一条 stop_skipped 就走 ⇒ 壳退出时那个内核还活着。
+                // 「壳退内核必死」要求这条兜底真的去杀，而不是记一条「我跳过了」。
+                let contract_pid = crate::process_manager::mgmt::live_contract_owner();
+                match contract_pid {
+                    Some(p) => {
+                        crate::telemetry::event::info("process.kill_attempt", "guardctl", serde_json::json!({
+                            "id": id, "pid": p, "reason": "shell_shutdown_all_contract_fallback",
+                            "source": "guard-mgmt.json"
+                        }));
+                        let outcome = crate::bounded::kill_tree_pid(p);
+                        let ok = outcome.is_success();
+                        crate::telemetry::event::info("process.kill_result", "guardctl", serde_json::json!({
+                            "id": id, "pid": p, "ok": ok,
+                            "outcome": format!("{:?}", outcome),
+                            "signal": outcome_label(&outcome),
+                        }));
+                        if !ok {
+                            crate::telemetry::event::warn("process.stop_incomplete", "guardctl", serde_json::json!({ "id": id, "pid": p, "outcome": format!("{:?}", outcome) }));
+                        }
+                    }
+                    None => {
+                        crate::telemetry::event::info("process.stop_skipped", "guardctl", serde_json::json!({
+                            "id": id,
+                            "reason": "进程表无 pid 且契约无在世 pid",
+                            // 区分两种 None：壳从未拉起过它（adopted=true 且契约也没 pid）
+                            // vs 壳拉起过但登记丢失（后者是缺陷）。
+                            "adopted": {
+                                let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
+                                s.get(&id).map(|st| st.adopted).unwrap_or(false)
+                            },
+                            "had_spawn_cmd": {
+                                let s = pm.states.lock().unwrap_or_else(|e| e.into_inner());
+                                s.get(&id).map(|st| !st.spawn_cmd.is_empty()).unwrap_or(false)
+                            }
+                        }));
+                    }
+                }
             }
         }
     }
-    crate::telemetry::event::info("process.all_stopped", "guardctl", serde_json::json!({}));
+    crate::telemetry::event::info("process.all_stopped", "guardctl", serde_json::json!({
+        "at": crate::update::now_iso_human()
+    }));
+}
+
+/// kill 结果的简短标签，供留痕直接读（不必去解 Debug 枚举）。
+fn outcome_label(o: &crate::bounded::KillOutcome) -> &'static str {
+    match o {
+        crate::bounded::KillOutcome::Terminated => "terminated",
+        crate::bounded::KillOutcome::AlreadyGone => "already_gone",
+        crate::bounded::KillOutcome::Failed => "failed",
+    }
 }
 
 /// 服务管理器路径（P4 建立定义 -> P5 请求启动）的阶段产物。不变量由结构强制：`started` 只可能在 `defined` 为 `Ok` 时才是 `Some` —— 定义失败时那条出边是关闭的。丢掉 `ensure_defined` 的错误再无条件 `start()`，报错就只剩「/Run 失败（退出码 1）」，真实失败点可能在更早的 P4。
@@ -124,6 +190,25 @@ fn register_core(app: &tauri::AppHandle) {
         pm.register_workload(core_desc());
         pm.on_phase("core", crate::process_manager::state_machine::Phase::Running);
         pm.set_desired("core", crate::process_manager::state_machine::Desired::Running);
+        // 认领来的内核也要有 pid，否则壳退出时杀不掉它（S-1 #1）。
+        // 判据与 live_contract_owner 同源：读 guard-mgmt.json 的 pid + pid_alive 实探。
+        // 死了就不登记 —— 宁可 None 也不登记一个死 pid：那会让 shutdown_all 去 kill
+        // 一个不存在的进程，还把「认领失败」伪装成「已接管」。
+        if let Some(pid) = crate::process_manager::mgmt::live_contract_owner() {
+            pm.adopt_spawned(core_desc(), pid);
+            pm.on_phase("core", crate::process_manager::state_machine::Phase::Running);
+            crate::telemetry::event::info(
+                "process.adopted_with_pid",
+                "guardctl",
+                serde_json::json!({ "id": "core", "pid": pid }),
+            );
+        } else {
+            crate::telemetry::event::info(
+                "process.adopted_without_pid",
+                "guardctl",
+                serde_json::json!({ "id": "core", "reason": "契约无在世 pid" }),
+            );
+        }
     }
 }
 

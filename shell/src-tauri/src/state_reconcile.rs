@@ -72,7 +72,7 @@ pub fn reconcile_api_port() -> Outcome {
         return Outcome::Unchanged;
     }
     Outcome::Skipped(format!(
-        "检测到弃用端口 {}（面板地址 {}）：config.json 由内核重写，壳侧读取时已迁移；若需落盘修正请重启守卫",
+        "检测到弃用端口 {}（面板地址 {}）：config.json 由内核重写，壳侧读取时已迁移；若需落盘修正请重启内核",
         port, cur
     ))
 }

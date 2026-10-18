@@ -40,8 +40,16 @@ pub trait ServiceControl: Send + Sync {
             .env(crate::platform::spawn_token_env(), &token);
         crate::platform::guard_stdio(&mut cmd);
         crate::bounded::prepare(&mut cmd);
-        cmd.spawn().map_err(|e| {
+        let mut child = cmd.spawn().map_err(|e| {
             format!("直接拉起内核失败: {}（{} --run-guard）", e, spec.shell.display())
-        })
+        })?;
+        // 件 A：绑进「壳退即全杀」的 job。绑不上不是错误（子进程可能已退出），
+        // 壳主动退出时 shutdown_all 仍按 pid 杀它 —— 两条路互补。
+        if !crate::bounded::bind_kill_on_close(&mut child) {
+            crate::telemetry::event::info("process.job_bind_skipped", "platform", serde_json::json!({
+                "pid": child.id(), "reason": "assign_failed_or_child_gone"
+            }));
+        }
+        Ok(child)
     }
 }

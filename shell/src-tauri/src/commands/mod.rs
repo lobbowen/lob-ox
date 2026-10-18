@@ -67,7 +67,7 @@ pub async fn node_status(app: tauri::AppHandle, retry: Option<bool>) -> serde_js
         };
         o
     };
-        // 契约落盘：node 与 npm **都真实可用**才写（不论是否由壳安装）—— 否则「用户本机已有 Node」的机器永远没有 runtime.json，拉起守卫时无从绑定 node；npm 事实复用上方的探针，不再 derive_usable 一遍（否则每轮把 npm 跑两遍）。
+        // 契约落盘：node 与 npm **都真实可用**才写（不论是否由壳安装）—— 否则「用户本机已有 Node」的机器永远没有 runtime.json，拉起内核时无从绑定 node；npm 事实复用上方的探针，不再 derive_usable 一遍（否则每轮把 npm 跑两遍）。
     if let (Some(p), Some(v), Some(u)) = (out.path.as_ref(), out.version.as_ref(), npm.usable.as_ref()) {
         if let Some(rt) = crate::runtime_contract::usable_runtime(p, v, u) {
             crate::runtime_contract::write(&rt);
@@ -129,8 +129,11 @@ pub async fn node_latest() -> ShellResult<serde_json::Value> {
             return Err(Fault::new(code::NETWORK_FAILED, e)
                 .with("stage", "查询最新 LTS".into()))
         }
+        // JoinError：closure panic 或线程池关闭 —— 与「查不到最新 LTS」是两回事。
+        // 此前这里走 IPC_PARAM_INVALID（参数无效），与 core_plan 是同一個错法；
+        // 改为 JOIN_ERROR（先例：本文件 mod.rs:485 与 core_plan:302-305）。
         Err(e) => {
-            return Err(Fault::new(code::IPC_PARAM_INVALID, e.to_string()))
+            return Err(Fault::new(code::JOIN_ERROR, e.to_string()))
         }
     };
     Ok(serde_json::json!({
@@ -226,7 +229,7 @@ pub fn start_node_install(state: tauri::State<Mutex<RunState>>, app: tauri::AppH
                 s.installed = Some(rt.version.clone());
                 s.progress = Some(1.0);
                 s.status = format!(
-                    "运行环境就绪（Node {} · npm {}），正在启动守卫…",
+                    "运行环境就绪（Node {} · npm {}），正在启动内核…",
                     rt.version,
                     rt.npm_version_label()
                 );
@@ -288,8 +291,21 @@ pub async fn core_plan(app: tauri::AppHandle) -> ShellResult<serde_json::Value> 
     .ok()
     .flatten();
     let pkg = crate::core::package_name()?;
+    // 两类失败必须分开：`spawn_blocking(...).await` 的 `Err` 是 **JoinError**
+    // （closure panic 或线程池关闭），与「镜像源查不到」毫无关系；而 closure
+    // 返 `Err` 才是 `latest_pick` 的**分层诊断**（探测层失败 N 个：每个源的
+    // stage|latency|error 原文；解析/选择层失败 N 个：...）。
+    //
+    // 此前两者都被压成 `IPC_PARAM_INVALID`（**参数无效**）⇒ 前端只看到
+    // 「参数无效」，而真因（某个源 TLS 失败 / 某个源返回坏 JSON）被抹掉。
+    // ⇒ 这是「内层做了诊断、外层一个错误码压平」的外层（内层是 latest_pick 的
+    //   四层静默 continue，已在 core.rs 修好）。
+    // 错误码复用现成的（不新建）：JOIN_ERROR（panic/池关闭，先例 mod.rs:485）、
+    // NETWORK_FAILED（镜像/网络层失败，先例 mod.rs:332）。
     let latest = tauri::async_runtime::spawn_blocking(move || crate::core::latest_pick(&pkg))
-        .await.map_err(|e| crate::fault::Fault::new(crate::fault::code::IPC_PARAM_INVALID, e.to_string()))?;
+        .await
+        .map_err(|e| crate::fault::Fault::new(crate::fault::code::JOIN_ERROR, e.to_string()))?
+        .map_err(|e| crate::fault::Fault::new(crate::fault::code::NETWORK_FAILED, e))?;
     Ok(crate::core::build_plan(installed, latest))
 }
 
@@ -387,7 +403,7 @@ async fn core_apply_inner(app: tauri::AppHandle) -> ShellResult<serde_json::Valu
             }
         }
         Err(last)
-    }).await.map_err(|e| crate::fault::Fault::new(crate::fault::code::IPC_PARAM_INVALID, e.to_string()))?;
+    }).await.map_err(|e| crate::fault::Fault::new(crate::fault::code::JOIN_ERROR, e.to_string()))?;
     Ok(match res {
                 // 安装成功后：回读**确切位置**并写 core.json —— 位置单一事实源。必须先回读再报成功：否则「装上了却定位不到」（nvm/自定义 prefix）会被静默跳过，后续启动定位不到内核，用户只看到「起不来」。
         Ok((origin, out)) => {
@@ -424,7 +440,7 @@ async fn core_apply_inner(app: tauri::AppHandle) -> ShellResult<serde_json::Valu
     })
 }
 
-/// 内核更新（**唯一写入者 = 壳**）：安装最新内核，由所有者停守卫、等端口释放后重新拉起。面板由内核托管、没有 Tauri IPC（IPC 仅主帧），经 postMessage 请求本命令（见 crate::bridge）；启动门 2 与本命令共用 `core_apply_inner`，守卫从不重启自己。
+/// 内核更新（**唯一写入者 = 壳**）：安装最新内核，由所有者停内核、等端口释放后重新拉起。面板由内核托管、没有 Tauri IPC（IPC 仅主帧），经 postMessage 请求本命令（见 crate::bridge）；启动门 2 与本命令共用 `core_apply_inner`，内核从不重启自己。
 #[tauri::command]
 pub async fn kernel_update_apply(app: tauri::AppHandle) -> ShellResult<serde_json::Value> {
     let install_out = core_apply_inner(app.clone()).await?;
@@ -434,6 +450,7 @@ pub async fn kernel_update_apply(app: tauri::AppHandle) -> ShellResult<serde_jso
         // R7-架构：内核更新的重启不再「等端口释放」。
         // 原逻辑 service().stop() 后轮询 port_open 最多 15 秒，再走 ensure_guard 的
         // 「端口已开早退」分支——那正是守卫所有权语义，也是重启被静默跳过的原因。
+        // （「守卫」是内核被接管前的历史命名，本段保留它是为了说明这套语义为何被废。）
         // 进程管理时代：直接停进程表里的内核（壳持有 pid），停完即拉新的，无等待预算。
     let restart = tauri::async_runtime::spawn_blocking(move || -> Result<(bool, Vec<serde_json::Value>), crate::domain::guardctl::LaunchError> {
         let pm = crate::process_manager::handle();
@@ -516,17 +533,17 @@ pub async fn guard_start(app: tauri::AppHandle) -> ShellResult<serde_json::Value
         Ok(Ok(inner)) => inner,
         Ok(Err(e)) => Err(crate::domain::guardctl::LaunchError::new(
             "JOIN_ERROR",
-            format!("守卫启动任务异常: {}", e),
+            format!("内核启动任务异常: {}", e),
         )),
         Err(_) => Err(crate::domain::guardctl::LaunchError::new(
             "READY_TIMEOUT",
             format!(
-                "守卫启动超时（{} 秒未完成）。可能原因：服务管理器无响应，或守卫进程无法启动。请用 lobox-shell --service-plan 查看服务定义状态。",
+                "内核启动超时（{} 秒未完成）。可能原因：服务管理器无响应，或内核进程无法启动。请用 lobox-shell --service-plan 查看服务定义状态。",
                 GUARD_TOTAL_BUDGET.as_secs()
             ),
         )),
     };
-    // 守卫拉不起是**命令失败**，直接 Err(Fault)。
+    // 内核拉不起是**命令失败**，直接 Err(Fault)。
     //
     // 此前把 LaunchError 的 code 手工映射到 ShellError 的 kind，两处都会失真：
     //   · KERNEL_MISSING -> contract「删除配置文件后重启」，而内核缺失时没有配置文件可删；
@@ -537,7 +554,7 @@ pub async fn guard_start(app: tauri::AppHandle) -> ShellResult<serde_json::Value
         .map(|()| serde_json::json!({ "started": true }))
 }
 
-/// 守卫就绪探针：引导页据此决定进面板。判据本身**不在这里**：`guardctl::ready` 是全仓唯一的就绪实现，本命令只如实转述。必须 async：探测最长数秒且被高频轮询，必须放阻塞线程池。
+/// 内核就绪探针：引导页据此决定进面板。判据本身**不在这里**：`guardctl::ready` 是全仓唯一的就绪实现，本命令只如实转述。必须 async：探测最长数秒且被高频轮询，必须放阻塞线程池。
 #[tauri::command]
 pub async fn guard_ready() -> serde_json::Value {
     tauri::async_runtime::spawn_blocking(|| {
@@ -702,13 +719,15 @@ pub async fn mirror_status() -> ShellResult<serde_json::Value> {
         crate::mirror::probe_all(&m.node, "index.json")
     })
     .await
-    .map_err(|e| crate::fault::Fault::new(crate::fault::code::IPC_PARAM_INVALID, e.to_string()))?;
+    // JoinError（panic / 线程池关闭）走 JOIN_ERROR，不是 IPC_PARAM_INVALID ——
+    // 与 core_plan / node_latest 同一个修法（asset-steward 复扫 17 处 spawn_blocking 时定位）。
+    .map_err(|e| crate::fault::Fault::new(crate::fault::code::JOIN_ERROR, e.to_string()))?;
     let npm_probes = tauri::async_runtime::spawn_blocking(|| {
         let m = crate::mirror::load();
         crate::mirror::probe_all(&m.npm, "")
     })
     .await
-    .map_err(|e| crate::fault::Fault::new(crate::fault::code::IPC_PARAM_INVALID, e.to_string()))?;
+    .map_err(|e| crate::fault::Fault::new(crate::fault::code::JOIN_ERROR, e.to_string()))?;
         // 这一轮是**刚测出来的**逐源结论，必须落盘并重投契约：只在面板上显示的话，内核选源时仍按上一轮（可能已过期）的证据走，「面板一个源、下载另一个源」就是这么分叉的。
     crate::mirror::record_npm_measurements(&npm_probes);
     let fmt = |v: Vec<crate::mirror::Probe>| {
