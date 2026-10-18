@@ -1,3 +1,11 @@
+# trigger-1792345114758
+# 2026-10-18（第二轮触发）：shell-1.0.38 tag 当前指向 2c9c2930，而那轮 CI 是 failure
+#   （第 2 轮编译错未修时）⇒ tag 停在红点上。而 npm 上已发布的 1.0.38 来自 daed12c6，
+#   不含第 1-5 轮修复（guardctl.rs 留痕 / commands/mod.rs 错误码 / bounded.rs job handle /
+#   platform/mod.rs 测试块 / mgmt.rs keep-alive）。
+#   ⇒ 需把 tag 移到 72d22849（五轮循环最终全绿），而铁律 4 要求 main 上先有双绿 sha。
+#   ⚠️ 上一次触发（c3e98b17 / 7f1d1a7c）是空提交（本地 yml 内容与远端相同 ⇒ tree 未变）
+#     ⇒ paths 不匹配 ⇒ CI 没跑 ⇒ 造不出双绿。本轮真的改内容。
 # 2026-10-18：本文件的注释改动只为触发两条工作流（为重打 tag 造一个 main 上双绿的 sha），
 #   不影响任何构建/发布行为。X4/X5 只改 core/** 只触发 core.yml，件 1 只改 shell/** 只触发
 #   shell.yml ⇒ 两条 paths 互不覆盖 ⇒ 无单 sha 双绿 ⇒ 铁律 4 的 tag 前置无法满足。
