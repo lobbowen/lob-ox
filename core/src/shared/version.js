@@ -17,8 +17,13 @@ function semverCompare(a, b) {
   };
   const A = parse(a);
   const B = parse(b);
+  // 归一化到 -1/0/1：与 Rust 侧 core.rs::semver_cmp 的返回语义逐字一致
+  // （那边 :62-69 归一化，这边此前返原始差值 ⇒ 同一比较两侧返回值量级不同）。
+  // 归一化安全性依据：全部 10 处 JS 消费方的比较右操作数都是 0
+  // （`> 0` / `< 0` / `>= 0` / `<= 0`），只用符号不用差值大小。
+  const sign = (n) => (n > 0 ? 1 : (n < 0 ? -1 : 0));
   for (let i = 0; i < 3; i++) {
-    if ((A.nums[i] || 0) !== (B.nums[i] || 0)) return (A.nums[i] || 0) - (B.nums[i] || 0);
+    if ((A.nums[i] || 0) !== (B.nums[i] || 0)) return sign((A.nums[i] || 0) - (B.nums[i] || 0));
   }
   if (A.pre === B.pre) return 0;
   if (A.pre === '') return 1;
@@ -33,7 +38,7 @@ function semverCompare(a, b) {
     const xn = /^\d+$/.test(x);
     const yn = /^\d+$/.test(y);
     if (xn && yn) {
-      if (parseInt(x, 10) !== parseInt(y, 10)) return parseInt(x, 10) - parseInt(y, 10);
+      if (parseInt(x, 10) !== parseInt(y, 10)) return sign(parseInt(x, 10) - parseInt(y, 10));
     } else if (xn !== yn) {
       return xn ? -1 : 1;
     } else if (x !== y) {

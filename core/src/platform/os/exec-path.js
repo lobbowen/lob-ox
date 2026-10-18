@@ -3,7 +3,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const SHARED = require('../../shared/shared-constants');
 const { DSH_PRODUCT } = require('../../domains/agent/model');
 
 function candidateNames(base, platform) {
@@ -37,9 +36,13 @@ function firstExecutable(dir, base, platform) {
   return null;
 }
 
-// R21：工具链落点常量必须与壳侧 env.rs 逐字相同。真相在 shared-constants 的
-// state.dirName（壳侧 brand.rs 经 shared_str 读同一键），此处不再自带副本。
-const GLOBAL_APP_DIRNAME = SHARED.state.dirName;
+// ⚠️ 与 shared-constants 的 `state.dirName` **当前同值（"lobox"）但语义不同，不接单源**：
+//   `state.dirName` 描述的是「产品的**状态根**叫什么」（`%LOCALAPPDATA%\lobox\`，用户数据目录）；
+//   本常量描述的是「npm 全局包装把可执行放到哪」（`%APPDATA%\lobox\bin\`，可执行目录）。
+//   两棵不同的目录树、两个产品决策——一个改而不动另一个是正常的，不要因为「值一样」就统一。
+//   （2026-10-18 用户裁「两个事实」；此前此处接 SHARED.state.dirName 并注「R21 必须与壳侧
+//    逐字相同」，那个注释把两件事说成了一件事。）
+const GLOBAL_APP_DIRNAME = 'lobox';
 const GLOBAL_BIN_DIRNAME = 'bin';
 
 function globalInstallRoot(platform, home, env) {
@@ -238,6 +241,24 @@ function commandEntryViolation(cmdArr, opts) {
   if (!hasSep(entry)) {
     if (nodeHead && o.requireAbsoluteEntry) {
       return 'command[0] 为 node 时 command[1] 必须是绝对路径的 DSH 入口（相对/裸名会按工作目录或 PATH 解析）';
+    }
+    // 裸名入口：调用方给出合法裸名白名单时逐字精确校验，未给出则维持既有放行语义。
+    //
+    // 为什么平台层不自己知道有哪些合法裸名：那是**产品知识**（哪个可执行是合法的 DSH
+    // 命令头），平台层只提供校验机制。两者之间原本没有通道——API 层有 DSH_HEAD 白名单、
+    // 平台层有这段裸名分支，却从没接上，导致裸名一律放行。本选项就是那条通道。
+    //
+    // 判据必须是**精确匹配**（===）而非包含：`dsh` / `dsh.cmd` / `dsh.ps1` 合法，
+    // 而 `dsh-evil.exe` 不合法但它包含 `dsh`。白名单精确、黑名单才宽
+    // （同 §7.18：owns() 的前缀匹配与 proc.matchGuard 的 *lobox*|*dsh* 是宽松判据族，
+    //  那是「宁可多匹配再过滤」的场景；这里是「只放行点名的那几个」）。
+    const allow = o.allowBareNames;
+    if (Array.isArray(allow) && allow.length) {
+      const bare = baseOf(entry);
+      if (!allow.some((n) => String(n).toLowerCase() === bare)) {
+        return '启动命令的裸名不在合法命令头白名单内（放名：' + allow.join(' / ') + '）：' + entry;
+      }
+      return null;
     }
     return null;
   }
