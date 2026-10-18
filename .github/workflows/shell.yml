@@ -1,3 +1,6 @@
+# 2026-10-18：本文件的注释改动只为触发两条工作流（为重打 tag 造一个 main 上双绿的 sha），
+#   不影响任何构建/发布行为。X4/X5 只改 core/** 只触发 core.yml，件 1 只改 shell/** 只触发
+#   shell.yml ⇒ 两条 paths 互不覆盖 ⇒ 无单 sha 双绿 ⇒ 铁律 4 的 tag 前置无法满足。
 name: shell-build
 
 on:

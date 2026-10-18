@@ -1,3 +1,5 @@
+# 2026-10-18：本文件的注释改动只为触发两条工作流（为重打 tag 造一个 main 上双绿的 sha），
+#   不影响任何构建/发布行为。详见 shell.yml 顶部同款注释。
 name: core-build-release
 
 # monorepo：core/ = 内核（本工作流），shell/ = 桌面壳（.github/workflows/shell.yml）。
