@@ -161,7 +161,7 @@ fn main() {
         }
     }
     bt!("building app");
-    tauri::Builder::default()
+    let code = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             domain::windowing::show_main(app);
         }))
@@ -288,7 +288,54 @@ fn main() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running lobox-shell");
+        // 件 1：退出兜底。`shutdown_all` 此前只在两个**用户主动动作**里被调
+        // （托盘 quit `:250`、窗口关闭且 close_action=="exit" `:278`）。
+        // ⇒ `kill` 默认信号（SIGTERM）、终端关闭、服务管理器停服都不经过它
+        //   ⇒ 内核继续活着。
+        //
+        // 钩子选型（docs.rs tauri 2.12.4，逐字据）：
+        //   · `Builder::run` 不提供事件回调——它只跑事件循环；
+        //   · `App::run(cb)` 有 `RunEvent` 回调，但文档明言
+        //     "This function never returns. When the application finishes,
+        //      the process is exited directly using std::process::exit.
+        //      See `run_return` if you need to run code after the application
+        //      event loop exits." ⇒ 回调返回后进程即退，`shutdown_all` 内的
+        //     taskkill 可能没跑完（且后续 `bt!` 永不执行）；
+        //   · **`App::run_return(cb) -> i32`**：返回退出码、后续代码可执行、
+        //     且回调收到 `RunEvent::ExitRequested { api, .. }`（"The app is
+        //     about to exit"）⇒ 在退出**前**同步跑 `shutdown_all`。
+        //     docs.rs 的示例正是 `run_return` + `ExitRequested { api.prevent_exit() }`。
+        //
+        // ⚠️ **不调 `api.prevent_exit()`**——文档明言它是 "Prevents the app from
+        //    exiting"（阻止退出）。若在 `shutdown_all` 之后调它，壳会**永远退不掉**。
+        //    我需要的是「退出前同步做清理」，不是「取消退出」：
+        //    `ExitRequested` 在退出**前**触发，回调里同步跑完 `shutdown_all`，
+        //    不碰 `api` ⇒ 回调返回后 Tauri 继续走退出流程 ⇒ 清理与退出两全。
+        //    （docs.rs 示例里的 `prevent_exit()` 是给「想拦截退出」的场景，
+        //     本例不拦截，只借它的触发时机。）
+        //
+        // ⚠️ 本层**不覆盖** `kill -9` / 任务管理器强杀：那些连 `ExitRequested`
+        //   都不发。那个缺口由件 A（JobObject）覆盖，而件 A 因 2' 被 Node API
+        //   阻塞（Node `spawn` 不暴露 `creationFlags` ⇒ 内核侧的浏览器/npm 无法
+        //   `CREATE_BREAKAWAY_FROM_JOB` 逃出 job）暂不推，见 bounded.rs:128-160 记账。
+        //
+        // 幂等：主动退出路径（:253/:282）已调过 `shutdown_all` 时，本层再调一次
+        // 会把已停的 pid 再 kill ⇒ `KillOutcome::AlreadyGone`（成功），
+        // 留痕记 `signal=already_gone` ⇒ 可与本层停的区分。
+        // kill 同步性已核：`kill_tree_pid` → `bounded::run(cmd, 10s)` →
+        // `run_inner` → `child.wait()`（bounded.rs:512/538）⇒ 同步等 taskkill 完成，
+        // 10s 超时兜底。故 `ExitRequested` 回调里同步调用不会让退出无限悬挂。
+        .build(tauri::generate_context!())
+        .expect("error while building lobox-shell")
+        .run_return(|_app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                domain::guardctl::shutdown_all();
+            }
+        });
+    // `run_return` 的退出码是 Tauri 事件循环的既定退出码（含 `AppHandle::exit(code)`
+    // 传入的值）。原实现用 `Builder::run`（文档：进程由 Tauri 直接 `std::process::exit`，
+    // 不返回码），改 `run_return` 后码要由我们传出去，否则退出码恒 0。
+    // 当前 `shutdown_all` 不返回码（失败只留痕），故此处透传 Tauri 给的码，不自行改。
     bt!("main exit (run returned)");
+    std::process::exit(code);
 }
