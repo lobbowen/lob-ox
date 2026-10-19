@@ -1,5 +1,24 @@
 [
   {
+    "version": "0.0.29",
+    "date": "2026-10-19",
+    "sections": [
+      {
+        "title": "修复",
+        "items": [
+          "认领来的 DSH 不上报壳 ⇒ 壳的 job 覆盖不到它 ⇒ 壳退时它不停（本机 7580 实证：用户桌面快捷方式启动的 DSH 跨多次壳换代存活）。现由 _adopt 成功后调 keepAlive(adoptPid, 'dsh-main')，壳侧认这个 id 并 assign 进 job",
+          "DSH 主实例的 desired 上报错用 id 'core'（与内核自报的 id 相撞，后写覆盖前写）⇒ 改为 'dsh-main'。而壳侧同步建 Priority::Dsh 变体（插在 Core 与 Router 之间，与 STANDARDS 的管理对象排序一致）"
+        ]
+      },
+      {
+        "title": "改进",
+        "items": [
+          "壳侧 parse_priority 认 'dsh-main' / 'dsh' 两个词形（防对侧词形不一致），且不建 DSH 的 desc——spawn_cmd 是内核的编排对象，壳造一份就是猜内核的事实；/pm/register 早已收 spawn_cmd/priority，只等内核调"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.0.28",
     "date": "2026-10-19",
     "sections": [
