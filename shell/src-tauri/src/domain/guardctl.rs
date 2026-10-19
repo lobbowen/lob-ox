@@ -104,13 +104,21 @@ pub(crate) fn shutdown_all_with_reason(reason: &str) {
                 // 进程表无 pid 时不再无条件跳过：从契约文件再拿一次（与件 1 同源）。
                 // 此前这里只发一条 stop_skipped 就走 ⇒ 壳退出时那个内核还活着。
                 // 「壳退内核必死」要求这条兜底真的去杀，而不是记一条「我跳过了」。
-                let contract_pid = crate::process_manager::mgmt::live_contract_owner();
+                //
+                // ⚠️ **不能杀自己**：`live_contract_owner()` 读的 `guard-mgmt.json`
+                //    的 `pid` 是 `mgmt.rs:232` 写的 `std::process::id()`（**壳自己**），
+                //    而 `live_contract_owner():34-35` 的 `pid == std::process::id()`
+                //    恒真 ⇒ 它永远返回壳自己。若拿它当兜底去 kill ⇒ **自杀**。
+                //    （FA-20 根因链上的一环：那个字段从来就不是内核 pid。）
+                let contract_pid = crate::process_manager::mgmt::live_contract_owner()
+                    .filter(|p| *p != std::process::id());
                 match contract_pid {
                     Some(p) => {
                         crate::telemetry::event::info("process.kill_attempt", "guardctl", serde_json::json!({
                             "id": id, "pid": p, "reason": "shell_shutdown_all_contract_fallback",
                             "source": "guard-mgmt.json"
-                        }));                        let outcome = crate::bounded::kill_tree_pid(p);
+                        }));
+                        let outcome = crate::bounded::kill_tree_pid(p);
                         let ok = outcome.is_success();
                         crate::telemetry::event::info("process.kill_result", "guardctl", serde_json::json!({
                             "id": id, "pid": p, "ok": ok,
@@ -214,10 +222,21 @@ fn register_core(app: &tauri::AppHandle) {
         pm.on_phase("core", crate::process_manager::state_machine::Phase::Running);
         pm.set_desired("core", crate::process_manager::state_machine::Desired::Running);
         // 认领来的内核也要有 pid，否则壳退出时杀不掉它（S-1 #1）。
-        // 判据与 live_contract_owner 同源：读 guard-mgmt.json 的 pid + pid_alive 实探。
-        // 死了就不登记 —— 宁可 None 也不登记一个死 pid：那会让 shutdown_all 去 kill
+        //
+        // ⚠️ **不能登记自己**：`live_contract_owner()` 读的 `guard-mgmt.json` 的
+        //    `pid` 是 `mgmt.rs:232` 写的 `std::process::id()`（**壳自己**），而
+        //    `live_contract_owner():34-35` 的 `pid == std::process::id()` 恒真
+        //    ⇒ 它永远返回壳自己。若把它 `adopt_spawned` 进 `core` 行：
+        //      · `already` 判据（`pid.is_some() && phase==Running`）**误触**
+        //        ⇒ `ensure_core` 以为内核已在役 ⇒ **跳过启动 ⇒ 内核永远起不来**；
+        //      · `shutdown_all` 按那个 pid 去杀 ⇒ **杀自己**。
+        //    ⇒ 那比「认领不到 pid」坏得多（后者只是退化为完整启动序列）。
+        //
+        // 死了也不登记 —— 宁可 None 也不登记一个死 pid：那会让 shutdown_all 去 kill
         // 一个不存在的进程，还把「认领失败」伪装成「已接管」。
-        if let Some(pid) = crate::process_manager::mgmt::live_contract_owner() {
+        if let Some(pid) = crate::process_manager::mgmt::live_contract_owner()
+            .filter(|p| *p != std::process::id())
+        {
             pm.adopt_spawned(core_desc(), pid);
             pm.on_phase("core", crate::process_manager::state_machine::Phase::Running);
             crate::telemetry::event::info(
@@ -229,7 +248,7 @@ fn register_core(app: &tauri::AppHandle) {
             crate::telemetry::event::info(
                 "process.adopted_without_pid",
                 "guardctl",
-                serde_json::json!({ "id": "core", "reason": "契约无在世 pid" }),
+                serde_json::json!({ "id": "core", "reason": "契约 pid 即本进程自身或已死 ⇒ 不登记（登记自己会让 already 误触、跳过启动）" }),
             );
         }
     }
