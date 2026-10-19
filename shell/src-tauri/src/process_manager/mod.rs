@@ -91,6 +91,24 @@ impl ProcessManager {
         }
     }
 
+    /// `update_pid` 的逆向：把某一行的 pid 清成 `None`（**只碰 pid**）。
+    ///
+    /// 为什么需要：`ensure_core` 为让内核自报能命中而**提前建行**（pid=入口占位），
+    /// 而启动失败时必须把那一行降级回「无 pid」——否则 healer 会看到一个
+    /// `pid=Some(已死入口)` 的行并按它重拉。
+    ///
+    /// ⚠️ 不能用 `update_pid(id, 0)` 代替：那会设成 `Some(0)`，而 `pid_alive(0)`
+    ///    与「没有 pid」是两回事（`already` 判据只看 `is_some()`）。
+    pub fn clear_pid(&self, id: &str) -> bool {
+        let mut s = self.states.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(st) = s.get_mut(id) {
+            st.pid = None;
+            true
+        } else {
+            false
+        }
+    }
+
     /// 壳自持路径：壳自己拉起内核并把句柄与 pid 登记进表（进程所有权归壳）。
     /// 与 register_workload 的区别：后者是内核自报（壳不持有句柄），本方法是壳持有。
     pub fn adopt_spawned(&self, desc: state_machine::WorkloadDesc, pid: u32) {

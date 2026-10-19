@@ -357,14 +357,43 @@ pub(crate) fn ensure_started(
 
         // 正式路径：壳自己拉起内核并持有进程（进程所有权归壳，自愈由机箱进程表按优先级驱动）。
     step("正在拉起内核…");
+    // FA-20 hop3 修：**先建行，再 spawn**。
+    //
+    // 为什么：内核 `sup.start()` 就绪后会经 `/pm/keep-alive` 自报真 pid
+    // （core-engineer 的 `bin/lobox:360`），而壳的 `update_pid("core", pid)`
+    // 要求进程表里**已有** `core` 行。原顺序是 spawn → await_daemon(等就绪)
+    // → register_core_spawned(建行) ⇒ 而内核的自报发生在「就绪那一刻」⇒
+    // **自报早于建行** ⇒ `update_pid` 的 `get_mut("core")` 未命中 ⇒
+    // 记 `core_pid_update_missed`（1.0.43 实测）⇒ 进程表永远留着入口 pid。
+    //
+    // ⇒ 先把行建出来（pid 先记 spawn 拿到的入口 pid，那是当时唯一的真值），
+    //   等内核自报真 pid 时 `update_pid` 就能命中并改写。
+    //   ⇒ 而 `adopt_spawned` 的 phase=Starting 在这里是**正确**的（内核正在起）。
     match crate::platform::service().spawn_daemon(spec) {
         Ok(mut child) => {
             let pid = child.id();
             crate::telemetry::event::info("guard.core_spawned", "guardctl", serde_json::json!({ "pid": pid }));
+            // 立即建行（用入口 pid 占位）⇒ 让内核稍后的自报能命中。
+            register_core_spawned(app, pid);
             let (verdict, exited) = await_daemon(DAEMON_READY_BUDGET, &mut child);
             if verdict == Readiness::Ready {
-                register_core_spawned(app, pid);
+                // 行已建（上面）⇒ 此处只把相位推进（内核已就绪）。
+                crate::process_manager::handle()
+                    .on_phase("core", crate::process_manager::state_machine::Phase::Running);
                 return Ok(());
+            }
+            // FA-20 hop3 修的连带处置：上面为了「让内核自报能命中」提前建了行
+            // （pid=入口、phase=Starting）⇒ 而这里启动失败 ⇒ 若留着那行，
+            // healer 会看到一个 pid=Some 的行并按它重拉（而那个 pid 是已死的入口）
+            // ⇒ 故失败时把行降级成「无 pid + 失败态」，与启动前的认知一致。
+            //
+            // ⚠️ 不用 `tap_err`（Result 的方法，本机无编译验证 ⇒ 不写没写过的 API），
+            //    也不用 `update_pid("core", 0)`（那会设成 Some(0) 而非 None）⇒
+            //    直接显式 match，最笨但无歧义。
+            {
+                let pm = crate::process_manager::handle();
+                pm.on_phase("core", crate::process_manager::state_machine::Phase::Failed);
+                pm.clear_pid("core");
             }
             Err(LaunchError::new(
                 if matches!(exited, ExitState::ExitedWith(_)) {
