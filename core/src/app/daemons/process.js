@@ -136,12 +136,30 @@ class DaemonLifecycle {
       return { mode: 'failed', error: 'daemon 未启动（脚本不可执行或 Node 不可用）', script: this.script };
     }
     this._writeIdentity(child.pid);
-    // 壳退即全杀：请壳把这个 daemon 进程 assign 进它的 job。
-    // 换代（reclaiming）路径也走本函数 ⇒ 每次都是新 pid，天然不重复。
-    // 壳不在时静默跳过，不阻断拉起。
-    // id 用 this.name（router / lan）：壳进程表的行按 id 索引，不带 id 壳拿到 pid
-    // 也不知该更新哪一行 ⇒ 那正是 FA-20 的形态。
-    if (child.pid) { try { pmClient.keepAlive(child.pid, this.name); } catch {  } }
+    // 壳退即全杀 + 进程表登记：一次 register 同时做两件事。
+    //
+    // 为什么 register（而不只 keepAlive）：壳进程表的行是 heal 的唯一依据
+    // （heal_candidates 读 spawn_cmd），而 keepAlive 只 assign job + 更新已有行的 pid。
+    // router/lan 此前只有 keepAlive ⇒ 壳表里从来没有这两行 ⇒ 它们崩了壳不会自愈。
+    //
+    // 为什么带 pid：architect 裁的 W-2-1「用声明代替测量」——壳不自己探 pid
+    // （那会造第二套发现），由内核在 register 时一并声明。壳侧 mgmt.rs:335-343
+    // 收到 pid 会 update_pid + 记 mgmt.registered_with_pid。
+    //
+    // 为什么 keepAlive 还要单独调：register 建行（或更新 pid），而 job assign 是
+    // 另一件事（壳侧 :500 明写「第一级只处理 core；其余 id 已 assign 进 job 但
+    // 未登记进程表」）⇒ 两条路都要走。
+    if (child.pid) {
+      try {
+        pmClient.register({
+          id: this.name,
+          spawn_cmd: [process.execPath, this.script, ...this.args],
+          priority: this.name,
+          pid: child.pid,
+        });
+      } catch {  }
+      try { pmClient.keepAlive(child.pid, this.name); } catch {  }
+    }
     if (this.logger && this.logger.info) this.logger.info('[' + this.name + '] 已拉起独立 daemon pid=' + child.pid + '（spawn 窗口至 ' + new Date(this._spawnWindowUntil).toISOString() + '）');
     return { mode: 'started', pid: child.pid };
   }
