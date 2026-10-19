@@ -1,3 +1,4 @@
+# trigger-1792375980115
 # trigger-1792370815036
 # trigger-1792345114758
 # 2026-10-18（第二轮触发）：shell-1.0.38 tag 当前指向 2c9c2930，而那轮 CI 是 failure
@@ -127,7 +128,20 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: shell/src-tauri
-          key: ${{ matrix.os }}-${{ hashFiles('shell/src-tauri/Cargo.lock') }}
+          # key 必须含**源码 hash**，不能只含 Cargo.lock。
+          #
+          # 为什么：原 key 是 `${{ matrix.os }}-${{ hashFiles('shell/src-tauri/Cargo.lock') }}`
+          # ⇒ 改 `.rs` 不改 Cargo.lock ⇒ key 不变 ⇒ 命中旧 `target/` ⇒ 增量编译
+          # 链接出**旧二进制**，而 CI 每次报 success。
+          #
+          # 实测后果（FA-1''）：件 1 重做改了 `bounded.rs`（+220 行），CI 报绿、
+          # 产物 sha1 与 npm 包一致，但产物里**没有** `lobox-end-session-guard`
+          # 符号 ⇒ 装机验收（`--guard-hwnd` / `session_ending` / STATE-C）全部建立在
+          # 「装机版含修复」这个未核过的前提上。
+          #
+          # ⇒ 代价是改 Rust 就重编译（命中率降）⇒ 但那是正确的代价：
+          #   **宁可慢，不能旧**。
+          key: ${{ matrix.os }}-${{ hashFiles('shell/src-tauri/Cargo.lock') }}-${{ hashFiles('shell/src-tauri/src/**/*.rs') }}
 
       - name: Install Linux system deps (Tauri v2)
         if: runner.os == 'Linux'
