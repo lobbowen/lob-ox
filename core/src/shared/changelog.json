@@ -1,5 +1,24 @@
 [
   {
+    "version": "0.0.28",
+    "date": "2026-10-19",
+    "sections": [
+      {
+        "title": "修复",
+        "items": [
+          "壳收到内核自报的 pid 时进程表里还没有 core 行（内核在「就绪那一刻」自报，而壳在 await_daemon 返回之后才建行）⇒ 更新必未命中。现改为先建行（入口 pid 占位）再等就绪，自报的 pid 由 update_pid 改写那一行",
+          "壳的契约兜底与认领登记会拿壳自己去杀/登记：live_contract_owner 读的 guard-mgmt.json 的 pid 是壳自己（export_port 写 std::process::id），而它恒真 ⇒ shutdown_all 的兜底会 kill_tree_pid(壳自己) 自杀，register_core 会把自己 adopt_spawned 进 core 行让 already 误触（内核永远起不来）。两处都加了 pid != 自己的过滤"
+        ]
+      },
+      {
+        "title": "清理",
+        "items": [
+          "两处 edit 残留（两条语句挤一行）：guardctl.rs 的 })); 与 let outcome、bounded.rs 的两条 extern 声明。语法对所以 CI 抓不到，但人读难受"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.0.27",
     "date": "2026-10-19",
     "sections": [
