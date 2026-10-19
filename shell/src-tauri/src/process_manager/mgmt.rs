@@ -412,19 +412,33 @@ async fn handle(
                 // ⚠️ 幂等：DSH 每轮被认领都会报一次 ⇒ `assign_to_job` 对已 assign 的
                 //    进程幂等 ⇒ 重复调无害。
                 //
-                // 注意：**不在这里调 `assign_to_job`** —— 本分支之后有统一的一步
-                // （`if !assign_to_job(job, pid)`，在本函数末尾）⇒ 所以 DSH 的 pid
-                // **会被 assign 进 job**，且 `mgmt.job_assigned` 也会记它。
-                //   ⇒ 所以「`keep_alive_unknown_id` 从 0 涨到 1」的预期**不成立**：
-                //     那个事件只在**真正**不认识的 id 上才记；DSH 现在被认了。
-                //   ⇒ 新的可观测判据是 `mgmt.dsh_main_adopted`（本事件）+ `job_assigned`。
+                // 层 0：若内核已用 `/pm/register {id:'dsh-main', spawn_cmd, priority}`
+                // 自报建行 ⇒ 这里一并更新它的 pid（窄方法，只设 pid）。
+                //   ⇒ 壳**不造** DSH 的 desc/spawn_cmd：那是内核的编排对象（它的
+                //     `config.command`），壳造一份就是「壳猜内核的事实」⇒ 与
+                //     「发现只做一次（内核）」冲突。
+                //   ⇒ 所以本处只认 id + 给 Priority（`parse_priority` 已认
+                //     `"dsh-main"`/`"dsh"`）+ 在行已存在时更新 pid。
+                let ok = state.update_pid("dsh-main", pid);
+                if !ok {
+                    // 行还没建（内核没 register 或还没到）⇒ 不是错误：下一次
+                    // keep-alive 会补上。而 job assign 在下面统一做，不受影响。
+                    crate::telemetry::event::info(
+                        "mgmt.dsh_main_row_missing",
+                        "process_manager",
+                        serde_json::json!({
+                            "pid": pid,
+                            "reason": "进程表无 dsh-main 行 ⇒ 内核尚未经 /pm/register 自报；job assign 不受影响"
+                        }),
+                    );
+                }
                 crate::telemetry::event::info(
                     "mgmt.dsh_main_adopted",
                     "process_manager",
                     serde_json::json!({
                         "pid": pid,
                         "reason": "用户裁：宽认领 + 全面接管 ⇒ DSH 主实例进 job（壳退时随全链停）",
-                        "tableRow": "未建（归层 0）"
+                        "tableRow": if ok { "已建且 pid 已更新" } else { "未建（等内核 /pm/register）" }
                     }),
                 );
             } else if let Some(other) = id {
@@ -642,10 +656,14 @@ fn parse_desc(v: &serde_json::Value) -> Option<state_machine::WorkloadDesc> {
     })
 }
 
-/// 内核自报时未带 priority 的，一律按最低优先级入表（内核自己报的对象都不是存活前提）。
+/// 内核自报的 priority 字符串 → 枚举。未带 priority 的一律按最低优先级入表。
+///
+/// `"dsh-main"` / `"dsh"` 都认：前者是 `/pm/keep-alive` 的 id（core 侧
+/// `main/process.js:112` 用它），后者是短形 ⇒ 认两者，不要求内核说壳已经知道的话。
 fn parse_priority(s: Option<&str>) -> state_machine::Priority {
     match s {
         Some("core") => state_machine::Priority::Core,
+        Some("dsh-main") | Some("dsh") => state_machine::Priority::Dsh,
         Some("router") => state_machine::Priority::Router,
         Some("lan") => state_machine::Priority::Lan,
         Some("sandbox") => state_machine::Priority::Sandbox,

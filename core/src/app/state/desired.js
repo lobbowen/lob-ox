@@ -47,7 +47,17 @@ function createDesired(deps) {
     // 装配期的初始化（compose/core.js:116 的 false）被覆盖 ⇒ 一旦写过就是永久 true。
     // 后果：collaborators.js:139 的 _shellExitIntended = !!(_exitIntended() || _shellHalted)
     // 让内核永远认为「壳要让停」。真机实证：desired=running 与 shellHalted=true 并存。
-    const reported = pmClient.setDesired('core', v) === true;
+    //
+    // ⚠️ id 用 'dsh-main' 而**不是** 'core'（层 0）：本函数管的是 **DSH 主实例**的期望
+    // （:26-31 的 observedOnly / adoptedPid / stopProcess 全指向它），而壳进程表里 `core`
+    // 那一行代表**内核进程**（register_core 的 core_desc().id = "core"，Priority::Core）。
+    // 两个不同的东西共用一个 id ⇒ 壳会把「用户停了 DSH」读成「内核该停」⇒ healer
+    // 重拉内核（§7.91：给字段加第二个写入方前，先核那个字段代表什么）。
+    //
+    // ⚠️ 前置：壳侧必须先有 `dsh-main` 行，否则壳的 set_desired（mod.rs:87-92）对未知
+    // id **静默丢弃** ⇒ 那会带回「壳不知道 DSH 停了」这个已修好的冲突 ⇒ 故本条与壳侧
+    // 建行必须同批——单改一侧比不改更坏（不改是冲突仍在，改一半是已修好的变坏）。
+    const reported = pmClient.setDesired('dsh-main', v) === true;
     if (reported && shellHalted() && setShellHalted) {
       setShellHalted(false);
       try { events().append('shell_halt_cleared', { reason: 'shell_sync_ok', desired: v }); } catch {}

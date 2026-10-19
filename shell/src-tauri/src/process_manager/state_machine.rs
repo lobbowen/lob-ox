@@ -15,18 +15,31 @@ pub enum Desired { Running, Stopped }
 
 /// 自愈优先级：数值越小越优先。内核是产品存活的前提，故最高；其余按依赖次序递减。
 /// 所有受管对象都有自愈，区别只在优先级 —— 预算紧张时低优先级让位于高优先级。
+///
+/// ⚠️ 变体顺序 = `STANDARDS.md:8` 的管理对象排序（产品主张）：
+///   「内核自身、**DSH 主实例**、路由 daemon、局域网 daemon、沙箱实例、插件」
+/// ⇒ 此前五个变体对应五个管理对象，**唯独缺排第二的 DSH**（architect 核到）⇒
+///   本版补上，`Dsh` 插在 `Core` 与 `Router` 之间，其余变体**值后移**
+///   （Router 1→2、Lan 2→3、Sandbox 3→4、Plugin 4→5）。
+///
+/// 值后移已核为安全：priority 只经 `parse_priority` 从**字符串**解析
+/// （`mgmt.rs:646`），不以数字持久化；`/pm/status` 的 `workloads` 输出也不含
+/// priority 字段（`mgmt.rs:476-498`）⇒ 无任何磁盘/契约状态存过它的数字值。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Priority {
     /// 内核：没有它整个产品不工作，自愈最优先、预算最长。
     Core = 0,
+    /// DSH 主实例：产品监管的核心对象（STANDARDS 排第二），用户裁「宽认领 +
+    /// 全面接管」后它必须被壳管理（层 0）。
+    Dsh = 1,
     /// 路由 daemon：内核起来后对外暴露的入口。
-    Router = 1,
+    Router = 2,
     /// 局域网 daemon。
-    Lan = 2,
+    Lan = 3,
     /// 沙箱实例。
-    Sandbox = 3,
+    Sandbox = 4,
     /// 插件。
-    Plugin = 4,
+    Plugin = 5,
 }
 
 impl Priority {
@@ -34,6 +47,7 @@ impl Priority {
     pub fn heal_burst(self) -> u32 {
         match self {
             Priority::Core => 5,
+            Priority::Dsh => 3,
             Priority::Router => 3,
             Priority::Lan => 3,
             Priority::Sandbox => 2,

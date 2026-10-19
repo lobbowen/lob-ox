@@ -251,6 +251,41 @@ const methods = {
     d.logger().info('adopted existing instance pid=' + d.mAdoptPid());
     d.writeMainOwner(d.mAdoptPid(), d.config().targetPort);
     d.tokenService().scheduleCapture('main');
+    // 「接管」的第五条动作：把认领来的 DSH 上报给壳，请壳把它纳入「壳退即全杀」的 job。
+    //
+    // 为什么必须有（S-7b）：壳侧 job（bounded.rs 的 bind_kill_on_close）只 assign 壳自己
+    // spawn 的那一个进程句柄，不覆盖进程树；而认领来的 DSH 壳从未 spawn 过 ⇒ 它不在
+    // job 内 ⇒ 壳退时它不停。真机实证：本机 7580 是用户自启的 DSH（_adopt 认领来），
+    // 壳退后它仍活着。
+    //
+    // 而用户裁「全面接管」：「当我们检测到在我们之前系统内存在 dsh 的时候，我们就应该
+    // 给它全面做接管。接管后他应该按照我们的约束管理，而不是再遵循他原有的管理逻辑。」
+    // ⇒ 认领（:250）+ 归属（:252）+ 上报壳（本处）三件合起来才是完整的接管。
+    //
+    // 为什么不阻断：壳不在 ⇒ endpoint() 返 null ⇒ 返 false ⇒ 只是不进 job，
+    // 而认领本身已完成（内核仍能停它、能抓令牌）⇒ 那是降级不是失败。
+    //
+    // 语义窄一格（§7.96）：pm-client 的 post() 是 fire-and-forget（return true 只代表
+    // 「请求已发出」）⇒ 所以 dsh_pid_reported 证明的是「内核把 pid 报出去了」，
+    // **不是**「壳的 job 已覆盖它」。后者要核壳侧 mgmt.dsh_main_adopted。
+    try {
+      const pid = d.mAdoptPid();
+      if (pmClient.keepAlive(pid, 'dsh-main')) {
+        d.events().append('dsh_pid_reported', { pid, semantics: 'request_sent' });
+      } else {
+        const ep = pmClient.endpoint();
+        d.events().append('dsh_pid_not_reported', {
+          pid,
+          reason: ep ? 'post_returned_false' : 'shell_absent',
+        });
+      }
+    } catch (e) {
+      try {
+        d.events().append('dsh_pid_report_failed', {
+          pid: d.mAdoptPid(), error: (e && e.message) || String(e),
+        });
+      } catch {}
+    }
     d.state().write();
   },
 
