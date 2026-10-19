@@ -1,5 +1,31 @@
 [
   {
+    "version": "0.0.27",
+    "date": "2026-10-19",
+    "sections": [
+      {
+        "title": "修复",
+        "items": [
+          "壳的进程表记的内核 pid 是入口进程（--run-guard）而不是真内核，恒差一个进程代 ⇒ 壳停内核时杀的是入口，真内核只靠 JobObject 连带杀。现由内核在启动后经 /pm/keep-alive 自报自己的 pid，壳更新进程表（update_pid 窄方法，只设 pid 不动其他字段）",
+          "连带修复三处因 pid 恒空而永不成立的判据：already（每次启动都走完整序列）、serving（面板显示「没在服务」）、heal_candidates（core 从不报相位 ⇒ 自愈几乎不可触发）"
+        ]
+      },
+      {
+        "title": "改进",
+        "items": [
+          "壳 API /pm/keep-alive 的 role 改为可选、缺省 managed：内核侧只发 {pid}，而壳侧 role 词表只有一个值 ⇒ 不要求调用方说一句壳已经知道的话",
+          "DSH 主实例的 keep-alive 改报 id 'dsh-main' 而非 'core'：壳的 core 行代表内核进程（Priority::Core），与 DSH 主实例共用一个 id 会让后写覆盖前写"
+        ]
+      },
+      {
+        "title": "清理",
+        "items": [
+          "删 core/test/ 22 个测试文件（21 个 *-test.js + README）——它们曾服务已拆除的 standards-check，全仓零 require、CI 零引用、package.json 无 test 脚本"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.0.26",
     "date": "2026-10-18",
     "sections": [
