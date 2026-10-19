@@ -101,14 +101,33 @@ fn ledger() -> &'static Mutex<Option<Instant>> {
 fn post(payload: &serde_json::Value) -> Result<(), String> {
     let dir = crate::env::supervisor_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建内核状态目录失败：{}", e))?;
-    let mut doc = payload
+    let p = file();
+    // **读-改-写，不是全量替换**。
+    //
+    // 为什么：这个文件有**两个写入方**——
+    //   ① 本函数（`publish` → node/npm/prefix/records/registry 五个字段 + `at`）
+    //   ② `bounded::report_end_session_guard`（件 1 的 `endSessionGuard`：hwnd/atom/builtAt）
+    // 而本函数原先是「只取 payload 的 object」⇒ 写入方 ② 的字段被静默清掉
+    // ⇒ 装机后 `endSessionGuard` 不存在（1.0.41 实测），而守卫其实建起来了。
+    //
+    // ⇒ 两个写入方都改成读-改-写 ⇒ 互不覆盖（§7.78）。
+    //
+    // ⚠️ 读失败（文件不存在 / 不是合法 JSON）时从空对象起步：那正是首次写入
+    //    的形态，不是错误。
+    let mut doc = std::fs::read_to_string(&p)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    for (k, v) in payload
         .as_object()
-        .cloned()
-        .ok_or_else(|| "报告载荷不是 JSON 对象".to_string())?;
+        .ok_or_else(|| "报告载荷不是 JSON 对象".to_string())?
+    {
+        doc.insert(k.clone(), v.clone());
+    }
     doc.insert(String::from("at"), serde_json::json!(now_millis()));
     let body = serde_json::to_string_pretty(&serde_json::Value::Object(doc))
         .map_err(|e| format!("序列化报告失败：{}", e))?;
-    let p = file();
     crate::atomic_write::write(&p, &(body + "\n"))
 }
 
