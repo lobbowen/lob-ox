@@ -388,6 +388,45 @@ async fn handle(
                         "found": ok
                     }),
                 );
+            } else if id == Some("dsh-main") {
+                // S-7b 第二级第一项：**DSH 主实例也要进 job**。
+                //
+                // 用户裁（原话）：「这是一个完整的接管逻辑，当我们检测到在我们之前
+                // 系统内存在 dsh 的时候，我们就应该给它全面做接管。接管后他应该按照
+                // 我们的约束管理，而不是再遵循他原有的管理逻辑。」
+                //
+                // 而 architect 核到的机制真因：内核侧 `_adopt`（`process.js:225-252`）
+                // 置 `observedOnly=false` ⇒ DSH **已参与** `stopProcess` 链（受管）；
+                // 而 `_adoptObserved`（`:205-223`）置 `true` ⇒ 观测未受管。
+                // 7580 走 `_adopt`（`controller.js:132-134` 的 `STOPPED` + `portUp ⇒ adopt()`）
+                // ⇒ **内核侧已当它受管** ⇒ 而壳侧 job 不覆盖 ⇒ 壳退时它不停
+                // ⇒ **两侧不同步**（S-7b）。
+                //
+                // core-engineer 已把 `main/process.js:112` 的 id 从 `'core'` 改成
+                // `'dsh-main'`（它核到「共用一个 id 会让后写覆盖前写」）⇒ 本处认它。
+                //
+                // 本件**只做 assign 进 job**（那是用户要的「接管」），**不建进程表行**：
+                // DSH 行的 desc 归层 0（`'dsh-main'` 行 + `Priority::Dsh` + heal_burst
+                // 加臂），而 `assign_to_job` 不需要进程表有那一行 ⇒ 故本件不依赖层 0。
+                //
+                // ⚠️ 幂等：DSH 每轮被认领都会报一次 ⇒ `assign_to_job` 对已 assign 的
+                //    进程幂等 ⇒ 重复调无害。
+                //
+                // 注意：**不在这里调 `assign_to_job`** —— 本分支之后有统一的一步
+                // （`if !assign_to_job(job, pid)`，在本函数末尾）⇒ 所以 DSH 的 pid
+                // **会被 assign 进 job**，且 `mgmt.job_assigned` 也会记它。
+                //   ⇒ 所以「`keep_alive_unknown_id` 从 0 涨到 1」的预期**不成立**：
+                //     那个事件只在**真正**不认识的 id 上才记；DSH 现在被认了。
+                //   ⇒ 新的可观测判据是 `mgmt.dsh_main_adopted`（本事件）+ `job_assigned`。
+                crate::telemetry::event::info(
+                    "mgmt.dsh_main_adopted",
+                    "process_manager",
+                    serde_json::json!({
+                        "pid": pid,
+                        "reason": "用户裁：宽认领 + 全面接管 ⇒ DSH 主实例进 job（壳退时随全链停）",
+                        "tableRow": "未建（归层 0）"
+                    }),
+                );
             } else if let Some(other) = id {
                 // 其他 id（router/lan/frpc/sandbox）**忽略 + info，不返 400**：
                 // 第一级没有那些 desc ⇒ 返 400 会让内核以为上报失败 ⇒ pm_request_failed
