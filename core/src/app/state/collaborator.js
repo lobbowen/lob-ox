@@ -27,6 +27,9 @@ function createStateStore(deps) {
     fields, store, getIntents: g.getIntents, getEvents: g.getEvents,
     getConfigPath: g.getConfigPath, getConfigAliases: g.getConfigAliases, getLogger: logger,
     setCrashHalted: g.setCrashHalted, setManualRestart: g.setManualRestart,
+    // 壳状态同步成功回执 ⇒ 清「壳让停」旧标记。缺这两个 setter 时清除静默不执行
+    // （desired.js 内部按 null 跳过）⇒ 那正是本次要修的静默失败，不能以同样形态引入。
+    getShellHalted: g.getShellHalted, setShellHalted: g.setShellHalted,
     tick: g.tick, stopProcess: g.stopProcess,
   });
 
