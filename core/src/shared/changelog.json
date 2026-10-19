@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.0.30",
+    "date": "2026-10-19",
+    "sections": [
+      {
+        "title": "修复",
+        "items": [
+          "壳侧四项到期缺口：api_port_skew 从 warn 升为壳侧可见（探配置端口失败时读内核账本里最近的顺延记录，改用 to 端口再探，不再回落配置端口 ⇒ healer 不再重拉 ⇒ 多份内核不再互相不可见）；认领失败即停手等人工（不继续 spawn，不再「已有内核还再拉一个」）；heal 失败带 lastWill 的 code/signal/startupFailure（5 次烧光前能看出为什么）；已顺延次数可见（不存第二份 maxSkew）",
+          "job_assign_failed 补 win32Error 与错误码对照：此前只有「AssignProcessToJobObject 失败」而没码，无从定位 OS 为什么拒。而 CloseHandle 覆盖 bug 一并修（原无论成败都关句柄，而关成功会把线程 last-error 清成 0 ⇒ 取到的码永远是 0）"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.0.29",
     "date": "2026-10-19",
     "sections": [

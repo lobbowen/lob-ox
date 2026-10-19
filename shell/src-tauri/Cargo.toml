@@ -1,6 +1,6 @@
 [package]
 name = "lobox-shell"
-version = "1.0.45"
+version = "1.0.46"
 description = "DSH lifecycle guard desktop shell (env bootstrap + panel)"
 edition = "2021"
 
