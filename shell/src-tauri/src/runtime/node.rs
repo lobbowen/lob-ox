@@ -206,6 +206,25 @@ pub fn install_latest(progress: &Progress) -> Result<InstalledRuntime, String> {
     // 切换：备份失败即中止且不删旧装（那可能是系统正在用的那一份）。
     let backup = root.with_extension("prev");
     super::engine::swap(&staged_bin, &root, &backup)?;
+    // 归档至此用完：解包进 staging、staging 已换装入位，`local` 再无用途。
+    //
+    // 为什么必须删：`dl/` 下的 node 归档**此前无人回收** —— 每次升级新下一个（约 40MB），
+    // 旧的永不删。真机实证：本机 `supervisor/dl/` 曾同时压着 4 个 node 归档共 137MB，
+    // 占 `supervisor/` 总体积的 91%，其中 3 个是死重量。
+    //
+    // 为什么放在 swap 成功之后而不是函数返回前：上面的备份失败即中止且不删旧装 ——
+    // 那种情况下留着归档才有排查价值（换装没成，归档是唯一可复现的输入）。
+    //
+    // 为什么失败只告警：与下面的 PATH 注册同一条降级原则 —— 此刻 Node 已解包、换装、
+    // 落定，安装的本体是好的；删不掉归档只意味着多占几十 MB，不该反过来把一次
+    // 成功的安装说成失败。
+    if let Err(e) = std::fs::remove_file(&local) {
+        crate::telemetry::event::warn(
+            "runtime.archive_cleanup_failed",
+            "runtime",
+            serde_json::json!({ "error": e.to_string(), "path": local.display().to_string() }),
+        );
+    }
     let bin_dir = bin_dir_of(&root, exe);
     // 接入用户 PATH：这是「全局可用」与「私有捆绑」的分界。
     //
