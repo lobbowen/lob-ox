@@ -9,7 +9,7 @@ import { Button } from "../../framework/ui";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../framework/ui/dialog";
 import { useConfirm } from "../../framework/ui/confirm";
 import { formatCount, formatClockTime } from "./format";
-import { supervisorApi, useSupervisorData, type SupervisorEvent } from "../../services/supervisor";
+import { supervisorApi, supervisorStore, useSupervisorData, type SupervisorEvent } from "../../services/supervisor";
 import { Card, CardTitle, Metric, Pill, ToneDot } from "./widgets";
 import { cn } from "../../framework/utils";
 import { PortPanel } from "./PortPanel";
@@ -36,6 +36,115 @@ export function OverviewPage() {
 
   const running = Boolean(s?.dshPid);
   const upgradeRunning = upg?.state === "running";
+
+  // ── E2：DSH 启动按钮的可用性（product-manager 判据修正后）──
+  //
+  // 为什么不能只用 `!running`：`dshPid` 有两个来源（`status.js:17` 的
+  // `host._mChild() ? .pid : host._mAdoptPid()`）——内核 spawn 的（受管）与
+  // **认领来的外部 DSH**。它不告诉你是谁拉的 ⇒ 所以「D 态」（观测未受管）下
+  // `dshPid` 也有值 ⇒ 若按钮显示「停止」而用户期望「启动」，或判成「可用」而
+  // 点了内核走 `adopt()` 不起新进程 ⇒ **用户看到「点了没反应」**。
+  //
+  // 本轮只做前两种成因（后三种 `spawnBlockedUntil`/`portOccupied`/`observedOnly`
+  // 要等 core-engineer 的第三档契约透出，Lead 已派）：
+  //   ① 未装/ENOENT            ⇒ `commandMissing` ⇒ 禁用 + 「请先安装 DSH」
+  //   ② 主动停（真停了）      ⇒ `desired === "stopped"` **且 `dshPid` 为空** ⇒ 可用
+  //
+  // ② 的关键修正（product-manager 核到）：原判据是 `desired === "stopped"`，
+  // 而它覆盖两种场景——真停了（`dshPid` 空 ⇒ 点启动真起）与 D 态（`dshPid`
+  // 有值 ⇒ 点启动走 `adopt()` 又回认领态）⇒ 故加 `!s?.dshPid`。
+  const commandMissing = s?.commandMissing === true;
+  const observedOnly = s?.observedOnly === true;
+  // 「可以点启动」= 内核判定要跑 + 真停了 + 入口存在 + 不是 D 态。
+  const canStartDsh = s?.desired === "stopped" && !s?.dshPid && !commandMissing && !observedOnly;
+  // 启动禁用时的原因（给用户看的，不是给日志的）。
+  const startBlockedReason: string | null = commandMissing
+    ? "未检测到 DeepSeek Harness ⇒ 请先安装"
+    : observedOnly
+      ? "DSH 在运行但非本产品管理"
+      : null;
+
+  // ── ④ C 态引导：认领来的 DSH 不受本产品退出管理 ⇒ 引导用户停掉它、交由本产品启动 ──
+  //
+  // C 态的判据：`adopted`（内核认领了它）+ `observedOnly`（观测未受管）⇒
+  // 而壳退时杀不掉它（那正是 S-7b：`assign_to_job` 被 OS 拒，因为它的父是
+  // 用户桌面快捷方式、不在壳进程树内）。
+  //
+  // 载体 `sessionStorage` + key 带 pid（`lobox.c-adopt-guide.<pid>`）：
+  //   ⇒ 停掉一个、起来另一个（新 pid）会**再引导**；
+  //   ⇒ 而**可关闭但不永久消失**（重开面板会再显示）⇒ 用户第二次遇到时仍有引导。
+  //   ⚠️ 不用 localStorage：那会让「本次会话关掉」变成「永远不再出现」。
+  //
+  // 10 秒等待态（product-manager 核出）：用户点「停掉 DSH，交由本产品启动」后
+  // ⇒ 内核 `portReleaseWaitMs: 10000`（`config.js:39`）⇒ 约 10 秒空窗
+  // ⇒ 若按钮不禁用，用户会重复点 ⇒ 而 `spawnBlockedUntil` 只挡 spawn 不挡重复 stop
+  // ⇒ 故点后禁用 + 「正在重新启动…」直到 `dshPid` 重新出现。
+  const cAdoptPid = s?.dshPid != null ? String(s.dshPid) : null;
+  const cGuideKey = cAdoptPid ? `lobox.c-adopt-guide.${cAdoptPid}` : null;
+  const [cGuideDismissed, setCGuideDismissed] = useState<string[]>(() => {
+    try {
+      const raw = globalThis.sessionStorage?.getItem("lobox.c-adopt-guide.dismissed") || "[]";
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  });
+  const [cStopping, setCStopping] = useState(false);
+  const cGuideVisible = Boolean(
+    s?.adopted && observedOnly && cGuideKey && !cGuideDismissed.includes(cGuideKey),
+  );
+
+  // 10 秒等待态的收敛：点停后轮询 `dshPid` 是否重新出现（内核停掉旧的、再起一个受管的）。
+  useEffect(() => {
+    if (!cStopping) return;
+    let alive = true;
+    const started = Date.now();
+    const tick = () => {
+      if (!alive) return;
+      const cur = supervisorStore.snapshot?.status;
+      if (cur?.dshPid && !cur.observedOnly) {
+        setCStopping(false);
+        return;
+      }
+      if (Date.now() - started > 30000) {
+        // 30 秒仍没起来 ⇒ 停手并恢复按钮（不无限禁用）。
+        setCStopping(false);
+        return;
+      }
+      globalThis.setTimeout(tick, 500);
+    };
+    globalThis.setTimeout(tick, 500);
+    return () => {
+      alive = false;
+    };
+  }, [cStopping]);
+
+  function dismissCGuide() {
+    if (!cGuideKey) return;
+    setCGuideDismissed((prev) => {
+      const next = prev.includes(cGuideKey) ? prev : [...prev, cGuideKey];
+      try {
+        globalThis.sessionStorage?.setItem("lobox.c-adopt-guide.dismissed", JSON.stringify(next));
+      } catch {
+        /* 隐私模式下 sessionStorage 可能抛 ⇒ 不影响本次会话的隐藏 */
+      }
+      return next;
+    });
+  }
+
+  async function stopAndTakeOver() {
+    if (!(await askConfirm({
+      title: "停掉 DSH，交由本产品启动？",
+      description:
+        "当前这个 DSH 是在本产品之前启动的，系统的权限设置使本产品无法在退出时停止它。"
+        + "停掉它之后，本产品会自动启动一个由自己管理的 DSH。",
+      confirmText: "停掉并交由本产品启动",
+    }))) return;
+    setCStopping(true);
+    await run("dsh", () => supervisorApi.lifecycleStop("dsh"), { success: "正在停止 DSH…" });
+    // 停之后不立刻清 cStopping：等上面的轮询看到新 dshPid（受管）再清。
+  }
 
   const events = useMemo(() => snap.events.filter((e) => !EVENT_META[e.type]?.noise), [snap.events]);
 
@@ -164,6 +273,33 @@ export function OverviewPage() {
           <div className="hidden lg:block">
             <EnvDetect />
           </div>
+          {/* ④ C 态引导：DSH 在跑但非本产品管理 ⇒ 壳退时停不掉它。 */}
+          {cGuideVisible ? (
+            <div className="w-full rounded-md border border-status-warn/40 bg-status-warn/5 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0 text-xs leading-relaxed">
+                  <div className="font-medium text-status-warn">这个 DSH 不是由本产品启动的</div>
+                  <div className="mt-0.5 text-muted-foreground">
+                    它在本产品之前启动，系统的权限设置使本产品无法在退出时停止它。
+                    若要改由本产品启动，停掉 DSH 后本产品会自动启动。
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={cStopping || busy === "dsh"}
+                    onClick={() => void stopAndTakeOver()}
+                  >
+                    {cStopping ? "正在重新启动…" : "停掉 DSH，交由本产品启动"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={dismissCGuide}>
+                    本次会话不再提示
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {!installed && !nBusy ? (
               <Button size="sm" disabled={busy === "inst"} onClick={() => void installDsh()}>
@@ -174,9 +310,18 @@ export function OverviewPage() {
                 <Button disabled={!running} onClick={() => void openWeb()} size="sm" variant="outline" className="hidden md:inline-flex">
                   <ExternalLink className="size-4" />DSH Web
                 </Button>
-                <Button disabled={busy === "dsh"} onClick={() => void (running ? stopDsh() : toggleDsh())} size="sm" variant="outline">
+                <Button
+                  disabled={busy === "dsh" || (!running && !canStartDsh)}
+                  onClick={() => void (running ? stopDsh() : toggleDsh())}
+                  size="sm"
+                  variant="outline"
+                  title={!running && startBlockedReason ? startBlockedReason : undefined}
+                >
                   {running ? <><Power className="size-4 text-status-error" />停止 DSH</> : <><Rocket className="size-4 text-primary" />启动 DSH</>}
                 </Button>
+                {!running && startBlockedReason ? (
+                  <span className="text-xs text-muted-foreground">{startBlockedReason}</span>
+                ) : null}
                 <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
               </>
             ) : null}

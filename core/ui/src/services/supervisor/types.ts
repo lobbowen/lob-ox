@@ -49,6 +49,20 @@ export interface SupervisorStatus {
   version?: DshVersionInfo;
   upgrade?: UpgradeState;
   tasks?: unknown[];
+  // ── E2/E3/E4 三件的字段（内核 `status.js` 早已输出，壳的白名单/类型此前漏掉）──
+  /** E2：内核可执行入口不存在（未装 / 被移走）⇒ 启动按钮禁用。`status.js:38`。 */
+  commandMissing?: boolean;
+  /** E3：数据目录权限收口。`true`/`false`/`null`（**未探测**，不得显示成「未收口」）。`status.js:23-25`。 */
+  dataDirProtected?: boolean | null;
+  /** E4：壳已让内核停（`shellHalted`）⇒ StatusBar 加分支。`status.js:37`。 */
+  shellHalted?: boolean;
+  // ── 后三种 E2 成因（core-engineer 的第三档契约在补，先占位）──
+  /** 60 秒冷静期截止时间戳（epoch ms）；未到则禁启。 */
+  spawnBlockedUntil?: number | null;
+  /** ctl 端口被非本产品进程占用 ⇒ 禁启。 */
+  portOccupied?: boolean | null;
+  /** D 态：观测未受管（`_adoptObserved`）⇒ 启动按钮禁用 + 「非本产品管理」。 */
+  observedOnly?: boolean | null;
 }
 
 export interface SupervisorEvent {
