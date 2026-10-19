@@ -897,7 +897,22 @@ pub async fn shell_update_check(app: tauri::AppHandle) -> ShellResult<serde_json
             ))
         }
         Ok(Ok(None)) => {
-            crate::telemetry::event::info("shell_update.up_to_date", "commands", serde_json::json!({ "current": cur }));
+            // 留痕必须带**依据**，不能只带结论（那正是「判了已是最新，却不知道
+            // 比的是谁」——本次真因排查时最大的盲点：账本里只有 current，
+            // 无从判断 `updater.check()` 探测到的 manifest 是哪一版）。
+            //
+            // `updater.check()` 返 `None` 时 Tauri 插件**不给出**它读到的
+            // manifest version ⇒ 所以 latest 记 null（而不是编一个）；
+            // 但至少把「探测成功了、耗时多久、端点有几个」记下 ⇒ 那能区分
+            // 「真的没有新版」与「探测到的是一份旧 manifest」。
+            crate::telemetry::event::info("shell_update.up_to_date", "commands", serde_json::json!({
+                "current": cur,
+                // null = 插件未回吐它读到的 manifest 版本（不是「没有新版」的同义词）
+                "latest": null,
+                "probed": true,
+                "endpoints": crate::mirror::load().shell.len(),
+                "note": "updater.check() 返 None ⇒ 判定无更新；但插件不回吐 manifest version ⇒ 若实际有新版而此处误判，需在 download 侧另找依据"
+            }));
             Ok(shell_plan(&cur, None, false, None, String::new(), String::new()))
         }
         Ok(Err(e)) => {

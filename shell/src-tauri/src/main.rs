@@ -27,6 +27,7 @@ mod transfer;
 mod runtime;
 
 use std::sync::Mutex;
+use tauri::Emitter;
 use tauri::Manager;
 use tauri_plugin_updater::UpdaterExt;
 
@@ -180,6 +181,30 @@ fn main() {
             {
                 let pm = app.state::<std::sync::Arc<crate::process_manager::ProcessManager>>();
                 crate::process_manager::spawn_healer(pm.inner().clone());
+            }
+            // 壳自更新：**每次壳起来时检查一次**（用户 2026-10-20 裁）。
+            //
+            // 为什么必须在这里加：`shell_update_check` 此前**零内部调用**
+            // （asset-steward 源码级 grep：只有定义 `commands/mod.rs:865`、注册给前端
+            //  `main.rs:172`、事件名常量 `brand.rs:297`）⇒ 只有前端 IPC 或我手动
+            // 触发时才会查 ⇒ 而用户裁的正是「**每一次重启壳的时候自动就去触发**」
+            // ⇒ 那条路径此前不存在。
+            //
+            // 为什么用 spawn 而不 await：`shell_update_check` 是 async 且要打网络
+            // ⇒ 若在 setup() 里 await，壳的启动会被网络拖慢（甚至卡住）
+            // ⇒ spawn 后立即返回，壳照常起来。
+            //
+            // 为什么**不加 timer**：用户明令「没有第三条路径」（周期检测已由 K-2 作废）
+            // ⇒ 所以只在 setup() 调**一次**，不建任何周期任务。
+            //
+            // 查完通知前端：`brand.rs:297` 已有 `event.shell_update_checked`
+            // ⇒ 前端可据此刷新「有新版本」提示（此前该事件名已定义却无发射点）。
+            {
+                let h = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = crate::commands::shell_update_check(h.clone()).await;
+                    let _ = h.emit(crate::brand::event_shell_update_checked(), serde_json::json!({}));
+                });
             }
             // 件 1（重做）：关机/注销守卫。形态 B——bounded 自建 message-only 窗口，
             // 而它的消息循环是**阻塞**的（GetMessageW）⇒ 必须放专用线程，
