@@ -236,7 +236,8 @@ pub fn install_end_session_guard(on_session_ending: fn()) -> bool {
     unsafe {
         #[link(name = "user32")]
         extern "system" {
-            fn RegisterClassW(lp_wnd_class: *const WndClassW) -> u16;            fn CreateWindowExW(
+            fn RegisterClassW(lp_wnd_class: *const WndClassW) -> u16;
+            fn CreateWindowExW(
                 dw_ex_style: u32,
                 lp_class_name: *const u16,
                 lp_window_name: *const u16,
