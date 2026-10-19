@@ -7,7 +7,7 @@ import {
 import { CheckCircle2, Menu, Plus, Trash2 } from "lucide-react";
 import { Button } from "../../framework/ui";
 import skiffLogo from "../../assets/dsh-logo.svg";
-import { supervisorStore, useSupervisorData } from "../../services/supervisor";
+import { supervisorStore, supervisorApi, useSupervisorData } from "../../services/supervisor";
 import { SUPERVISOR_NAV, type SupervisorViewKey } from "./nav";
 import { copyText } from "./clipboard";
 import { guardStateOf } from "./session";
@@ -38,6 +38,32 @@ export function SupervisorApp() {
   const online = snap.online;
   const authFailed = snap.authFailed;
   const status = snap.status;
+  // U23（用户报「壳的版本号变成内核的版本号了」）：StatusBar 挂载时拉一次壳版本。
+  //
+  // 为什么「拉一次」而不进 2 秒心跳：壳版本**只在重启后变** ⇒ 放进心跳只会
+  // 每 2 秒多打一次 `/shell/status`，而版本不会变。
+  //   ⇒ 那正是 product-manager 核到的「`shellStatus` 不在心跳通道 ⇒ StatusBar
+  //     读不到」的解：挂载时补一次，不进心跳。
+  //
+  // 为什么显示两个：`status?.guardVersion` 是**内核**版本（AboutCard.tsx:43
+  // 明说「桌面壳版本见上一行，内核版本见下一行」）⇒ 而 StatusBar 原来只显示它
+  // ⇒ 用户看到的「版本号」其实是内核的 ⇒ 那正是「壳版本变成内核版本」的错觉来源。
+  const [shellVersion, setShellVersion] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void supervisorApi
+      .shellStatus()
+      .then((s) => {
+        if (alive) setShellVersion(s?.identity?.version ?? null);
+      })
+      .catch(() => {
+        // 壳不在场 / 内核不可达 ⇒ 显示「—」而非崩溃（§7.163 不塌缩）。
+        if (alive) setShellVersion(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     supervisorStore.start();
@@ -122,7 +148,12 @@ export function SupervisorApp() {
             left={
               <>
                 <CheckCircle2 className="size-3.5 text-muted-foreground" />
-                <span className="font-mono text-xs leading-tight">{status?.guardVersion ?? "—"}</span>
+                {/* U23：壳版本与内核版本**都**显示，消除「壳=内核」错觉。 */}
+                <span className="font-mono text-xs leading-tight">
+                  {`壳 ${shellVersion ?? "—"}`}
+                </span>
+                <span className="text-muted-foreground">·</span>
+                <span className="font-mono text-xs leading-tight">{`内核 ${status?.guardVersion ?? "—"}`}</span>
               </>
             }
             right={

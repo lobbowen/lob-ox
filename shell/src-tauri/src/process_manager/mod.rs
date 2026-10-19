@@ -172,6 +172,21 @@ impl ProcessManager {
     /// 自愈选路：按优先级升序（内核最优先）挑出「期望 running 但确实已死、且未耗尽重试」的对象。
     /// 死活的唯一判据是 pid 实探（复用 bounded::pid_alive），不是「相位写着什么」：
     /// 慢启动的 workload 在 Starting 期间不报错，若只信相位就会被每 tick 重复 spawn。
+    ///
+    /// ⑤（core-engineer 核出的双拉风险 + Lead 派）：heal 前**先探该负载的端口**。
+    ///
+    /// 为什么：壳 heal router/lan 与内核 `ensureRunning` **互不知情** ⇒ 双拉窗口
+    /// （壳按 pid 实探判「死了」而内核刚拉起一个新的、pid 还没回传）⇒ 拉出两份。
+    ///
+    /// 判据同一：与内核 `process.js:59` 的 `findListeningPid(ctlPort)` 同一条
+    /// ——「端口有人 = 活着」。而壳用的是 `ports.json` 里 `managed:<id>` 的
+    /// **业务端口**（ctl 端口只写进 sibling files `ports-router.json`/`ports-lan.json`，
+    /// 而本机那两个文件不存在 ⇒ 壳读不到）。
+    ///
+    /// ⚠️ 判据是**宽松**的（宁可漏 heal，不可双拉）：业务端口比 ctl 端口起得晚
+    /// （`daemon.js:66` 的 ctl listening 在业务端口之前）⇒ 若 daemon 活着但业务端口
+    /// 还没起 ⇒ 本判据会误判「活着」⇒ 漏一次 heal ⇒ 而那是 ⑤ 要的方向
+    /// （漏 heal 是保守，双拉是真事故）。
     pub fn heal_candidates(&self) -> Vec<HealCandidate> {
         let s = self.states.lock().unwrap_or_else(|e| e.into_inner());
         let mut v: Vec<&state_machine::WorkloadState> = s
@@ -185,10 +200,16 @@ impl ProcessManager {
                 }
                 // 有 pid 就以实探为准：活着就不 heal。pid 未知（内核自报路径）时
                 // 相位是唯一可用的判据，故只在这一支接受 Failed/Installing。
-                match st.pid {
+                let pid_says_dead = match st.pid {
                     Some(pid) => !crate::bounded::pid_alive(pid),
                     None => st.phase == state_machine::Phase::Failed,
+                };
+                if !pid_says_dead {
+                    return false;
                 }
+                // ⑤：pid 说死了，但端口说活着 ⇒ 不 heal（双拉防护）。
+                // 只对「有登记端口」的行生效（core 行没有 managed: 端口 ⇒ 不受影响）。
+                !crate::env::managed_port_busy(&st.id)
             })
             .collect();
         v.sort_by_key(|st| st.priority);

@@ -578,6 +578,63 @@ pub async fn guard_ready() -> serde_json::Value {
 
 const GUARD_READY_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
+/// A（architect 裁 + Lead 确认）：**内核状态摘要的透传通道**。
+///
+/// 为什么需要：壳侧原有的两个 status 命令都是**白名单**——
+///   · `core_status` 只返 `installed`/`version`/`path`/`package`/`hint`；
+///   · `guard_ready` 只返 `ready`/`reason`/`port`；
+/// 而前端**零直接 fetch**（`bootstrap/js` grep `fetch(`/`apiBase` 全零）⇒ 只经
+/// Tauri IPC ⇒ 于是内核 `/status` 的 ~40 个字段一个都没到前端。
+/// ⇒ 那正是「白名单」的固有代价：内核每加一个用户可见字段，壳都要加一次白名单
+///   ⇒ 而 E2/E3/E4（`commandMissing`/`shellHalted`/`dataDirProtected`）正是
+///     内核早已输出（`status.js:23,37,38`）而壳的白名单漏掉的那三个。
+///
+/// 为什么是新命令而不是扩 `guard_ready`：两者语义不同（§7.168 同字段不同语义）——
+///   · `guard_ready` = **就绪探针**（`ready/reason/port`）
+///   · 本命令       = **内核状态摘要**（透传）
+/// 混在一个命令里会让「就绪探针」变成「半个 status」，而后加字段会越来越混。
+///
+/// 为什么壳不加工 body：前端按 `types.ts` 的 `SupervisorStatus` 读（core-engineer
+/// 的第三档类型契约）⇒ 分工是「壳透传 + 前端按类型读」⇒ 内核加字段时前端不动
+/// （除非它要消费）。
+///
+/// 三态（§7.163 读外部状态必须区分「没有」与「坏了」，不塌缩）：
+///   · 内核没起（连不上）⇒ `{ok:false, reason:"core-unreachable"}`
+///   · 内核起了          ⇒ `{ok:true, code, body}`
+#[tauri::command]
+pub async fn core_full_status() -> serde_json::Value {
+    tauri::async_runtime::spawn_blocking(|| {
+        let port = crate::env::current_api_port();
+        // 复用现成的回环 GET：`http_get_local` 返 `(code, 完整响应串)`，而 body
+        // 早在返回值里——`guardctl::ready` 的两个分支都把 body 丢了（`Some((code, _))`），
+        // 所以这里不需要改 `localhttp`，只需分离 header。
+        let Some((code, raw)) = crate::domain::localhttp::http_get_local(
+            port,
+            "/status",
+            std::time::Duration::from_secs(5),
+        ) else {
+            return serde_json::json!({
+                "ok": false,
+                "reason": "core-unreachable",
+                "port": port,
+                "hint": "内核未在听或不可达 ⇒ 与「内核起了但状态为空」是两件事"
+            });
+        };
+        // header/body 的唯一分隔是 `\r\n\r\n`（HTTP/1.1 协议规定）。
+        // 判据的形态证据：`guardctl.rs` 的测试 fixture 正是
+        //   `HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok`
+        let body = raw.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
+        serde_json::json!({
+            "ok": true,
+            "port": port,
+            "code": code,
+            "body": body,
+        })
+    })
+    .await
+    .unwrap_or_else(|_| serde_json::json!({ "ok": false, "reason": "probe-panic" }))
+}
+
 #[tauri::command]
 pub fn win_ctl(app: tauri::AppHandle, action: String) -> ShellResult<()> {
     use crate::fault::{code, Fault};

@@ -281,6 +281,44 @@ fn valid_api_port(rec: Option<&serde_json::Value>) -> Option<u16> {
     if port > 0 && port <= u16::MAX as u64 { Some(port as u16) } else { None }
 }
 
+/// ⑤（core-engineer 核出的双拉风险 + Lead 派）：某负载的 `managed:<id>` 业务端口
+/// **是否有人在听**。
+///
+/// 为什么：壳 heal router/lan 与内核 `ensureRunning` 互不知情 ⇒ 双拉窗口
+/// ⇒ 拉出两份。而内核的判据是「ctl 端口有人 = 活着」（`process.js:59` 的
+/// `findListeningPid(ctlPort)`）⇒ 壳复用同一条「端口有人 = 活着」。
+///
+/// 为什么用 `managed:<id>` 而不是 ctl 端口：ctl 端口只写进 sibling files
+/// （`ports-router.json`/`ports-lan.json`，`domains.js:34`）而**本机那两个文件
+/// 不存在** ⇒ 壳读不到。而 `ports.json` 里 router/lan 的 role 是
+/// `managed:router-daemon`/`managed:lan-daemon`（实测）⇒ 那是业务端口。
+///
+/// ⚠️ 判据**宽松**（宁可漏 heal，不可双拉）：业务端口比 ctl 起得晚 ⇒ daemon 活着
+///    但业务端口没起 ⇒ 本函数返 true（「有人」）⇒ 漏一次 heal ⇒ 而那正是 ⑤ 要的方向。
+///
+/// 返回 `false` 的两种情形（调用方不区分，都不 heal 拦不住）：
+///   · `ports.json` 里没有 `managed:<id>` 的记录（core 行正是如此）；
+///   · 端口没人听（真死）。
+pub fn managed_port_busy(id: &str) -> bool {
+    let want = format!("managed:{}", id);
+    let Some(port) = std::fs::read_to_string(supervisor_dir().join("ports.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| {
+            v.get("records")?
+                .as_array()?
+                .iter()
+                .filter(|r| r.get("role").and_then(|x| x.as_str()) == Some(want.as_str()))
+                .filter_map(|r| r.get("port").and_then(|x| x.as_u64()))
+                .find(|p| *p > 0 && *p <= u16::MAX as u64)
+                .map(|p| p as u16)
+        })
+    else {
+        return false;
+    };
+    crate::domain::localhttp::connect_local(port, std::time::Duration::from_millis(400)).is_some()
+}
+
 pub fn current_api_port() -> u16 {
     discovered_api_port().unwrap_or_else(api_port)
 }
