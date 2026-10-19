@@ -2,6 +2,72 @@ use tauri::Manager;
 
 use std::path::PathBuf;
 
+/// J-2-a（architect §33）：读内核事件账本里**最近一次** `api_port_skew` 的 `to` 端口。
+///
+/// 为什么壳要读内核的账本：内核 `api-rebind.js:75` 在端口被占时顺延并发
+/// `api_port_skew {from, to, reason}`，**但不写 `ports.json`** ⇒ 而壳的
+/// `current_api_port()` 只读 `ports.json` ⇒ 回落配置端口 ⇒ 探不到已顺延的内核
+/// ⇒ healer 重拉 ⇒ 多份内核互相不可见。
+///
+/// ⇒ 壳读内核已发现的结论（**不自己再探一次端口占用**）⇒ 那正是「发现只做一次」。
+///
+/// ⚠️ **只读账本尾部**（`TAIL_BYTES`）：本函数在 `await_daemon` 的就绪轮询循环里
+///    被反复调（间隔 500ms，预算 60s ⇒ 最多约 120 次），而账本实测 1.47MB 且在增长
+///    ⇒ 每轮全文件读 + `lines().rev()` 全量反转 ⇒ 单次启动要读 176MB。
+///    而 `api_port_skew` 若发生，必在**最近**（顺延就发生在内核启动那一刻）⇒
+///    故只读尾部即可，且那让成本恒定。
+pub fn latest_api_port_skew() -> Option<u16> {
+    let tail = read_ledger_tail()?;
+    for line in tail.lines().rev() {
+        if !line.contains("api_port_skew") {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        let to = v.get("data").and_then(|d| d.get("to")).and_then(|t| t.as_u64())?;
+        if to > 0 && to <= u16::MAX as u64 {
+            return Some(to as u16);
+        }
+    }
+    None
+}
+
+/// J-2-d（architect §27.7 Q-4 + §29.4 + §33）：顺延次数必须**可见**，不得归 0。
+///
+/// 背景：内核 `api-rebind.js:69` 的 `const maxSkew = 50` 是它自己的顺延预算 ⇒
+/// 而它是**内核侧的局部常量**，壳侧看不到 ⇒ 于是「内核已经顺延到第 N 次」对壳
+/// 不可见 ⇒ 而 architect 裁的是**「必须可见」而不是「归 0」**：归 0 会把「顺延」
+/// 当成「正常」，而那与「只有一个内核」矛盾。
+///
+/// 形态：壳**不存一份 50**（那会造第二份事实源，改一侧漏一侧）⇒ 而是报
+/// **尾部窗口内已顺延几次** ⇒ 那正是「内核已经顺延了几次」的直接度量。
+///
+/// §7.146（Lead 立）：报「已经发生几次」比报「它的预算是几」更强——前者是症状
+/// （直接说明多过），后者是配置（只说明能多多少），而报配置常会诱使人存第二份。
+pub fn api_port_skew_count() -> Option<u32> {
+    let tail = read_ledger_tail()?;
+    let n = tail.lines().filter(|l| l.contains("api_port_skew")).count();
+    if n == 0 { None } else { Some(n as u32) }
+}
+
+/// 尾部窗口大小：256KB ≈ 上千条 JSONL 事件。恒定成本，且足以覆盖
+/// 「顺延就发生在内核启动那一刻」这个时间相邻性。
+const TAIL_BYTES: u64 = 256 * 1024;
+
+/// 读内核事件账本的尾部窗口（**不读全文件**）。
+///
+/// 读失败 ⇒ `None`（文件不存在 / 不可读）⇒ 调用方回落原路径，不影响原有行为。
+fn read_ledger_tail() -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let path = crate::env::supervisor_dir().join("events").join("guard.events.log");
+    let mut f = std::fs::File::open(&path).ok()?;
+    let len = f.seek(SeekFrom::End(0)).ok()?;
+    let start = len.saturating_sub(TAIL_BYTES);
+    f.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = Vec::new();
+    f.take(TAIL_BYTES).read_to_end(&mut buf).ok()?;
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
 pub(crate) fn core_exe_names() -> &'static [&'static str] {
     crate::platform::current().core_exe_names()
 }

@@ -195,11 +195,58 @@ impl ProcessManager {
     }
 
     /// 自愈记一次失败：达到预算则停手（等人工），否则计数 +1。
+    ///
+    /// J-2-c（architect §28.1 + §29.5 R-1 + §33）：失败必须带**原因**，不能只烧裸计数。
+    ///
+    /// 为什么：原实现只 `heal_failures += 1` ⇒ 5 次烧光后停手等人工，而账本里只有
+    /// 「失败 1/2/3/4/5」这种计数 ⇒ **看不出为什么失败** ⇒ 人工拿到「自愈已停」却
+    /// 无从下手（R-1：可观测性缺失）。
+    ///
+    /// ⇒ 本版在**每次**失败时把 `last_will`（退出码 / 信号 / 是否启动窗口内退出）
+    ///   一并落事件；并在**烧光那一刻**（本次失败即达预算）额外发一条 warn，
+    ///   带完整画像（pid/spawn_cmd/退出码/信号/startup_failure/累计次数）。
+    ///   ⇒ 那正是「5 次烧光前能看出为什么」。
     pub fn note_heal_failure(&self, id: &str) {
         let mut s = self.states.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(st) = s.get_mut(id) {
-            st.heal_failures += 1;
-            st.last_transition = Instant::now();
+        let Some(st) = s.get_mut(id) else { return };
+        st.heal_failures += 1;
+        st.last_transition = Instant::now();
+        let failures = st.heal_failures;
+        let budget = st.priority.heal_burst();
+        let exhausted = failures >= budget;
+        let will = st.last_will.as_ref().map(|w| serde_json::json!({
+            "code": w.code, "signal": w.signal, "startupFailure": w.startup_failure
+        }));
+        // 烧光前每次都记（info）：那让「失败趋势」可查，而不只是终态。
+        crate::telemetry::event::info(
+            "heal.failed",
+            "process_manager",
+            serde_json::json!({
+                "id": id,
+                "failures": failures,
+                "budget": budget,
+                "exhausted": exhausted,
+                "lastWill": will,
+                "pid": st.pid,
+            }),
+        );
+        if exhausted {
+            // 烧光：停手等人工。带完整画像 ⇒ 人工能直接看出「为什么 5 次都失败」。
+            crate::telemetry::event::warn(
+                "heal.exhausted",
+                "process_manager",
+                serde_json::json!({
+                    "id": id,
+                    "reason": "自愈预算烧光 ⇒ 停手等人工（J-2-c）",
+                    "failures": failures,
+                    "budget": budget,
+                    "priority": format!("{:?}", st.priority),
+                    "pid": st.pid,
+                    "spawnCmd": st.spawn_cmd,
+                    "lastWill": will,
+                    "hint": "按 lastWill 的 code/signal/startupFailure 定位；startupFailure=true 表示每次都在启动窗口内退出（配置或依赖问题，不是偶发）"
+                }),
+            );
         }
     }
 }

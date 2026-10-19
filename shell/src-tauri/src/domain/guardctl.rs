@@ -326,6 +326,40 @@ pub(crate) fn ensure_core(app: &tauri::AppHandle) -> Result<(), LaunchError> {
         return Ok(());
     }
     if adopted_only {
+        // J-2-b（architect §30.3 T-1 + §33）：认领失败 ⇒ **停手等人工，绝不允许
+        // 「自己拉一个」**。
+        //
+        // 为什么：进程表里有一条 `adopted` 的行说明「有内核在跑但不是本壳拉起的」⇒
+        // 而若此刻契约无在世 pid（`live_contract_owner()` 返 None）⇒ 壳**拿不到
+        // 它的 pid** ⇒ 停不起也管不了 ⇒ 此时若继续往下 spawn，就是「在已有一个
+        // 内核的情况下再拉一个」⇒ 那正是「多份内核」的直接成因（本机 3 daemon 的
+        // 第二种成因，见 core_spawn_cmd 的注释）。
+        //
+        // ⇒ fail-closed：记一条「停手等人工」的事件并返回 Err，让引导页把真实
+        //   状态告诉用户，而不是静默多拉一份。
+        //
+        // ⚠️ 与 `already` 分支的区别：`already` 是「本壳持有 pid ⇒ 真的在管」⇒
+        //    跳过启动是对的；这里是「有 adopted 行但拿不到 pid ⇒ 管不了」⇒
+        //    必须停手。两者都是「不启动」，但理由与可观测性完全不同。
+        let owned = crate::process_manager::mgmt::live_contract_owner()
+            .filter(|p| *p != std::process::id());
+        if owned.is_none() {
+            step("检测到已在运行的内核，但无法取得其 pid ⇒ 停手等人工");
+            crate::telemetry::event::warn(
+                "guard.adopt_unavailable_stop",
+                "guardctl",
+                serde_json::json!({
+                    "reason": "进程表有 adopted 行但契约无在世 pid ⇒ 停不起也管不了 ⇒ 拒绝再拉一份（J-2-b / T-1 fail-closed）",
+                    "hint": "请人工确认该内核是否应被本产品管理；若是历史残留，清理后重启壳"
+                }),
+            );
+            return Err(LaunchError::new(
+                "KERNEL_ADOPT_UNAVAILABLE",
+                "检测到已在运行的内核，但无法取得其 pid ⇒ 停手等人工。\
+                 产品拒绝在已有内核的情况下再拉一份（那会造成多份内核互相不可见）。\
+                 若该内核是历史残留，请清理后重启；若它应被本产品管理，请反馈此诊断。",
+            ));
+        }
         step("检测到已在运行的内核（非本壳拉起）· 尝试接管");
     }
 
@@ -484,6 +518,36 @@ fn await_daemon(
         last = ready(crate::env::current_api_port(), READINESS_HTTP_TIMEOUT);
         if last == Readiness::Ready {
             return (last, ExitState::StillRunning);
+        }
+        // J-2-a（architect §33）：`api_port_skew` 从 warn 升为「多份症状」告警，**壳侧消费它**。
+        //
+        // 根因：内核 `api-rebind.js:75` 在端口被占时顺延并只发一条 `api_port_skew`
+        // 事件，**不写 `ports.json`** ⇒ 而壳的 `current_api_port()` 读的是
+        // `ports.json` 的 `supervisor-api`（`env.rs:284-286`）⇒ 回落配置端口 ⇒
+        // **探的是配置端口而内核已顺延** ⇒ 永远探不到 ⇒ healer 重拉新的内核
+        // ⇒ 多份内核之间、多份与壳之间互相不可见。
+        //
+        // 修法：探配置端口失败时，读内核事件账本里最近的 `api_port_skew`，
+        // 若有 ⇒ **改用 skew 后的端口再探一次**，并记一条壳侧事件（可观测）。
+        //   ⇒ 这不造第二套发现：内核已经发现了顺延，壳只是读它的结论。
+        if let Some(skew_port) = crate::domain::coreloc::latest_api_port_skew() {
+            let again = ready(skew_port, READINESS_HTTP_TIMEOUT);
+            if again == Readiness::Ready {
+                crate::telemetry::event::warn(
+                    "guard.api_port_skew_observed",
+                    "guardctl",
+                    serde_json::json!({
+                        "configured": crate::env::api_port(),
+                        "skewed": skew_port,
+                        // J-2-d：顺延次数必须可见（不归 0）。壳不存 maxSkew 的 50
+                        // —— 那是内核的预算 ⇒ 壳报「已顺延几次」，让人能判断
+                        // 「离内核的预算还有多远」而不必知道预算是几。
+                        "skewCount": crate::domain::coreloc::api_port_skew_count(),
+                        "reason": "内核端口顺延 ⇒ 壳按顺延后的端口就绪（J-2-a/J-2-d）"
+                    }),
+                );
+                return (again, ExitState::StillRunning);
+            }
         }
         if let Ok(Some(st)) = child.try_wait() {
             exited = Some(match st.code() {

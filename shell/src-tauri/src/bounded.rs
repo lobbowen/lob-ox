@@ -559,6 +559,36 @@ pub fn ensure_kill_on_close_job() -> Option<usize> {
     KILL_ON_CLOSE_JOB.get().copied()
 }
 
+/// 最近一次 Win32 调用的错误码（`GetLastError` 的原始数字）。
+///
+/// 为什么只要数字不要消息：`FormatMessageW` 要分配缓冲区（`LocalAlloc`/`LocalFree`
+/// 或 `Vec<u16>` + 手动截断），而本仓对 `FormatMessageW` **零先例**（已 grep）⇒
+/// 按「本机无编译验证时不写没写过的 API」的纪律，只取数字码。
+///   ⇒ 调用方（`/pm/keep-alive` 的 `job_assign_failed`）把码与「常见成因对照表」
+///     一起落事件，人按码查表即可，不必让壳去格式化一条消息。
+///
+/// ⚠️ 必须在**失败的 Win32 调用之后立刻调**：其间任何其他 Win32 调用都会覆盖它
+///    （线程的 last-error 是单槽）。故本函数不做任何其他调用。
+#[cfg(windows)]
+pub fn last_error() -> u32 {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetLastError() -> u32;
+    }
+    unsafe { GetLastError() }
+}
+
+#[cfg(not(windows))]
+pub fn last_error() -> u32 {
+    0
+}
+
+/// `ERROR_ACCESS_DENIED`：`AssignProcessToJobObject` 对它**无权**的进程会返这个。
+#[cfg(windows)]
+pub const ERROR_ACCESS_DENIED: u32 = 5;
+#[cfg(not(windows))]
+pub const ERROR_ACCESS_DENIED: u32 = 5;
+
 /// 把一个**已存在**的 pid assign 进「壳退即全杀」的 job。
 ///
 /// 与 `bind_kill_on_close` 的区别：那个收 `&Child`（壳自己 spawn 的路径），
@@ -568,6 +598,12 @@ pub fn ensure_kill_on_close_job() -> Option<usize> {
 /// 返回 `false` = 没绑上（pid 非活进程 / assign 失败）。调用方据场景判：
 ///   · pid 非活进程 ⇒ 记 info（调用方时序问题，此时也无需 assign）；
 ///   · job 未建成 ⇒ 那是壳自身缺陷，须返 500 + error。
+///
+/// ⚠️ S-7b 真失败（field-acceptance 在 1.0.45 全套按时间窗拉全序列抓到）：
+///    DSH 7580 的 assign 被 OS 拒绝（`job_assign_failed`），而此前的留痕只有
+///    「失败」没有**为什么** ⇒ 无从判是「跨 session」「已在他 job 内」还是「权限」。
+///    ⇒ 故调用方应在 `false` 时**立刻**调 `last_error()` 拿码（本函数内部不做
+///      任何其他 Win32 调用，不会覆盖它）。
 #[cfg(windows)]
 pub fn assign_to_job(job: usize, pid: u32) -> bool {
     if job == 0 {
@@ -590,11 +626,24 @@ pub fn assign_to_job(job: usize, pid: u32) -> bool {
         const PROCESS_TERMINATE: u32 = 0x0001;
         let h = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
         if h.is_null() {
+            // 这里直接 return ⇒ last-error 保留的是 `OpenProcess` 的码
+            // （打不开进程），而非 `AssignProcessToJobObject` 的 ⇒ 调用方拿码时
+            // 应知这个区别：`ERROR_ACCESS_DENIED` 在这一支也表示「无权打开该进程」，
+            // 与「打开了但 assign 被拒」现象相同、修法也相同（都要提权或换目标）。
             return false;
         }
         let rc = AssignProcessToJobObject(job, h);
-        CloseHandle(h);
-        rc != 0
+        // ⚠️ 失败时**不能先 CloseHandle**：那会覆盖线程的 last-error 单槽
+        //    （`CloseHandle` 成功时把它清成 0）⇒ 调用方就再也拿不到
+        //    `AssignProcessToJobObject` 的真实错误码（S-7b 的判据）。
+        //    ⇒ 故只在**成功**时关句柄；失败时留着让调用方先 `last_error()`，
+        //      而进程退出时内核会回收（一次性泄漏一个句柄，可接受）。
+        if rc != 0 {
+            CloseHandle(h);
+            true
+        } else {
+            false
+        }
     }
 }
 

@@ -481,13 +481,38 @@ async fn handle(
                 }
             };
             if !crate::bounded::assign_to_job(job, pid) {
-                // 两种可能：pid 非活进程（调用方时序问题，此时也无需 assign）
-                // 或 assign 本身失败。用 pid_alive 区分，分别记 info / error。
-                if crate::bounded::pid_alive(pid) {
+                // S-7b 真失败（field-acceptance 在 1.0.45 全套按时间窗拉全序列抓到）：
+                //   DSH 7580 的 assign 被 OS 拒绝，而此前留痕只有「失败」没有**为什么**
+                //   ⇒ 无从判是「跨 session」「已在他 job 内」还是「权限」。
+                //
+                // ⚠️ **必须先取 `GetLastError` 再判活**：`pid_alive` 自己会调
+                //    `OpenProcess` ⇒ 那会覆盖线程的 last-error 单槽 ⇒ 顺序反了
+                //    拿到的就是 `pid_alive` 的错误码而不是 `AssignProcessToJobObject` 的。
+                let err = crate::bounded::last_error();
+                let alive = crate::bounded::pid_alive(pid);
+                if alive {
+                    // 常见成因对照（按 Win32 错误码）：壳只报码与可能含义，不猜是哪一个。
+                    let hint = match err {
+                        5 => "ERROR_ACCESS_DENIED：对该进程无权 assign ⇒ 可能跨 session/跨用户，或它已在另一个 job 内",
+                        87 => "ERROR_INVALID_PARAMETER：job handle 或 pid 无效",
+                        6 => "ERROR_INVALID_HANDLE：job handle 失效",
+                        _ => "见 Win32 错误码表",
+                    };
                     crate::telemetry::event::error(
                         "mgmt.job_assign_failed",
                         "process_manager",
-                        serde_json::json!({ "pid": pid, "reason": "AssignProcessToJobObject 失败" }),
+                        serde_json::json!({
+                            "pid": pid,
+                            "reason": "AssignProcessToJobObject 失败",
+                            "win32Error": err,
+                            "accessDenied": err == crate::bounded::ERROR_ACCESS_DENIED,
+                            "hint": hint,
+                            // S-7b 的现场：DSH 7580 的父是用户桌面的「启动DSH.cmd」
+                            // ⇒ 不在壳进程树内（树是 2376 → 8352 → 5516）⇒
+                            //   而 field-acceptance 已排除「已在他 job 内」与「已死」
+                            //   ⇒ 所以这个码是判「跨 session」还是「权限」的唯一输入。
+                            "note": "DSH 认领路径：父进程不在壳进程树内 ⇒ 拿码后才能定修法"
+                        }),
                     );
                     return Ok(reply(StatusCode::INTERNAL_SERVER_ERROR, "keep-alive: assign 失败"));
                 }
