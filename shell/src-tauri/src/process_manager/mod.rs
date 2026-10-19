@@ -91,6 +91,17 @@ impl ProcessManager {
         }
     }
 
+    /// 读某一行当前的 pid（只读，不改）。
+    ///
+    /// W-2-2（architect 裁）需要它：`/pm/keep-alive` 报 pid 时，若那一行已被
+    /// `/pm/register` 声明过 pid ⇒ 两者不一致就是**身份冲突**（该 pid 不是那个
+    /// 行声明过的进程）⇒ 拒。而「不一致」与「核不了（行不存在 / 无 pid）」是两件事，
+    /// 压成一个动作就会误拒旧内核或放过真冲突。
+    pub fn pid_of(&self, id: &str) -> Option<u32> {
+        let s = self.states.lock().unwrap_or_else(|e| e.into_inner());
+        s.get(id).and_then(|st| st.pid)
+    }
+
     /// `update_pid` 的逆向：把某一行的 pid 清成 `None`（**只碰 pid**）。
     ///
     /// 为什么需要：`ensure_core` 为让内核自报能命中而**提前建行**（pid=入口占位），

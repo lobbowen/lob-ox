@@ -319,7 +319,29 @@ async fn handle(
     match (method.as_str(), path.as_str()) {
         ("POST", "/pm/register") => match parse_desc(&json) {
             Some(desc) => {
+                // W-2-1（architect 裁）：`/pm/register` 加**可选的 `pid` 字段**。
+                //
+                // 为什么：此前 register 只建「机制」行（id/spawn_cmd/priority/env）而
+                // pid 恒空 ⇒ 于是 `/pm/keep-alive` 报 pid 时 `update_pid` 找不到行
+                // ⇒ 记 `dsh_main_row_missing` ⇒ 而那是「壳知道有 DSH 但进程表没有它」。
+                //
+                // 为什么用「声明」而不是「测量」：architect 裁的 W-2-1 ——
+                // 用声明代替测量。壳**不自己探** DSH 的 pid（那会造第二套发现），
+                // 而是让内核在 register 时一并声明「这个行对应的 pid 是多少」。
+                //
+                // 为什么可选：老版本内核不带它 ⇒ 不带时保持原行为（只建行）。
+                let id = desc.id.clone();
                 state.register_workload(desc);
+                if let Some(pid) = json.get("pid").and_then(|v| v.as_u64()).map(|p| p as u32) {
+                    if pid > 0 {
+                        state.update_pid(&id, pid);
+                        crate::telemetry::event::info(
+                            "mgmt.registered_with_pid",
+                            "process_manager",
+                            serde_json::json!({ "id": id, "pid": pid, "via": "register" }),
+                        );
+                    }
+                }
                 Ok(reply(StatusCode::OK, "ok"))
             }
             None => Ok(reply(StatusCode::BAD_REQUEST, "register: id 缺失或不是字符串")),
@@ -419,6 +441,32 @@ async fn handle(
                 //     「发现只做一次（内核）」冲突。
                 //   ⇒ 所以本处只认 id + 给 Priority（`parse_priority` 已认
                 //     `"dsh-main"`/`"dsh"`）+ 在行已存在时更新 pid。
+                //
+                // W-2-2（architect 裁）：**身份冲突 ⇒ 拒；核不了 ⇒ 宽松 + 留痕**。
+                // 两者是两件事，压成一个动作就会误拒旧内核或放过真冲突：
+                //   · 行不存在 / 行存在但无 pid ⇒ **核不了** ⇒ 照常 update + assign，
+                //     只记 `dsh_main_row_missing`（那正是「缺信息」的形态）；
+                //   · 行存在且有 pid，且与本次报的**不同** ⇒ **身份冲突**
+                //     （那个行声明过的不是这个 pid）⇒ 拒（不 update、不 assign），
+                //     记 `dsh_main_pid_conflict` 并返 409。
+                //     ⇒ 而那正是 pid 复用洞（`assign_to_job` 假阳性 ⇒ 壳退时
+                //       误杀无关进程）的对策：声明与上报不一致 ⇒ 不猜，拒。
+                let declared = state.pid_of("dsh-main");
+                if let Some(d) = declared {
+                    if d != pid {
+                        crate::telemetry::event::error(
+                            "mgmt.dsh_main_pid_conflict",
+                            "process_manager",
+                            serde_json::json!({
+                                "pid": pid,
+                                "declaredPid": d,
+                                "reason": "register 声明的 pid 与 keep-alive 上报的不一致 ⇒ 身份冲突 ⇒ 拒（W-2-2）",
+                                "hint": "可能 pid 已复用（原进程退出而 pid 被新进程占用）⇒ 壳拒绝把一个来路不明的 pid 拉进 job（T-1：绝不允许杀非本产品对象）"
+                            }),
+                        );
+                        return Ok(reply(StatusCode::CONFLICT, "keep-alive: pid 与 register 声明的不一致（身份冲突）"));
+                    }
+                }
                 let ok = state.update_pid("dsh-main", pid);
                 if !ok {
                     // 行还没建（内核没 register 或还没到）⇒ 不是错误：下一次
