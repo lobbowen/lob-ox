@@ -1,5 +1,19 @@
 [
   {
+    "version": "0.0.32",
+    "date": "2026-10-20",
+    "sections": [
+      {
+        "title": "修复",
+        "items": [
+          "壳改为每次启动都自查更新：此前 shell_update_check 只有前端 invoke 一条路径（bootstrap/js/40-shell-update.js），壳内部零调用；现由 main.rs 的 setup() 在壳起来之后 spawn 一次，查完 emit event.shell_update_checked ⇒ 「重启即检查」由壳自己保证，不再依赖前端恰好调",
+          "壳的自更新结论补依据：up_to_date 事件此前只带 current，无从判断它比的是谁；现补 latest / probed / endpoints / note（latest 刻意记 null——Tauri 插件返 None 时不回吐 manifest version，记 null 而不是编一个）",
+          "装机路径补最后一笔留痕：Windows 上 install() 内部 exit(0) 跑在 install_done 之前 ⇒ 安装成功长期无痕（只有 download_done）；新增 install_start（带 target 与 bytes），两个平台都写，而 install_done 保持原义只由返回型平台写"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.0.31",
     "date": "2026-10-20",
     "sections": [
