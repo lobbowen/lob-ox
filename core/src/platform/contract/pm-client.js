@@ -121,10 +121,23 @@ function post(route, payload) {
 //
 // 语义归属：内核只说「这个子进程请壳看住」，不说它是什么业务角色——「受管对象」这个
 // 概念只存在于壳侧（进程所有权的持有方）。
-function keepAlive(pid) {
+//
+// `id` 为什么必须带：壳侧进程表的行按 id 索引（`register_workload` 的 `entry(desc.id)`），
+// 而 `assign_to_job` 只认 pid。缺 id ⇒ 壳拿到 pid 也不知该更新哪一行的 pid —— 那正是
+// FA-20 的形态：壳的 `core` 行记着入口 pid（`export_port` 的 `std::process::id()`），
+// 而真内核 pid 只有内核自己知道。
+function keepAlive(pid, id) {
   const n = Number(pid);
   if (!Number.isInteger(n) || n <= 0) return false;
-  return post('/pm/keep-alive', { pid: n });
+  const body = { pid: n };
+  // id 可选（缺省壳按既有行为处理），带了就必须是非空字符串——带空串比不带更糟：
+  // 壳会拿它当合法 id 去 `get_mut("")`，然后静默找不到行。
+  if (id !== undefined && id !== null) {
+    const s = String(id);
+    if (!s) return false;
+    body.id = s;
+  }
+  return post('/pm/keep-alive', body);
 }
 
 module.exports = {

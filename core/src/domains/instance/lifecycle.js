@@ -90,7 +90,7 @@ function createLifecycle(deps) {
       const ctx = sandbox.launchCtx(instancesRoot, deps.dshBin, inst);
       _cleanStaleUnit('dsh-web@' + inst.id, ctx);
       try {
-        service.startTransient({ unit: 'dsh-web@' + inst.id, cmd: cmdArr, env, workingDir, port: ctx.port, pidFile: ctx.pidFile, anchors: ctx.anchors, keepAlive: true });
+        service.startTransient({ unit: 'dsh-web@' + inst.id, cmd: cmdArr, env, workingDir, port: ctx.port, pidFile: ctx.pidFile, anchors: ctx.anchors, keepAlive: true, keepAliveId: 'sandbox' });
       } catch (e) {
         const msg = 'systemd 启动失败: ' + (e.message || e);
         inst.state.lastError = msg;

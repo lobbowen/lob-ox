@@ -107,7 +107,14 @@ const methods = {
     d.logger().info('spawn pid=' + child.pid + ' cmd=' + d.spawnCommand().join(' '));
     // 壳退即全杀：请壳把这个 DSH 进程 assign 进它的 job。
     // 壳不在时静默跳过（pm-client.endpoint() 的同一个判定），不阻断启动主路径。
-    if (child.pid) { try { pmClient.keepAlive(child.pid); } catch {  } }
+    //
+    // id 用 'dsh-main' 而**不是** 'core'：壳进程表里 `core` 那一行代表的是**内核进程**
+    // （`register_core` 的 `core_desc().id` = "core"，Priority::Core），而这里报的是
+    // **DSH 主实例**的 pid。两个不同的东西共用一个 id ⇒ 后写的覆盖前写的
+    // （§7.91：给字段加第二个写入方前，先核那个字段代表什么）。
+    // 层 0 之后壳侧会建 `dsh-main` 行；在那之前壳不认这个 id 会忽略 + 记 info，
+    // 与现状（DSH 的 pid 从未进过进程表）无差异 ⇒ 无回归。
+    if (child.pid) { try { pmClient.keepAlive(child.pid, 'dsh-main'); } catch {  } }
     d.mSetChild(child);
     d.mSetAdopted(false);
     d.mSetAdoptPid(null);

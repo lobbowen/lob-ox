@@ -129,7 +129,8 @@ class FrpManager {
     }
     this.child = child;
     // 壳退即全杀：请壳把 frpc 进程 assign 进它的 job。壳不在时静默跳过，不阻断。
-    if (child.pid) { try { pmClient.keepAlive(child.pid); } catch {  } }
+    // id 带 'frpc'：壳进程表的行按 id 索引，不带 id 壳拿到 pid 也不知该更新哪一行。
+    if (child.pid) { try { pmClient.keepAlive(child.pid, 'frpc'); } catch {  } }
     const pushLog = (line) => {
       line = String(line).trim();
       if (!line) return;

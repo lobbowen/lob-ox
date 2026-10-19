@@ -340,6 +340,44 @@ function cmdDaemon() {
   sup.start();
   console.log('[supervisor] daemon started, pid=' + process.pid);
   traceExit('started', { version: (typeof __DSH_VERSION__ !== 'undefined' ? __DSH_VERSION__ : null) });
+  // FA-20：把**本进程的真 pid** 报给壳的进程表。
+  //
+  // 为什么必须：壳侧 `core` 行的 pid 来自 `export_port` 的 `std::process::id()`
+  // （mgmt.rs:232）——那是 `--run-guard` 入口进程，不是它内部再 spawn 的 daemon。
+  // 真机实况：壳记 2564/912/7348（全是入口），真内核是 2400/1388/7160，恒差一个进程代。
+  // 后果：壳停内核时杀的是入口 ⇒ 「壳退内核必死」只能依赖 job 绑定，不依赖进程表。
+  //
+  // 为什么这里报：`sup.start()` 里 `_apiStart()` 已让 API 在听 ⇒ 壳此刻收得到；
+  // 而 process.pid 从进程启动就是已知的 ⇒ 这是「内核知道自己 pid」的最早可用时刻。
+  //
+  // 为什么 id 是 'core'：与壳 `register_core` 的 `core_desc().id`（guardctl.rs:171）
+  // 同一个 ⇒ 壳才能按 id 找到那一行并更新它的 pid。
+  //
+  // 但「静默跳过」不能真的无痕：keepAlive 返 false 有三种原因（壳不在 / 序列化失败 /
+  // 发送抛错），而 pm-client 的 4 类 note 事件只在装了 eventSink 时才进账本。
+  // 这里显式分流 ⇒ 「pid 有没有发出」可查。
+  //
+  // ⚠️ 但 `core_pid_reported` 的语义必须说准：pm-client 的 `post()` 是 fire-and-forget
+  // （:106 的 `return true` 只代表「请求已发出」，**不读 HTTP 响应码**）⇒ 所以这条
+  // 事件证明的是「内核把 pid 报出去了」，**不是**「壳的进程表已经记下它」。
+  // ⇒ 若 S-5b 修后仍 FAIL，仅有这条事件不足以判断是内核没报还是壳没接——
+  //   要核壳侧 `mgmt.job_assigned` / `update_pid` 留痕（shell 侧职责）。
+  // ⇒ 这个「语义窄一格」是刻意保留的：把 post() 改成读响应码会让 5 个调用点全部
+  //   变成同步等待，而那会改变 keepAlive 的时序契约（spawn 后立即返回）。
+  try {
+    const pmc = require('../src/platform/contract/pm-client');
+    if (pmc.keepAlive(process.pid, 'core')) {
+      sup.events.append('core_pid_reported', { pid: process.pid, semantics: 'request_sent' });
+    } else {
+      const ep = pmc.endpoint();
+      sup.events.append('core_pid_not_reported', {
+        pid: process.pid,
+        reason: ep ? 'post_failed' : 'shell_absent',
+      });
+    }
+  } catch (e) {
+    try { sup.events.append('core_pid_report_failed', { pid: process.pid, error: (e && e.message) || String(e) }); } catch {}
+  }
   // ⚠ 不在这里 process.exit：start() 是同步的（_apiStart + _bootstrap），
   // 进程靠事件循环（timer / socket）保活。提前 exit 会立即杀掉刚起来的 daemon。
   // 「跑完自己退了」这一形态由 start_returned 之外的路径覆盖：_bootstrap 内部

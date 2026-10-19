@@ -339,17 +339,65 @@ async fn handle(
         // 会撞名。`role` 是壳侧既有词表（端口角色 `guard-mgmt`），此处是
         // **进程角色**（不同面：`ports.json` vs 本入参），词表值不撞。
         //
+        // ⚠️ `role` **可选、缺省 `managed`**：内核侧 `pm-client.js:124-128` 的
+        //    `keepAlive(pid)` 只发 `{ pid }`，且 `:122-123` 有明确设计声明：
+        //      「内核只说『这个子进程请壳看住』，不说它是什么业务角色——
+        //        『受管对象』这个概念只存在于壳侧（进程所有权的持有方）」。
+        //    ⇒ 若 role 必填，现有 6 个调用方（`frp.js:132` / `daemons/process.js:142` /
+        //      `main/process.js:110` / `portable.js:93` / `instance/lifecycle.js:93`）
+        //      会全部吃到 400 ⇒ 壳一上线就断内核的看护链。
+        //    ⇒ 词表只有 `managed` 一个值，缺省即它 ⇒ 「可选」不放松任何约束。
+        //
         // 词表单值 `managed`：壳只决定「进不进 job」，区分是内核自己的事。
         ("POST", "/pm/keep-alive") => {
-            // pid 缺失/非数字 ⇒ 真·参数问题（400），与 role 同类。
+            // pid 缺失/非数字 ⇒ 真·参数问题（400）。
             let Some(pid) = json.get("pid").and_then(|v| v.as_u64()).map(|p| p as u32) else {
                 return Ok(reply(StatusCode::BAD_REQUEST, "keep-alive: pid 缺失或不是数字"));
             };
-            let Some(role) = json.get("role").and_then(|v| v.as_str()) else {
-                return Ok(reply(StatusCode::BAD_REQUEST, "keep-alive: role 缺失"));
-            };
+            // role 可选；带了就必须是 managed（真·参数问题才 400）。
+            let role = json.get("role").and_then(|v| v.as_str()).unwrap_or("managed");
             if role != "managed" {
                 return Ok(reply(StatusCode::BAD_REQUEST, "keep-alive: role 必须是 managed"));
+            }
+            // FA-20 第一级：内核经 `keepAlive(pid, id)` 自报「这个 pid 是谁」。
+            //
+            // 为什么必须收：此前本端点只把 pid assign 进 job 就丢了 ⇒ 进程表的
+            // `core` 行永远记着**入口 pid / 壳自己**（`guard-mgmt.json` 的 pid 是
+            // `std::process::id()`，而 `live_contract_owner():34-35` 恒真）⇒
+            // `shutdown_all` 按那个 pid 去杀 ⇒ 杀的是已死的进程，而真内核只活在
+            // job 里。本机实测：壳账本 `kill_attempt` 记 972/8396，而真进程是
+            // guard=7348 / daemon=7160 —— **两套完全不同的进程**。
+            //
+            // `id` 可选：老版本内核不带它 ⇒ 不带时走原来的「只 assign」路径。
+            let id = json.get("id").and_then(|v| v.as_str());
+            if id == Some("core") {
+                // 只处理 core 行（第一级）⇒ 用窄方法 `update_pid`（只设 pid）。
+                //
+                // **不用 `adopt_spawned`**：它改 7 个字段，其中两个致错——
+                // `spawn_cmd` 可能被 `core_desc()` 的空 Vec 覆盖（内核永久失自愈）、
+                // `phase` 被重置成 Starting（`already` 判据那一拍变 false ⇒ 可能重复
+                // 拉起内核，而那是 architect T-1 明令禁止的）。详见 `update_pid` 的注释。
+                let ok = state.update_pid("core", pid);
+                crate::telemetry::event::info(
+                    if ok { "mgmt.core_pid_updated" } else { "mgmt.core_pid_update_missed" },
+                    "process_manager",
+                    serde_json::json!({
+                        "pid": pid, "via": "keep-alive",
+                        // miss 的含义：进程表里还没有 core 行 ⇒ 内核比壳先报
+                        // （时序问题，不是错误）⇒ 下一次 keep-alive 会补上。
+                        "found": ok
+                    }),
+                );
+            } else if let Some(other) = id {
+                // 其他 id（router/lan/frpc/sandbox）**忽略 + info，不返 400**：
+                // 第一级没有那些 desc ⇒ 返 400 会让内核以为上报失败 ⇒ pm_request_failed
+                // 一类事件误报。而「壳不认识这个 id」不是调用方的错（可能是版本不一致）
+                // ⇒ 与 role 缺省 managed 同一条：不要求调用方说壳已经知道的话。
+                crate::telemetry::event::info(
+                    "mgmt.keep_alive_unknown_id",
+                    "process_manager",
+                    serde_json::json!({ "pid": pid, "id": other, "reason": "第一级只处理 core；其余 id 已 assign 进 job 但未登记进程表" }),
+                );
             }
             // job 未建成 ⇒ 两种可能，必须分开：
             //   · Windows 上建失败（CreateJobObjectW/SetInformationJobObject 失败）

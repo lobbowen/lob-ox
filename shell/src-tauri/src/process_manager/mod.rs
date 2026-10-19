@@ -51,10 +51,44 @@ impl ProcessManager {
 
     /// 内核向机箱注册一个工作负载（描述子只含「机制」：spawn 命令与自愈优先级）。
     /// 业务判定（令牌捕获 / 就绪 / adopt / 端口重定向）仍在内核，机箱不越界。
+    ///
+    /// 这是「认领」路径：壳没持有句柄，pid 为空，`adopted = true`。
+    /// 与 `adopt_spawned` 的区别只在来源标记，让排障能分清「我拉起的」与「我看到它在那儿」。
     pub fn register_workload(&self, desc: state_machine::WorkloadDesc) {
         let mut s = self.states.lock().unwrap_or_else(|e| e.into_inner());
-        s.entry(desc.id.clone())
+        let st = s
+            .entry(desc.id.clone())
             .or_insert_with(|| state_machine::WorkloadState::from_desc(&desc));
+        st.adopted = true;
+    }
+
+    /// FA-20 第一级：只更新某一行的 pid，**不碰**其他 6 个字段。
+    ///
+    /// 为什么不能用 `adopt_spawned(desc, pid)`（它改 7 个字段）：
+    ///   · `st.spawn_cmd = desc.spawn_cmd.clone()` —— `core_desc()` 的
+    ///     `core_spawn_cmd()` 解析不出时返**空 Vec** ⇒ 覆盖成空 ⇒ `spawn_healer`
+    ///     见到空就 continue ⇒ **内核永久失去自愈**（比 S-5b 本身更坏）；
+    ///   · `st.phase = Phase::Starting` —— `already` 判据是
+    ///     `pid.is_some() && phase == Running` ⇒ 那一拍变 false ⇒ 若 `ensure_core`
+    ///     被重入 ⇒ **可能重复拉起内核**（architect 的 T-1 明令禁止）；
+    ///   · `st.adopted = false` —— 语义翻转。
+    ///
+    /// ⇒ 用一个「语义更重的既有操作」修一个轻字段，会顺带改坏别的（§7.94）。
+    ///
+    /// 三条判据（Lead 定）：
+    ///   ① 只设 pid；
+    ///   ② 未知 id 返 false（与 `set_desired` 静默丢弃同形状）；
+    ///   ③ 不动 `last_transition`（那不是本次要改的事实）。
+    ///
+    /// 返回 false 时调用方记 info：那可能是「壳还没登记这一行」（时序），不是错误。
+    pub fn update_pid(&self, id: &str, pid: u32) -> bool {
+        let mut s = self.states.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(st) = s.get_mut(id) {
+            st.pid = Some(pid);
+            true
+        } else {
+            false
+        }
     }
 
     /// 壳自持路径：壳自己拉起内核并把句柄与 pid 登记进表（进程所有权归壳）。
@@ -69,6 +103,7 @@ impl ProcessManager {
         st.env = desc.env.clone();
         st.priority = desc.priority;
         st.phase = state_machine::Phase::Starting;
+        st.adopted = false;
         st.last_transition = Instant::now();
         // 重置收敛到「重生成功」这一刻：此前只有 on_phase 收到 Running 才清零，
         // 于是成功重生后 heal_failures 仍停在预算上限，自愈被永久静默禁用，

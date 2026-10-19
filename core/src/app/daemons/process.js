@@ -139,7 +139,9 @@ class DaemonLifecycle {
     // 壳退即全杀：请壳把这个 daemon 进程 assign 进它的 job。
     // 换代（reclaiming）路径也走本函数 ⇒ 每次都是新 pid，天然不重复。
     // 壳不在时静默跳过，不阻断拉起。
-    if (child.pid) { try { pmClient.keepAlive(child.pid); } catch {  } }
+    // id 用 this.name（router / lan）：壳进程表的行按 id 索引，不带 id 壳拿到 pid
+    // 也不知该更新哪一行 ⇒ 那正是 FA-20 的形态。
+    if (child.pid) { try { pmClient.keepAlive(child.pid, this.name); } catch {  } }
     if (this.logger && this.logger.info) this.logger.info('[' + this.name + '] 已拉起独立 daemon pid=' + child.pid + '（spawn 窗口至 ' + new Date(this._spawnWindowUntil).toISOString() + '）');
     return { mode: 'started', pid: child.pid };
   }
