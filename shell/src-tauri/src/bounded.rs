@@ -168,6 +168,57 @@ static END_SESSION_HOOK: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
 #[cfg(windows)]
 static END_SESSION_HWND: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
 
+/// `RegisterClassW` 返回的类 atom（成功时非 0）。与 hwnd 一并上报 ⇒
+/// 让「类注册成功」也可机判（`shell-report.json` 的 `endSessionGuard.atom`）。
+#[cfg(windows)]
+static END_SESSION_ATOM: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+
+/// B2：把会话结束守卫的寻址信息写进 `shell-report.json`，让外部能**定向**触达它。
+///
+/// 为什么必须暴露 hwnd：守卫的窗口是 `HWND_MESSAGE`（message-only）⇒
+/// **不可见、无标题、`Get-Process ... | MainWindowHandle` 拿不到** ⇒
+/// 于是外部探针只能发给 Tauri 主窗口（`--find` 拿到的那个）⇒ 而那不是守卫的
+/// 接收者 ⇒ 刺激到了进程却没到守卫 ⇒ 与「守卫没接」在输出上同形
+/// （都是 `kill_attempt` 0 命中）。
+///
+/// 三个字段各自可机判一个失效模式：
+///   · `hwnd` 无值 ⇒ 守卫没建（`RegisterClassW`/`CreateWindowExW` 失败）
+///   · `atom` 无值 ⇒ 类没注册上
+///   · `hwnd` 有值 ⇒ 守卫在（再配 `IsWindow(hwnd)` 可判「建了又死了」）
+///
+/// 写进 `shell-report.json` 而非新文件：那个文件**由壳写**（`shell_report::post`），
+/// 与守卫同进程 ⇒ 无跨进程协商。
+///
+/// ⚠️ 不走 `shell_report::publish`：那条路有 10s 节流（`MIN_WRITE_GAP`）⇒
+///    守卫刚建好时可能被节流丢掉 ⇒ 而「hwnd 缺失」恰是我们最需要的判据。
+pub fn report_end_session_guard() {
+    #[cfg(windows)]
+    {
+        let p = crate::shell_report::file();
+        // 读-改-写：保留既有字段（schema/records/at 等），只加/改 endSessionGuard。
+        let mut doc = std::fs::read_to_string(&p)
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
+        doc.insert(
+            "endSessionGuard".into(),
+            serde_json::json!({
+                "hwnd": END_SESSION_HWND.get().copied(),
+                "atom": END_SESSION_ATOM.get().copied(),
+                "builtAt": crate::update::now_iso_human(),
+            }),
+        );
+        if let Ok(body) = serde_json::to_string_pretty(&serde_json::Value::Object(doc)) {
+            let _ = crate::atomic_write::write(&p, &(body + "\n"));
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = ();
+    }
+}
+
 /// 装「会话结束」守卫（Windows：建 message-only 窗口；非 Windows：无操作）。
 ///
 /// `on_session_ending` 在收到 `WM_QUERYENDSESSION` 时被调（**同步**，见下面
@@ -185,8 +236,7 @@ pub fn install_end_session_guard(on_session_ending: fn()) -> bool {
     unsafe {
         #[link(name = "user32")]
         extern "system" {
-            fn RegisterClassW(lp_wnd_class: *const WndClassW) -> u16;
-            fn CreateWindowExW(
+            fn RegisterClassW(lp_wnd_class: *const WndClassW) -> u16;            fn CreateWindowExW(
                 dw_ex_style: u32,
                 lp_class_name: *const u16,
                 lp_window_name: *const u16,
@@ -229,9 +279,15 @@ pub fn install_end_session_guard(on_session_ending: fn()) -> bool {
             lpsz_menu_name: core::ptr::null(),
             lpsz_class_name: class.as_ptr(),
         };
-        if RegisterClassW(&wc) == 0 {
+        let atom = RegisterClassW(&wc);
+        if atom == 0 {
+            // B2 的失败路径也要报：否则「hwnd 字段缺失」与「字段整个没写」
+            // 在输出上同形（都是 shell-report.json 里没有 endSessionGuard.hwnd）
+            // ⇒ 而前者是「守卫没建」（要修），后者是「没走到上报」。
+            report_end_session_guard();
             return false;
         }
+        let _ = END_SESSION_ATOM.set(atom);
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
@@ -247,9 +303,15 @@ pub fn install_end_session_guard(on_session_ending: fn()) -> bool {
             core::ptr::null_mut(),
         );
         if hwnd == 0 {
+            // 同 RegisterClassW 失败：也让「没建成」这个事实落到文件里。
+            report_end_session_guard();
             return false;
         }
         let _ = END_SESSION_HWND.set(hwnd);
+        // B2：窗口建成立即暴露 hwnd/atom 到 shell-report.json。
+        // 必须在消息循环**之前**——消息循环阻塞，且「hwnd 缺失」这个判据
+        // 不能依赖循环是否跑到。
+        report_end_session_guard();
         // 消息循环：本线程（调用方所在线程）跑。注意 GetMessageW 阻塞 ⇒
         // **必须在专用线程里跑**，否则会卡住调用方（见 main.rs 的调用点）。
         loop {
