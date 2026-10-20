@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.0.33",
+    "date": "2026-10-20",
+    "sections": [
+      {
+        "title": "修复",
+        "items": [
+          "DSH 接管补上最后一块：内核认领外部 DSH 后，除 keepAlive（进 job）之外再经 /pm/register 在壳的进程表建 'dsh-main' 行（带 spawn_cmd 与 pid）⇒ 此前只有 keepAlive ⇒ 壳表里从来没那一行 ⇒ 壳永远不能主动管 DSH。register 必须早于 keepAlive，因为后者只更新已有行的 pid",
+          "面板 C 态引导条判据修正：原写 adopted && observedOnly，而 S-7b 现场走 _adopt()（置 observedOnly=false）⇒ 引导条恒不显示 ⇒ 改为 adopted && !observedOnly。而 _adopt() 的降级支（adoptPid=null）已由 cGuideKey 的 dshPid 判据挡住，不需要 observedOnly 来防"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.0.32",
     "date": "2026-10-20",
     "sections": [
