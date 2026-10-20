@@ -91,8 +91,19 @@ export function OverviewPage() {
     }
   });
   const [cStopping, setCStopping] = useState(false);
+  // C 态引导的可见判据（product-manager 抓到的布尔反了 ⇒ 本件在本机永不显示）。
+  //
+  // 为什么原来是 `&& observedOnly`：我以为在防 `_adopt()` 的降级支
+  // （`process.js:243-248`：`isManagedProcess` 不认 ⇒ `adoptPid=null` + `warnOccupied`）。
+  //
+  // 而 product-manager 核到**那个支已被 `cGuideKey` 挡住**：`cAdoptPid` 取自
+  // `s?.dshPid` ⇒ `adoptPid=null` 时 `cGuideKey` 为 null ⇒ 本判据已 false。
+  // ⇒ 所以 `observedOnly` 是**多余的**，而它把 C 态（`observedOnly=false`）挡死了。
+  //
+  // 而 D 态（`observedOnly=true`）该有的是「DSH 在运行但非本产品管理」那条
+  // （`startBlockedReason`，见 :63-64）⇒ 与 C 态引导是两回事，不该混进同一判据。
   const cGuideVisible = Boolean(
-    s?.adopted && observedOnly && cGuideKey && !cGuideDismissed.includes(cGuideKey),
+    s?.adopted && !observedOnly && cGuideKey && !cGuideDismissed.includes(cGuideKey),
   );
 
   // 10 秒等待态的收敛：点停后轮询 `dshPid` 是否重新出现（内核停掉旧的、再起一个受管的）。
