@@ -1,5 +1,17 @@
 [
   {
+    "version": "0.0.35",
+    "date": "2026-10-20",
+    "sections": [
+      {
+        "title": "修复",
+        "items": [
+          "dsh 生命周期的三个动作改取 host.main.X 并加 typeof 守卫（此前取 host.X ⇒ 装配早期是 undefined ⇒ /lifecycle/dsh/start 返 409 \"host.startProcess is not a function\"）。仓里早有这个坑的标准范式（collaborators.js:107 的 tick：早绑会把 undefined 烤进闭包），本次照它写；取不到则抛明确错误而非静默，让 manager 的 catch 记 lifecycle_started{ok:false} 而路由返 409 带真原因"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.0.34",
     "date": "2026-10-20",
     "sections": [
