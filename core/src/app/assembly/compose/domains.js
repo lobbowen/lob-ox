@@ -19,6 +19,7 @@ const { HostService } = require('../../../app/settings/autostart');
 const { NativeAgentAdapter } = require('../../../domains/agent/native-adapter');
 const { BeatScheduler } = require('../../../app/control/synchrony');
 const { LifecycleManager } = require('../../../app/control/manager');
+const { ManagedLifecycle } = require('../../../app/control/entry');
 const ports = require('../../../platform/service/ports').shared;
 const { DSH_PRODUCT } = require('../../../domains/agent/model');
 
@@ -145,6 +146,46 @@ function composeDomains(host) {
     host.guardVersion = guardVersion();
     host.lifecycle = new Lifecycle();
     host.lifecycleManager = new LifecycleManager({ logger: host.logger, events: host.events });
+    // 把 DSH 主实例注册进 lifecycleManager —— 这是 `register()` 在全仓的**第一个**调用点。
+    //
+    // 为什么必须：`manager.js` 的 start/stop/restart 全套 API 与 `/lifecycle/dsh/*` 路由
+    // （api/domains/lifecycle.js:46 已为 id === 'dsh' 写好三个 action 分支）都等这一行，
+    // 而它从来没人写 ⇒ registrations 表恒空 ⇒ `/lifecycle/dsh/start` 恒返
+    // 「未注册模块: dsh」（manager.js:30）。而 manager.js:32/43 早已为 dsh 写好
+    // `if (id !== 'dsh')` 的特殊分支 ⇒ 代码在等，缺的是注册。
+    //
+    // 为什么这是破环的唯一入口：内核 desired=stopped ⇒ 不认领（_adopt 要 portUp）
+    // ⇒ 不 register ⇒ 壳侧没有 'dsh-main' 行 ⇒ setDesired('dsh-main') 被静默丢弃
+    // ⇒ desired 回不到 running。而 `lobox start` 正是要走这条路。
+    //
+    // 为什么用惰性闭包（而不是直接传 host.startProcess）：装配顺序上 main 域的
+    // startProcess/stopProcess/beginRestart 由后续 facets 挂上，直接取会是 undefined。
+    // 闭包把取值推迟到首次调用 ⇒ 与装配顺序解耦。
+    //
+    // 为什么只注册 dsh 而不注册 router：router 那侧 `router.js:21` 的 setRouterRunning
+    // 已在管同一批状态，同时注册会造成两套控制面；而 shutdown.js:50 的 stopAll 空转是
+    // 另一个既存问题，单独一轮修（§7.208：API 写全不等于表里有东西）。
+    try {
+      host.lifecycleManager.register(new ManagedLifecycle({
+        id: 'dsh',
+        kind: 'dsh',
+        name: 'DSH 主实例',
+        logger: host.logger,
+        events: host.events,
+        start: () => host.startProcess(),
+        stop: (reason) => host.stopProcess(reason || 'user-stop'),
+        restart: () => host.beginRestart('user-restart', { manual: true }),
+        status: () => ({
+          phase: host._mPhase ? host._mPhase() : null,
+          desired: host._mDesired ? host._mDesired() : null,
+          pid: host._mChild ? (host._mChild() ? host._mChild().pid : host._mAdoptPid()) : null,
+          adopted: host._mAdopted ? host._mAdopted() : null,
+          observedOnly: host._mObservedOnly ? host._mObservedOnly() : null,
+        }),
+      }));
+    } catch (e) {
+      try { host.logger && host.logger.warn && host.logger.warn('lifecycle register dsh 失败: ' + ((e && e.message) || e)); } catch {}
+    }
     host.health = new Health(host.lifecycle);
     host.hostService = new HostService({ logger: host.logger, events: host.events });
     host.api = null;
