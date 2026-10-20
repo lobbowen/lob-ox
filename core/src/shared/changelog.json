@@ -1,5 +1,17 @@
 [
   {
+    "version": "0.0.36",
+    "date": "2026-10-20",
+    "sections": [
+      {
+        "title": "修复",
+        "items": [
+          "startProcess 开头加互斥：若内核自己 spawn 的子进程或已认领的外部实例还活着，直接返 already 而不 spawn。此前无条件 spawn ⇒ /lifecycle/dsh/start 绕过 controller 的 portUp 互斥时会双拉：多 spawn 一个撞 3080 端口 skew、且 mSetAdopted(false)+mSetAdoptPid(null) 会把已认领的记忆抹掉 ⇒ 那个被认领的实例变成没人认领的孤儿。判据用 mChild()/mAdoptPid() 而非「端口有人」——端口有人但不是我们 spawn 的属于认领路径，拦住它会让主路径失效（所有权靠登记判，不靠形态判）。被拦时记 spawn_skipped_already_running（带 pid 与 via），不静默"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.0.35",
     "date": "2026-10-20",
     "sections": [
