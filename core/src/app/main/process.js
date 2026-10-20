@@ -251,6 +251,44 @@ const methods = {
     d.logger().info('adopted existing instance pid=' + d.mAdoptPid());
     d.writeMainOwner(d.mAdoptPid(), d.config().targetPort);
     d.tokenService().scheduleCapture('main');
+    // 「接管」的第四条动作（排在 keepAlive 之前）：让壳的进程表有 'dsh-main' 那一行。
+    //
+    // 为什么必须有：壳的 heal_candidates 读进程表的行（mod.rs:185-193 的 spawn_cmd），
+    // 而 keepAlive 只 assign job + 更新**已有**行的 pid ⇒ 没有这一行 ⇒ 壳永远不能主动
+    // 管 DSH（不能 heal、不能停、/pm/status 里看不到它）。真机实证：dsh_main_row_missing。
+    //
+    // 为什么 spawn_cmd 用 spawnCommand()（2026-10-20 用户裁）：用户裁「换接管形态：
+    // 让内核 spawn DSH」+「接受本产品接管 DSH 启动权」⇒ 所以用户自启的那个该停掉，
+    // 而内核 spawn 的正是 spawnCommand() 那个命令 ⇒ 「A 会换掉用户启动方式」这个代价
+    // 消失了（那时不做 A 的理由已不成立）。
+    //
+    // 为什么带 pid：architect 裁的 W-2-1「用声明代替测量」——壳不自己探 pid（那会造
+    // 第二套发现），由内核在 register 时一并声明。壳侧 mgmt.rs:335-343 收到 pid 会
+    // update_pid + 记 mgmt.registered_with_pid；而身份不一致会拒 + 409（dsh_main_pid_conflict）。
+    //
+    // 为什么不阻断：壳不在 ⇒ endpoint() 返 null ⇒ 返 false ⇒ 只是进程表没那一行，
+    // 而认领本身已完成 ⇒ 降级不是失败（与 keepAlive 同一条）。
+    try {
+      const pid = d.mAdoptPid();
+      const cmd = d.spawnCommand();
+      const registered = pmClient.register({
+        id: 'dsh-main',
+        spawn_cmd: Array.isArray(cmd) ? cmd : [],
+        priority: 'dsh-main',
+        pid,
+      });
+      d.events().append(registered ? 'dsh_main_registered' : 'dsh_main_not_registered', {
+        pid,
+        spawnCmd: Array.isArray(cmd) ? cmd.length : 0,
+        reason: registered ? null : (pmClient.endpoint() ? 'post_returned_false' : 'shell_absent'),
+      });
+    } catch (e) {
+      try {
+        d.events().append('dsh_main_register_failed', {
+          pid: d.mAdoptPid(), error: (e && e.message) || String(e),
+        });
+      } catch {}
+    }
     // 「接管」的第五条动作：把认领来的 DSH 上报给壳，请壳把它纳入「壳退即全杀」的 job。
     //
     // 为什么必须有（S-7b）：壳侧 job（bounded.rs 的 bind_kill_on_close）只 assign 壳自己
