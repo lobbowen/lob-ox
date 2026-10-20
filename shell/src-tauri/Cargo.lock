@@ -855,7 +855,7 @@ dependencies = [
 
 [[package]]
 name = "lobox-shell"
-version = "1.0.49"
+version = "1.0.50"
 dependencies = [
  "base64 0.22.1",
  "hex",

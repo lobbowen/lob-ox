@@ -1,5 +1,17 @@
 [
   {
+    "version": "0.0.34",
+    "date": "2026-10-20",
+    "sections": [
+      {
+        "title": "修复",
+        "items": [
+          "补上 lifecycleManager 的第一个 register 调用：dsh 模块注册进去（此前 register() 全仓零调用 ⇒ registrations 表从来是空的）⇒ lobox start/stop/restart 与 /lifecycle/dsh/* 不再恒返「未注册模块: dsh」⇒ 而那正是「接管 DSH」卡在 desired=stopped 环里的破环入口。三个动作用惰性闭包接 host.startProcess/stopProcess/beginRestart（装配顺序上 main 域的动作后挂，直接传会得 undefined）。只注册 dsh 不注册 router——router 侧 setRouterRunning 已在管同一批状态，同时注册会造成两套控制面，而 shutdown 的 stopAll 空转单独一轮"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.0.33",
     "date": "2026-10-20",
     "sections": [
