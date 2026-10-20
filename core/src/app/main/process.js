@@ -7,6 +7,7 @@ const native = require('../../platform/contract/native-command');
 const BRAND = require('../../shared/brand');
 const guardian = require('../../shared/guardian');
 const pmClient = require('../../platform/contract/pm-client');
+const decide = require('./decide');
 const { findManagedDshPort, applyMainPort } = require('./port-rederive');
 
 const DEPS = new WeakMap();
@@ -80,6 +81,27 @@ const methods = {
 
   async _startProcess() {
     const d = depsOf(this);
+    // 互斥：内核自己持有的 DSH 若还活着，start 只回报「已在跑」，不再 spawn 第二个。
+    //
+    // 为什么必须有：`controller.js:133-142` 的 converge 拍是有互斥的（portUp 为真走
+    // _adopt、没人听才走 _startProcess），而 `/lifecycle/dsh/start`（经 lifecycleManager
+    // 注册的闭包）与 bootstrap.js:224 都**直接调本方法、绕过那个 if/else** ⇒ 那是一个
+    // 可复用的双拉入口。双拉的后果不止多一个进程：本方法 :119-120 会
+    // `mSetAdopted(false)` + `mSetAdoptPid(null)`，把已认领的外部 DSH 从归属里抹掉，
+    // 而它随后变成没人认领的孤儿（壳侧那一行的 pid 也随之被改成新 pid）。
+    //
+    // 为什么判据是 mChild()/mAdoptPid() 而**不是**「端口有人」：端口上那个人可能是
+    // 用户自启的 DSH，而那是 _adopt 的路（认领），不该被 start 拦下——拦住它会让
+    // 「接管外部 DSH」这条主路径失效。⇒ 所有权不能靠形态判，要靠登记判（architect T-1），
+    // 而 mChild()/mAdoptPid() 就是「登记」。
+    //
+    // 为什么返 already 而不抛错：与 entry.js:68 的范式同形（`phase==='running' 时返
+    // `{ok:true, already:true}`）——「已经在跑」是成功状态，不是失败。
+    if (decide.childAlive(d.mChild()) || decide.adoptedAlive(d.mAdoptPid())) {
+      const pid = d.mChild() ? d.mChild().pid : d.mAdoptPid();
+      d.events().append('spawn_skipped_already_running', { pid, via: d.mChild() ? 'child' : 'adopted' });
+      return { ok: true, already: true, pid };
+    }
     d.writeCrashHalted(false);
     const nst = d.nativeAgent() ? d.nativeAgent().status() : { installed: true };
     if (!nst.installed) {
