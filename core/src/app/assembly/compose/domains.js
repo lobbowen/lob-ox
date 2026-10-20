@@ -158,13 +158,16 @@ function composeDomains(host) {
     // ⇒ 不 register ⇒ 壳侧没有 'dsh-main' 行 ⇒ setDesired('dsh-main') 被静默丢弃
     // ⇒ desired 回不到 running。而 `lobox start` 正是要走这条路。
     //
-    // 为什么用惰性闭包（而不是直接传 host.startProcess）：装配顺序上 main 域的
-    // startProcess/stopProcess/beginRestart 由后续 facets 挂上，直接取会是 undefined。
-    // 闭包把取值推迟到首次调用 ⇒ 与装配顺序解耦。
-    //
-    // 为什么只注册 dsh 而不注册 router：router 那侧 `router.js:21` 的 setRouterRunning
-    // 已在管同一批状态，同时注册会造成两套控制面；而 shutdown.js:50 的 stopAll 空转是
-    // 另一个既存问题，单独一轮修（§7.208：API 写全不等于表里有东西）。
+    // 为什么用惰性闭包（而不是直接传 host.startProcess）：装配顺序上 main 域的动作后挂，
+    // 直接取会得 undefined。**而闭包还必须解析到 `host.main.startProcess` 而非
+    // `host.startProcess`**——collaborators.js:32 的映射是 `startProcess: '_startProcess'`，
+    // 由 installThin（facets.js:86，装配后期）挂到 host 上；本处注册在装配早期，首次调用时
+    // `host.startProcess` 可能还没挂上。
+    // 范式取自 collaborators.js:107 的 tick（同一坑的标准解）：
+    //   `if (host.main && typeof host.main.converge === 'function') host.main.converge()`
+    // 真机实证（1.0.50/0.0.34）：第一版写 `() => host.startProcess()` ⇒ 409
+    // "host.startProcess is not a function"——路由通了、模块注册了、闭包取错了对象。
+    // ⇒ 惰性只解决「什么时候取」，不解决「从哪个对象取」。
     try {
       host.lifecycleManager.register(new ManagedLifecycle({
         id: 'dsh',
@@ -172,9 +175,18 @@ function composeDomains(host) {
         name: 'DSH 主实例',
         logger: host.logger,
         events: host.events,
-        start: () => host.startProcess(),
-        stop: (reason) => host.stopProcess(reason || 'user-stop'),
-        restart: () => host.beginRestart('user-restart', { manual: true }),
+        start: () => {
+          if (host.main && typeof host.main.startProcess === 'function') return host.main.startProcess();
+          throw new Error('host.main.startProcess 不可用（装配未完成？）');
+        },
+        stop: (reason) => {
+          if (host.main && typeof host.main.stopProcess === 'function') return host.main.stopProcess(reason || 'user-stop');
+          throw new Error('host.main.stopProcess 不可用（装配未完成？）');
+        },
+        restart: () => {
+          if (host.main && typeof host.main.beginRestart === 'function') return host.main.beginRestart('user-restart', { manual: true });
+          throw new Error('host.main.beginRestart 不可用（装配未完成？）');
+        },
         status: () => ({
           phase: host._mPhase ? host._mPhase() : null,
           desired: host._mDesired ? host._mDesired() : null,
